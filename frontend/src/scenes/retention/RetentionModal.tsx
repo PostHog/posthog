@@ -72,31 +72,27 @@ export function RetentionModal({
                     <span>No {aggregationTargetLabel.plural} during this period.</span>
                 ) : (
                     <>
-                        <table className="w-full">
+                        <table className="RetentionTable">
                             <tbody>
-                                <tr className="whitespace-nowrap">
-                                    <th />
-                                    {results &&
-                                        results.slice(0, results[selectedRow]?.values.length).map((data, index) => (
-                                            <th key={index} className="px-2">
-                                                {data.label}
-                                            </th>
-                                        ))}
-                                </tr>
-                                <tr className="whitespace-nowrap">
-                                    <td className="font-bold pl-2">
-                                        {capitalizeFirstLetter(aggregationTargetLabel.singular)}
-                                    </td>
+                                <tr>
+                                    <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>
                                     {results?.[selectedRow]?.values?.map((data: any, index: number) => (
-                                        <td key={index} className="px-2 text-center min-w-6">
-                                            {data.count}
-                                            {data.count > 0 && (
-                                                <span className="text-muted">
-                                                    ({percentage(data.count / results[selectedRow]?.values[0]['count'])}
-                                                    )
-                                                </span>
-                                            )}
-                                        </td>
+                                        <th key={index}>
+                                            <div>{results[index].label}</div>
+                                            <div>
+                                                {data.count}
+                                                &nbsp;
+                                                {data.count > 0 && (
+                                                    <span className="text-muted">
+                                                        (
+                                                        {percentage(
+                                                            data.count / results[selectedRow]?.values[0]['count']
+                                                        )}
+                                                        )
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </th>
                                     ))}
                                 </tr>
                                 {actors.result &&
@@ -132,10 +128,13 @@ export function RetentionModal({
                                                 return (
                                                     <td key={index}>
                                                         <div
-                                                            className={clsx(
-                                                                'rounded-md m-1 h-8',
-                                                                appearance ? 'bg-primary-light' : 'bg-primary-highlight'
-                                                            )}
+                                                            className={clsx('RetentionTable__Tab')}
+                                                            style={{
+                                                                backgroundColor: appearance
+                                                                    ? 'rgb(4, 118, 251)'
+                                                                    : 'rgb(4, 118, 251, .2)',
+                                                                color: appearance ? 'var(--white)' : 'var(--default)',
+                                                            }}
                                                         />
                                                     </td>
                                                 )

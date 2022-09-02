@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table } from 'antd'
 import { retentionTableLogic } from './retentionTableLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/retention/types'
-import { ColumnsType } from 'antd/lib/table'
 import clsx from 'clsx'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
@@ -36,53 +34,11 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
         setIsLatestPeriod(periodIsLatest(date_to || null, period || null))
     }, [date_to, period])
 
-    const columns: ColumnsType<Record<string, any>> = [
-        {
-            title: 'Cohort',
-            key: 'cohort',
-            render: (row: RetentionTablePayload) =>
-                // If we have breakdowns, then use the returned label attribute
-                // as the cohort name, otherwise we construct one ourselves
-                // based on the returned date. It might be nice to just unify to
-                // have label computed as such from the API.
-                breakdowns?.length
-                    ? row.label
-                    : period === 'Hour'
-                    ? dayjs(row.date).format('MMM D, h A')
-                    : dayjs.utc(row.date).format('MMM D'),
-            align: 'center',
-        },
-        {
-            title: 'Cohort Size',
-            key: 'users',
-            render: (row) => row.values[0]['count'],
-            align: 'center',
-        },
-    ]
-
-    if (!resultsLoading && results) {
-        if (results.length === 0) {
-            return null
-        }
-        const maxIntervalsCount = Math.max(...results.map((result) => result.values.length))
-        columns.push(
-            ...Array.from(Array(maxIntervalsCount).keys()).map((index: number) => ({
-                key: `period::${index}`,
-                title: `${period} ${index}`,
-                render: (row: RetentionTablePayload) => {
-                    if (index >= row.values.length) {
-                        return ''
-                    }
-                    return renderPercentage(
-                        row.values[index]['count'],
-                        row.values[0]['count'],
-                        isLatestPeriod && index === row.values.length - 1,
-                        index === 0
-                    )
-                },
-            }))
-        )
+    if (resultsLoading || !results?.length) {
+        return null
     }
+
+    const maxIntervalsCount = Math.max(...results.map((result) => result.values.length))
 
     function dismissModal(): void {
         setModalVisible(false)
@@ -92,28 +48,65 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
         loadMorePeople()
     }
 
+    const headings = ['Cohort', 'Size', ...results.map((x) => x.label)]
+
+    const rows = Array.from(Array(maxIntervalsCount).keys()).map((rowIndex: number) => [
+        // First column is the cohort label
+        <span className="RetentionTable__TextTab" key={'cohort'}>
+            {breakdowns?.length
+                ? results[rowIndex].label
+                : period === 'Hour'
+                ? dayjs(results[rowIndex].date).format('MMM D, h A')
+                : dayjs.utc(results[rowIndex].date).format('MMM D')}
+        </span>,
+        // Second column is the first value (which is essentially the total)
+        <span className="RetentionTable__TextTab" key={'cohort-size'}>
+            {results[rowIndex].values[0].count}
+        </span>,
+        // All other columns are rendered as expected
+        ...results[rowIndex].values.map((row, columIndex) => (
+            <>
+                {columIndex >= results[rowIndex].values.length
+                    ? ''
+                    : renderPercentage(
+                          row['count'],
+                          results[rowIndex].values[0]['count'],
+                          isLatestPeriod && columIndex === results[rowIndex].values.length - 1,
+                          columIndex === 0
+                      )}
+            </>
+        )),
+    ])
+
     return (
         <>
-            <Table
-                data-attr="retention-table"
-                size="small"
-                className="retention-table"
-                pagination={false}
-                rowClassName={inCardView ? '' : 'cursor-pointer'}
-                dataSource={results}
-                columns={columns}
-                rowKey="date"
-                loading={resultsLoading}
-                onRow={(_, rowIndex: number | undefined) => ({
-                    onClick: () => {
-                        if (!inCardView && rowIndex !== undefined) {
-                            loadPeople(rowIndex)
-                            setModalVisible(true)
-                            selectRow(rowIndex)
-                        }
-                    },
-                })}
-            />
+            <table className="RetentionTable">
+                <tbody>
+                    <tr>
+                        {headings.map((heading) => (
+                            <th key={heading}>{heading}</th>
+                        ))}
+                    </tr>
+
+                    {rows.map((row, index) => (
+                        <tr
+                            key={index}
+                            onClick={() => {
+                                if (!inCardView && index !== undefined) {
+                                    loadPeople(index)
+                                    setModalVisible(true)
+                                    selectRow(index)
+                                }
+                            }}
+                        >
+                            {row.map((x, j) => (
+                                <td key={j}>{x}</td>
+                            ))}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+
             {results && (
                 <RetentionModal
                     results={results}
@@ -134,11 +127,15 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
 const renderPercentage = (value: number, total: number, latest = false, periodZero = false): JSX.Element => {
     const _percentage = total > 0 ? (100.0 * value) / total : 0
     const percentageBasisForColor = periodZero ? 100 : _percentage // So that Period 0 is always shown consistently
-    const backgroundColor = `hsl(212, 63%, ${30 + (100 - percentageBasisForColor) * 0.65}%)`
-    const color = percentageBasisForColor >= 65 ? 'hsl(0, 0%, 80%)' : undefined
+    const color = percentageBasisForColor >= 65 ? 'var(--white)' : 'var(--default)'
+
+    const backgroundColor = `rgb(4, 118, 251, ${(percentageBasisForColor / 100).toFixed(2)})` // rgb of var(--data-blue)
 
     const numberCell = (
-        <div style={{ backgroundColor, color }} className={clsx('percentage-cell', { 'period-in-progress': latest })}>
+        <div
+            className={clsx('RetentionTable__Tab', { 'RetentionTable__Tab--period': latest })}
+            style={!latest ? { backgroundColor, color } : undefined}
+        >
             {_percentage.toFixed(1)}%{latest && '*'}
         </div>
     )

@@ -20,3 +20,57 @@
 .retention-dropped {
     background-color: var(--bg-mid);
 }
+
+.RetentionTable {
+    font-weight: 500;
+    width: 100%;
+
+    th {
+        white-space: nowrap;
+        font-weight: 500;
+        border-left: 1px solid var(--border);
+        padding: 0rem 0.5rem;
+        border-top: 10px solid transparent;
+        border-bottom: 10px solid transparent;
+        text-align: left;
+        &:first-of-type {
+            border-left: none;
+        }
+    }
+
+    tr {
+        border-left: 5px solid transparent;
+        transition: border-color 200ms linear;
+        &:not(:first-of-type) {
+            cursor: pointer;
+
+            &:hover {
+                border-left-color: var(--data-blue);
+            }
+        }
+    }
+
+    .RetentionTable__TextTab {
+        padding: 0rem 1rem 0rem 0.5rem;
+        white-space: nowrap;
+    }
+
+    .RetentionTable__Tab {
+        padding: 0.5rem;
+        margin: 2px;
+        border-radius: 0.5rem;
+        text-align: right;
+        min-height: 2rem;
+        transition: transform 200ms ease-out;
+
+        &:hover {
+            transform: scale(1.05);
+        }
+
+        &.RetentionTable__Tab--period {
+            background-color: var(--white);
+            color: var(--muted);
+            border: 1px solid rgb(4, 118, 251, 0.5);
+        }
+    }
+}
