@@ -3,7 +3,6 @@ import { PlayCircleOutlined, CheckOutlined, CloseOutlined, SettingOutlined } fro
 import { Tooltip, Radio, InputNumber, DatePicker } from 'antd'
 import { ChildFunctionProps, Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import Modal from 'antd/lib/modal/Modal'
 import MonacoEditor from '@monaco-editor/react'
 import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
@@ -11,6 +10,8 @@ import { JobPayloadFieldOptions, JobSpec } from '~/types'
 import { interfaceJobsLogic } from './interfaceJobsLogic'
 import { LemonInput } from '../../../../lib/components/LemonInput/LemonInput'
 import moment from 'moment'
+import { LemonModal } from '../../../../lib/components/LemonModal'
+import { LemonButton } from '../../../../lib/components/LemonButton'
 
 interface PluginJobConfigurationProps {
     jobName: string
@@ -64,12 +65,20 @@ export function PluginJobConfiguration({
                 </Tooltip>
             </span>
 
-            <Modal
-                visible={isJobModalOpen}
-                onCancel={() => setIsJobModalOpen(false)}
-                onOk={() => submitJobPayload()}
-                okText={'Run job now'}
+            <LemonModal
+                isOpen={isJobModalOpen}
+                onClose={() => setIsJobModalOpen(false)}
                 title={`Configuring job '${jobName}'`}
+                footer={
+                    <>
+                        <LemonButton type="secondary" className="mr-2" onClick={() => setIsJobModalOpen(false)}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton data-attr="run-job" type="primary" onClick={() => submitJobPayload()}>
+                            Run job now
+                        </LemonButton>
+                    </>
+                }
             >
                 {shownFields.length > 0 ? (
                     <Form logic={interfaceJobsLogic} props={logicProps} formKey="jobPayload">
@@ -80,7 +89,7 @@ export function PluginJobConfiguration({
                         ))}
                     </Form>
                 ) : null}
-            </Modal>
+            </LemonModal>
         </>
     )
 }
