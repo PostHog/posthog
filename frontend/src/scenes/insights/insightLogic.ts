@@ -45,7 +45,7 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 
 export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {
-    // if the current _gloabal_ value is true respect that over any local preference
+    // if the current _global_ value is true respect that over any local preference
     return localStorage.getItem('default_filter_test_accounts') === 'true' || current_filter_test_accounts
 }
 
