@@ -10,10 +10,24 @@ import { urls } from "scenes/urls";
 import { FeatureFlagType } from "~/types";
 import { relatedFeatureFlagsLogic } from "./relatedFeatureFlagsLogic";
 
-export function RelatedFeatureFlags(): JSX.Element {
-    const { relatedFeatureFlags } = useValues(relatedFeatureFlagsLogic)
+export interface RelatedFeatureFlagType extends FeatureFlagType {
+    value: boolean | string
+    evaluation: FeatureFlagEvaluationType
+}
 
-    const columns: LemonTableColumns<FeatureFlagType> = [
+interface FeatureFlagEvaluationType {
+    reason: string
+    condition_index?: number
+}
+
+interface Props {
+    distinctId: string
+}
+
+export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
+    const { relatedFeatureFlags } = useValues(relatedFeatureFlagsLogic({ distinctId }))
+
+    const columns: LemonTableColumns<RelatedFeatureFlagType> = [
         {
             title: normalizeColumnTitle('Key'),
             dataIndex: 'key',
@@ -34,6 +48,11 @@ export function RelatedFeatureFlags(): JSX.Element {
         },
         {
             title: 'Value',
+            dataIndex: 'value',
+            width: 100,
+            render: function Render(_, featureFlag) {
+                return <div>value</div>
+            }
         },
         {
             title: 'Status',
@@ -46,8 +65,6 @@ export function RelatedFeatureFlags(): JSX.Element {
                 )
             },
         },
-        createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
-        // createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         {
             title: 'Type',
             width: 200,
@@ -56,10 +73,11 @@ export function RelatedFeatureFlags(): JSX.Element {
                 return featureFlag ? "Release toggle" : "Multiple variants"
             },
         },
+        createdByColumn<RelatedFeatureFlagType>() as LemonTableColumn<RelatedFeatureFlagType, keyof RelatedFeatureFlagType | undefined>,
     ]
     return (
         <>
-            <LemonTable />
+            <LemonTable columns={columns} dataSource={relatedFeatureFlags} />
         </>
     )
 }
