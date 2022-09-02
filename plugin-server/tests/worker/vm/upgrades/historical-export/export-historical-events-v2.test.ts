@@ -1,6 +1,6 @@
 import { PluginMeta, RetryError } from '@posthog/plugin-scaffold'
 
-import { Hub, ISOTimestamp, PluginConfigVMInternalResponse } from '../../../../../src/types'
+import { Hub, ISOTimestamp, PluginConfig, PluginConfigVMInternalResponse } from '../../../../../src/types'
 import { createHub } from '../../../../../src/utils/db/hub'
 import { createStorage } from '../../../../../src/worker/vm/extensions/storage'
 import { createUtils } from '../../../../../src/worker/vm/extensions/utilities'
@@ -11,10 +11,12 @@ import {
     EXPORT_PARAMETERS_KEY,
     ExportHistoricalEventsJobPayload,
     ExportHistoricalEventsUpgradeV2,
+    INTERFACE_JOB_NAME,
+    JOB_SPEC,
     TestFunctions,
 } from '../../../../../src/worker/vm/upgrades/historical-export/export-historical-events-v2'
 import { fetchEventsForInterval } from '../../../../../src/worker/vm/upgrades/utils/fetchEventsForInterval'
-import { pluginConfig39 } from '../../../../helpers/plugins'
+import { plugin60, pluginConfig39 } from '../../../../helpers/plugins'
 import { resetTestDatabase } from '../../../../helpers/sql'
 
 jest.mock('../../../../../src/utils/status')
@@ -52,7 +54,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         return createStorage(hub, pluginConfig39)
     }
 
-    function createVM() {
+    function createVM(pluginConfig: PluginConfig = pluginConfig39) {
         runIn = jest.fn()
         runNow = jest.fn()
         // :TODO: Kill deepmerge
@@ -66,7 +68,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             },
             meta: {
                 storage: storage(),
-                utils: createUtils(hub, pluginConfig39.id),
+                utils: createUtils(hub, pluginConfig.id),
                 jobs: {
                     exportHistoricalEventsV2: jest.fn().mockReturnValue({ runNow, runIn }),
                 },
@@ -74,7 +76,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             },
         } as unknown as PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgradeV2>>
 
-        addHistoricalEventsExportCapabilityV2(hub, pluginConfig39, mockVM)
+        addHistoricalEventsExportCapabilityV2(hub, pluginConfig, mockVM)
 
         vm = mockVM
     }
@@ -855,6 +857,59 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             // Roughly 2**11*3 seconds are waited between retry 10 and 11
             expect(shouldResume(status, 10_006_000_000)).toEqual(false)
             expect(shouldResume(status, 10_006_200_000)).toEqual(false)
+        })
+    })
+
+    describe('updating public jobs', () => {
+        beforeEach(() => {
+            jest.spyOn(hub.db, 'addOrUpdatePublicJob')
+        })
+
+        it('updates when public job has not been yet registered', () => {
+            const pluginConfig: PluginConfig = {
+                ...pluginConfig39,
+                plugin: {
+                    ...plugin60,
+                    public_jobs: {},
+                },
+            }
+            createVM(pluginConfig)
+
+            expect(hub.db.addOrUpdatePublicJob).toHaveBeenCalledWith(
+                pluginConfig39.plugin_id,
+                INTERFACE_JOB_NAME,
+                JOB_SPEC
+            )
+        })
+
+        it('updates when public job definition has changed', () => {
+            const pluginConfig: PluginConfig = {
+                ...pluginConfig39,
+                plugin: {
+                    ...plugin60,
+                    public_jobs: { [INTERFACE_JOB_NAME]: { payload: {} } },
+                },
+            }
+            createVM(pluginConfig)
+
+            expect(hub.db.addOrUpdatePublicJob).toHaveBeenCalledWith(
+                pluginConfig39.plugin_id,
+                INTERFACE_JOB_NAME,
+                JOB_SPEC
+            )
+        })
+
+        it('does not update if public job has already been registered', () => {
+            const pluginConfig: PluginConfig = {
+                ...pluginConfig39,
+                plugin: {
+                    ...plugin60,
+                    public_jobs: { [INTERFACE_JOB_NAME]: JOB_SPEC },
+                },
+            }
+            createVM(pluginConfig)
+
+            expect(hub.db.addOrUpdatePublicJob).not.toHaveBeenCalled()
         })
     })
 })

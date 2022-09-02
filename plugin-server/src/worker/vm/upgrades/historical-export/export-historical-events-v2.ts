@@ -51,9 +51,9 @@ export const EVENTS_PER_RUN = 500
 export const EXPORT_PARAMETERS_KEY = 'EXPORT_PARAMETERS'
 export const EXPORT_COORDINATION_KEY = 'EXPORT_COORDINATION'
 
-const INTERFACE_JOB_NAME = 'Export historical events V2'
+export const INTERFACE_JOB_NAME = 'Export historical events V2'
 
-const JOB_SPEC: JobSpec = {
+export const JOB_SPEC: JobSpec = {
     payload: {
         dateFrom: {
             title: 'Export start date',
@@ -168,7 +168,11 @@ export function addHistoricalEventsExportCapabilityV2(
 
     const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
 
-    if (!(INTERFACE_JOB_NAME in currentPublicJobs)) {
+    // If public job hasn't been registered or has changed, update it!
+    if (
+        Object.keys(currentPublicJobs[INTERFACE_JOB_NAME]?.payload || {}).length !=
+        Object.keys(JOB_SPEC.payload!).length
+    ) {
         hub.promiseManager.trackPromise(
             hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, JOB_SPEC)
         )
