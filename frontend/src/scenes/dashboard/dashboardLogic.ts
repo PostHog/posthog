@@ -38,6 +38,18 @@ export const MIN_ITEM_HEIGHT_UNITS = 5
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
+type TileGridID = `${'insight' | 'text'}-tile-${number}`
+
+interface TileGridLayout {
+    i: TileGridID
+    x: any
+    y: any
+    w: number
+    h: any
+    minW: number
+    minH: number
+}
+
 export interface CanBeLaidOut {
     deleted: boolean
     layouts: Record<string, any>
@@ -443,7 +455,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     .concat(textTiles?.map((t) => t as unknown as CanBeLaidOut) || [])
 
                 for (const col of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
-                    const layouts = candidates
+                    const layouts: TileGridLayout[] = candidates
                         .filter((i) => !!i)
                         .filter((i) => !i?.deleted)
                         .map((item) => {
@@ -465,7 +477,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                 const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
 
                                 return {
-                                    i: `insight-tile-${item.id}`,
+                                    i: `insight-tile-${Number(item.id)}`,
                                     x: Number.isInteger(x) && x + width - 1 < BREAKPOINT_COLUMN_COUNTS[col] ? x : 0,
                                     y: Number.isInteger(y) ? y : Infinity,
                                     w: width,
@@ -479,14 +491,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                 const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
 
                                 return {
-                                    i: `text-tile-${item.id}`,
+                                    i: `text-tile-${Number(item.id)}`,
                                     x: Number.isInteger(x) && x + width - 1 < BREAKPOINT_COLUMN_COUNTS[col] ? x : 0,
                                     y: Number.isInteger(y) ? y : Infinity,
                                     w: width,
                                     h: h || defaultHeight,
                                     minW,
                                     minH,
-                                }
+                                } as TileGridLayout
                             }
                         })
 
