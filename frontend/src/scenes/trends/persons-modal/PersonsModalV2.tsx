@@ -314,5 +314,5 @@ export const openPersonsModal = (props: OpenPersonsModalProps): void => {
 export const shouldUsePersonsModalV2 = (): boolean => {
     const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
 
-    return !featureFlags || !featureFlags[FEATURE_FLAGS.PERSONS_MODAL_V2]
+    return !!featureFlags?.[FEATURE_FLAGS.PERSONS_MODAL_V2]
 }
