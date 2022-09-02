@@ -648,3 +648,7 @@
         list-style-type: #{$list_style_type};
     }
 }
+
+.shadow {
+    box-shadow: 0 16px 16px -16px rgba(0, 0, 0, 0.35);
+}

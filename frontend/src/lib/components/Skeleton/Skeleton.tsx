@@ -9,11 +9,17 @@ export interface SkeletonProps {
     width?: string | number
     height?: string | number
     repeat?: number
+    active?: boolean
 }
 
-export function Skeleton({ className, width, height, repeat }: SkeletonProps): JSX.Element {
+export function Skeleton({ className, width, height, repeat, active = true }: SkeletonProps): JSX.Element {
     // eslint-disable-next-line react/forbid-dom-props
-    const content = <div className={clsx('Skeleton', className || 'h-4 w-full rounded')} style={{ width, height }} />
+    const content = (
+        <div
+            className={clsx('Skeleton', !active && 'Skeleton--static', className || 'h-4 w-full rounded')}
+            style={{ width, height }}
+        />
+    )
 
     if (repeat) {
         return (

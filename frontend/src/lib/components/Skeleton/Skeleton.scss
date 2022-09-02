@@ -13,6 +13,10 @@
     @media (prefers-reduced-motion) {
         animation: none;
     }
+
+    &.Skeleton--static {
+        animation: none;
+    }
 }
 
 @keyframes lemon-skeleton-loading {
