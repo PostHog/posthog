@@ -1,61 +1,53 @@
 import { expectLogic } from 'kea-test-utils'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils'
-import { dateFilterLogic, DateFilterLogicPropsType } from './dateFilterLogic'
+import { dateFilterLogic } from './dateFilterLogic'
+import { DateFilterView, DateFilterLogicProps } from 'lib/components/DateFilter/types'
 
 describe('dateFilterLogic', () => {
-    let props: DateFilterLogicPropsType
+    let props: DateFilterLogicProps
     const onChange = jest.fn()
     let logic: ReturnType<typeof dateFilterLogic.build>
 
     beforeEach(async () => {
+        dayjs.tz.setDefault('America/New_York')
+
         props = {
             key: 'test',
-            defaultValue: '-7d',
             onChange,
             dateFrom: null,
             dateTo: null,
             dateOptions: dateMapping,
             isDateFormatted: false,
         }
-
         logic = dateFilterLogic(props)
         logic.mount()
     })
 
     it('should only open one type of date filter', async () => {
-        await expectLogic(logic).toMount().toMatchValues({
-            isOpen: false,
-            isDateRangeOpen: false,
+        await expectLogic(logic).toMatchValues({
+            isVisible: false,
+            view: DateFilterView.QuickList,
         })
-
         logic.actions.open()
         await expectLogic(logic).toMatchValues({
-            isOpen: true,
-            isDateRangeOpen: false,
+            isVisible: true,
+            view: DateFilterView.QuickList,
         })
-        logic.actions.openDateRange()
+        logic.actions.openFixedRange()
         await expectLogic(logic).toMatchValues({
-            isOpen: false,
-            isDateRangeOpen: true,
+            isVisible: true,
+            view: DateFilterView.FixedRange,
         })
-    })
-
-    it('should set a rolling date range', async () => {
-        await expect(logic.values).toMatchObject({
-            rangeDateFrom: null,
-            rangeDateTo: dayjs().format('YYYY-MM-DD'),
-            isFixedDateRange: false,
-            isRollingDateRange: true,
+        logic.actions.openDateToNow()
+        await expectLogic(logic).toMatchValues({
+            isVisible: true,
+            view: DateFilterView.DateToNow,
         })
-
-        const threeDaysAgo = dayjs().subtract(3, 'd').format('YYYY-MM-DD')
-        logic.actions.setRangeDateFrom(threeDaysAgo)
-        await expect(logic.values).toMatchObject({
-            rangeDateFrom: threeDaysAgo,
-            rangeDateTo: dayjs().format('YYYY-MM-DD'),
-            isFixedDateRange: false,
-            isRollingDateRange: true,
+        logic.actions.close()
+        await expectLogic(logic).toMatchValues({
+            isVisible: false,
+            view: DateFilterView.DateToNow,
         })
     })
 })

@@ -143,6 +143,9 @@ HIDDEN_PROPERTY_DEFINITIONS = set(
         # used for updating properties
         "$set",
         "$set_once",
+        # posthog-js used to send it and shouldn't have, now it confuses users
+        "$initial_referrer",
+        "$initial_referring_domain",
         # Group Analytics
         "$groups",
         "$group_type",

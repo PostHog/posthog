@@ -124,6 +124,9 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner: @alexkim205
     SESSION_RECORDINGS_PLAYER_V3_FILTERING: 'session-recording-player-v3-filtering', // owner: @alexkim205
     TEXT_CARDS: 'text-cards', // owner @pauldambra
+    SESSION_RECORDINGS_PLAYLIST: 'session-recording-playlist', // owner @rcmarron
+    ALLOW_CSV_EXPORT_COLUMN_CHOICE: 'allow-csv-export-column-choice', //owner: @pauldambra
+    HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

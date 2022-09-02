@@ -2,7 +2,6 @@ from datetime import datetime
 from typing import Callable, Dict, List, Tuple
 
 from django.db.models.query import Prefetch
-from rest_framework.request import Request
 
 from posthog.client import sync_execute
 from posthog.models.entity import Entity
@@ -54,15 +53,7 @@ class Lifecycle:
 
         return _parse
 
-    def get_people(
-        self,
-        filter: Filter,
-        team: Team,
-        target_date: datetime,
-        lifecycle_type: str,
-        request: Request,
-        limit: int = 100,
-    ):
+    def get_people(self, filter: Filter, team: Team, target_date: datetime, lifecycle_type: str):
         event_query, event_params = LifecycleEventQuery(
             team=team, filter=filter, using_person_on_events=team.actor_on_events_querying_enabled
         ).get_query()
@@ -74,7 +65,7 @@ class Lifecycle:
                 "status": lifecycle_type,
                 "target_date": target_date,
                 "offset": filter.offset,
-                "limit": limit,
+                "limit": filter.limit or 100,
             },
         )
         people = get_persons_by_uuids(team=team, uuids=[p[0] for p in result])

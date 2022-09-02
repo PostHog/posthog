@@ -324,14 +324,13 @@ class TrendsBreakdown:
 
         elif self.using_person_on_events:
             if self.filter.breakdown_type == "person":
-                # person props are not materialised on events yet, so don't allow denormalisation
                 breakdown_value, _ = get_property_string_expr(
-                    "events", breakdown, "%(key)s", "person_properties", allow_denormalized_props=False
+                    "events", breakdown, "%(key)s", "person_properties", materialised_table_column="person_properties"
                 )
             elif self.filter.breakdown_type == "group":
                 properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
                 breakdown_value, _ = get_property_string_expr(
-                    "events", breakdown, "%(key)s", properties_field, allow_denormalized_props=False
+                    "events", breakdown, "%(key)s", properties_field, materialised_table_column=properties_field
                 )
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
@@ -340,7 +339,9 @@ class TrendsBreakdown:
                 breakdown_value, _ = get_property_string_expr("person", breakdown, "%(key)s", "person_props")
             elif self.filter.breakdown_type == "group":
                 properties_field = f"group_properties_{self.filter.breakdown_group_type_index}"
-                breakdown_value, _ = get_property_string_expr("groups", breakdown, "%(key)s", properties_field)
+                breakdown_value, _ = get_property_string_expr(
+                    "groups", breakdown, "%(key)s", properties_field, materialised_table_column="group_properties"
+                )
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
@@ -402,7 +403,7 @@ class TrendsBreakdown:
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
-                        "url": f"api/projects/{self.team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                        "url": f"api/projects/{self.team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
                     },
                     **result_descriptors,
                     **additional_values,
@@ -459,7 +460,7 @@ class TrendsBreakdown:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
                 }
             )
         return persons_url

@@ -90,7 +90,7 @@ class ActorBaseQuery:
 
     def get_actors(
         self,
-    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:
+    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
         """ Get actors in data model and dict formats. Builds query and executes """
         query, params = self.actor_query()
         raw_result = sync_execute(query, params)
@@ -99,7 +99,7 @@ class ActorBaseQuery:
         if hasattr(self._filter, "include_recordings") and self._filter.include_recordings and self._filter.insight in [INSIGHT_PATHS, INSIGHT_TRENDS, INSIGHT_FUNNELS]:  # type: ignore
             serialized_actors = self.add_matched_recordings_to_serialized_actors(serialized_actors, raw_result)
 
-        return actors, serialized_actors
+        return actors, serialized_actors, len(raw_result)
 
     def query_for_session_ids_with_recordings(self, session_ids: Set[str]) -> Set[str]:
         """ Filters a list of session_ids to those that actually have recordings """

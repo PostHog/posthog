@@ -1,7 +1,6 @@
 import json
 
 from freezegun import freeze_time
-from rest_framework.test import APIRequestFactory
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models import Filter
@@ -257,8 +256,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
             p1 = people[0]
-            request_factory = APIRequestFactory()
-            request = request_factory.get("/person/lifecycle")
 
             result = trends().get_people(
                 Filter(
@@ -272,7 +269,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "returning",
-                request,
             )
 
             self.assertEqual(len(result), 1)
@@ -290,7 +286,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
-                request,
             )
 
             self.assertEqual(len(dormant_result), 2)
@@ -307,7 +302,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-14T00:00:00Z"),
                 "dormant",
-                request,
             )
 
             self.assertEqual(len(dormant_result), 1)
@@ -559,9 +553,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ],
             )
 
-            request_factory = APIRequestFactory()
-            request = request_factory.get("/person/lifecycle")
-
             trends().get_people(
                 Filter(
                     data={
@@ -576,7 +567,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
-                request,
             )
 
         def assertLifecycleResults(self, results, expected):

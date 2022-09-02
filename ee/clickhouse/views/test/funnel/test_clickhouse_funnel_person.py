@@ -5,6 +5,7 @@ from django.core.cache import cache
 from rest_framework import status
 
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
@@ -140,8 +141,11 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.models.person.util.delete_person")
     def test_basic_pagination_with_deleted(self, delete_person_patch):
+        if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+            return
+
         cache.clear()
-        self._create_sample_data(110, delete=True)
+        self._create_sample_data(20, delete=True)
         request_data = {
             "insight": INSIGHT_FUNNELS,
             "interval": "day",
@@ -156,6 +160,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "new_entity": json.dumps([]),
             "date_from": "2021-05-01",
             "date_to": "2021-05-10",
+            "limit": 15,
         }
 
         response = self.client.get("/api/person/funnel/", data=request_data)
@@ -163,7 +168,19 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         j = response.json()
         people = j["results"][0]["people"]
         next = j["next"]
+        missing_persons = j["missing_persons"]
         self.assertEqual(0, len(people))
+        self.assertEqual(15, missing_persons)
+        self.assertIsNotNone(next)
+
+        response = self.client.get(next)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        j = response.json()
+        people = j["results"][0]["people"]
+        next = j["next"]
+        missing_persons = j["missing_persons"]
+        self.assertEqual(0, len(people))
+        self.assertEqual(5, missing_persons)
         self.assertIsNone(next)
 
     def test_breakdowns(self):

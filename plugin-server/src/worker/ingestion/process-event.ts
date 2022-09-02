@@ -127,8 +127,8 @@ export class EventsProcessor {
         let elementsList: Element[] = []
 
         if (elements && elements.length) {
-            delete properties['$elements']
             elementsList = extractElements(elements)
+            delete properties['$elements']
         }
 
         if (ip && !team.anonymize_ips && !('$ip' in properties)) {

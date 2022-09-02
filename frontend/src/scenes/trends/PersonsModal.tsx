@@ -24,6 +24,9 @@ import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingBu
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { AlertMessage } from 'lib/components/AlertMessage'
+import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 export interface PersonsModalProps {
     isOpen: boolean
@@ -42,16 +45,8 @@ export function PersonsModal({
     showModalActions = true,
     aggregationTargetLabel,
 }: PersonsModalProps): JSX.Element {
-    const {
-        people,
-        loadingMorePeople,
-        firstLoadedPeople,
-        searchTerm,
-        isInitialLoad,
-        peopleParams,
-        actorLabel,
-        sessionRecordingId,
-    } = useValues(personsModalLogic)
+    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, isInitialLoad, peopleParams, actorLabel } =
+        useValues(personsModalLogic)
     const {
         hidePeople,
         loadMorePeople,
@@ -59,9 +54,8 @@ export function PersonsModal({
         setPersonsModalFilters,
         setSearchTerm,
         switchToDataPoint,
-        openRecordingModal,
-        closeRecordingModal,
     } = useActions(personsModalLogic)
+    const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const title = useMemo(
@@ -126,7 +120,6 @@ export function PersonsModal({
 
     return (
         <>
-            {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />}
             <LemonModal
                 title={title}
                 isOpen={isOpen}
@@ -177,6 +170,19 @@ export function PersonsModal({
                 }
                 width={600}
             >
+                {people && !!people.missingPersons && (
+                    <AlertMessage type="info" className="mb-2">
+                        {people.missingPersons}{' '}
+                        {people.missingPersons > 1
+                            ? `${aggregationTargetLabel.plural} are`
+                            : `${aggregationTargetLabel.singular} is`}{' '}
+                        not shown because they've been lost.{' '}
+                        <a href="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
+                            Read more here for when this can happen
+                        </a>
+                        .
+                    </AlertMessage>
+                )}
                 <LemonInput
                     type="search"
                     placeholder="Search for persons by email, name, or ID"
@@ -269,7 +275,10 @@ export function PersonsModal({
                                                                 <MultiRecordingButton
                                                                     sessionRecordings={actor.matched_recordings}
                                                                     onOpenRecording={(sessionRecording) => {
-                                                                        openRecordingModal(sessionRecording.session_id)
+                                                                        openSessionPlayer(
+                                                                            sessionRecording.session_id,
+                                                                            RecordingWatchedSource.PersonModal
+                                                                        )
                                                                     }}
                                                                 />
                                                             )
@@ -317,6 +326,7 @@ export function PersonsModal({
                     </>
                 )}
             </LemonModal>
+            <SessionPlayerDrawer onClose={closeSessionPlayer} />
         </>
     )
 }

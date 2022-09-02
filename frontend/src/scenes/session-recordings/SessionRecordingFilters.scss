@@ -1,0 +1,43 @@
+.SessionRecordingFilters {
+    .filter-row {
+        width: 100%;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+        align-items: flex-end;
+    }
+    .filter-container {
+        max-width: 700px;
+        padding: 1rem;
+        border: var(--border) solid 1px;
+        flex: 1;
+        border-radius: var(--radius);
+    }
+    .filter-section {
+        padding-bottom: 1rem;
+    }
+    .session-recording-action-property-filter {
+        margin: 0 0 0 68px;
+        background-color: var(--antd-table-background-dark);
+        border: var(--border) solid 1px;
+        border-top-width: 0;
+        padding: 0.25rem 1rem;
+    }
+    .entity-filter-row {
+        width: 100%;
+        padding: 1rem;
+        border: var(--border) solid 1px;
+        margin-top: 1rem;
+        border-radius: var(--radius);
+    }
+    .time-filter-row {
+        justify-content: flex-end;
+        align-items: flex-end;
+        .time-filter {
+            align-items: center;
+            margin-left: 1rem;
+            .filter-label {
+                margin-right: 4px;
+            }
+        }
+    }
+}

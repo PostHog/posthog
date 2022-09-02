@@ -191,8 +191,9 @@ def parse_prop_clauses(
                 idx,
                 prepend,
                 prop_var="{}person_properties".format(table_formatted),
-                allow_denormalized_props=False,  # TODO: No denormalized props will exist on person on events for now
+                allow_denormalized_props=True,
                 property_operator=property_operator,
+                use_event_column="person_properties",
             )
             final.append(filter_query)
             params.update(filter_params)
@@ -258,13 +259,15 @@ def parse_prop_clauses(
                 final.append(f"{property_operator} {query}")
                 params.update(filter_params)
         elif prop.type == "group" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+            group_column = f"group{prop.group_type_index}_properties"
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
                 idx,
                 prepend,
-                prop_var=f"group{prop.group_type_index}_properties",
-                allow_denormalized_props=False,
+                prop_var=group_column,
+                allow_denormalized_props=True,
                 property_operator=property_operator,
+                use_event_column=group_column,
             )
             final.append(filter_query)
             params.update(filter_params)
@@ -353,13 +356,20 @@ def prop_filter_json_extract(
     transform_expression: Optional[Callable[[str], str]] = None,
     property_operator: str = PropertyOperatorType.AND,
     table_name: Optional[str] = None,
+    use_event_column: Optional[str] = None,
 ) -> Tuple[str, Dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     if transform_expression is not None:
         prop_var = transform_expression(prop_var)
 
     property_expr, is_denormalized = get_property_string_expr(
-        property_table(prop), prop.key, f"%(k{prepend}_{idx})s", prop_var, allow_denormalized_props, table_name
+        "events" if use_event_column else property_table(prop),
+        prop.key,
+        f"%(k{prepend}_{idx})s",
+        prop_var,
+        allow_denormalized_props,
+        table_name,
+        materialised_table_column=use_event_column if use_event_column else "properties",
     )
 
     if is_denormalized and transform_expression:
@@ -539,6 +549,7 @@ def get_single_or_multi_property_string_expr(
     query_alias: Literal["prop", "value", "prop_basic", None],
     column: str,
     allow_denormalized_props=True,
+    materialised_table_column: str = "properties",
 ):
     """
     When querying for breakdown properties:
@@ -556,12 +567,24 @@ def get_single_or_multi_property_string_expr(
 
     if isinstance(breakdown, str) or isinstance(breakdown, int):
         expression, _ = get_property_string_expr(
-            table, str(breakdown), escape_param(breakdown), column, allow_denormalized_props
+            table,
+            str(breakdown),
+            escape_param(breakdown),
+            column,
+            allow_denormalized_props,
+            materialised_table_column=materialised_table_column,
         )
     else:
         expressions = []
         for b in breakdown:
-            expr, _ = get_property_string_expr(table, b, escape_param(b), column, allow_denormalized_props)
+            expr, _ = get_property_string_expr(
+                table,
+                b,
+                escape_param(b),
+                column,
+                allow_denormalized_props,
+                materialised_table_column=materialised_table_column,
+            )
             expressions.append(expr)
 
         expression = f"array({','.join(expressions)})"
@@ -579,6 +602,7 @@ def get_property_string_expr(
     column: str,
     allow_denormalized_props: bool = True,
     table_alias: Optional[str] = None,
+    materialised_table_column: str = "properties",
 ) -> Tuple[str, bool]:
     """
 
@@ -599,8 +623,8 @@ def get_property_string_expr(
 
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 
-    if allow_denormalized_props and property_name in materialized_columns:
-        return f'{table_string}"{materialized_columns[property_name]}"', True
+    if allow_denormalized_props and (property_name, materialised_table_column) in materialized_columns:
+        return f'{table_string}"{materialized_columns[(property_name, materialised_table_column)]}"', True
 
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 
