@@ -19,7 +19,7 @@ import {
 } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -173,8 +173,8 @@ describe('funnelLogic', () => {
                 '/api/projects/:team/insights/trend/': { results: ['trends result from api'] },
                 '/api/projects/:team/groups_types/': [],
                 '/some/people/url': { results: [{ people: [] }] },
-                '/api/person/funnel': { results: [], next: null },
-                '/api/person/properties': [
+                '/api/projects/:team/persons/funnel': { results: [], next: null },
+                '/api/projects/:team/persons/properties': [
                     { name: 'some property', count: 20 },
                     { name: 'another property', count: 10 },
                     { name: 'third property', count: 5 },

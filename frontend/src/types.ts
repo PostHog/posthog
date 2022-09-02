@@ -236,6 +236,7 @@ export interface TeamType extends TeamBasicType {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
+    test_account_filters_default_checked: boolean
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
     person_display_name_properties: string[]
@@ -552,6 +553,13 @@ export interface PersonType {
     properties: Record<string, any>
     created_at?: string
     is_identified?: boolean
+}
+
+export interface PersonListParams {
+    properties?: AnyPropertyFilter[]
+    search?: string
+    cohort?: number
+    distinct_id?: string
 }
 
 interface MatchedRecordingEvents {
@@ -918,7 +926,10 @@ export interface FrontendApp {
 
 export interface JobPayloadFieldOptions {
     type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    title?: string
     required?: boolean
+    default?: any
+    staff_only?: boolean
 }
 
 export interface JobSpec {

@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from typing import Dict, List, cast
 from unittest import mock
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytz
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -1026,8 +1026,9 @@ class TestPluginAPI(APIBaseTest):
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
         self.assertEqual(plugin_config.config, {"bar": "a new very secret value"})
 
+    @patch("posthog.api.plugin.validate_plugin_job_payload")
     @patch("posthog.api.plugin.connections")
-    def test_job_trigger(self, db_connections, mock_get, mock_reload):
+    def test_job_trigger(self, db_connections, mock_validate_plugin_job_payload, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
         )
@@ -1055,6 +1056,7 @@ class TestPluginAPI(APIBaseTest):
             )
         ]
         execute_fn.assert_called_with(expected_sql, expected_params)
+        mock_validate_plugin_job_payload.assert_called_with(ANY, "myJob", {"a": 1}, is_staff=False)
 
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
         response = self.client.post(
