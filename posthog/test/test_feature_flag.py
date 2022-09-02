@@ -863,8 +863,17 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'
-        flags = get_active_feature_flags(self.team.pk, "other_id", {}, "example_id")
+        flags, reasons = get_active_feature_flags(self.team.pk, "other_id", {}, "example_id")
         self.assertEqual(flags, {"beta-feature": True, "multivariate-flag": "first-variant", "default-flag": True,})
+
+        self.assertEqual(
+            reasons,
+            {
+                "beta-feature": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0,},
+                "multivariate-flag": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0,},
+                "default-flag": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0,},
+            },
+        )
 
 
 class TestFeatureFlagMatcherConsistency(BaseTest):
@@ -1893,7 +1902,9 @@ class TestFeatureFlagMatcherConsistency(BaseTest):
                     feature_flag_match, FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
                 )
             else:
-                self.assertIsNone(feature_flag_match)
+                self.assertEqual(
+                    feature_flag_match, FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+                )
 
     def test_multivariate_flag_consistency(self):
         feature_flag = FeatureFlag.objects.create(
@@ -2924,6 +2935,16 @@ class TestFeatureFlagMatcherConsistency(BaseTest):
             feature_flag_match = FeatureFlagMatcher([feature_flag], distinctID).get_match(feature_flag)
 
             if results[i]:
-                self.assertEqual(feature_flag_match, FeatureFlagMatch(True, variant=cast(str, results[i])))
+                self.assertEqual(
+                    feature_flag_match,
+                    FeatureFlagMatch(
+                        True,
+                        variant=cast(str, results[i]),
+                        reason=FeatureFlagMatchReason.CONDITION_MATCH,
+                        condition_index=0,
+                    ),
+                )
             else:
-                self.assertIsNone(feature_flag_match)
+                self.assertEqual(
+                    feature_flag_match, FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+                )
