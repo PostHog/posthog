@@ -32,6 +32,7 @@ class SignupSerializer(serializers.Serializer):
     password: serializers.Field = serializers.CharField(allow_null=True, required=True)
     organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
+    referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
 
     # Slightly hacky: self vars for internal use
     is_social_signup: bool
@@ -63,6 +64,7 @@ class SignupSerializer(serializers.Serializer):
         is_instance_first_user: bool = not User.objects.exists()
 
         organization_name = validated_data.pop("organization_name", validated_data["first_name"])
+        referral_source = validated_data.pop("referral_source", "")
 
         try:
             self._organization, self._team, self._user = User.objects.bootstrap(
@@ -90,6 +92,7 @@ class SignupSerializer(serializers.Serializer):
             backend_processor="OrganizationSignupSerializer",
             user_analytics_metadata=user.get_analytics_metadata(),
             org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
+            referral_source=referral_source,
         )
 
         return user
@@ -203,6 +206,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 backend_processor="OrganizationInviteSignupSerializer",
                 user_analytics_metadata=user.get_analytics_metadata(),
                 org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
+                referral_source="signed up from invite link",
             )
 
         else:
@@ -456,6 +460,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
         social_provider=backend.name,
         user_analytics_metadata=user.get_analytics_metadata(),
         org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
+        referral_source="social signup - no info",
     )
 
     return {"is_new": True, "user": user}

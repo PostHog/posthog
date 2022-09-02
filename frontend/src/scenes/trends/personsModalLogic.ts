@@ -257,6 +257,10 @@ export const personsModalLogic = kea<personsModalLogicType>({
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
+                const includeRecordingsParam = values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]
+                    ? '&include_recordings=true'
+                    : ''
+
                 let actors: PaginatedResponse<{
                     people: ActorType[]
                     count: number
@@ -318,23 +322,15 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     }
                     const cleanedParams = cleanFilters(params)
                     const funnelParams = toParams(cleanedParams)
-                    let includeRecordingsParam = ''
-                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                        includeRecordingsParam = 'include_recordings=true&'
-                    }
                     actors = await api.create(
-                        `api/person/funnel/?${includeRecordingsParam}${funnelParams}${searchTermParam}`
+                        `api/person/funnel/?${funnelParams}${searchTermParam}${includeRecordingsParam}`
                     )
                 } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
                     const pathParams = toParams(cleanedParams)
 
-                    let includeRecordingsParam = ''
-                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                        includeRecordingsParam = 'include_recordings=true&'
-                    }
                     actors = await api.create(
-                        `api/person/path/?${includeRecordingsParam}${searchTermParam}`,
+                        `api/person/path/?${searchTermParam}${includeRecordingsParam}`,
                         cleanedParams
                     )
 
@@ -352,10 +348,13 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     }
                     actions.setUrl(pathsParams)
                 } else {
-                    actors = await api.actions.getPeople(
+                    const filterParams = parsePeopleParams(
                         { label, action, date_from, date_to, breakdown_value },
-                        filters,
-                        searchTerm
+                        filters
+                    )
+
+                    actors = await api.get(
+                        `api/person/trends/?${filterParams}${searchTermParam}${includeRecordingsParam}`
                     )
                 }
                 breakpoint()
