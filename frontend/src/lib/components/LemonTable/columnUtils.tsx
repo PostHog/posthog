@@ -11,13 +11,14 @@ export function createdAtColumn<T extends { created_at?: string | null }>(): Lem
         dataIndex: 'created_at',
         render: function RenderCreatedAt(created_at) {
             return created_at ? (
-                <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                <div style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <TZLabel time={created_at} />
                 </div>
             ) : (
                 <span style={{ color: 'var(--muted)' }}>—</span>
             )
         },
+        align: 'right',
         sorter: (a, b) => (new Date(a.created_at || 0) > new Date(b.created_at || 0) ? 1 : -1),
     }
 }
