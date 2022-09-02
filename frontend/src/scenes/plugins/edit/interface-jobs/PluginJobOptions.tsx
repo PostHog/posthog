@@ -1,4 +1,3 @@
-import { Tooltip } from 'lib/components/Tooltip'
 import { LemonTag } from '@posthog/lemon-ui'
 import React from 'react'
 import { JobSpec } from '~/types'
@@ -31,9 +30,7 @@ export function PluginJobOptions({
                 .map((jobName) => (
                     <div key={jobName}>
                         {jobName.includes('Export historical events') ? (
-                            <Tooltip title="Run this app on all historical events ingested until now">
-                                <i>Export historical events</i>
-                            </Tooltip>
+                            <i>Export historical events</i>
                         ) : (
                             <i>{jobName}</i>
                         )}
