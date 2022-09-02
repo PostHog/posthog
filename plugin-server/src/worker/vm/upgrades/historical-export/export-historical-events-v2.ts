@@ -55,14 +55,9 @@ export const INTERFACE_JOB_NAME = 'Export historical events V2'
 
 export const JOB_SPEC: JobSpec = {
     payload: {
-        dateFrom: {
-            title: 'Export start date',
-            type: 'date',
-            required: true,
-        },
-        dateTo: {
-            title: 'Export end date',
-            type: 'date',
+        dateRange: {
+            title: 'Export date range',
+            type: 'daterange',
             required: true,
         },
         parallelism: {
@@ -123,10 +118,8 @@ export interface ExportHistoricalEventsJobPayload {
 type OffsetParams = Pick<ExportHistoricalEventsJobPayload, 'timestampCursor' | 'fetchTimeInterval' | 'offset'>
 
 export interface ExportHistoricalEventsUIPayload {
-    // Only set starting export from UI
+    dateRange: [string, string]
     parallelism?: number
-    dateFrom: string
-    dateTo: string
 }
 
 export interface ExportParams {
@@ -490,14 +483,14 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     function getTimestampBoundaries(payload: ExportHistoricalEventsUIPayload): TimestampBoundaries {
-        const min = new Date(payload.dateFrom)
-        const max = new Date(payload.dateTo)
+        const min = new Date(payload.dateRange[0])
+        const max = new Date(payload.dateRange[1])
 
         if (isNaN(min.getTime()) || isNaN(max.getTime())) {
-            createLog(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`, {
+            createLog(`'dateRange' should be two dates in ISO string format.`, {
                 type: PluginLogEntryType.Error,
             })
-            throw new Error(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`)
+            throw new Error(`'dateRange' should be two dates in ISO string format.`)
         }
         return { min, max }
     }

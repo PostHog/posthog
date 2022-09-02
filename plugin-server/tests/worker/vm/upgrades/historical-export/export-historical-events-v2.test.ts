@@ -738,22 +738,20 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         it('returns timestamp boundaries passed into interface job', () => {
             expect(
                 getTimestampBoundaries({
-                    dateFrom: '2021-10-29T00:00:00.000Z',
-                    dateTo: '2021-11-29T00:00:00.000Z',
+                    dateRange: ['2021-10-29', '2021-11-30'],
                 })
             ).toEqual({
                 min: new Date('2021-10-29T00:00:00.000Z'),
-                max: new Date('2021-11-29T00:00:00.000Z'),
+                max: new Date('2021-11-30T00:00:00.000Z'),
             })
         })
 
         it('raises an error for invalid timestamp formats', () => {
             expect(() =>
                 getTimestampBoundaries({
-                    dateFrom: 'afaffaf',
-                    dateTo: 'efg',
+                    dateRange: ['foo', 'bar'],
                 })
-            ).toThrow("'dateFrom' and 'dateTo' should be timestamps in ISO string format.")
+            ).toThrow("'dateRange' should be two dates in ISO string format.")
         })
     })
 
