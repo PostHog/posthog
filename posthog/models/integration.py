@@ -35,7 +35,7 @@ class SlackIntegrationError(Exception):
     pass
 
 
-class SlackIntegration(object):
+class SlackIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:

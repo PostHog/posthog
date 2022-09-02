@@ -127,6 +127,14 @@ export function Signup(): JSX.Element | null {
                             disabled={isSignupSubmitting}
                         />
                     </Field>
+                    <Field name="referral_source" label="Where did you hear about us?" showOptional>
+                        <LemonInput
+                            className="ph-ignore-input"
+                            data-attr="signup-referral-source"
+                            placeholder=""
+                            disabled={isSignupSubmitting}
+                        />
+                    </Field>
 
                     <div className="divider" />
 

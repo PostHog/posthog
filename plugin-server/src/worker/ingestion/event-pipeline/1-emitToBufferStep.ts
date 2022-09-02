@@ -23,9 +23,13 @@ export async function emitToBufferStep(
     const person = await personContainer.get()
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
-        await runner.hub.jobQueueManager.enqueue(JobName.BUFFER_JOB, {
+        const job = {
             eventPayload: event,
             timestamp: processEventAt,
+        }
+        await runner.hub.jobQueueManager.enqueue(JobName.BUFFER_JOB, job, {
+            key: 'team_id',
+            tag: event.team_id.toString(),
         })
         runner.hub.statsd?.increment('events_sent_to_buffer')
         return null

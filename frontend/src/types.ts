@@ -925,7 +925,10 @@ export interface FrontendApp {
 
 export interface JobPayloadFieldOptions {
     type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    title?: string
     required?: boolean
+    default?: any
+    staff_only?: boolean
 }
 
 export interface JobSpec {

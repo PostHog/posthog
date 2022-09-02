@@ -125,6 +125,7 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDINGS_PLAYLIST: 'session-recording-playlist', // owner @rcmarron
     ALLOW_CSV_EXPORT_COLUMN_CHOICE: 'allow-csv-export-column-choice', //owner: @pauldambra
     PERSONS_MODAL_V2: 'persons-modal-v2', // owner: @benjackwhite
+    HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
