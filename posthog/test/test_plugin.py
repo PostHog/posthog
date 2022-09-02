@@ -1,8 +1,10 @@
 import base64
 
-from django.core.exceptions import ValidationError
+from django.core import exceptions
+from rest_framework.exceptions import ValidationError
 
 from posthog.models import Plugin, PluginSourceFile
+from posthog.models.plugin import validate_plugin_job_payload
 from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_FRONTEND_TSX,
     HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS,
@@ -38,6 +40,50 @@ class TestPlugin(BaseTest):
 
         self.assertDictEqual(default_config, {"x": "z"})
 
+    def test_validate_plugin_job_payload(self):
+        with self.assertRaises(ValidationError):
+            validate_plugin_job_payload(Plugin(), "unknown_job", {}, is_staff=False)
+        with self.assertRaises(ValidationError):
+            validate_plugin_job_payload(Plugin(public_jobs={}), "unknown_job", {}, is_staff=False)
+
+        validate_plugin_job_payload(Plugin(public_jobs={"foo_job": {"payload": {}}}), "foo_job", {}, is_staff=False)
+        validate_plugin_job_payload(
+            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number"}}}}), "foo_job", {}, is_staff=False
+        )
+        validate_plugin_job_payload(
+            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "required": False}}}}),
+            "foo_job",
+            {"param": 77},
+            is_staff=False,
+        )
+        with self.assertRaises(ValidationError):
+            validate_plugin_job_payload(
+                Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "required": True}}}}),
+                "foo_job",
+                {},
+                is_staff=False,
+            )
+
+        with self.assertRaises(ValidationError):
+            validate_plugin_job_payload(
+                Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "staff_only": True}}}}),
+                "foo_job",
+                {"param": 5},
+                is_staff=False,
+            )
+        validate_plugin_job_payload(
+            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "staff_only": True}}}}),
+            "foo_job",
+            {},
+            is_staff=False,
+        )
+        validate_plugin_job_payload(
+            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "staff_only": True}}}}),
+            "foo_job",
+            {"param": 5},
+            is_staff=True,
+        )
+
 
 class TestPluginSourceFile(BaseTest, QueryMatchingTest):
     maxDiff = 2000
@@ -46,7 +92,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
     def test_sync_from_plugin_archive_from_no_archive_fails(self):
         test_plugin: Plugin = Plugin.objects.create(organization=self.organization, name="Contoso")
 
-        with self.assertRaises(ValidationError) as cm:
+        with self.assertRaises(exceptions.ValidationError) as cm:
             PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(cm.exception.message, f"There is no archive to extract code from in plugin Contoso")
@@ -59,7 +105,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             archive=base64.b64decode(HELLO_WORLD_PLUGIN_RAW_WITHOUT_PLUGIN_JS),
         )
 
-        with self.assertRaises(ValidationError) as cm:
+        with self.assertRaises(exceptions.ValidationError) as cm:
             PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(cm.exception.message, f"Could not find plugin.json in plugin Contoso")
@@ -152,7 +198,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             archive=base64.b64decode(HELLO_WORLD_PLUGIN_RAW_WITHOUT_ANY_INDEX_TS_AND_UNDEFINED_MAIN),
         )
 
-        with self.assertRaises(ValidationError) as cm:
+        with self.assertRaises(exceptions.ValidationError) as cm:
             PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(cm.exception.message, f"Could not find main file index.js or index.ts in plugin Contoso")

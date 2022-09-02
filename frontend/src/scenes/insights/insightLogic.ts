@@ -44,8 +44,9 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 
-export const defaultFilterTestAccounts = (): boolean => {
-    return localStorage.getItem('default_filter_test_accounts') === 'true' || false
+export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {
+    // if the current _global_ value is true respect that over any local preference
+    return localStorage.getItem('default_filter_test_accounts') === 'true' || current_filter_test_accounts
 }
 
 function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
@@ -55,12 +56,15 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
     )
 }
 
-export const createEmptyInsight = (insightId: InsightShortId | `new-${string}` | 'new'): Partial<InsightModel> => ({
+export const createEmptyInsight = (
+    insightId: InsightShortId | `new-${string}` | 'new',
+    filterTestAccounts: boolean
+): Partial<InsightModel> => ({
     short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
     name: '',
     description: '',
     tags: [],
-    filters: {},
+    filters: filterTestAccounts ? { filter_test_accounts: true } : {},
     result: null,
 })
 
@@ -72,7 +76,7 @@ export const insightLogic = kea<insightLogicType>({
     connect: {
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeamId', 'currentTeam'],
             featureFlagLogic,
             ['featureFlags'],
             groupsModel,
@@ -151,7 +155,11 @@ export const insightLogic = kea<insightLogicType>({
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
-            props.cachedInsight ?? createEmptyInsight(props.dashboardItemId || 'new'),
+            props.cachedInsight ??
+                createEmptyInsight(
+                    props.dashboardItemId || 'new',
+                    values.currentTeam?.test_account_filters_default_checked || false
+                ),
             {
                 loadInsight: async ({ shortId }) => {
                     const response = await api.get(
@@ -800,6 +808,7 @@ export const insightLogic = kea<insightLogicType>({
             try {
                 if (insightNumericId && emptyFilters(values.insight.filters)) {
                     const error = new Error('Will not override empty filters in saveInsight.')
+
                     Sentry.captureException(error, {
                         extra: {
                             filters: JSON.stringify(values.insight.filters),
@@ -915,6 +924,7 @@ export const insightLogic = kea<insightLogicType>({
             })
         },
         cancelChanges: ({ goToViewMode }) => {
+            actions.setInsightMetadata({ name: values.savedInsight.name, description: values.savedInsight.description })
             actions.setFilters(values.savedInsight.filters || {})
             if (goToViewMode) {
                 insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)

@@ -124,12 +124,11 @@ export function SessionRecordingsFilters({
                                     <span> {key}</span>
                                 </>
                             )}
-                            defaultValue="Last 7 days"
-                            dateFrom={fromDate ?? undefined}
+                            dateFrom={fromDate ?? '-7d'}
                             dateTo={toDate ?? undefined}
                             onChange={(changedDateFrom, changedDateTo) => {
                                 reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
-                                setDateRange(changedDateFrom, changedDateTo)
+                                setDateRange(changedDateFrom, changedDateTo ?? undefined)
                             }}
                             dateOptions={[
                                 { key: 'Custom', values: [] },

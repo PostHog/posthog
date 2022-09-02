@@ -18,8 +18,8 @@ interface LemonModalPropsBase {
     children?: React.ReactNode
     onClose?: () => void
     width?: number | string
-    title: string | JSX.Element
-    description?: string | JSX.Element
+    title: React.ReactNode
+    description?: React.ReactNode
     footer?: React.ReactNode
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
@@ -89,7 +89,13 @@ export function LemonModal({
                         {title ? (
                             <LemonModalHeader>
                                 <h3>{title}</h3>
-                                {description ? <p>{description}</p> : null}
+                                {description ? (
+                                    typeof description === 'string' ? (
+                                        <p>{description}</p>
+                                    ) : (
+                                        description
+                                    )
+                                ) : null}
                             </LemonModalHeader>
                         ) : null}
 

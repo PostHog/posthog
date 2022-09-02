@@ -25,12 +25,6 @@
         &.selected {
             background-color: var(--primary-bg-hover);
         }
-
-        .property-key-info {
-            flex-grow: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
     }
 
     .main-content {
@@ -68,6 +62,7 @@
     align-items: center;
     justify-content: flex-start;
     padding: 0.5rem;
+    background-color: var(--primary-bg-hover);
 
     .drag-handle {
         color: var(--default);

@@ -15,7 +15,7 @@ describe('projectHomepageLogic', () => {
             get: {
                 '/api/projects/:team/dashboards/1/': dashboardJson,
                 '/api/projects/:team/insights/': { results: ['result from api'] },
-                '/api/person/': { results: ['result from api'] },
+                '/api/projects/:team/persons/': { results: ['result from api'] },
             },
         })
         initKeaTests()

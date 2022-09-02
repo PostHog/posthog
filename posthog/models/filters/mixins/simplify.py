@@ -37,7 +37,6 @@ class SimplifyFilterMixin:
         result: Any = self.with_data({"is_simplified": True})  # type: ignore
 
         if getattr(result, "filter_test_accounts", False):
-
             new_group = {"type": "AND", "values": team.test_account_filters}
             prop_group = (
                 {"type": "AND", "values": [new_group, result.property_groups.to_dict()]}

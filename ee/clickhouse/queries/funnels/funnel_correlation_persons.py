@@ -43,7 +43,7 @@ class FunnelCorrelationActors(ActorBaseQuery):
 
     def get_actors(
         self,
-    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:
+    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             return _FunnelPropertyCorrelationActors(self._filter, self._team, self._base_uri).get_actors()
         else:

@@ -143,7 +143,6 @@ export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecording
                                     disableIcon
                                     disablePopover
                                     ellipsis={true}
-                                    style={{ maxWidth: 150 }}
                                 />
                                 {event.isOutOfBand && (
                                     <Tooltip

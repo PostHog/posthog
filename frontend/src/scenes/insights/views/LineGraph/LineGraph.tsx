@@ -68,11 +68,11 @@ interface LineGraphCSSProperties extends React.CSSProperties {
 }
 
 export function ensureTooltipElement(): HTMLElement {
-    let tooltipEl = document.getElementById('ph-graph-tooltip')
+    let tooltipEl = document.getElementById('InsightTooltipWrapper')
     if (!tooltipEl) {
         tooltipEl = document.createElement('div')
-        tooltipEl.id = 'ph-graph-tooltip'
-        tooltipEl.classList.add('ph-graph-tooltip')
+        tooltipEl.id = 'InsightTooltipWrapper'
+        tooltipEl.classList.add('InsightTooltipWrapper')
         document.body.appendChild(tooltipEl)
     }
     return tooltipEl
@@ -120,7 +120,7 @@ export function LineGraph_({
     // Remove tooltip element on unmount
     useEffect(() => {
         return () => {
-            const tooltipEl = document.getElementById('ph-graph-tooltip')
+            const tooltipEl = document.getElementById('InsightTooltipWrapper')
             tooltipEl?.remove()
         }
     }, [])
