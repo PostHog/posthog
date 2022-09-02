@@ -45,7 +45,7 @@ export function TestAccountFiltersConfig(): JSX.Element {
                 }}
                 checked={!!currentTeam?.test_account_filters_default_checked}
                 disabled={currentTeamLoading}
-                label="Set this filter on all new insights"
+                label="Enable this filter on all new insights"
                 bordered
             />
         </div>
