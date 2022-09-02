@@ -749,7 +749,7 @@ const api = {
         },
         async update(
             annotationId: AnnotationType['id'],
-            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content'>
+            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
         ): Promise<AnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },

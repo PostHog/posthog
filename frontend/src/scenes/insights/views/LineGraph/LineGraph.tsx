@@ -41,6 +41,8 @@ if (registerables) {
 Chart.register(CrosshairPlugin)
 Chart.defaults.animation['duration'] = 0
 
+const LABEL_DAYJS_FORMATS = ['D-MMM-YYYY HH:mm', 'D-MMM-YYYY']
+
 export interface LineGraphProps {
     datasets: GraphDataset[]
     hiddenLegendKeys?: Record<string | number, boolean | undefined>
@@ -61,7 +63,7 @@ export interface LineGraphProps {
 interface LineGraphCSSProperties extends React.CSSProperties {
     '--line-graph-area-left': string
     '--line-graph-area-height': string
-    '--line-graph-area-interval': string
+    '--line-graph-tick-interval': string
     '--line-graph-width': string
 }
 
@@ -124,24 +126,24 @@ export function LineGraph_({
     }, [])
 
     // Calculate chart content coordinates for annotations overlay positioning
-    const [graphAreaLeft, graphAreaHeight, graphAreaInterval] = useMemo<[number, number, number]>(() => {
+    const tickInterval = useMemo<number>(() => {
         if (myLineChart) {
-            let boundaryLeftExtent = myLineChart.scales.x.left
-            const boundaryRightExtent = myLineChart.scales.x.right
+            const _scaleLeft = myLineChart.scales.x.left
             // NOTE: If there are lots of points on the X axis, Chart.js only renders a tick once n data points
             // so that the axis is readable. We use that mechanism to aggregate annotations for readability too.
-            const boundaryTicks = myLineChart.scales.x.ticks.length
-            const boundaryDelta = boundaryRightExtent - boundaryLeftExtent
-            let boundaryInterval = boundaryDelta / (boundaryTicks - 1)
-            if (type === GraphType.Bar) {
-                // When displaying a bar graph, we want the annotations to be in the middle of the bar (on the X axis)
-                boundaryInterval = boundaryDelta / boundaryTicks
-                boundaryLeftExtent += boundaryInterval / 2
-            }
-            const boundaryTopExtent = myLineChart.scales.x.top
-            return [boundaryLeftExtent, boundaryTopExtent, boundaryInterval]
+            const tickCount = myLineChart.scales.x.ticks.length
+            // @ts-expect-error - _metasets is not officially exposed
+            // We use this internal feature instead just taking graph area width, because it's not guaranteed that the
+            // last tick is positioned at the right edge of the graph area.
+            const lastTickX =
+                tickCount > 1
+                    ? myLineChart._metasets[0].dataset._points[myLineChart.scales.x.ticks[tickCount - 1].value].x -
+                      _scaleLeft
+                    : 0
+            const _tickInterval = lastTickX / (tickCount - 1)
+            return _tickInterval
         } else {
-            return [0, 0, 0]
+            return 0
         }
     }, [myLineChart, graphWidth, graphHeight])
 
@@ -571,12 +573,14 @@ export function LineGraph_({
             data-attr={dataAttr}
             // eslint-disable-next-line react/forbid-dom-props
             style={
-                {
-                    '--line-graph-area-left': `${graphAreaLeft}px`,
-                    '--line-graph-area-height': `${graphAreaHeight}px`,
-                    '--line-graph-area-interval': `${graphAreaInterval}px`,
-                    '--line-graph-width': `${graphWidth}px`,
-                } as LineGraphCSSProperties
+                myLineChart
+                    ? ({
+                          '--line-graph-area-left': `${myLineChart.scales.x.left}px`,
+                          '--line-graph-area-height': `${myLineChart.scales.x.top}px`,
+                          '--line-graph-width': `${myLineChart.width}px`,
+                          '--line-graph-tick-interval': `${tickInterval}px`,
+                      } as LineGraphCSSProperties)
+                    : undefined
             }
         >
             <canvas ref={chartRef} />
@@ -585,7 +589,11 @@ export function LineGraph_({
                 props={{ dashboardItemId: insightProps.dashboardItemId, insightNumericId: insight.id || 'new' }}
             >
                 <AnnotationsOverlay
-                    dates={myLineChart ? myLineChart.scales.x.ticks.map(({ label }) => dayjs(label as string)) : []}
+                    dates={
+                        myLineChart
+                            ? myLineChart.scales.x.ticks.map(({ label }) => dayjs(label as string, LABEL_DAYJS_FORMATS))
+                            : []
+                    }
                 />
             </BindLogic>
         </div>

@@ -9,7 +9,8 @@ import { AnnotationScope } from '~/types'
 import { IconWarning } from 'lib/components/icons'
 
 export function AnnotationModal(): JSX.Element {
-    const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting } = useValues(annotationModalLogic)
+    const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting, onSavedInsight } =
+        useValues(annotationModalLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
 
     const isInsightScoped = existingModalAnnotation?.scope === AnnotationScope.Insight
@@ -64,6 +65,7 @@ export function AnnotationModal(): JSX.Element {
             >
                 <div className="flex gap-2">
                     <Field name="dateMarker" label="Date and time" className="flex-1">
+                        {/* FIXME: Take project timezone into account */}
                         <DatePicker
                             className="h-10"
                             allowClear={false}
@@ -75,7 +77,7 @@ export function AnnotationModal(): JSX.Element {
                     <Field name="scope" label="Scope" className="flex-1">
                         <LemonSelect
                             options={[
-                                ...(existingModalAnnotation?.scope === AnnotationScope.Insight
+                                ...(existingModalAnnotation?.scope === AnnotationScope.Insight || onSavedInsight
                                     ? [
                                           {
                                               value: AnnotationScope.Insight,

@@ -9,9 +9,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-left: calc(var(--line-graph-area-interval) * var(--annotations-badge-index));
+    margin-left: calc(var(--line-graph-tick-interval) * var(--annotations-badge-index));
     height: 3rem;
-    width: var(--line-graph-area-interval);
+    width: var(--line-graph-tick-interval);
     border: none;
     background: none;
     transform: translate(-50%, -50%);
@@ -27,9 +27,10 @@
 }
 
 .AnnotationsPopover {
-    --annotations-popover-width: 24rem;
+    --annotations-popover-width: 26rem;
     --annotations-popover-max-left: calc(var(--line-graph-width) - var(--annotations-popover-width));
-    transition: top 200ms ease, left 200ms ease;
+    transition: top 200ms ease, left 200ms ease, opacity 200ms ease;
+    transform-origin: bottom;
     position: absolute;
     left: calc(
         clamp(
@@ -51,4 +52,20 @@
     border: 1px solid var(--border);
     transform: translateY(-100%) !important;
     box-shadow: var(--shadow-elevation);
+
+    &.AnnotationsPopover--enter,
+    &.AnnotationsPopover--exit.AnnotationsPopover--exit-active {
+        opacity: 0;
+    }
+
+    &.AnnotationsPopover--enter.AnnotationsPopover--enter-active,
+    &.AnnotationsPopover--exit {
+        opacity: 1;
+    }
+}
+
+.AnnotationCard {
+    .profile-package {
+        vertical-align: bottom;
+    }
 }

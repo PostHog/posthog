@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
-import { AnnotationScope, AnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, InsightModel } from '~/types'
 import { forms } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { annotationsModel } from '~/models/annotationsModel'
@@ -25,6 +25,7 @@ export interface AnnotationModalForm {
     dateMarker: dayjs.Dayjs
     scope: AnnotationType['scope']
     content: AnnotationType['content']
+    dashboardItemId: AnnotationType['dashboard_item'] | null
 }
 
 export const annotationModalLogic = kea<annotationModalLogicType>([
@@ -42,8 +43,14 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         ],
     }),
     actions({
-        openModalToCreateAnnotation: (initialDate?: dayjs.Dayjs) => ({ initialDate }),
-        openModalToEditAnnotation: (annotation: AnnotationType) => ({ annotation }),
+        openModalToCreateAnnotation: (initialDate?: dayjs.Dayjs, insightId?: InsightModel['id'] | null) => ({
+            initialDate,
+            insightId,
+        }),
+        openModalToEditAnnotation: (annotation: AnnotationType, insightId?: InsightModel['id'] | null) => ({
+            annotation,
+            insightId,
+        }),
         closeModal: true,
     }),
     reducers(() => ({
@@ -62,6 +69,13 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 openModalToEditAnnotation: (_, { annotation }) => annotation,
             },
         ],
+        onSavedInsight: [
+            false,
+            {
+                openModalToCreateAnnotation: (_, { insightId }) => !!insightId,
+                openModalToEditAnnotation: (_, { insightId }) => !!insightId,
+            },
+        ],
     })),
     listeners(({ actions }) => ({
         openModalToEditAnnotation: ({ annotation: { date_marker, scope, content } }) => {
@@ -71,10 +85,14 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 content,
             })
         },
-        openModalToCreateAnnotation: ({ initialDate }) => {
+        openModalToCreateAnnotation: ({ initialDate, insightId }) => {
             actions.resetAnnotationModal()
             if (initialDate) {
                 actions.setAnnotationModalValue('dateMarker', initialDate)
+            }
+            if (insightId) {
+                actions.setAnnotationModalValue('scope', AnnotationScope.Insight)
+                actions.setAnnotationModalValue('dashboardItemId', insightId)
             }
         },
     })),
@@ -84,26 +102,29 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 dateMarker: dayjs(),
                 content: '',
                 scope: AnnotationScope.Project,
+                dashboardItemId: null,
             } as AnnotationModalForm,
             errors: ({ content }) => ({
                 content: !content ? 'An annotation must have text content.' : null,
             }),
             submit: async (data) => {
-                const { dateMarker, content, scope } = data
+                const { dateMarker, content, scope, dashboardItemId } = data
                 if (values.existingModalAnnotation) {
                     // annotationsModel's updateAnnotation inlined so that isAnnotationModalSubmitting works
                     const updatedAnnotation = await api.annotations.update(values.existingModalAnnotation.id, {
-                        date_marker: dateMarker.tz(values.timezone).toISOString(),
+                        date_marker: dateMarker.toISOString(),
                         content,
                         scope,
+                        dashboard_item: dashboardItemId,
                     })
                     actions.replaceAnnotation(updatedAnnotation)
                 } else {
                     // annotationsModel's createAnnotationGenerically inlined so that isAnnotationModalSubmitting works
                     const createdAnnotation = await api.annotations.create({
-                        date_marker: dateMarker.tz(values.timezone).toISOString(),
+                        date_marker: dateMarker.toISOString(),
                         content,
                         scope,
+                        dashboard_item: dashboardItemId,
                     })
                     actions.appendAnnotations([createdAnnotation])
                 }

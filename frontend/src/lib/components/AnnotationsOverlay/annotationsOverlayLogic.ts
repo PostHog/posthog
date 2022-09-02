@@ -20,6 +20,7 @@ const INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT: Record<IntervalType, string> = {
 }
 
 export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: IntervalType): string {
+    // FIXME: Account for ticks sometimes including more than one group in dense graphs
     return date.format(INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT[intervalUnit])
 }
 
@@ -28,7 +29,12 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     props({} as InsightAnnotationsLogicProps),
     key(({ insightNumericId }) => insightNumericId),
     connect({
-        values: [insightLogic, ['intervalUnit', 'timezone'], annotationsModel, ['annotations', 'annotationsLoading']],
+        values: [
+            insightLogic,
+            ['intervalUnit', 'timezone', 'insightId'],
+            annotationsModel,
+            ['annotations', 'annotationsLoading'],
+        ],
         actions: [annotationsModel, ['createAnnotationGenerically', 'updateAnnotation', 'deleteAnnotation']],
     }),
     actions({
@@ -37,14 +43,21 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
         deactivateDate: true,
         lockDate: true,
         unlockDate: true,
+        closePopover: true,
     }),
     reducers({
+        isPopoverShown: [
+            false,
+            {
+                activateDate: () => true,
+                deactivateDate: () => false,
+                closePopover: () => false,
+            },
+        ],
         activeDate: [
             null as Dayjs | null,
             {
                 activateDate: (_, { date }) => date,
-                deactivateDate: () => null,
-                unlockDate: () => null,
             },
         ],
         activeBadgeCoordinates: [
@@ -58,6 +71,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             {
                 lockDate: () => true,
                 unlockDate: () => false,
+                closePopover: () => false,
             },
         ],
     }),
