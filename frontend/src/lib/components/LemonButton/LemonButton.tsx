@@ -85,6 +85,7 @@ function LemonButtonInternal(
         <ButtonComponent
             type={htmlType}
             ref={ref as any}
+            style={{ width: '250px' }}
             className={clsx(
                 'LemonButton',
                 `LemonButton--${type}`,
