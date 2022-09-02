@@ -8,6 +8,13 @@ import { LemonModal } from '../LemonModal'
 export default {
     title: 'Lemon UI/Skeleton',
     component: Skeleton,
+    parameters: {
+        docs: {
+            description: {
+                component: `Skeleton screens are used to indicate that a screen is loading, are perceived as being shorter in duration when compared against a blank screen (our control) and a spinner — but not by much`,
+            },
+        },
+    },
 } as ComponentMeta<typeof Skeleton>
 
 export function Default(): JSX.Element {
