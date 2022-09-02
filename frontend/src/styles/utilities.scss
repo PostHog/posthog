@@ -89,6 +89,12 @@
     }
 }
 
+@each $space in $spaces {
+    .leading-#{$space} {
+        line-height: #{$space/4}rem;
+    }
+}
+
 // Margins/padding
 @each $kind in ('margin', 'padding') {
     $char: str-slice($kind, 0, 1);
@@ -404,6 +410,12 @@
 }
 .font-black {
     font-weight: 900;
+}
+.italic {
+    font-style: italic;
+}
+.not-italic {
+    font-style: normal;
 }
 
 .whitespace-normal {
