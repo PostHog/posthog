@@ -10,7 +10,7 @@ import { JobPayloadFieldOptions, JobSpec } from '~/types'
 import { interfaceJobsLogic } from './interfaceJobsLogic'
 import { LemonInput } from '../../../../lib/components/LemonInput/LemonInput'
 import moment from 'moment'
-import { LemonCalendarRange } from '../../../../lib/components/LemonCalendar/LemonCalendarRange'
+import { LemonCalendarRange } from '../../../../lib/components/LemonCalendarRange/LemonCalendarRange'
 import { LemonModal } from '../../../../lib/components/LemonModal'
 import { LemonButton } from '../../../../lib/components/LemonButton'
 

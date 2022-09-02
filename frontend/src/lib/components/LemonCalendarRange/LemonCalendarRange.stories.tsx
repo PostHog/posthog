@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { LemonCalendarRange, LemonCalendarRangeProps } from 'lib/components/LemonCalendar/LemonCalendarRange'
+import { LemonCalendarRange, LemonCalendarRangeProps } from 'lib/components/LemonCalendarRange/LemonCalendarRange'
 import { Popup } from 'lib/components/Popup/Popup'
 import { LemonButton } from 'lib/components/LemonButton'
 import { dayjs } from 'lib/dayjs'
