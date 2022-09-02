@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { kea, path, actions, connect, reducers, selectors, events, listeners } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import type { billingLogicType } from './billingLogicType'
 import { PlanInterface, BillingType } from '~/types'
@@ -10,6 +11,8 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { windowValues } from 'kea-window-values'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -23,15 +26,27 @@ export enum BillingAlertType {
     FreeUsageNearLimit = 'free_usage_near_limit',
 }
 
-export const billingLogic = kea<billingLogicType>({
-    path: ['scenes', 'billing', 'billingLogic'],
-    actions: {
+export const billingLogic = kea<billingLogicType>([
+    path(['scenes', 'billing', 'billingLogic']),
+    actions({
         registerInstrumentationProps: true,
-    },
-    connect: {
+        toggleUsageTiers: true,
+    }),
+    connect({
         values: [featureFlagLogic, ['featureFlags']],
-    },
-    loaders: ({ actions, values }) => ({
+    }),
+    reducers({
+        showUsageTiers: [
+            false as boolean,
+            {
+                toggleUsageTiers: (state) => !state,
+            },
+        ],
+    }),
+    windowValues({
+        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
+    }),
+    loaders(({ actions, values }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -77,8 +92,20 @@ export const billingLogic = kea<billingLogicType>({
                 },
             },
         ],
-    }),
-    selectors: {
+        planDetails: [
+            null as string | null,
+            {
+                loadPlanDetails: async (plan) => {
+                    const response = await fetch(`/api/plans/${plan}/template/`)
+                    if (response.ok) {
+                        return await response.text()
+                    }
+                    return null
+                },
+            },
+        ],
+    })),
+    selectors({
         eventAllocation: [(s) => [s.billing], (billing: BillingType) => billing?.event_allocation],
         percentage: [
             (s) => [s.eventAllocation, s.billing],
@@ -160,15 +187,15 @@ export const billingLogic = kea<billingLogicType>({
                 }
             },
         ],
-    },
-    events: ({ actions }) => ({
+    }),
+    events(({ actions }) => ({
         afterMount: () => {
             if (preflightLogic.values.preflight?.cloud) {
                 actions.loadBilling()
             }
         },
-    }),
-    listeners: ({ values }) => ({
+    })),
+    listeners(({ values }) => ({
         subscribeSuccess: ({ billingSubscription }) => {
             if (billingSubscription?.subscription_url) {
                 window.location.href = billingSubscription.subscription_url
@@ -188,5 +215,5 @@ export const billingLogic = kea<billingLogicType>({
                 })
             }
         },
-    }),
-})
+    })),
+])
