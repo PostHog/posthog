@@ -269,6 +269,25 @@
     .max-#{$char}-screen {
         min-#{$kind}: unquote('100v' + $char);
     }
+
+    .#{$char}-1\/2 {
+        #{$kind}: 50%;
+    }
+    .#{$char}-1\/3 {
+        #{$kind}: 33.333333%;
+    }
+    .#{$char}-2\/3 {
+        #{$kind}: 66.666667%;
+    }
+    .#{$char}-1\/4 {
+        #{$kind}: 25%;
+    }
+    .#{$char}-2\/4 {
+        #{$kind}: 50%;
+    }
+    .#{$char}-3\/4 {
+        #{$kind}: 75%;
+    }
 }
 
 // One-off utilities
@@ -528,6 +547,9 @@
 .rounded-3xl {
     border-radius: 1.5rem; /* 24px */
 }
+.rounded-full {
+    border-radius: 9999px;
+}
 
 .overflow-auto {
     overflow: auto;
@@ -626,21 +648,3 @@
         list-style-type: #{$list_style_type};
     }
 }
-
-// Custom utilities (e.g. non-tailwind)
-
-.skeleton {
-    background: linear-gradient(
-        90deg,
-        rgba(190, 190, 190, 0.2) 25%,
-        rgba(129, 129, 129, 0.24) 37%,
-        rgba(190, 190, 190, 0.2) 63%
-    );
-    background-size: auto;
-    background-size: 400% 100%;
-    animation: lemon-skeleton-loading 1.4s ease infinite;
-    border-radius: var(--radius);
-    height: 24px;
-}
-
-// End Custom utilities
