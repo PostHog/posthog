@@ -4,7 +4,6 @@ import { ComponentMeta } from '@storybook/react'
 import { Skeleton } from './Skeleton'
 import { LemonLabel } from '../LemonLabel/LemonLabel'
 import { LemonModal } from '../LemonModal'
-import { LemonButton } from '../LemonButton'
 
 export default {
     title: 'Lemon UI/Skeleton',

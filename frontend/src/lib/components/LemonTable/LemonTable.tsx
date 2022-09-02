@@ -8,8 +8,8 @@ import './LemonTable.scss'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
-import { Skeleton } from 'antd'
 import { useScrollable } from 'lib/hooks/useScrollable'
+import { Skeleton } from '../Skeleton/Skeleton'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -352,7 +352,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                             column.className
                                                         )}
                                                     >
-                                                        <Skeleton title paragraph={false} active />
+                                                        <Skeleton />
                                                     </td>
                                                 ))
                                             )}

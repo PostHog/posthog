@@ -9,7 +9,6 @@
     background-size: 400% 100%;
     transform: rotateY(180deg);
     animation: lemon-skeleton-loading 1.4s ease infinite;
-    align-self: center; // Simplify if this is put within a flexed element
 
     @media (prefers-reduced-motion) {
         animation: none;

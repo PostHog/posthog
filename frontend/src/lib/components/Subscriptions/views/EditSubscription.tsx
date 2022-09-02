@@ -30,10 +30,10 @@ import {
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
 import { urls } from 'scenes/urls'
-import { Skeleton } from 'antd'
 import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { Skeleton } from 'lib/components/Skeleton/Skeleton'
 
 interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
@@ -117,11 +117,14 @@ export function EditSubscription({
             <LemonModal.Content className="space-y-2">
                 {!subscription ? (
                     subscriptionLoading ? (
-                        <>
-                            <Skeleton />
-                            <Skeleton />
-                            <Skeleton />
-                        </>
+                        <div className="space-y-4">
+                            <Skeleton width={'50%'} />
+                            <Skeleton.Row />
+                            <Skeleton width={'50%'} />
+                            <Skeleton.Row />
+                            <Skeleton width={'50%'} />
+                            <Skeleton.Row />
+                        </div>
                     ) : (
                         <div className="p-4 text-center">
                             <h2>Not found</h2>

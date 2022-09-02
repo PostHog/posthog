@@ -4,9 +4,9 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { useValues } from 'kea'
 import './ActivityLog.scss'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { Skeleton } from 'antd'
 import { ActivityScope, Describer } from 'lib/components/ActivityLog/humanizeActivity'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
+import { Skeleton } from '../Skeleton/Skeleton'
 
 export interface ActivityLogProps {
     scope: ActivityScope
@@ -43,10 +43,11 @@ const Empty = ({ scope, idExists }: { scope: string; idExists: boolean }): JSX.E
 
 const SkeletonLog = (): JSX.Element => {
     return (
-        <div className="activity-log-row">
-            <Skeleton.Avatar active={true} size={40} />
-            <div className="details">
-                <Skeleton paragraph={{ rows: 1 }} />
+        <div className="activity-log-row items-start">
+            <Skeleton.Circle />
+            <div className="details space-y-4 mt-2">
+                <Skeleton width={'50%'} />
+                <Skeleton />
             </div>
         </div>
     )

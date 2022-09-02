@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react'
 import { InsightModel, InsightShortId, InsightType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { sharingLogic } from './sharingLogic'
-import { Skeleton } from 'antd'
 import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import { copyToClipboard } from 'lib/utils'
 import { IconGlobeLock, IconInfo, IconLink, IconLockLemon, IconUnfoldLess, IconUnfoldMore } from '../icons'
@@ -15,6 +14,7 @@ import { Form } from 'kea-forms'
 import { Spinner } from '../Spinner/Spinner'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { LemonModal } from '../LemonModal'
+import { Skeleton } from '../Skeleton/Skeleton'
 
 export interface SharingModalProps {
     dashboardId?: number
@@ -74,7 +74,9 @@ export function SharingModal({
                 {dashboardId ? <DashboardCollaboration dashboardId={dashboardId} /> : undefined}
 
                 {!sharingConfiguration && sharingConfigurationLoading ? (
-                    <Skeleton />
+                    <div className="space-y-4">
+                        <Skeleton.Row repeat={3} />
+                    </div>
                 ) : !sharingConfiguration ? (
                     <p>Something went wrong...</p>
                 ) : (

@@ -7,12 +7,13 @@ import './Skeleton.scss'
 export interface SkeletonProps {
     className?: string
     width?: string | number
+    height?: string | number
     repeat?: number
 }
 
-export function Skeleton({ className, width, repeat }: SkeletonProps): JSX.Element {
+export function Skeleton({ className, width, height, repeat }: SkeletonProps): JSX.Element {
     // eslint-disable-next-line react/forbid-dom-props
-    const content = <div className={clsx('Skeleton', className || 'h-6 w-full rounded')} style={{ width }} />
+    const content = <div className={clsx('Skeleton', className || 'h-4 w-full rounded')} style={{ width, height }} />
 
     if (repeat) {
         return (

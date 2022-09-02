@@ -6,9 +6,9 @@ import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { IconEllipsis, IconSlack } from 'lib/components/icons'
 import { ProfileBubbles } from 'lib/components/ProfilePicture'
 import { subscriptionsLogic } from '../subscriptionsLogic'
-import { Skeleton } from 'antd'
 import { SubscriptionBaseProps } from '../utils'
 import { LemonModal } from 'lib/components/LemonModal'
+import { Skeleton } from 'lib/components/Skeleton/Skeleton'
 
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
@@ -88,12 +88,10 @@ export function ManageSubscriptions({
             </LemonModal.Header>
             <LemonModal.Content>
                 {subscriptionsLoading && !subscriptions.length ? (
-                    <>
-                        <Skeleton paragraph={false} />
-                        <Skeleton.Button active block size="large" />
-                        <Skeleton.Button active block size="large" />
-                        <Skeleton.Button active block size="large" />
-                    </>
+                    <div className="space-y-2">
+                        <Skeleton width={'50%'} />
+                        <Skeleton.Row repeat={2} />
+                    </div>
                 ) : subscriptions.length ? (
                     <div className="space-y-2">
                         <div>
