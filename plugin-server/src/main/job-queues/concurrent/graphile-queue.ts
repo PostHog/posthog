@@ -75,8 +75,10 @@ export class GraphileQueue extends JobQueueBase {
                     schema: this.serverConfig.JOB_QUEUE_GRAPHILE_SCHEMA,
                     noPreparedStatements: !this.serverConfig.JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS,
                     concurrency: 1,
-                    // Install signal handlers for graceful shutdown on SIGINT, SIGTERM, etc
-                    noHandleSignals: false,
+                    // Do not install signal handlers, we are handled signals in
+                    // higher level code. If we let graphile handle signals it
+                    // ends up sending another SIGTERM.
+                    noHandleSignals: true,
                     pollInterval: 2000,
                     // you can set the taskList or taskDirectory but not both
                     taskList: this.jobHandlers,
