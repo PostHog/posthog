@@ -272,7 +272,7 @@ export function InfiniteList(): JSX.Element {
 
     return (
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}>
-            {showEmptyState || true ? (
+            {showEmptyState ? (
                 <div className="no-infinite-results">
                     <Empty
                         description={
