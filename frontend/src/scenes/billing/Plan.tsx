@@ -9,10 +9,14 @@ export function Plan({
     plan,
     onSubscribe,
     currentPlan,
+    canHideDetails = true,
+    primaryCallToAction = true,
 }: {
     plan: PlanInterface
+    canHideDetails?: boolean
     onSubscribe?: (plan: PlanInterface) => void
     currentPlan?: boolean
+    primaryCallToAction?: boolean
 }): JSX.Element {
     const [detail, setDetail] = useState('')
     const [isDetailLoading, setIsDetailLoading] = useState(true)
@@ -44,7 +48,7 @@ export function Plan({
                         data-plan={plan.key}
                         fullWidth
                         center
-                        type="primary"
+                        type={primaryCallToAction ? 'primary' : 'secondary'}
                         size="large"
                         to="/billing/manage"
                     >
@@ -64,17 +68,19 @@ export function Plan({
                         Subscribe now
                     </LemonButton>
                 )}
-                <LemonButton
-                    data-attr="btn-pricing-info"
-                    fullWidth
-                    center
-                    type="tertiary"
-                    onClick={() => setShowDetails(!showDetails)}
-                >
-                    {showDetails ? 'Hide' : 'See more'} details
-                </LemonButton>
+                {canHideDetails && (
+                    <LemonButton
+                        data-attr="btn-pricing-info"
+                        fullWidth
+                        center
+                        type="tertiary"
+                        onClick={() => setShowDetails(!showDetails)}
+                    >
+                        {showDetails ? 'Hide' : 'See more'} details
+                    </LemonButton>
+                )}
             </div>
-            {showDetails && (
+            {(showDetails || !canHideDetails) && (
                 <>
                     <LemonDivider className="my-4" />
                     {isDetailLoading ? (
