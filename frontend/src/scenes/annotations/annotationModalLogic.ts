@@ -2,7 +2,7 @@ import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
 import { AnnotationScope, AnnotationType, InsightModel } from '~/types'
 import { forms } from 'kea-forms'
-import { dayjs } from 'lib/dayjs'
+import { dayjs, Dayjs } from 'lib/dayjs'
 import { annotationsModel } from '~/models/annotationsModel'
 import type { annotationModalLogicType } from './annotationModalLogicType'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,7 +22,7 @@ export const annotationScopeToLevel: Record<AnnotationScope, number> = {
 }
 
 export interface AnnotationModalForm {
-    dateMarker: dayjs.Dayjs
+    dateMarker: Dayjs
     scope: AnnotationType['scope']
     content: AnnotationType['content']
     dashboardItemId: AnnotationType['dashboard_item'] | null
@@ -43,7 +43,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         ],
     }),
     actions({
-        openModalToCreateAnnotation: (initialDate?: dayjs.Dayjs, insightId?: InsightModel['id'] | null) => ({
+        openModalToCreateAnnotation: (initialDate?: Dayjs | null, insightId?: InsightModel['id'] | null) => ({
             initialDate,
             insightId,
         }),

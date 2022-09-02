@@ -132,12 +132,12 @@ export function LineGraph_({
             // NOTE: If there are lots of points on the X axis, Chart.js only renders a tick once n data points
             // so that the axis is readable. We use that mechanism to aggregate annotations for readability too.
             const tickCount = myLineChart.scales.x.ticks.length
-            // @ts-expect-error - _metasets is not officially exposed
-            // We use this internal feature instead just taking graph area width, because it's not guaranteed that the
-            // last tick is positioned at the right edge of the graph area.
+            // We use the internal _metasets instead just taking graph area width, because it's NOT guaranteed that the
+            // last tick is positioned at the right edge of the graph area. We need to find out where it is.
             const lastTickX =
                 tickCount > 1
-                    ? myLineChart._metasets[0].dataset._points[myLineChart.scales.x.ticks[tickCount - 1].value].x -
+                    ? // @ts-expect-error - _metasets is not officially exposed
+                      myLineChart._metasets[0].dataset._points[myLineChart.scales.x.ticks[tickCount - 1].value].x -
                       _scaleLeft
                     : 0
             const _tickInterval = lastTickX / (tickCount - 1)

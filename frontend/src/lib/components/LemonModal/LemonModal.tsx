@@ -14,7 +14,7 @@ export type LemonModalFooterProps = {
     children?: React.ReactNode
 }
 
-interface LemonModalPropsBase {
+export interface LemonModalProps {
     children?: React.ReactNode
     onClose?: () => void
     width?: number | string
@@ -25,21 +25,10 @@ interface LemonModalPropsBase {
     simple?: boolean
     closable?: boolean
     className?: string
-}
-
-interface LemonModalPropsInline extends LemonModalPropsBase {
-    inline: boolean
-    isOpen?: never
-    onAfterClose?: never
-}
-
-interface LemonModalPropsProper extends LemonModalPropsBase {
-    inline?: never
-    isOpen: boolean
+    inline?: boolean
+    isOpen?: boolean
     onAfterClose?: () => void
 }
-
-export type LemonModalProps = LemonModalPropsInline | LemonModalPropsProper
 
 export const LemonModalHeader = ({ children, className }: LemonModalContentProps): JSX.Element => {
     return <header className={clsx('LemonModal__header', className)}>{children}</header>
