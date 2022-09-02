@@ -102,6 +102,7 @@ export function RetentionModal({
                                 {actors.result &&
                                     actors.result.map((personAppearances: RetentionTableAppearanceType) => (
                                         <tr key={personAppearances.person.id}>
+                                            {/* eslint-disable-next-line react/forbid-dom-props */}
                                             <td style={{ minWidth: 200 }}>
                                                 {isGroupType(personAppearances.person) ? (
                                                     <LemonButton
