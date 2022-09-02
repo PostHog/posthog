@@ -228,7 +228,7 @@
     .LemonButton {
         &.LemonButton--status-primary {
             &:hover {
-                // NOTE: this is a rare case so we are hardcoding the value. Only primary status is supported
+                // NOTE: this is a rare case where we specify a unique hover style. Only primary status is supported
                 background: var(--primary-button-nested-hover);
             }
         }
