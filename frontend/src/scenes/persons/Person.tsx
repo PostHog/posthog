@@ -30,6 +30,7 @@ import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/SessionRecordingsPlaylist'
+import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
 const { TabPane } = Tabs
 
@@ -213,6 +214,15 @@ export function Person(): JSX.Element | null {
                         <RelatedGroups id={person.uuid} groupTypeIndex={null} />
                     </TabPane>
                 )}
+                <TabPane tab={
+                    <span data-attr="persons-related-flags-tab">
+                        Feature flags
+                    </span>
+                }
+                    key={PersonsTabType.FEATURE_FLAGS}
+                >
+                    <RelatedFeatureFlags id={person.uuid} />
+                </TabPane>
 
                 <TabPane tab="History" key="history">
                     <ActivityLog
