@@ -77,8 +77,11 @@ NPM_TOKEN = os.getenv("NPM_TOKEN", None)
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", True, type_cast=str_to_bool)
-EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = get_from_env(
-    "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_SECONDS", 86400, type_cast=int
+EVENT_PROPERTY_USAGE_INTERVAL_CRON = get_from_env(
+    #  run frequently in dev but once a day by default
+    "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_CRON",
+    "*/1 * * * *" if DEBUG else "0 1 * * *",
+    type_cast=str,
 )
 
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
