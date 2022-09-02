@@ -11,6 +11,8 @@ export interface LemonCalendarRangeProps {
     onChange: (date: [string, string]) => void
     months?: number
     onClose?: () => void
+    hideHeader?: boolean
+    autoApply?: boolean
 }
 
 /** Used to calculate how many calendars fit on the screen */
@@ -18,13 +20,27 @@ const WIDTH_OF_ONE_CALENDAR_MONTH = 300
 /** Number of calendars to display if `typeof window === undefined` */
 const CALENDARS_IF_NO_WINDOW = 2
 
-export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCalendarRangeProps): JSX.Element {
+export function LemonCalendarRange({
+    value,
+    onChange,
+    onClose,
+    months,
+    hideHeader,
+    autoApply,
+}: LemonCalendarRangeProps): JSX.Element {
     // Keep a sanitised and cached copy of the selected range
     const [valueStart, valueEnd] = [
         value?.[0] ? dayjs(value[0]).format('YYYY-MM-DD') : null,
         value?.[1] ? dayjs(value[1]).format('YYYY-MM-DD') : null,
     ]
-    const [[rangeStart, rangeEnd, lastChanged], setRange] = useState([valueStart, valueEnd, 'end' as 'start' | 'end'])
+    const [[rangeStart, rangeEnd, lastChanged], _setRange] = useState([valueStart, valueEnd, 'end' as 'start' | 'end'])
+
+    function setRange([rangeStart, rangeEnd, lastChanged]: [string | null, string | null, 'start' | 'end']): void {
+        _setRange([rangeStart, rangeEnd, lastChanged])
+        if (autoApply && rangeStart && rangeEnd) {
+            onChange([rangeStart, rangeEnd])
+        }
+    }
 
     // How many months fit on the screen, capped between 1..2
     function getMonthCount(): number {
@@ -69,18 +85,20 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
 
     return (
         <div className="LemonCalendarRange" data-attr="lemon-calendar-range">
-            <div className="flex justify-between border-b p-2 pb-4">
-                <h3 className="mb-0">Select a fixed time period</h3>
-                {onClose && (
-                    <LemonButton
-                        icon={<IconClose />}
-                        size="small"
-                        status="stealth"
-                        onClick={onClose}
-                        aria-label="close"
-                    />
-                )}
-            </div>
+            {hideHeader ? null : (
+                <div className="flex justify-between border-b p-2 pb-4">
+                    <h3 className="mb-0">Select a fixed time period</h3>
+                    {onClose && (
+                        <LemonButton
+                            icon={<IconClose />}
+                            size="small"
+                            status="stealth"
+                            onClick={onClose}
+                            aria-label="close"
+                        />
+                    )}
+                </div>
+            )}
             <div className="p-2">
                 <LemonCalendar
                     onDateClick={(date) => {
@@ -150,17 +168,21 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
                         </span>
                     </div>
                 )}
-                <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-range-cancel">
-                    Cancel
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    disabled={!rangeStart || !rangeEnd}
-                    onClick={rangeStart && rangeEnd ? () => onChange([rangeStart, rangeEnd]) : undefined}
-                    data-attr="lemon-calendar-range-apply"
-                >
-                    Apply
-                </LemonButton>
+                {autoApply ? null : (
+                    <>
+                        <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-range-cancel">
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            disabled={!rangeStart || !rangeEnd}
+                            onClick={rangeStart && rangeEnd ? () => onChange([rangeStart, rangeEnd]) : undefined}
+                            data-attr="lemon-calendar-range-apply"
+                        >
+                            Apply
+                        </LemonButton>
+                    </>
+                )}
             </div>
         </div>
     )

@@ -10,6 +10,7 @@ import { JobPayloadFieldOptions, JobSpec } from '~/types'
 import { interfaceJobsLogic } from './interfaceJobsLogic'
 import { LemonInput } from '../../../../lib/components/LemonInput/LemonInput'
 import moment from 'moment'
+import { LemonCalendarRange } from '../../../../lib/components/LemonCalendar/LemonCalendarRange'
 import { LemonModal } from '../../../../lib/components/LemonModal'
 import { LemonButton } from '../../../../lib/components/LemonButton'
 
@@ -146,5 +147,7 @@ function FieldInput({
                     onChange={(date: moment.Moment | null) => onChange(date?.toISOString())}
                 />
             )
+        case 'daterange':
+            return <LemonCalendarRange value={value || null} onChange={onChange} hideHeader autoApply />
     }
 }
