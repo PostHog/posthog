@@ -735,15 +735,12 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
     describe('getTimestampBoundaries()', () => {
         const getTimestampBoundaries = getTestMethod('getTimestampBoundaries')
 
-        it('returns timestamp boundaries passed into interface job', () => {
+        it('returns timestamp boundaries passed into interface job, increasing the end date by a day', () => {
             expect(
                 getTimestampBoundaries({
                     dateRange: ['2021-10-29', '2021-11-30'],
                 })
-            ).toEqual({
-                min: new Date('2021-10-29T00:00:00.000Z'),
-                max: new Date('2021-11-30T00:00:00.000Z'),
-            })
+            ).toEqual(['2021-10-29T00:00:00.000Z', '2021-12-01T00:00:00.000Z'])
         })
 
         it('raises an error for invalid timestamp formats', () => {
