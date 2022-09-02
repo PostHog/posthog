@@ -80,7 +80,7 @@ ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", True, ty
 EVENT_PROPERTY_USAGE_INTERVAL_CRON = get_from_env(
     #  run frequently in dev but once a day by default
     "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_CRON",
-    "*/1 * * * *" if DEBUG else "0 1 * * *",
+    "0 1 * * *",
     type_cast=str,
 )
 
