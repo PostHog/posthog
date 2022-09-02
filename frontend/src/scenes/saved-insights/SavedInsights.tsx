@@ -386,12 +386,11 @@ export function SavedInsights(): JSX.Element {
                             <div className="flex items-center gap-2">
                                 <span>Last modified:</span>
                                 <DateFilter
-                                    defaultValue="All time"
                                     disabled={false}
                                     dateFrom={dateFrom}
                                     dateTo={dateTo}
                                     onChange={(fromDate, toDate) =>
-                                        setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
+                                        setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate ?? undefined })
                                     }
                                     makeLabel={(key) => (
                                         <>

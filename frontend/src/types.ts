@@ -918,7 +918,10 @@ export interface FrontendApp {
 
 export interface JobPayloadFieldOptions {
     type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    title?: string
     required?: boolean
+    default?: any
+    staff_only?: boolean
 }
 
 export interface JobSpec {
@@ -977,8 +980,8 @@ export interface AnnotationType {
     created_at: string
     updated_at: string
     dashboard_item?: number | null
-    insight_short_id?: InsightModel['short_id']
-    insight_name?: InsightModel['name']
+    insight_short_id?: InsightModel['short_id'] | null
+    insight_name?: InsightModel['name'] | null
     deleted?: boolean
     creation_type?: string
 }
@@ -1767,7 +1770,7 @@ export interface VersionType {
     release_date?: string
 }
 
-export interface dateMappingOption {
+export interface DateMappingOption {
     key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
@@ -2028,4 +2031,5 @@ export enum YesOrNoResponse {
 export interface SessionRecordingPlayerProps {
     sessionRecordingId: SessionRecordingId
     playerKey: string
+    includeMeta?: boolean
 }

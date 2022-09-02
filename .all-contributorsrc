@@ -2070,6 +2070,24 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "klamas1",
+      "name": "klamas1",
+      "avatar_url": "https://avatars.githubusercontent.com/u/16032928?v=4",
+      "profile": "https://github.com/klamas1",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "Thebigbignooby",
+      "name": "Rory Dent",
+      "avatar_url": "https://avatars.githubusercontent.com/u/4172090?v=4",
+      "profile": "http://thebigbignooby.github.io/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

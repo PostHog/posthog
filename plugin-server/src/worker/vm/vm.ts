@@ -15,6 +15,7 @@ import { imports } from './imports'
 import { transformCode } from './transforms'
 import { upgradeExportEvents } from './upgrades/export-events'
 import { addHistoricalEventsExportCapability } from './upgrades/historical-export/export-historical-events'
+import { addHistoricalEventsExportCapabilityV2 } from './upgrades/historical-export/export-historical-events-v2'
 
 export class TimeoutError extends RetryError {
     name = 'TimeoutError'
@@ -230,6 +231,7 @@ export function createPluginConfigVM(
 
         if (hub.HISTORICAL_EXPORTS_ENABLED) {
             addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+            addHistoricalEventsExportCapabilityV2(hub, pluginConfig, vmResponse)
         }
     } else {
         statsdTiming('vm_setup_sync_section')

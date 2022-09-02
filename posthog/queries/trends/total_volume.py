@@ -119,11 +119,10 @@ class TrendsTotalVolume:
     def _parse_total_volume_result(self, filter: Filter, entity: Entity, team: Team) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
-            for _, stats in enumerate(result):
+            for stats in result:
                 parsed_result = parse_response(stats, filter)
                 parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team.pk, stats[0])})
                 parsed_results.append(parsed_result)
-
                 parsed_result.update({"filter": filter.to_dict()})
             return parsed_results
 
@@ -151,7 +150,7 @@ class TrendsTotalVolume:
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
-                        "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                        "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
                     },
                 }
             ]
@@ -186,7 +185,7 @@ class TrendsTotalVolume:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
                 }
             )
         return persons_url

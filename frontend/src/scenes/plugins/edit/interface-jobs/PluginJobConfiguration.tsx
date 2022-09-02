@@ -1,9 +1,10 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { PlayCircleOutlined, CheckOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons'
 import { Tooltip, Form, Input, Radio, InputNumber, DatePicker } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import MonacoEditor from '@monaco-editor/react'
 import { useValues, useActions } from 'kea'
+import { userLogic } from 'scenes/userLogic'
 import { JobSpec } from '~/types'
 import { validateJsonFormItem } from 'lib/utils'
 import { interfaceJobsLogic } from './interfaceJobsLogic'
@@ -21,7 +22,8 @@ const requiredRule = {
 }
 
 // keep in sync with plugin-server's export-historical-events.ts
-const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
+export const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
+export const HISTORICAL_EXPORT_JOB_NAME_V2 = 'Export historical events V2'
 
 export function PluginJobConfiguration({
     jobName,
@@ -29,7 +31,7 @@ export function PluginJobConfiguration({
     pluginConfigId,
     pluginId,
 }: PluginJobConfigurationProps): JSX.Element {
-    if (jobName === HISTORICAL_EXPORT_JOB_NAME) {
+    if ([HISTORICAL_EXPORT_JOB_NAME].includes(jobName)) {
         jobSpec.payload = {
             dateFrom: { type: 'date' },
             dateTo: { type: 'date' },
@@ -39,6 +41,7 @@ export function PluginJobConfiguration({
     const logicProps = { jobName, pluginConfigId, pluginId, jobSpecPayload: jobSpec.payload }
     const { setIsJobModalOpen, runJob, playButtonOnClick } = useActions(interfaceJobsLogic(logicProps))
     const { runJobAvailable, isJobModalOpen } = useValues(interfaceJobsLogic(logicProps))
+    const { user } = useValues(userLogic)
 
     const jobHasEmptyPayload = Object.keys(jobSpec.payload || {}).length === 0
 
@@ -49,6 +52,12 @@ export function PluginJobConfiguration({
             ? `Run job`
             : `Configure and run job`
         : `You already ran this job recently.`
+
+    const shownFields = useMemo(() => {
+        return Object.entries(jobSpec.payload || {})
+            .filter(([, options]) => !options.staff_only || user?.is_staff || user?.is_impersonated)
+            .sort((a, b) => a[0].localeCompare(b[0]))
+    }, [jobSpec, user])
 
     return (
         <>
@@ -79,11 +88,12 @@ export function PluginJobConfiguration({
                 okText={'Run job now'}
                 title={`Configuring job '${jobName}'`}
             >
-                {jobSpec.payload ? (
+                {shownFields.length > 0 ? (
                     <Form form={form} layout="vertical">
-                        {Object.entries(jobSpec.payload).map(([key, options]) => (
+                        {shownFields.map(([key, options]) => (
                             <span key={key}>
                                 <Form.Item
+                                    initialValue={options.default}
                                     style={{ marginBottom: 15 }}
                                     name={key}
                                     required={!!options.required}
@@ -97,7 +107,7 @@ export function PluginJobConfiguration({
                                               ]
                                             : []
                                     }
-                                    label={key}
+                                    label={options.title || key}
                                 >
                                     {options.type === 'string' ? (
                                         <Input />

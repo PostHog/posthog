@@ -562,6 +562,8 @@ export const insightLogic = kea<insightLogicType>({
                     : sum(filters.properties?.values?.map((x) => x.values.length) || [])
             },
         ],
+        intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
+        timezone: [(s) => [s.insight], (insight) => insight?.timezone || 'UTC'],
         exporterResourceParams: [
             (s) => [s.filters, s.currentTeamId, s.insight],
             (
@@ -912,6 +914,7 @@ export const insightLogic = kea<insightLogicType>({
             })
         },
         cancelChanges: ({ goToViewMode }) => {
+            actions.setInsightMetadata({ name: values.savedInsight.name, description: values.savedInsight.description })
             actions.setFilters(values.savedInsight.filters || {})
             if (goToViewMode) {
                 insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)

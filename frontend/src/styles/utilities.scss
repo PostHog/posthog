@@ -89,6 +89,18 @@
     }
 }
 
+.space-y-px {
+    & > * + * {
+        margin-top: 1px;
+    }
+}
+
+.space-x-px {
+    & > * + * {
+        margin-left: 1px;
+    }
+}
+
 // Margins/padding
 @each $kind in ('margin', 'padding') {
     $char: str-slice($kind, 0, 1);
@@ -486,6 +498,15 @@
 .rounded-none {
     border-radius: 0px;
 }
+.rounded-r-none {
+    border-top-right-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+.rounded-l-none {
+    border-top-left-radius: 0px;
+    border-bottom-left-radius: 0px;
+}
+
 .rounded-sm {
     border-radius: 0.125rem; /* 2px */
 }

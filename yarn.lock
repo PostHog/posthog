@@ -2444,10 +2444,10 @@
     tunnel-agent "^0.6.0"
     uuid "^8.3.2"
 
-"@cypress/webpack-preprocessor@^5.12.0":
-  version "5.12.0"
-  resolved "https://registry.yarnpkg.com/@cypress/webpack-preprocessor/-/webpack-preprocessor-5.12.0.tgz#231f6c86423237e17eaf12ce6193d4b67290b852"
-  integrity sha512-D/eLKKlgx6c/307FaCmjZGjFA64G29aA8KcCy6WqpNK/bSnRdPquMW2plemIsT/B80TK2DDKzZX/H3FcS41ZDA==
+"@cypress/webpack-preprocessor@^5.12.2":
+  version "5.12.2"
+  resolved "https://registry.yarnpkg.com/@cypress/webpack-preprocessor/-/webpack-preprocessor-5.12.2.tgz#9cc623a5629980d7f2619569bffc8e3f05a701ae"
+  integrity sha512-t29wEFvI87IMnCd8taRunwStNsFjFWg138fGF0hPQOYgSj30fbzCEwFD9cAQLYMMcjjuXcnnw8yOfkzIZBBNVQ==
   dependencies:
     bluebird "3.7.1"
     debug "^4.3.2"
@@ -7763,10 +7763,10 @@ cypress-axe@^1.0.0:
   resolved "https://registry.yarnpkg.com/cypress-axe/-/cypress-axe-1.0.0.tgz#ab4e9486eaa3bb956a90a1ae40d52df42827b4f0"
   integrity sha512-QBlNMAd5eZoyhG8RGGR/pLtpHGkvgWXm2tkP68scJ+AjYiNNOlJihxoEwH93RT+rWOLrefw4iWwEx8kpEcrvJA==
 
-cypress-terminal-report@^4.1.1:
-  version "4.1.1"
-  resolved "https://registry.yarnpkg.com/cypress-terminal-report/-/cypress-terminal-report-4.1.1.tgz#245d731ca2db3d23e0ac1307073d57574606c496"
-  integrity sha512-3KREZwj3oLT0qilcPsBhwPdogJMtKkpkIfweV8uBd0bltM9uHMWiv+JzsXr6rfCPzfDvDG9YB7x67TVxWn1aGQ==
+cypress-terminal-report@^4.1.2:
+  version "4.1.2"
+  resolved "https://registry.yarnpkg.com/cypress-terminal-report/-/cypress-terminal-report-4.1.2.tgz#d5652ebec4d630f24a44fd0907477d394dc3585c"
+  integrity sha512-UyCR7AJXMJYt87JXBAxdZxWC+FXG1S7+ePVACcumUQZq5lH490pXPPg47KY/7J6yyFatT6da+Mb1/J6E7K8sLg==
   dependencies:
     chalk "^4.0.0"
     fs-extra "^10.1.0"
@@ -7821,10 +7821,10 @@ cypress@*:
     untildify "^4.0.0"
     yauzl "^2.10.0"
 
-cypress@^10.4.0:
-  version "10.4.0"
-  resolved "https://registry.yarnpkg.com/cypress/-/cypress-10.4.0.tgz#bb5b3b6588ad49eff172fecf5778cc0da2980e4e"
-  integrity sha512-OM7F8MRE01SHQRVVzunid1ZK1m90XTxYnl+7uZfIrB4CYqUDCrZEeSyCXzIbsS6qcaijVCAhqDL60SxG8N6hew==
+cypress@^10.7.0:
+  version "10.7.0"
+  resolved "https://registry.yarnpkg.com/cypress/-/cypress-10.7.0.tgz#2d37f8b9751c6de33ee48639cb7e67a2ce593231"
+  integrity sha512-gTFvjrUoBnqPPOu9Vl5SBHuFlzx/Wxg/ZXIz2H4lzoOLFelKeF7mbwYUOzgzgF0oieU2WhJAestQdkgwJMMTvQ==
   dependencies:
     "@cypress/request" "^2.88.10"
     "@cypress/xvfb" "^1.2.4"

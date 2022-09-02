@@ -19,7 +19,7 @@ from posthog.test.base import (
 class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_recordings_list_test(SessionRecordingList, _create_event, Action.objects.create, ActionStep.objects.create)):  # type: ignore
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url"])
+    @test_with_materialized_columns(person_properties=["email"])
     def test_event_filter_with_person_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "bla2"})

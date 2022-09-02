@@ -15,9 +15,9 @@ import {
 import { clearError, processError } from '../../utils/db/error'
 import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { instrument } from '../../utils/metrics'
+import { getNextRetryMs } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
-import { getNextRetryMs } from '../retries'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
 import { createPluginConfigVM } from './vm'
 

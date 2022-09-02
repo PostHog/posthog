@@ -1,5 +1,6 @@
 from typing import Counter, List, Set, cast
 
+from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.entity import Entity
@@ -16,6 +17,24 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
         used_properties = self._used_properties_with_type("group")
         return set(cast(GroupTypeIndex, group_type_index) for _, _, group_type_index in used_properties)
+
+    @cached_property
+    def group_on_event_columns_to_query(self) -> Set[ColumnName]:
+        "Returns a list of event table group columns containing materialized properties that this query needs"
+        used_properties = self._used_properties_with_type("group")
+
+        columns_to_query: Set[ColumnName] = set()
+
+        for group_type_index in range(5):
+            columns_to_query = columns_to_query.union(
+                self.columns_to_query(
+                    "events",
+                    set([property for property in used_properties if property[2] == group_type_index]),
+                    f"group{group_type_index}_properties",
+                )
+            )
+
+        return columns_to_query
 
     @cached_property
     def properties_used_in_filter(self) -> Counter[PropertyIdentifier]:

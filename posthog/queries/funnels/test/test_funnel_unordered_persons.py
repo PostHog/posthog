@@ -74,7 +74,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         filter = filter.with_data({"funnel_step": -1})
         with pytest.raises(ValueError):
-            _, _ = ClickhouseFunnelUnorderedActors(filter, self.team).run()
+            _, _, _ = ClickhouseFunnelUnorderedActors(filter, self.team).run()
 
     def test_first_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -92,7 +92,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
+        _, serialized_results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
         self.assertEqual(35, len(serialized_results))
 
     def test_last_step(self):
@@ -111,7 +111,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
+        _, serialized_results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
         self.assertEqual(5, len(serialized_results))
 
     def test_second_step_dropoff(self):
@@ -130,7 +130,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
+        _, serialized_results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
         self.assertEqual(20, len(serialized_results))
 
     def test_last_step_dropoff(self):
@@ -149,7 +149,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
+        _, serialized_results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
         self.assertEqual(10, len(serialized_results))
 
     @snapshot_clickhouse_queries
@@ -191,7 +191,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",  # <- The important line
             }
         )
-        _, results = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
+        _, results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(
             results[0]["matched_recordings"], [],

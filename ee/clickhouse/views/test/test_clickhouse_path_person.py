@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.constants import FUNNEL_PATH_AFTER_STEP, INSIGHT_FUNNELS, INSIGHT_PATHS
 from posthog.models.cohort import Cohort
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
@@ -18,6 +19,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
             if delete:
                 person = Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
             else:
+                person = None
                 _create_person(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(
                 event="step one",
@@ -25,6 +27,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 timestamp="2021-05-01 00:00:00",
                 properties={"$browser": "Chrome"},
+                person_id=person.uuid if person else None,
             )
             if i % 2 == 0:
                 _create_event(
@@ -33,6 +36,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     timestamp="2021-05-01 00:10:00",
                     properties={"$browser": "Chrome"},
+                    person_id=person.uuid if person else None,
                 )
             _create_event(
                 event="step three",
@@ -40,6 +44,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 timestamp="2021-05-01 00:20:00",
                 properties={"$browser": "Chrome"},
+                person_id=person.uuid if person else None,
             )
             if delete:
                 person.delete()
@@ -159,21 +164,37 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.models.person.util.delete_person")
     def test_basic_pagination_with_deleted(self, delete_person_patch):
+        if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+            return
+
         cache.clear()
-        self._create_sample_data(110, delete=True)
+        self._create_sample_data(20, delete=True)
         request_data = {
             "insight": INSIGHT_PATHS,
             "filter_test_accounts": "false",
             "date_from": "2021-05-01",
             "date_to": "2021-05-10",
+            "limit": 15,
         }
 
-        response = self.client.get("/api/person/path/", data=request_data)
+        response = self.client.get(f"/api/person/path/", data=request_data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
         people = j["results"][0]["people"]
         next = j["next"]
+        missing_persons = j["missing_persons"]
         self.assertEqual(0, len(people))
+        self.assertEqual(15, missing_persons)
+        self.assertIsNotNone(next)
+
+        response = self.client.get(next)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        j = response.json()
+        people = j["results"][0]["people"]
+        next = j["next"]
+        missing_persons = j["missing_persons"]
+        self.assertEqual(0, len(people))
+        self.assertEqual(5, missing_persons)
         self.assertIsNone(next)
 
     def test_basic_format_with_funnel_path_post(self):
