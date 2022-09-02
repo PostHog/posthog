@@ -10,8 +10,7 @@
 
         &::after {
             @extend %mixin-gradient-overlay;
-            width: calc(100% - 16px); // .ant-row gutter
-            left: 8px;
+            width: 100%;
             height: 150px;
         }
     }
