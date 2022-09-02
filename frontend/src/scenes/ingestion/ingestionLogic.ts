@@ -20,28 +20,43 @@ import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { windowValues } from 'kea-window-values'
+import { billingLogic } from 'scenes/billing/billingLogic'
+
+export const STEPS = ['Get started', 'Connect your product', 'Listen for events', 'Done!']
+
+export const STEPS_WITH_BILLING = [
+    'Get started',
+    'Connect your product',
+    'Listen for events',
+    'Add payment method',
+    'Done!',
+]
 
 export const ingestionLogic = kea<ingestionLogicType>([
     path(['scenes', 'ingestion', 'ingestionLogic']),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], billingLogic, ['billing'], teamLogic, ['currentTeam']],
         actions: [teamLogic, ['updateCurrentTeamSuccess']],
     }),
     actions({
         setPlatform: (platform: PlatformType) => ({ platform }),
         setFramework: (framework: Framework) => ({ framework: framework as Framework }),
         setVerify: (verify: boolean) => ({ verify }),
-        setState: (platform: PlatformType, framework: string | null, verify: boolean) => ({
+        setAddBilling: (addBilling: boolean) => ({ addBilling }),
+        setState: (platform: PlatformType, framework: string | null, verify: boolean, addBilling: boolean) => ({
             platform,
             framework,
             verify,
+            addBilling,
         }),
         setActiveTab: (tab: string) => ({ tab }),
         setInstructionsModal: (isOpen: boolean) => ({ isOpen }),
         setThirdPartySource: (sourceIndex: number) => ({ sourceIndex }),
         openThirdPartyPluginModal: (plugin: PluginTypeWithConfig) => ({ plugin }),
-        setIndex: (index: number) => ({ index }),
         completeOnboarding: true,
+        setCurrentIndex: (currentIndex: number) => ({ currentIndex }),
+        sidebarStepClick: (index: number) => ({ index }),
+        onBack: true,
     }),
     windowValues({
         isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
@@ -66,8 +81,19 @@ export const ingestionLogic = kea<ingestionLogicType>([
             {
                 setPlatform: () => false,
                 setFramework: () => false,
+                setAddBilling: () => false,
                 setVerify: (_, { verify }) => verify,
                 setState: (_, { verify }) => verify,
+            },
+        ],
+        addBilling: [
+            false,
+            {
+                setPlatform: () => false,
+                setFramework: () => false,
+                setVerify: () => false,
+                setAddBilling: (_, { addBilling }) => addBilling,
+                setState: (_, { addBilling }) => addBilling,
             },
         ],
         activeTab: [
@@ -98,11 +124,15 @@ export const ingestionLogic = kea<ingestionLogicType>([
         currentIndex: [
             0,
             {
-                setIndex: (_, { index }) => index,
+                setCurrentIndex: (_, { currentIndex }) => currentIndex,
                 setPlatform: (state, { platform }) => (platform ? 1 : Math.max(state - 1, 0)),
                 setFramework: (state, { framework }) => (framework ? 1 : Math.max(state - 1, 0)),
                 setVerify: () => 2,
-                setState: (_, { platform, framework, verify }) => {
+                setAddBilling: () => 3,
+                setState: (_, { platform, framework, verify, addBilling }) => {
+                    if (addBilling) {
+                        return 3
+                    }
                     if (verify) {
                         return 2
                     }
@@ -114,18 +144,26 @@ export const ingestionLogic = kea<ingestionLogicType>([
             },
         ],
     }),
-
     selectors(() => ({
         index: [
-            (s) => [s.platform, s.framework, s.verify],
-            (platform, framework, verify) => {
-                if (verify) {
+            (s) => [s.platform, s.framework, s.verify, s.addBilling],
+            (platform, framework, verify, addBilling) => {
+                if (addBilling) {
                     return 3
                 }
-                if (platform === WEB || platform === BOOKMARKLET || platform === THIRD_PARTY) {
+                if (verify) {
                     return 2
                 }
+                if (platform === WEB || platform === BOOKMARKLET || platform === THIRD_PARTY) {
+                    return 1
+                }
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
+            },
+        ],
+        previousStepName: [
+            (s) => [s.index],
+            (index) => {
+                return STEPS[index > 0 ? index - 1 : 0]
             },
         ],
         frameworkString: [
@@ -156,6 +194,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setPlatform: () => getUrl(values),
         setFramework: () => getUrl(values),
         setVerify: () => getUrl(values),
+        setAddBilling: () => getUrl(values),
         updateCurrentTeamSuccess: () => {
             if (router.values.location.pathname == '/ingestion/verify') {
                 return urls.events()
@@ -164,7 +203,25 @@ export const ingestionLogic = kea<ingestionLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        '/ingestion': () => actions.setState(null, null, false),
+        '/ingestion': () => actions.setState(null, null, false, false),
+        '/ingestion/billing': (_: any, { platform, framework }) => {
+            actions.setState(
+                platform === 'mobile'
+                    ? MOBILE
+                    : platform === 'web'
+                    ? WEB
+                    : platform === 'backend'
+                    ? BACKEND
+                    : platform === 'just-exploring'
+                    ? BOOKMARKLET
+                    : platform === 'third-party'
+                    ? THIRD_PARTY
+                    : null,
+                framework,
+                false,
+                true
+            )
+        },
         '/ingestion/verify': (_: any, { platform, framework }) => {
             actions.setState(
                 platform === 'mobile'
@@ -179,13 +236,15 @@ export const ingestionLogic = kea<ingestionLogicType>([
                     ? THIRD_PARTY
                     : null,
                 framework,
-                true
+                true,
+                false
             )
         },
         '/ingestion/api': (_: any, { platform }) => {
             actions.setState(
                 platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
                 API,
+                false,
                 false
             )
         },
@@ -203,11 +262,12 @@ export const ingestionLogic = kea<ingestionLogicType>([
                     ? THIRD_PARTY
                     : null,
                 framework as Framework,
+                false,
                 false
             )
         },
     })),
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
         completeOnboarding: () => {
             teamLogic.actions.updateCurrentTeam({
                 completed_snippet_onboarding: true,
@@ -222,13 +282,57 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setFramework: ({ framework }) => {
             eventUsageLogic.actions.reportIngestionSelectFrameworkType(framework)
         },
+        sidebarStepClick: ({ index }) => {
+            switch (index) {
+                case 0:
+                    actions.setPlatform(null)
+                    return
+                case 1:
+                    if (values.platform) {
+                        actions.setVerify(false)
+                        actions.setPlatform(values.platform)
+                    }
+                    return
+                case 2:
+                    if (values.platform) {
+                        actions.setVerify(true)
+                    }
+                    return
+                case 3:
+                    if (values.platform) {
+                        actions.setAddBilling(true)
+                    }
+                    return
+                default:
+                    return
+            }
+        },
+        onBack: () => {
+            switch (values.index) {
+                case 3:
+                    actions.setState(values.platform, values.framework, true, false)
+                    return
+                case 2:
+                    actions.setState(values.platform, null, false, false)
+                    return
+                case 1:
+                    actions.setState(null, null, false, false)
+                    return
+                default:
+                    return
+            }
+        },
     })),
 ])
 
 function getUrl(values: ingestionLogicType['values']): string | [string, Record<string, undefined | string>] {
-    const { platform, framework, verify } = values
+    const { platform, framework, verify, addBilling } = values
 
     let url = '/ingestion'
+
+    if (addBilling) {
+        return url + '/billing'
+    }
 
     if (verify) {
         url += '/verify'

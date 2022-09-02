@@ -1,6 +1,4 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconChevronRight } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -8,6 +6,7 @@ import React from 'react'
 import { BOOKMARKLET } from '../constants'
 import { ingestionLogic } from '../ingestionLogic'
 import './Panels.scss'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 
 export function PanelFooter(): JSX.Element {
     const { platform } = useValues(ingestionLogic)
@@ -70,22 +69,20 @@ export function PanelFooter(): JSX.Element {
     )
 }
 
-export function PanelHeader({ index }: { index: number }): JSX.Element {
+export function PanelHeader(): JSX.Element | null {
+    const { isSmallScreen, previousStepName, index } = useValues(ingestionLogic)
+    const { onBack } = useActions(ingestionLogic)
+
+    // no back buttons on the first screen
+    if (index === 0) {
+        return null
+    }
+
     return (
-        <div className="flex items-center text-muted">
-            <span className={clsx({ 'font-medium': index === 1 })}>Step 1</span>
-            {index > 1 && (
-                <>
-                    <IconChevronRight />
-                    <span className={clsx({ 'font-medium': index === 2 })}>Step 2</span>
-                </>
-            )}
-            {index > 2 && (
-                <>
-                    <IconChevronRight />
-                    <span className={clsx({ 'font-medium': index === 3 })}>Step 3</span>
-                </>
-            )}
+        <div className="flex items-center" data-attr="wizard-step-counter">
+            <LemonButton type="tertiary" status="primary" onClick={onBack} icon={<ArrowLeftOutlined />}>
+                {isSmallScreen ? '' : previousStepName}
+            </LemonButton>
         </div>
     )
 }
