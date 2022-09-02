@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DashboardType } from '~/types'
-import { Skeleton } from 'antd'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { IconCottage } from 'lib/components/icons'
 import { LemonRow } from 'lib/components/LemonRow'
 import { LemonModal } from 'lib/components/LemonModal'
+import { Skeleton } from 'lib/components/Skeleton/Skeleton'
 
 export function PrimaryDashboardModal(): JSX.Element {
     const { isOpen, primaryDashboardId } = useValues(primaryDashboardModalLogic)
@@ -32,8 +32,8 @@ export function PrimaryDashboardModal(): JSX.Element {
             }
         >
             {dashboardsLoading ? (
-                <div className="p-4">
-                    <Skeleton active />
+                <div className="space-y-2">
+                    <Skeleton.Row repeat={4} />
                 </div>
             ) : (
                 <div className="space-y-2">
