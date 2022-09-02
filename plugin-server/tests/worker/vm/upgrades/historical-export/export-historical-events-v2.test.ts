@@ -257,14 +257,17 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
 
-        it('stops processing after 15 retries', async () => {
-            await exportHistoricalEvents({ ...defaultPayload, retriesPerformedSoFar: 15 })
+        it('stops processing after HISTORICAL_EXPORTS_MAX_RETRY_COUNT retries', async () => {
+            await exportHistoricalEvents({
+                ...defaultPayload,
+                retriesPerformedSoFar: hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT,
+            })
 
             expect(fetchEventsForInterval).not.toHaveBeenCalled()
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: expect.stringContaining(
-                        'Exporting chunk 2021-11-01T00:00:00.000Z to 2021-11-01T05:00:00.000Z failed after 15 retries. Stopping export.'
+                        `Exporting chunk 2021-11-01T00:00:00.000Z to 2021-11-01T05:00:00.000Z failed after ${hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT} retries. Stopping export.`
                     ),
                 })
             )
@@ -298,7 +301,8 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ...defaultPayload,
                     timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
                     offset: 0,
-                    fetchTimeInterval: defaultPayload.fetchTimeInterval * 1.2,
+                    fetchTimeInterval:
+                        defaultPayload.fetchTimeInterval * hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER,
                 })
             })
 
@@ -414,7 +418,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
                     endTime: 1635742800000,
                     exportId: 1,
-                    fetchTimeInterval: 600000,
+                    fetchTimeInterval: hub.HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW,
                     offset: 0,
                     retriesPerformedSoFar: 0,
                     startTime: 1635724800000,
@@ -443,7 +447,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     statusTime: 5_000_000_000,
                     endTime: 1635742800000,
                     exportId: 1,
-                    fetchTimeInterval: 600000,
+                    fetchTimeInterval: hub.HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW,
                     offset: 0,
                     retriesPerformedSoFar: 0,
                     startTime: 1635724800000,
@@ -670,7 +674,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         it('increases fetchTimeInterval if time range mostly empty', () => {
             expect(nextCursor(defaultPayload, EVENTS_PER_RUN * 0.1)).toEqual({
                 timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
-                fetchTimeInterval: ONE_HOUR * 1.2,
+                fetchTimeInterval: ONE_HOUR * hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER,
                 offset: 0,
             })
         })
@@ -690,7 +694,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         it('decreases fetchTimeInterval if on a late page and no more to fetch', () => {
             expect(nextCursor({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN }, 10)).toEqual({
                 timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
-                fetchTimeInterval: ONE_HOUR / 1.2,
+                fetchTimeInterval: ONE_HOUR / hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER,
                 offset: 0,
             })
         })

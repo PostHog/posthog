@@ -22,7 +22,8 @@ const requiredRule = {
 }
 
 // keep in sync with plugin-server's export-historical-events.ts
-const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
+export const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
+export const HISTORICAL_EXPORT_JOB_NAME_V2 = 'Export historical events V2'
 
 export function PluginJobConfiguration({
     jobName,
