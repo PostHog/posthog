@@ -4,6 +4,8 @@ import { PlanInterface } from '~/types'
 import clsx from 'clsx'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { IconLock } from 'lib/components/icons'
+import { billingLogic } from './billingLogic'
+import { useActions, useValues } from 'kea'
 
 export function Plan({
     plan,
@@ -18,20 +20,12 @@ export function Plan({
     currentPlan?: boolean
     primaryCallToAction?: boolean
 }): JSX.Element {
-    const [detail, setDetail] = useState('')
-    const [isDetailLoading, setIsDetailLoading] = useState(true)
     const [showDetails, setShowDetails] = useState(false)
-
-    const loadPlanDetail = async (key: string): Promise<void> => {
-        const response = await fetch(`/api/plans/${key}/template/`)
-        if (response.ok) {
-            setDetail(await response.text())
-        }
-        setIsDetailLoading(false)
-    }
+    const { planDetails, planDetailsLoading } = useValues(billingLogic)
+    const { loadPlanDetails } = useActions(billingLogic)
 
     useEffect(() => {
-        loadPlanDetail(plan.key)
+        loadPlanDetails(plan.key)
     }, [plan.key])
 
     return (
@@ -83,10 +77,17 @@ export function Plan({
             {(showDetails || !canHideDetails) && (
                 <>
                     <LemonDivider className="my-4" />
-                    {isDetailLoading ? (
+                    {planDetailsLoading ? (
                         <Skeleton paragraph={{ rows: 6 }} title={false} className="mt-4" active />
                     ) : (
-                        <div className="BillingPlan__description" dangerouslySetInnerHTML={{ __html: detail }} />
+                        <>
+                            {planDetails && (
+                                <div
+                                    className="BillingPlan__description"
+                                    dangerouslySetInnerHTML={{ __html: planDetails }}
+                                />
+                            )}
+                        </>
                     )}
                 </>
             )}

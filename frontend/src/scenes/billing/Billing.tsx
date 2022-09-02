@@ -36,13 +36,12 @@ export function Billing(): JSX.Element {
                     Your plan is <b>currently inactive</b> as you haven't finished setting up your billing information.
                 </AlertMessage>
             )}
-            {isSmallScreen && (
+            {isSmallScreen ? (
                 <div className="flex flex-col space-y-4">
                     <CurrentUsage />
                     {billing?.plan ? <Plan plan={billing.plan} currentPlan /> : <BillingEnrollment />}
                 </div>
-            )}
-            {!isSmallScreen && (
+            ) : (
                 <div className="flex flex-row space-x-4">
                     <div className="w-2/3">
                         <CurrentUsage />
