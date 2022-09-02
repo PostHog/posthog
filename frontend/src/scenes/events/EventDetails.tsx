@@ -9,10 +9,16 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/components/LemonButton'
 import { pluralize } from 'lib/utils'
+import { LemonTableProps } from 'lib/components/LemonTable'
 
 const { TabPane } = Tabs
 
-export function EventDetails({ event }: { event: EventType }): JSX.Element {
+interface EventDetailsProps {
+    event: EventType
+    tableProps?: Partial<LemonTableProps<Record<string, any>>>
+}
+
+export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
     const [showHiddenProps, setShowHiddenProps] = useState(false)
 
     const displayedEventProperties: Properties = {}
@@ -35,23 +41,26 @@ export function EventDetails({ event }: { event: EventType }): JSX.Element {
             data-attr="event-details"
             defaultActiveKey="properties"
             style={{ float: 'left', width: '100%' }}
-            tabBarStyle={{ margin: 0 }}
+            tabBarStyle={{ margin: 0, paddingLeft: 12 }}
         >
             <TabPane tab="Properties" key="properties">
-                <PropertiesTable
-                    properties={{
-                        $timestamp: dayjs(event.timestamp).toISOString(),
-                        ...displayedEventProperties,
-                        ...visibleHiddenProperties,
-                    }}
-                    useDetectedPropertyType={true}
-                />
-                {hiddenPropsCount > 0 && (
-                    <LemonButton className="mb-2" onClick={() => setShowHiddenProps(!showHiddenProps)} size="small">
-                        {showHiddenProps ? 'Hide' : 'Show'}{' '}
-                        {pluralize(hiddenPropsCount, 'hidden property', 'hidden properties')}
-                    </LemonButton>
-                )}
+                <div className="ml-10">
+                    <PropertiesTable
+                        properties={{
+                            $timestamp: dayjs(event.timestamp).toISOString(),
+                            ...displayedEventProperties,
+                            ...visibleHiddenProperties,
+                        }}
+                        useDetectedPropertyType={true}
+                        tableProps={tableProps}
+                    />
+                    {hiddenPropsCount > 0 && (
+                        <LemonButton className="mb-2" onClick={() => setShowHiddenProps(!showHiddenProps)} size="small">
+                            {showHiddenProps ? 'Hide' : 'Show'}{' '}
+                            {pluralize(hiddenPropsCount, 'hidden property', 'hidden properties')}
+                        </LemonButton>
+                    )}
+                </div>
             </TabPane>
             <TabPane tab="JSON" key="json">
                 <EventJSON event={event} />

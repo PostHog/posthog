@@ -178,6 +178,11 @@ export const convertPlayerPositionToX = (
     return ((playerTime ?? 0) / durationMs) * containerWidth
 }
 
+// Determines whether a given PlayerList row should be expanded or not.
+//
+// Checks if the row should be expanded depending on the expandable prop that was passed into the component,
+// and if it's undeterminable, defaults to the component's local state. This logic is copied over from
+// LemonTable and reappropriated for session recordings.
 export function getRowExpandedState<T extends Record<string, any>>(
     record: T,
     recordIndex: number,

@@ -134,7 +134,14 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                             ? undefined
                             : {
                                   expandedRowRender: function renderExpand(record) {
-                                      return record && <EventDetails event={record as EventType} />
+                                      return (
+                                          record && (
+                                              <EventDetails
+                                                  event={record as EventType}
+                                                  tableProps={{ size: 'xs', bordered: false, className: 'pt-1' }}
+                                              />
+                                          )
+                                      )
                                   },
                               }
                     }

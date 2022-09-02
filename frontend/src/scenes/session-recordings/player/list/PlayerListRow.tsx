@@ -160,7 +160,12 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                 {expandable && expandedDetermined && (
                     <>
                         <LemonDivider className="my-0" />
-                        <div className={clsx('PlayerList__item__content__expandable', 'overflow-y-scroll px-6')}>
+                        <div
+                            className={clsx(
+                                'PlayerList__item__content__expandable',
+                                'bg-light overflow-y-scroll w-full'
+                            )}
+                        >
                             {expandable.expandedRowRender(record, recordIndex)}
                         </div>
                     </>
