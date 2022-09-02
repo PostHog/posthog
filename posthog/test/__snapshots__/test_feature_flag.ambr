@@ -17,6 +17,7 @@
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
          "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
          "posthog_team"."path_cleaning_filters",
          "posthog_team"."timezone",
          "posthog_team"."data_attributes",
