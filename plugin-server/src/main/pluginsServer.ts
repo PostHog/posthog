@@ -110,8 +110,7 @@ export async function startPluginsServer(
     })
 
     process.on('unhandledRejection', (error: Error) => {
-        status.error('🤮', 'Unhandled Promise Rejection!')
-        status.error('🤮', error)
+        status.error('🤮', `Unhandled Promise Rejection: ${error.stack}`)
 
         // Don't send some Kafka normal operation "errors" to Sentry - kafkajs handles these correctly
         if (error instanceof KafkaJSProtocolError) {
