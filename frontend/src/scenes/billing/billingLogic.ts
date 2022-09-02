@@ -92,6 +92,18 @@ export const billingLogic = kea<billingLogicType>([
                 },
             },
         ],
+        planDetails: [
+            null as string | null,
+            {
+                loadPlanDetails: async (plan) => {
+                    const response = await fetch(`/api/plans/${plan}/template/`)
+                    if (response.ok) {
+                        return await response.text()
+                    }
+                    return null
+                },
+            },
+        ],
     })),
     selectors({
         eventAllocation: [(s) => [s.billing], (billing: BillingType) => billing?.event_allocation],

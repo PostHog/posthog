@@ -66,14 +66,14 @@ export const SpaceAndGap = (): JSX.Element => {
                 <LemonButton type="primary">Button</LemonButton>
                 <LemonButton type="primary">Button</LemonButton>
                 <LemonButton type="primary">Button</LemonButton>
-                <code>gap-4 (1rem or 10px)</code>
+                <code>gap-4 (1rem or 16px)</code>
             </div>
 
             <div className="flex items-center gap-8">
                 <LemonButton type="primary">Button</LemonButton>
                 <LemonButton type="primary">Button</LemonButton>
                 <LemonButton type="primary">Button</LemonButton>
-                <code>gap-8 (2rem or 20px)</code>
+                <code>gap-8 (2rem or 32px)</code>
             </div>
         </div>
     )
@@ -172,6 +172,20 @@ export const Widths = (): JSX.Element => {
         </div>
     )
 }
+export const Heights = (): JSX.Element => {
+    return (
+        <div className="flex flex-row space-x-2" style={{ height: '100px' }}>
+            <div className="h-1/5 border rounded text-center">h-1/5</div>
+            <div className="h-1/3 border rounded text-center">h-1/3</div>
+            <div className="h-2/5 border rounded text-center">h-2/5</div>
+            <div className="h-1/2 border rounded text-center">h-1/2</div>
+            <div className="h-3/5 border rounded text-center">h-3/5</div>
+            <div className="h-2/3 border rounded text-center">h-2/3</div>
+            <div className="h-4/5 border rounded text-center">h-4/5</div>
+            <div className="h-full border rounded text-center">h-full</div>
+        </div>
+    )
+}
 
 export const AbsolutePositioning = (): JSX.Element => {
     return (
@@ -207,7 +221,7 @@ export const AbsolutePositioning = (): JSX.Element => {
                     </div>
                     <div className="w-20">
                         <div className="relative border h-20 w-20">
-                            <div className="absolute border border-primary inset-0 h-10 w-10" />
+                            <div className="absolute border border-primary inset-0" />
                         </div>
                         inset-0
                     </div>

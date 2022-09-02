@@ -1,5 +1,6 @@
 .BillingPlan {
     max-width: 500px;
+    flex-grow: 1;
     .BillingPlan__description {
         ol,
         ul {
