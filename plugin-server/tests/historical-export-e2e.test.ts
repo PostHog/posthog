@@ -109,8 +109,7 @@ describe('Historical Export (v2)', () => {
                 job: {
                     type: 'Export historical events V2',
                     payload: {
-                        dateFrom: '2021-08-01T00:00:00.000Z',
-                        dateTo: '2021-08-05T00:00:00.000Z',
+                        dateRange: ['2021-08-01', '2021-08-05'],
                         parallelism: 5,
                         $operation: 'start',
                     },
