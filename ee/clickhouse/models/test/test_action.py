@@ -27,7 +27,7 @@ def _get_events_for_action(action: Action) -> List[MockEvent]:
         ORDER BY events.timestamp DESC
     """
     events = sync_execute(query, {"team_id": action.team_id, **params})
-    return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]
+    return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]  # type: ignore
 
 
 EVENT_UUID_QUERY = "SELECT uuid FROM events WHERE {} AND team_id = %(team_id)s"
@@ -70,7 +70,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(str(result[0][0]), event_target_uuid)
+        self.assertEqual(str(result[0][0]), event_target_uuid)  # type: ignore
 
     def test_filter_event_contains_url(self):
 
@@ -101,7 +101,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(len(result), 2)
+        self.assertEqual(len(result), 2)  # type: ignore
 
     def test_filter_event_regex_url(self):
 
@@ -134,7 +134,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(len(result), 2)
+        self.assertEqual(len(result), 2)  # type: ignore
 
     def test_double(self):
         # Tests a regression where the second step properties would override those of the first step, causing issues

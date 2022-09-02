@@ -68,7 +68,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result), 1)  # type: ignore
 
     def test_prop_cohort_basic_action(self):
 
@@ -111,7 +111,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
 
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result), 1)  # type: ignore
 
     def test_prop_cohort_basic_event_days(self):
 
@@ -151,7 +151,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result), 1)  # type: ignore
 
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort2")
 
@@ -165,7 +165,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(len(result), 2)
+        self.assertEqual(len(result), 2)  # type: ignore
 
     def test_prop_cohort_basic_action_days(self):
 
@@ -206,7 +206,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result), 1)  # type: ignore
 
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 7}], name="cohort2")
 
@@ -220,7 +220,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(len(result), 2)
+        self.assertEqual(len(result), 2)  # type: ignore
 
     def test_prop_cohort_multiple_groups(self):
 
@@ -244,7 +244,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(len(result), 2)
+        self.assertEqual(len(result), 2)  # type: ignore
 
     def test_prop_cohort_with_negation(self):
         team2 = Organization.objects.bootstrap(None)[2]
@@ -270,7 +270,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertIn("\nFROM person_distinct_id2\n", final_query)
 
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
-        self.assertEqual(len(result), 0)
+        self.assertEqual(len(result), 0)  # type: ignore
 
     def test_cohort_get_person_ids_by_cohort_id(self):
         user1 = _create_person(distinct_ids=["user1"], team_id=self.team.pk, properties={"$some_prop": "something"})
@@ -305,7 +305,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         # test SQLi
         Person.objects.create(team_id=self.team.pk, distinct_ids=["'); truncate person_static_cohort; --"])
         cohort.insert_users_by_list(["'); truncate person_static_cohort; --", "123"])
-        results = sync_execute(
+        results = sync_execute(  # type: ignore
             "select count(1) from person_static_cohort where team_id = %(team_id)s", {"team_id": self.team.pk}
         )[0][0]
         self.assertEqual(results, 3)

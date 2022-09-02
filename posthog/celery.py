@@ -286,8 +286,10 @@ def clickhouse_lag():
         try:
             QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
             query = QUERY.format(table=table)
-            lag = sync_execute(query)[0][2]
-            gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
+            query_result = sync_execute(query)
+            if query_result is not None:
+                lag = query_result[0][2]
+                gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
         except:
             pass
 
@@ -311,8 +313,10 @@ def ingestion_lag():
             query = """
                 SELECT now() - max(parseDateTimeBestEffortOrNull(JSONExtractString(properties, '$timestamp')))
                 FROM events WHERE team_id IN %(team_ids)s AND _timestamp > yesterday() AND event = %(event)s;"""
-            lag = sync_execute(query, {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS, "event": event})[0][0]
-            gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
+            query_result = sync_execute(query, {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS, "event": event})
+            if query_result is not None:
+                lag = query_result[0][0]
+                gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
         except:
             pass
 

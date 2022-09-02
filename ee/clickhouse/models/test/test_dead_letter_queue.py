@@ -90,7 +90,7 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
         self.assertIn(inserted_dlq_event, events_returned)
 
     def test_kafka_insert(self):
-        row_count_before_insert = sync_execute(f"SELECT count(1) FROM {DEAD_LETTER_QUEUE_TABLE}")[0][0]
+        row_count_before_insert = sync_execute(f"SELECT count(1) FROM {DEAD_LETTER_QUEUE_TABLE}")[0][0]  # type: ignore
         inserted_dlq_event = get_dlq_event()
 
         new_error = "cannot reach db to fetch team"

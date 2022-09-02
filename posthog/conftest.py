@@ -78,7 +78,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
             pass
 
     database.create_database()  # Create database if it doesn't exist
-    table_count = sync_execute(
+    table_count = sync_execute(  # type: ignore
         "SELECT count() FROM system.tables WHERE database = %(database)s", {"database": settings.CLICKHOUSE_DATABASE}
     )[0][0]
     create_clickhouse_tables(table_count)

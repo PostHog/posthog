@@ -278,7 +278,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         self.assertRowCount(1, "plugin_log_entries")
 
     def assertRowCount(self, expected, table="events"):
-        result = sync_execute(f"SELECT count() FROM {table}")[0][0]
+        result = sync_execute(f"SELECT count() FROM {table}")[0][0]  # type: ignore
         self.assertEqual(result, expected)
 
     def _insert_cohortpeople_row(self, team: Team, person_id: UUID, cohort_id: int):

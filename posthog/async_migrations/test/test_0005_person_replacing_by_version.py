@@ -136,13 +136,13 @@ class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMix
             """,
             {"database": settings.CLICKHOUSE_DATABASE},
         )
-        table_results = [row[0] for row in table_results]
+        table_results = [row[0] for row in table_results]  # type: ignore
 
         self.assertEqual(
             table_results, ["kafka_person", "person", "person_backup_0005_person_replacing_by_version", "person_mv"]
         )
         for name in table_results:
-            create_table_query = sync_execute(f"SHOW CREATE TABLE {name}")[0][0]
+            create_table_query = sync_execute(f"SHOW CREATE TABLE {name}")[0][0]  # type: ignore
             assert self.sanitize(create_table_query) == self.snapshot
 
     def sanitize(self, create_table_query):

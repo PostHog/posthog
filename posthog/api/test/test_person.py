@@ -262,9 +262,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([(100, 1, "{}")], ch_persons)
         # No async deletion is scheduled
         self.assertEqual(AsyncDeletion.objects.filter(team=self.team).count(), 0)
-        ch_events = sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[
+        ch_events = sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[  # type: ignore
             0
-        ][0]
+        ][
+            0
+        ]
         self.assertEqual(ch_events, 3)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
@@ -567,18 +569,18 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         clickhouse_people = sync_execute(
             "SELECT id FROM person FINAL WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
         )
-        self.assertCountEqual(clickhouse_people, [(person.uuid,) for person in people])
+        self.assertCountEqual(clickhouse_people, [(person.uuid,) for person in people])  # type: ignore
 
         pdis2 = sync_execute(
             "SELECT person_id, distinct_id, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )
 
-        self.assertEqual(len(pdis2), PersonDistinctId.objects.count())
+        self.assertEqual(len(pdis2), PersonDistinctId.objects.count())  # type: ignore
 
         for person in people:
             self.assertEqual(len(person.distinct_ids), 1)
-            matching_row = next(row for row in pdis2 if row[0] == person.uuid)
+            matching_row = next(row for row in pdis2 if row[0] == person.uuid)  # type: ignore
             self.assertEqual(matching_row, (person.uuid, person.distinct_ids[0], 0))
 
     @freeze_time("2021-08-25T22:09:14.252Z")

@@ -265,14 +265,16 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         )
 
     def test_no_extra_tables(self):
-        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
-        initial_table_count = sync_execute("SELECT count() FROM system.tables")[0][0]
-        initial_dictionary_count = sync_execute("SELECT count() FROM system.dictionaries")[0][0]
+        create_event(
+            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
+        )
+        initial_table_count = sync_execute("SELECT count() FROM system.tables")[0][0]  # type: ignore
+        initial_dictionary_count = sync_execute("SELECT count() FROM system.dictionaries")[0][0]  # type: ignore
 
         run_migration()
 
-        new_table_count = sync_execute("SELECT count() FROM system.tables")[0][0]
-        new_dictionary_count = sync_execute("SELECT count() FROM system.dictionaries")[0][0]
+        new_table_count = sync_execute("SELECT count() FROM system.tables")[0][0]  # type: ignore
+        new_dictionary_count = sync_execute("SELECT count() FROM system.dictionaries")[0][0]  # type: ignore
         self.assertEqual(initial_table_count, new_table_count)
         self.assertEqual(initial_dictionary_count, new_dictionary_count)
 

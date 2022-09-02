@@ -9,6 +9,6 @@ def delay_until_clickhouse_consumes_from_kafka(table_name: str, target_row_count
     ts_start = time()
     while time() < ts_start + timeout_seconds:
         result = sync_execute(f"SELECT COUNT(1) FROM {table_name}")
-        if result[0][0] == target_row_count:
+        if result[0][0] == target_row_count:  # type: ignore
             return
         sleep(0.5)

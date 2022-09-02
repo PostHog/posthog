@@ -13,10 +13,10 @@ class TestDemo(APIBaseTest):
         demo_team = Team.objects.get(name__icontains="demo")
         self.assertEqual(demo_team.is_demo, True)
         self.assertEqual(Dashboard.objects.count(), 3)
-        self.assertGreaterEqual(len(sync_execute("SELECT * FROM events")), 900)
-        self.assertGreaterEqual(len(sync_execute("SELECT * FROM person")), 160)
+        self.assertGreaterEqual(len(sync_execute("SELECT * FROM events")), 900)  # type: ignore
+        self.assertGreaterEqual(len(sync_execute("SELECT * FROM person")), 160)  # type: ignore
         self.assertGreaterEqual(Action.objects.count(), 8)
-        self.assertGreaterEqual(len(sync_execute("SELECT * FROM session_recording_events")), 60)
+        self.assertGreaterEqual(len(sync_execute("SELECT * FROM session_recording_events")), 60)  # type: ignore
 
         # TODO: We need a better way to test this, inconsistent results locally and on CI
         # action_event_counts = [action.events.count() for action in Action.objects.all()]

@@ -54,5 +54,5 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
             self.assertIn("mat_some_property", create_table_queries["sharded_events"])
             Command().create_missing_tables({"test_host": {"sharded_events"}}, create_table_queries)
 
-            schema = sync_execute("SHOW CREATE TABLE sharded_events")[0][0]
+            schema = sync_execute("SHOW CREATE TABLE sharded_events")[0][0]  # type: ignore
             self.assertIn("mat_some_property", schema)

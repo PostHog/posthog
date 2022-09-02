@@ -177,7 +177,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
     def _count_materialized_rows(self, column):
-        return sync_execute(
+        return sync_execute(  # type: ignore
             """
             SELECT sum(rows)
             FROM system.parts_columns
@@ -189,7 +189,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         )[0][0]
 
     def _get_count_of_mutations_running(self) -> int:
-        return sync_execute(
+        return sync_execute(  # type: ignore
             """
             SELECT count(*)
             FROM system.mutations
@@ -198,7 +198,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         )[0][0]
 
     def _get_column_types(self, column: str):
-        return sync_execute(
+        return sync_execute(  # type: ignore
             """
             SELECT default_kind, default_expression
             FROM system.columns

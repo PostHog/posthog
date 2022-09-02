@@ -16,8 +16,8 @@ def run_query(team: Team, filter: Filter, **kwargs):
     query, params = PersonQuery(filter, team.pk, **kwargs).get_query()
     rows = sync_execute(query, {**params, "team_id": team.pk})
 
-    if len(rows) > 0:
-        return {"rows": len(rows), "columns": len(rows[0])}
+    if len(rows) > 0:  # type: ignore
+        return {"rows": len(rows), "columns": len(rows[0])}  # type: ignore
     else:
         return {"rows": 0}
 

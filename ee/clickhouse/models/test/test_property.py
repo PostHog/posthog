@@ -41,7 +41,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             property_group=filter.property_groups, allow_denormalized_props=True, team_id=self.team.pk, **kwargs
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        return sync_execute(final_query, {**params, "team_id": self.team.pk})
+        return sync_execute(final_query, {**params, "team_id": self.team.pk})  # type: ignore
 
     def test_prop_person(self):
 
@@ -432,7 +432,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         final_query = f"SELECT uuid FROM events {joins} WHERE team_id = %(team_id)s {query}"
         # Make sure we don't accidentally use json on the properties field
         self.assertNotIn("json", final_query.lower())
-        return sync_execute(final_query, {**params, "team_id": self.team.pk})
+        return sync_execute(final_query, {**params, "team_id": self.team.pk})  # type: ignore
 
     def test_prop_event_denormalized(self):
         _create_event(
@@ -1132,7 +1132,7 @@ def test_prop_filter_json_extract(test_events, clean_up_materialised_columns, pr
         sorted(
             [
                 str(uuid)
-                for (uuid,) in sync_execute(
+                for (uuid,) in sync_execute(  # type: ignore
                     f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
                 )
             ]
@@ -1159,7 +1159,7 @@ def test_prop_filter_json_extract_materialized(
         sorted(
             [
                 str(uuid)
-                for (uuid,) in sync_execute(
+                for (uuid,) in sync_execute(  # type: ignore
                     f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
                 )
             ]
@@ -1191,7 +1191,7 @@ def test_prop_filter_json_extract_person_on_events_materialized(
         sorted(
             [
                 str(uuid)
-                for (uuid,) in sync_execute(
+                for (uuid,) in sync_execute(  # type: ignore
                     f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
                 )
             ]
