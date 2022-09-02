@@ -61,13 +61,7 @@ export function PluginJobConfiguration({
 
     return (
         <>
-            <span
-                style={{
-                    marginLeft: 10,
-                    marginRight: 5,
-                }}
-                onClick={() => playButtonOnClick(form, jobHasEmptyPayload)}
-            >
+            <span className="ml-10 mr-5" onClick={() => playButtonOnClick(form, jobHasEmptyPayload)}>
                 <Tooltip title={configureOrRunJobTooltip}>
                     {jobHasEmptyPayload ? (
                         <PlayCircleOutlined
