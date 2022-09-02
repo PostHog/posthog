@@ -124,7 +124,6 @@ class TrendsTotalVolume:
                     parsed_result = parse_response(stats, filter)
                     parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team.pk, stats[0])})
                     parsed_results.append(parsed_result)
-
                     parsed_result.update({"filter": filter.to_dict()})
             return parsed_results
 
