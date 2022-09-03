@@ -92,11 +92,13 @@ export function DashboardItems(): JSX.Element {
                 }}
                 draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popup"
             >
-                {showTextCards &&
+                {dashboard &&
+                    showTextCards &&
                     textTiles?.map((textTile: DashboardTextTile) => (
                         <TextCard
                             key={`text-tile-${textTile.id}`}
-                            body={textTile.body}
+                            textTile={textTile}
+                            dashboardId={dashboard?.id}
                             showResizeHandles={dashboardMode === DashboardMode.Edit}
                             canResizeWidth={canResizeWidth}
                         />

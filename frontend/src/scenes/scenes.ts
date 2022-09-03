@@ -246,6 +246,7 @@ export const routes: Record<string, Scene> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
     [urls.dashboardSharing(':id')]: Scene.Dashboard,
+    [urls.dashboardTextTile(':id', ':textTileId')]: Scene.Dashboard,
     [urls.dashboardSubcriptions(':id')]: Scene.Dashboard,
     [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,

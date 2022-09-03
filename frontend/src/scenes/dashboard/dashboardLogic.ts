@@ -125,6 +125,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
+        setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
     },
 
     loaders: ({ actions, props, values }) => ({
@@ -367,6 +368,18 @@ export const dashboardLogic = kea<dashboardLogicType>({
             null as number | 'new' | null,
             {
                 setSubscriptionMode: (_, { id }) => id || null,
+            },
+        ],
+        showTextTileModal: [
+            false,
+            {
+                setTextTileId: (_, { textTileId }) => !!textTileId,
+            },
+        ],
+        textTileId: [
+            null as number | 'new' | null,
+            {
+                setTextTileId: (_, { textTileId }) => textTileId,
             },
         ],
     }),
@@ -844,16 +857,24 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     : parseInt(subscriptionId, 10)
                 : undefined
             actions.setSubscriptionMode(true, id)
+            actions.setTextTileId(null)
             actions.setDashboardMode(null, null)
         },
 
         '/dashboard/:id': () => {
             actions.setSubscriptionMode(false, undefined)
+            actions.setTextTileId(null)
             actions.setDashboardMode(null, DashboardEventSource.Browser)
         },
         '/dashboard/:id/sharing': () => {
             actions.setSubscriptionMode(false, undefined)
+            actions.setTextTileId(null)
             actions.setDashboardMode(DashboardMode.Sharing, null)
+        },
+        '/dashboard/:id/text-tiles/:textTileId': ({ textTileId }) => {
+            actions.setSubscriptionMode(false, undefined)
+            actions.setDashboardMode(null, null)
+            actions.setTextTileId(textTileId === undefined ? 'new' : textTileId !== 'new' ? Number(textTileId) : 'new')
         },
     }),
 })

@@ -26,23 +26,27 @@ import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscription
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { isLemonSelectSection } from 'lib/components/LemonSelect'
-import { dashboardTextTileModalLogic } from './dashboardTextTileModalLogic'
-import { LemonModal, LemonTextArea } from '@posthog/lemon-ui'
-import { Field, Form } from 'kea-forms'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { TextTileModal } from './TextCard'
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId, apiUrl } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        allItemsLoading,
+        dashboardMode,
+        canEditDashboard,
+        showSubscriptions,
+        subscriptionId,
+        showTextTileModal,
+        textTileId,
+        apiUrl,
+    } = useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
         useActions(dashboardsModel)
     const { dashboardLoading } = useValues(dashboardsModel)
     const { hasAvailableFeature } = useValues(userLogic)
-
-    const { showAddTextTileModal, isAddTextTileSubmitting } = useValues(dashboardTextTileModalLogic({ dashboard }))
-    const { addNewTextTile, closeModal, submitAddTextTile } = useActions(dashboardTextTileModalLogic({ dashboard }))
 
     const { push } = useActions(router)
 
@@ -67,43 +71,14 @@ export function DashboardHeader(): JSX.Element | null {
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}
                     />
-
-                    <LemonModal
-                        isOpen={showAddTextTileModal}
-                        title={'Add text to the Dashboard'}
-                        onClose={closeModal}
-                        footer={
-                            <>
-                                <LemonButton disabled={isAddTextTileSubmitting} type="secondary" onClick={closeModal}>
-                                    Cancel
-                                </LemonButton>
-                                <LemonButton
-                                    disabled={isAddTextTileSubmitting}
-                                    loading={isAddTextTileSubmitting}
-                                    form="add-text-tile-form"
-                                    htmlType="submit"
-                                    type="primary"
-                                    onClick={submitAddTextTile}
-                                >
-                                    Save
-                                </LemonButton>
-                            </>
-                        }
-                    >
-                        <Form
-                            logic={dashboardTextTileModalLogic}
-                            props={{ dashboard: dashboard }}
-                            formKey={'addTextTile'}
-                            id="add-text-tile-form"
-                            className="space-y-2"
-                        >
-                            <Field name="body" label="Body">
-                                {({ value, onChange }) => (
-                                    <LemonTextArea value={value} onChange={(newValue) => onChange(newValue)} />
-                                )}
-                            </Field>
-                        </Form>
-                    </LemonModal>
+                    {showTextCards && (
+                        <TextTileModal
+                            isOpen={showTextTileModal}
+                            onClose={() => push(urls.dashboard(dashboard.id))}
+                            dashboard={dashboard}
+                            textTileId={textTileId}
+                        />
+                    )}
                 </>
             )}
 
@@ -189,7 +164,9 @@ export function DashboardHeader(): JSX.Element | null {
                                                         <LemonButton
                                                             status="stealth"
                                                             fullWidth
-                                                            onClick={addNewTextTile}
+                                                            onClick={() => {
+                                                                push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                            }}
                                                         >
                                                             Add text to dashboard
                                                         </LemonButton>
