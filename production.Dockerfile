@@ -17,7 +17,7 @@ RUN yarn config set network-timeout 300000 && \
     yarn install --frozen-lockfile
 
 COPY frontend/ frontend/
-COPY ./bin/ ./bin/
+COPY ./bin/copy-scripts-recorder ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js ./
 RUN yarn build
 
@@ -139,11 +139,8 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collec
 
 COPY --from=frontend --link /code/frontend/dist /code/frontend/dist
 
-# Add in the plugin-server compiled code, as well as the runtime dependencies
-WORKDIR /code/plugin-server
-
 # Add in the compiled plugin-server
-COPY --from=plugin-server --link /code/plugin-server/dist/ ./dist/
+COPY --from=plugin-server --link /code/plugin-server/dist/ ./plugin-server/dist/
 
 # We need bash to run the bin scripts
 COPY --link ./bin ./bin/
@@ -155,6 +152,7 @@ ENV CHROME_BIN=/usr/bin/chromium-browser \
 COPY --link gunicorn.config.py ./
 
 USER posthog
+
 
 # Expose container port and run entry point script
 EXPOSE 8000
