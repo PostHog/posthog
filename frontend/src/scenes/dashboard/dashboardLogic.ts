@@ -107,6 +107,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateItemColor: (insightNumericId: number, color: string | null) => ({ insightNumericId, color }),
+        updateTextTileColor: (textTileId: number, color: string | null) => ({ textTileId, color }),
         removeItem: (insight: Partial<InsightModel>) => ({ insight }),
         refreshAllDashboardItems: (items?: InsightModel[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
@@ -264,6 +265,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     return {
                         ...state,
                         items: state?.items.map((i) => (i.id === insightNumericId ? { ...i, color } : i)),
+                    } as DashboardType
+                },
+                updateTextTileColor: (state, { textTileId, color }) => {
+                    return {
+                        ...state,
+                        text_tiles: state?.text_tiles.map((t) => (t.id === textTileId ? { ...t, color } : t)),
                     } as DashboardType
                 },
                 removeItem: (state, { insight }) => {
@@ -683,6 +690,16 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
             return api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 colors: [{ id: insightNumericId, color }],
+            })
+        },
+        updateTextTileColor: async ({ textTileId, color }) => {
+            if (!props.id) {
+                // what are we saving colors against?!
+                return
+            }
+
+            return api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                text_tiles: values.allItems?.text_tiles.map((t) => (t.id === textTileId ? { ...t, color } : t)),
             })
         },
         removeItem: async ({ insight }) => {

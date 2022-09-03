@@ -26,8 +26,14 @@ export function DashboardItems(): JSX.Element {
         highlightedInsightId,
         refreshStatus,
     } = useValues(dashboardLogic)
-    const { updateLayouts, updateContainerWidth, updateItemColor, removeItem, refreshAllDashboardItems } =
-        useActions(dashboardLogic)
+    const {
+        updateLayouts,
+        updateContainerWidth,
+        updateItemColor,
+        updateTextTileColor,
+        removeItem,
+        refreshAllDashboardItems,
+    } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight, moveToDashboard } = useActions(insightsModel)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -99,6 +105,7 @@ export function DashboardItems(): JSX.Element {
                             key={`text-tile-${textTile.id}`}
                             textTile={textTile}
                             dashboardId={dashboard?.id}
+                            updateColor={(color) => updateTextTileColor(textTile.id, color)}
                             showResizeHandles={dashboardMode === DashboardMode.Edit}
                             canResizeWidth={canResizeWidth}
                         />

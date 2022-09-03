@@ -4,14 +4,16 @@ import './TextCard.scss'
 import { Textfit } from 'react-textfit'
 import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/InsightCard/handles'
 import clsx from 'clsx'
-import { DashboardTextTile, DashboardType, InsightColor } from '~/types'
-import { LemonButton, LemonDivider, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { DashboardTextTile, DashboardType, InsightColor, InsightModel } from '~/types'
+import { LemonButton, LemonButtonWithPopup, LemonDivider, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 import { More } from 'lib/components/LemonButton/More'
 import { dashboardTextTileModalLogic } from './dashboardTextTileModalLogic'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { Splotch, SplotchColor } from 'lib/components/icons/Splotch'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export function TextTileModal({
     isOpen,
@@ -74,16 +76,19 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     dashboardId: string | number
     textTile: DashboardTextTile
     children?: JSX.Element
+    updateColor?: (newColor: InsightModel['color']) => void
 }
 
 function TextCardHeader({
     dashboardId,
     textTile,
     showEditingControls,
+    updateColor,
 }: {
     dashboardId: string | number
     textTile: DashboardTextTile
     showEditingControls: boolean
+    updateColor?: (newColor: InsightModel['color']) => void
 }): JSX.Element {
     const { push } = useActions(router)
 
@@ -107,6 +112,42 @@ function TextCardHeader({
                                     >
                                         Edit text
                                     </LemonButton>
+
+                                    {updateColor && (
+                                        <LemonButtonWithPopup
+                                            status="stealth"
+                                            popup={{
+                                                overlay: Object.values(InsightColor).map((availableColor) => (
+                                                    <LemonButton
+                                                        key={availableColor}
+                                                        active={
+                                                            availableColor === (textTile.color || InsightColor.White)
+                                                        }
+                                                        status="stealth"
+                                                        onClick={() => updateColor(availableColor)}
+                                                        icon={
+                                                            availableColor !== InsightColor.White ? (
+                                                                <Splotch
+                                                                    color={availableColor as string as SplotchColor}
+                                                                />
+                                                            ) : null
+                                                        }
+                                                        fullWidth
+                                                    >
+                                                        {availableColor !== InsightColor.White
+                                                            ? capitalizeFirstLetter(availableColor)
+                                                            : 'No color'}
+                                                    </LemonButton>
+                                                )),
+                                                placement: 'right-start',
+                                                fallbackPlacements: ['left-start'],
+                                                actionable: true,
+                                            }}
+                                            fullWidth
+                                        >
+                                            Set color
+                                        </LemonButtonWithPopup>
+                                    )}
                                 </>
                             }
                         />
@@ -119,14 +160,28 @@ function TextCardHeader({
 }
 
 export function TextCardInternal(
-    { textTile, showResizeHandles, canResizeWidth, children, className, dashboardId, ...divProps }: TextCardProps,
+    {
+        textTile,
+        showResizeHandles,
+        canResizeWidth,
+        children,
+        className,
+        dashboardId,
+        updateColor,
+        ...divProps
+    }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
     return (
         <div className={clsx('TextCard border rounded', className)} data-attr="text-card" {...divProps} ref={ref}>
-            <TextCardHeader textTile={textTile} dashboardId={dashboardId} showEditingControls={true} />
-            <Textfit mode="single" min={32} max={120}>
-                <div>{textTile.body}</div>
+            <TextCardHeader
+                textTile={textTile}
+                dashboardId={dashboardId}
+                showEditingControls={true}
+                updateColor={updateColor}
+            />
+            <Textfit mode="multi" min={32} max={120}>
+                <div className="whitespace-pre-wrap px-2 pb-2">{textTile.body}</div>
             </Textfit>
             {showResizeHandles && (
                 <>
