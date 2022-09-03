@@ -57,6 +57,8 @@ RUN apk --update --no-cache add \
 COPY ./plugin-server/src/ ./src/
 RUN yarn build
 
+RUN npm prune --production
+
 # Build the posthog image, incorporating the Django app along with the frontend,
 # as well as the plugin-server
 FROM python:3.8.12-alpine3.14
@@ -146,6 +148,7 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collec
 
 # Add in the compiled plugin-server
 COPY --from=plugin-server --link /code/plugin-server/dist/ ./plugin-server/dist/
+COPY --from=plugin-server --link /code/plugin-server/node_modules/ ./plugin-server/node_modules/
 
 # We need bash to run the bin scripts
 COPY --link ./bin ./bin/

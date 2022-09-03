@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -e
+
 while test $# -gt 0; do
   case "$1" in
     -h|--help)
@@ -26,11 +28,9 @@ export BASE_DIR=$(dirname $(dirname "$PWD/${0#./}"))
 export KAFKA_URL=${KAFKA_URL:-'kafka://kafka:9092'}
 export KAFKA_HOSTS
 
-./bin/migrate-check
-
 cd plugin-server
 
-if [[ -n $DEBUG ]]; then
+if [ -n "$DEBUG" ]; then
   echo "🧐 Verifying installed packages..."
   yarn --frozen-lockfile
 fi
@@ -40,9 +40,9 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-[[ -n $DEBUG ]] && cmd="yarn start:dev" || cmd="node dist/index.js"
+[ -n "$DEBUG" ] && cmd="yarn start:dev" || cmd="node dist/index.js"
 
-if [[ -n $NO_RESTART_LOOP ]]; then
+if [ -n "$NO_RESTART_LOOP" ]; then
   echo "▶️ Starting plugin server..."
   trap 'kill -TERM $child 2>/dev/null; while kill -0 $child 2>/dev/null; do sleep 1; done' EXIT
   $cmd &
