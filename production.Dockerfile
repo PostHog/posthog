@@ -29,12 +29,6 @@ FROM node:16.15-alpine3.14 AS plugin-server
 
 WORKDIR /code/plugin-server
 
-# Install python, make and gcc as they are needed for the yarn install
-RUN apk --update --no-cache add \
-    "make~=4.3" \
-    "g++~=10.3" \
-    "gcc~=10.3" \
-    "python3~=3.9"
 
 # Compile and install Yarn dependencies.
 #
@@ -42,9 +36,19 @@ RUN apk --update --no-cache add \
 #
 # - we explicitly COPY the files so that we don't need to rebuild
 #   the container every time a dependency changes
+# - Install python, make and gcc as they are needed for the yarn install. We do
+#   this as one layer to reduce the layer sizes should we need to pull these for
+#   subsequent opperations.
 COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./plugin-server/tsconfig.json ./
-RUN yarn config set network-timeout 300000 && \
-    yarn install
+RUN apk --update --no-cache add \
+    --virtual .install-deps \
+    "make~=4.3" \
+    "g++~=10.3" \
+    "gcc~=10.3" \
+    "python3~=3.9" && \
+    yarn config set network-timeout 300000 && \
+    yarn install --frozen-lockfile && \
+    apk del .install-deps
 
 # Build the plugin server
 #
