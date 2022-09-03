@@ -246,7 +246,7 @@ function InsightMeta({
                         {color &&
                             color !==
                                 InsightColor.White /* White has historically meant no color synonymously to null */ && (
-                                <div className={clsx('InsightMeta__ribbon', color)} />
+                                <div className={clsx('DashboardCard__ribbon', color)} />
                             )}
                         <div className="InsightMeta__main">
                             <div className="InsightMeta__top">

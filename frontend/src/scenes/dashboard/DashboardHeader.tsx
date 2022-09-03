@@ -15,7 +15,7 @@ import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
-import { privilegeLevelToName } from 'lib/constants'
+import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
@@ -29,6 +29,7 @@ import { isLemonSelectSection } from 'lib/components/LemonSelect'
 import { dashboardTextTileModalLogic } from './dashboardTextTileModalLogic'
 import { LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 import { Field, Form } from 'kea-forms'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function DashboardHeader(): JSX.Element | null {
     const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId, apiUrl } =
