@@ -45,6 +45,9 @@ export function DashboardHeader(): JSX.Element | null {
 
     const { push } = useActions(router)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showTextCards = featureFlags[FEATURE_FLAGS.TEXT_CARDS]
+
     return dashboard || allItemsLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
@@ -181,9 +184,15 @@ export function DashboardHeader(): JSX.Element | null {
                                                     >
                                                         Edit layout (E)
                                                     </LemonButton>
-                                                    <LemonButton status="stealth" fullWidth onClick={addNewTextTile}>
-                                                        Add text to dashboard
-                                                    </LemonButton>
+                                                    {showTextCards && (
+                                                        <LemonButton
+                                                            status="stealth"
+                                                            fullWidth
+                                                            onClick={addNewTextTile}
+                                                        >
+                                                            Add text to dashboard
+                                                        </LemonButton>
+                                                    )}
                                                 </>
                                             )}
                                             <LemonButton
