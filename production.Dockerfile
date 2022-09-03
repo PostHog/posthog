@@ -128,8 +128,6 @@ RUN addgroup -S posthog && \
 
 RUN chown posthog.posthog /code
 
-USER posthog
-
 # Add in Django deps and generate Django's static files
 COPY manage.py manage.py
 COPY posthog posthog/
@@ -144,20 +142,19 @@ COPY --from=frontend --link /code/frontend/dist /code/frontend/dist
 # Add in the plugin-server compiled code, as well as the runtime dependencies
 WORKDIR /code/plugin-server
 
-USER posthog
-
 # Add in the compiled plugin-server
 COPY --from=plugin-server --link /code/plugin-server/dist/ ./dist/
 
 # We need bash to run the bin scripts
 COPY --link ./bin ./bin/
-USER posthog
 
 ENV CHROME_BIN=/usr/bin/chromium-browser \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver
 
 COPY --link gunicorn.config.py ./
+
+USER posthog
 
 # Expose container port and run entry point script
 EXPOSE 8000
