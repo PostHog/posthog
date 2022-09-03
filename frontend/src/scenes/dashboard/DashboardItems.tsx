@@ -32,6 +32,7 @@ export function DashboardItems(): JSX.Element {
         updateItemColor,
         updateTextTileColor,
         removeItem,
+        removeTextTile,
         refreshAllDashboardItems,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight, moveToDashboard } = useActions(insightsModel)
@@ -108,6 +109,7 @@ export function DashboardItems(): JSX.Element {
                             updateColor={(color) => updateTextTileColor(textTile.id, color)}
                             showResizeHandles={dashboardMode === DashboardMode.Edit}
                             canResizeWidth={canResizeWidth}
+                            removeFromDashboard={() => removeTextTile(textTile.id)}
                         />
                     ))}
                 {items?.map((item: InsightModel) => (

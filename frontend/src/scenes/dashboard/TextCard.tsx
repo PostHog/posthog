@@ -77,6 +77,7 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     textTile: DashboardTextTile
     children?: JSX.Element
     updateColor?: (newColor: InsightModel['color']) => void
+    removeFromDashboard?: () => void
 }
 
 function TextCardHeader({
@@ -84,11 +85,13 @@ function TextCardHeader({
     textTile,
     showEditingControls,
     updateColor,
+    removeFromDashboard,
 }: {
     dashboardId: string | number
     textTile: DashboardTextTile
     showEditingControls: boolean
     updateColor?: (newColor: InsightModel['color']) => void
+    removeFromDashboard?: () => void
 }): JSX.Element {
     const { push } = useActions(router)
 
@@ -148,6 +151,12 @@ function TextCardHeader({
                                             Set color
                                         </LemonButtonWithPopup>
                                     )}
+                                    <LemonDivider />
+                                    {removeFromDashboard && (
+                                        <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
+                                            Remove from dashboard
+                                        </LemonButton>
+                                    )}
                                 </>
                             }
                         />
@@ -168,6 +177,7 @@ export function TextCardInternal(
         className,
         dashboardId,
         updateColor,
+        removeFromDashboard,
         ...divProps
     }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -179,6 +189,7 @@ export function TextCardInternal(
                 dashboardId={dashboardId}
                 showEditingControls={true}
                 updateColor={updateColor}
+                removeFromDashboard={removeFromDashboard}
             />
             <Textfit mode="multi" min={32} max={120}>
                 <div className="whitespace-pre-wrap px-2 pb-2">{textTile.body}</div>

@@ -109,6 +109,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         updateItemColor: (insightNumericId: number, color: string | null) => ({ insightNumericId, color }),
         updateTextTileColor: (textTileId: number, color: string | null) => ({ textTileId, color }),
         removeItem: (insight: Partial<InsightModel>) => ({ insight }),
+        removeTextTile: (textTileId: number) => ({ textTileId }),
         refreshAllDashboardItems: (items?: InsightModel[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
@@ -277,6 +278,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     return {
                         ...state,
                         items: state?.items.filter((i) => i.id !== insight.id),
+                    } as DashboardType
+                },
+                removeTextTile: (state, { textTileId }) => {
+                    return {
+                        ...state,
+                        text_tiles: state?.text_tiles.filter((t) => t.id !== textTileId),
                     } as DashboardType
                 },
                 [insightsModel.actionTypes.duplicateInsightSuccess]: (state, { item }): DashboardType => {
@@ -507,7 +514,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                 }
                             } else {
                                 const defaultWidth = 6
-                                const defaultHeight = 5
+                                const defaultHeight = 2.5
                                 const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
 
                                 return {
@@ -706,6 +713,16 @@ export const dashboardLogic = kea<dashboardLogicType>({
             return api.update(`api/projects/${values.currentTeamId}/insights/${insight.id}`, {
                 dashboards: insight.dashboards?.filter((id) => id !== props.id) ?? [],
             } as Partial<InsightModel>)
+        },
+        removeTextTile: async ({ textTileId }) => {
+            if (!props.id) {
+                // what are we saving colors against?!
+                return
+            }
+
+            return api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                text_tiles: values.allItems?.text_tiles.filter((t) => t.id !== textTileId),
+            })
         },
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval

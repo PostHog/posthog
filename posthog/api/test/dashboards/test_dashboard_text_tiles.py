@@ -22,6 +22,23 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
             update_response.json()["text_tiles"], [{"id": mock.ANY, "layouts": {}, "color": None, "body": "I AM TEXT!"}]
         )
 
+    def test_can_remove_text_tiles_from_dashboard(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"text_tiles": [{"body": "I AM TEXT!"}, {"body": "YOU AM TEXT"}, {"body": "THEY AM TEXT"}]},
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        created_tiles = update_response.json()["text_tiles"]
+        self.assertEqual(len(created_tiles), 3)
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"text_tiles": created_tiles[1:]},
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(update_response.json()["text_tiles"]), 2)
+
     def test_can_update_text_tiles_on_a_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 

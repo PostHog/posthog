@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, List, Optional, cast
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
@@ -37,22 +37,31 @@ class TextTileListSerializer(serializers.ListSerializer):
         if not isinstance(self.parent.instance, Dashboard):
             raise ValidationError("Text tiles must be updated on a dashboard")
 
-        for validated_tile in validated_data:
-            if "id" not in validated_tile:
-                new_tile = DashboardTextTile.objects.create(**validated_tile, dashboard_id=self.parent.instance.id)
-                text_tiles.append(new_tile)
-            else:
-                for tile in text_tiles:
-                    if tile.id == int(validated_tile["id"]):
-                        if "body" in validated_tile:
-                            tile.body = validated_tile["body"]
-                        if "layouts" in validated_tile:
-                            tile.layouts = validated_tile["layouts"]
-                        if "color" in validated_tile:
-                            tile.color = validated_tile["color"]
-                        tile.save()
+        validated_tiles_by_id = {}
+        tiles = []
 
-        return text_tiles
+        for validated_item in validated_data:
+            if "id" not in validated_item:
+                new_tile = DashboardTextTile.objects.create(**validated_item, dashboard_id=self.parent.instance.id)
+                tiles.append(new_tile)
+            else:
+                validated_tiles_by_id[validated_item["id"]] = validated_item
+
+        for tile in text_tiles:
+            validated_tile: Optional[Dict] = validated_tiles_by_id.get(tile.id, None)
+            if validated_tile:
+                if "body" in validated_tile:
+                    tile.body = validated_tile["body"]
+                if "layouts" in validated_tile:
+                    tile.layouts = validated_tile["layouts"]
+                if "color" in validated_tile:
+                    tile.color = validated_tile["color"]
+                tile.save()
+                tiles.append(tile)
+            else:
+                tile.delete()
+
+        return tiles
 
 
 class TextTileSerializer(serializers.ModelSerializer):
