@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 #
 # Extend the non-Cloud image with anything required for PostHog Cloud (app.posthog.com)
 #
@@ -12,11 +13,8 @@ USER root
 COPY requirements.txt /code/cloud_requirements.txt
 RUN pip install -r cloud_requirements.txt --no-cache-dir
 
-COPY ./multi_tenancy /code/multi_tenancy/
-COPY ./messaging /code/messaging/
-COPY ./multi_tenancy_settings.py /code/cloud_settings.py
-RUN cat /code/cloud_settings.py > /code/posthog/settings/cloud.py
+COPY --link ./multi_tenancy /code/multi_tenancy/
+COPY --link ./messaging /code/messaging/
+COPY --link ./multi_tenancy_settings.py /code/posthog/settings/cloud.py
 
 USER posthog
-
-RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' SECRET_KEY='no' python manage.py collectstatic --noinput

@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 #
 # This Dockerfile is used for self-hosted production builds.
 #
@@ -133,37 +134,22 @@ USER posthog
 COPY manage.py manage.py
 COPY posthog posthog/
 COPY ee ee/
-COPY --from=frontend /code/frontend/dist /code/frontend/dist
 
+# Make a dir to stop ./manage.py collectstatic from complaining
+RUN mkdir -p /code/frontend/dist
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+
+COPY --from=frontend --link /code/frontend/dist /code/frontend/dist
 
 # Add in the plugin-server compiled code, as well as the runtime dependencies
 WORKDIR /code/plugin-server
-COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./
-
-# Switch to root and install yarn so we can install runtime deps. Node that we
-# still need yarn to run the plugin-server so we do not remove it.
-USER root
-RUN apk --update --no-cache add "yarn~=1"
-
-# NOTE: we need make and g++ for node-gyp
-# NOTE: npm is required for re2
-RUN apk --update --no-cache add "make~=4.3" "g++~=10.3" "npm~=7" --virtual .build-deps \
-    && yarn install --frozen-lockfile --production=true \
-    && yarn cache clean \
-    && apk del .build-deps
 
 USER posthog
 
 # Add in the compiled plugin-server
-COPY --from=plugin-server /code/plugin-server/dist/ ./dist/
-
-WORKDIR /code/
-USER root
-COPY ./plugin-server/package.json ./plugin-server/
+COPY --from=plugin-server --link /code/plugin-server/dist/ ./dist/
 
 # We need bash to run the bin scripts
-RUN apk --update --no-cache add "bash~=5.1"
 COPY ./bin ./bin/
 USER posthog
 
