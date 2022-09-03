@@ -133,11 +133,12 @@ COPY manage.py manage.py
 COPY posthog posthog/
 COPY ee ee/
 
-# Make a dir to stop ./manage.py collectstatic from complaining
-RUN mkdir -p /code/frontend/dist
-RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
-
+# NOTE: given we have to run ./manage.py collectstatic, the --link isn't much
+# use here as it will need to pull down layer dependecies at that point, but I'm
+# leaving it in if only to highlight that there is a possible gain to be had if
+# we can remove that dependency.
 COPY --from=frontend --link /code/frontend/dist /code/frontend/dist
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 # Add in the compiled plugin-server
 COPY --from=plugin-server --link /code/plugin-server/dist/ ./plugin-server/dist/
