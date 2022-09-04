@@ -163,7 +163,7 @@ module.exports = {
         // 'outlineOffset', // The outline-offset utilities like outline-offset-2
         // 'outlineStyle', // The outline-style utilities like outline-dashed
         // 'outlineWidth', // The outline-width utilities like outline-2
-        // 'overflow', // The overflow utilities like overflow-x-hidden
+        'overflow', // The overflow utilities like overflow-x-hidden
         // 'overscrollBehavior', // The overscroll-behavior utilities like overscroll-y-contain
         'padding', // The padding utilities like pt-28
         // 'placeContent', // The place-content utilities like place-content-between

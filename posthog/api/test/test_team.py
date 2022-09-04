@@ -75,6 +75,17 @@ class TestTeamAPI(APIBaseTest):
         self.team.refresh_from_db()
         self.assertEqual(self.team.timezone, "Europe/Istanbul")
 
+    def test_update_test_filter_default_checked(self):
+
+        response = self.client.patch("/api/projects/@current/", {"test_account_filters_default_checked": "true"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["test_account_filters_default_checked"], True)
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.test_account_filters_default_checked, True)
+
     def test_cannot_set_invalid_timezone_for_project(self):
         response = self.client.patch("/api/projects/@current/", {"timezone": "America/I_Dont_Exist"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
