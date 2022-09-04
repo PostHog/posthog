@@ -271,7 +271,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 updateTextTileColor: (state, { textTileId, color }) => {
                     return {
                         ...state,
-                        text_tiles: state?.text_tiles.map((t) => (t.id === textTileId ? { ...t, color } : t)),
+                        text_tiles: state?.text_tiles.map((t) => {
+                            console.log({ textTileId, color, i: t.id })
+                            return t.id === textTileId ? { ...t, color } : t
+                        }),
                     } as DashboardType
                 },
                 removeItem: (state, { insight }) => {
@@ -704,10 +707,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 // what are we saving colors against?!
                 return
             }
-
-            return api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+            console.log('updating text color')
+            const newLocal = await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 text_tiles: values.allItems?.text_tiles.map((t) => (t.id === textTileId ? { ...t, color } : t)),
             })
+            console.log(newLocal.text_tiles)
+            return newLocal
         },
         removeItem: async ({ insight }) => {
             return api.update(`api/projects/${values.currentTeamId}/insights/${insight.id}`, {

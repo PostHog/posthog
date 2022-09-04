@@ -1,18 +1,6 @@
 .TextCard {
-    transition: border 200ms ease;
-    position: relative;
-    height: 30rem;
-    min-width: 0;
-    max-width: 100%;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
     z-index: 3;
     background: #fff;
-
-    &--highlighted {
-        border-color: var(--primary);
-        outline: 1px solid var(--primary);
-    }
 }
 
 .handle {

@@ -44,11 +44,9 @@ export const dashboardTextTileModalLogic = kea<dashboardTextTileModalLogicType>(
         textTile: {
             defaults: {
                 body:
-                    props.textTileId === null
-                        ? ''
-                        : props.textTileId === 'new'
-                        ? ''
-                        : getTileBody(props.dashboard, props.textTileId),
+                    props.textTileId && props.textTileId !== 'new'
+                        ? getTileBody(props.dashboard, props.textTileId)
+                        : '',
             } as TextTileForm,
             errors: ({ body }) => {
                 return {
@@ -56,7 +54,8 @@ export const dashboardTextTileModalLogic = kea<dashboardTextTileModalLogicType>(
                 }
             },
             submit: (formValues) => {
-                const textTiles = props.dashboard.text_tiles
+                // only id and body, layout and color could be out-of-date
+                const textTiles = props.dashboard.text_tiles.map((t) => ({ id: t.id, body: t.body }))
                 if (props.textTileId === 'new') {
                     actions.updateDashboard({ id: props.dashboard.id, text_tiles: [...textTiles, formValues] })
                 } else {

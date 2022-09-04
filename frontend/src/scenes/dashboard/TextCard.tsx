@@ -80,94 +80,6 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     removeFromDashboard?: () => void
 }
 
-function TextCardHeader({
-    dashboardId,
-    textTile,
-    showEditingControls,
-    updateColor,
-    removeFromDashboard,
-}: {
-    dashboardId: string | number
-    textTile: DashboardTextTile
-    showEditingControls: boolean
-    updateColor?: (newColor: InsightModel['color']) => void
-    removeFromDashboard?: () => void
-}): JSX.Element {
-    const { push } = useActions(router)
-
-    return (
-        <div className="min-h-4 flex flex-col items-center w-full">
-            <div className="w-full flex flex-row pt-2 px-2">
-                {textTile.color &&
-                    textTile.color !==
-                        InsightColor.White /* White has historically meant no color synonymously to null */ && (
-                        <div className={clsx('DashboardCard__ribbon', textTile.color)} />
-                    )}
-                <div className="flex flex-1 justify-end">
-                    {showEditingControls && (
-                        <More
-                            overlay={
-                                <>
-                                    <LemonButton
-                                        status="stealth"
-                                        fullWidth
-                                        onClick={() => push(urls.dashboardTextTile(dashboardId, textTile.id))}
-                                    >
-                                        Edit text
-                                    </LemonButton>
-
-                                    {updateColor && (
-                                        <LemonButtonWithPopup
-                                            status="stealth"
-                                            popup={{
-                                                overlay: Object.values(InsightColor).map((availableColor) => (
-                                                    <LemonButton
-                                                        key={availableColor}
-                                                        active={
-                                                            availableColor === (textTile.color || InsightColor.White)
-                                                        }
-                                                        status="stealth"
-                                                        onClick={() => updateColor(availableColor)}
-                                                        icon={
-                                                            availableColor !== InsightColor.White ? (
-                                                                <Splotch
-                                                                    color={availableColor as string as SplotchColor}
-                                                                />
-                                                            ) : null
-                                                        }
-                                                        fullWidth
-                                                    >
-                                                        {availableColor !== InsightColor.White
-                                                            ? capitalizeFirstLetter(availableColor)
-                                                            : 'No color'}
-                                                    </LemonButton>
-                                                )),
-                                                placement: 'right-start',
-                                                fallbackPlacements: ['left-start'],
-                                                actionable: true,
-                                            }}
-                                            fullWidth
-                                        >
-                                            Set color
-                                        </LemonButtonWithPopup>
-                                    )}
-                                    <LemonDivider />
-                                    {removeFromDashboard && (
-                                        <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
-                                            Remove from dashboard
-                                        </LemonButton>
-                                    )}
-                                </>
-                            }
-                        />
-                    )}
-                </div>
-            </div>
-            <LemonDivider />
-        </div>
-    )
-}
-
 export function TextCardInternal(
     {
         textTile,
@@ -182,18 +94,79 @@ export function TextCardInternal(
     }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
+    const { push } = useActions(router)
+
     return (
-        <div className={clsx('TextCard border rounded', className)} data-attr="text-card" {...divProps} ref={ref}>
-            <TextCardHeader
-                textTile={textTile}
-                dashboardId={dashboardId}
-                showEditingControls={true}
-                updateColor={updateColor}
-                removeFromDashboard={removeFromDashboard}
-            />
-            <Textfit mode="multi" min={32} max={120}>
-                <div className="whitespace-pre-wrap px-2 pb-2">{textTile.body}</div>
-            </Textfit>
+        <div
+            className={clsx('TextCard border rounded flex flex-col', className)}
+            data-attr="text-card"
+            {...divProps}
+            ref={ref}
+        >
+            <div className="min-h-4 flex items-center w-full pt-2 px-2 justify-end">
+                <More
+                    overlay={
+                        <>
+                            <LemonButton
+                                status="stealth"
+                                fullWidth
+                                onClick={() => push(urls.dashboardTextTile(dashboardId, textTile.id))}
+                            >
+                                Edit text
+                            </LemonButton>
+
+                            {updateColor && (
+                                <LemonButtonWithPopup
+                                    status="stealth"
+                                    popup={{
+                                        overlay: Object.values(InsightColor).map((availableColor) => (
+                                            <LemonButton
+                                                key={availableColor}
+                                                active={availableColor === (textTile.color || InsightColor.White)}
+                                                status="stealth"
+                                                onClick={() => updateColor(availableColor)}
+                                                icon={
+                                                    availableColor !== InsightColor.White ? (
+                                                        <Splotch color={availableColor as string as SplotchColor} />
+                                                    ) : null
+                                                }
+                                                fullWidth
+                                            >
+                                                {availableColor !== InsightColor.White
+                                                    ? capitalizeFirstLetter(availableColor)
+                                                    : 'No color'}
+                                            </LemonButton>
+                                        )),
+                                        placement: 'right-start',
+                                        fallbackPlacements: ['left-start'],
+                                        actionable: true,
+                                    }}
+                                    fullWidth
+                                >
+                                    Set color
+                                </LemonButtonWithPopup>
+                            )}
+                            <LemonDivider />
+                            {removeFromDashboard && (
+                                <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
+                                    Remove from dashboard
+                                </LemonButton>
+                            )}
+                        </>
+                    }
+                />
+            </div>
+            <LemonDivider />
+            <div className="flex p-2 pl-4">
+                {textTile.color &&
+                    textTile.color !==
+                        InsightColor.White /* White has historically meant no color synonymously to null */ && (
+                        <div className={clsx('DashboardCard__ribbon ml-2', textTile.color)} />
+                    )}
+                <Textfit mode="multi" min={32} max={120}>
+                    <div className="whitespace-pre-wrap px-2 pb-2">{textTile.body}</div>
+                </Textfit>
+            </div>
             {showResizeHandles && (
                 <>
                     {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
