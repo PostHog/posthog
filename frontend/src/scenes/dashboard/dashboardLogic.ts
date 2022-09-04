@@ -477,6 +477,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 // The dashboard redesign includes constraints on the size of dashboard items
                 const minW = MIN_ITEM_WIDTH_UNITS
                 const minH = MIN_ITEM_HEIGHT_UNITS
+                const minTextH = 1
 
                 const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
@@ -527,7 +528,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                     w: width,
                                     h: h || defaultHeight,
                                     minW,
-                                    minH,
+                                    minH: minTextH,
                                 } as TileGridLayout
                             }
                         })
@@ -573,7 +574,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                 w,
                                 h,
                                 minW,
-                                minH,
+                                minH: i.startsWith('text') ? minTextH : minH,
                             })
 
                             for (let k = lowestIndex; k <= lowestIndex + w - 1; k++) {
