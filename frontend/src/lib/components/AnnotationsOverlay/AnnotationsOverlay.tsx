@@ -173,39 +173,36 @@ function AnnotationsPopover(): JSX.Element {
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
     return (
-        <LemonModal
-            className="AnnotationsPopover"
-            inline
-            title={`${pluralize(popoverAnnotations.length, 'annotation')} • ${activeDate?.format(
-                INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT[intervalUnit]
-            )}`}
-            footer={
-                <LemonButton
-                    type="primary"
-                    onClick={() => openModalToCreateAnnotation(activeDate, insightId)}
-                    disabled={!isDateLocked}
-                >
-                    Add annotation
-                </LemonButton>
-            }
-            closable={isDateLocked}
-            onClose={closePopover}
-        >
-            {popoverAnnotations.length > 0 ? (
-                <div
-                    className="flex flex-col gap-1 w-full overflow-y-auto"
-                    style={{
-                        maxHeight: '28rem',
-                    }}
-                >
-                    {popoverAnnotations.map((annotation) => (
-                        <AnnotationCard key={annotation.id} annotation={annotation} />
-                    ))}
-                </div>
-            ) : (
-                'There are no annotations in this period.'
-            )}
-        </LemonModal>
+        <div className="AnnotationsPopover">
+            <LemonModal
+                inline
+                title={`${pluralize(popoverAnnotations.length, 'annotation')} • ${activeDate?.format(
+                    INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT[intervalUnit]
+                )}`}
+                footer={
+                    <LemonButton
+                        type="primary"
+                        onClick={() => openModalToCreateAnnotation(activeDate, insightId)}
+                        disabled={!isDateLocked}
+                    >
+                        Add annotation
+                    </LemonButton>
+                }
+                closable={isDateLocked}
+                onClose={closePopover}
+                width="var(--annotations-popover-width)"
+            >
+                {popoverAnnotations.length > 0 ? (
+                    <div className="flex flex-col gap-1 w-full overflow-y-auto">
+                        {popoverAnnotations.map((annotation) => (
+                            <AnnotationCard key={annotation.id} annotation={annotation} />
+                        ))}
+                    </div>
+                ) : (
+                    'There are no annotations in this period.'
+                )}
+            </LemonModal>
+        </div>
     )
 }
 

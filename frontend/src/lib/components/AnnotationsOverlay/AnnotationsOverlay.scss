@@ -30,10 +30,9 @@
 }
 
 .AnnotationsPopover {
-    --annotations-popover-width: 26rem;
+    --annotations-popover-width: 30rem;
     --annotations-popover-max-left: calc(var(--annotations-overlay-chart-width) - var(--annotations-popover-width));
     transition: top 200ms ease, left 200ms ease, opacity 200ms ease;
-    transform-origin: bottom;
     position: absolute;
     left: clamp(
         0px,
@@ -44,15 +43,8 @@
         var(--annotations-popover-max-left)
     );
     top: calc(var(--annotations-overlay-active-badge-top) - 1.25rem);
-    min-width: var(--annotations-popover-width);
-    max-width: var(--annotations-popover-width);
-    margin: 0 0 0 calc(var(--annotations-overlay-chart-area-left) * -1);
-    max-height: none;
-    background: #fff;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
+    max-height: 32rem;
     transform: translateY(-100%) !important;
-    box-shadow: var(--shadow-elevation);
 
     &.AnnotationsPopover--enter,
     &.AnnotationsPopover--exit.AnnotationsPopover--exit-active {
@@ -62,6 +54,12 @@
     &.AnnotationsPopover--enter.AnnotationsPopover--enter-active,
     &.AnnotationsPopover--exit {
         opacity: 1;
+    }
+
+    > .LemonModal {
+        margin: 0 0 0 calc(var(--annotations-overlay-chart-area-left) * -1);
+        min-width: unset;
+        max-width: unset;
     }
 }
 
