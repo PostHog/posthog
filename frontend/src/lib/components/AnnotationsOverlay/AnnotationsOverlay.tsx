@@ -40,13 +40,13 @@ export interface AnnotationsOverlayProps {
 }
 
 interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
-    '--annotations-overlay-chart-area-left': `${myLineChart.scales.x.left}px`
-    '--annotations-overlay-chart-area-height': `${myLineChart.scales.x.top}px`
-    '--annotations-overlay-chart-width': `${myLineChart.width}px`
-    '--annotations-overlay-active-badge-left': string
-    '--annotations-overlay-active-badge-top': string
-    '--annotations-overlay-first-tick-left': string
-    '--annotations-overlay-tick-interval': string
+    '--annotations-overlay-chart-area-left': `${string}px`
+    '--annotations-overlay-chart-area-height': `${string}px`
+    '--annotations-overlay-chart-width': `${string}px`
+    '--annotations-overlay-first-tick-left': `${string}px`
+    '--annotations-overlay-tick-interval': `${string}px`
+    '--annotations-overlay-active-badge-left'?: `${string}px`
+    '--annotations-overlay-active-badge-top'?: `${string}px`
 }
 
 export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: AnnotationsOverlayProps): JSX.Element {
