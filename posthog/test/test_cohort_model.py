@@ -53,7 +53,10 @@ class TestCohort(BaseTest):
 
         uuids = [
             row[0]
-            for row in sync_execute(GET_COHORTPEOPLE_BY_COHORT_ID, {"cohort_id": cohort.pk, "team_id": self.team.pk},)  # type: ignore
+            for row in sync_execute(
+                GET_COHORTPEOPLE_BY_COHORT_ID,
+                {"cohort_id": cohort.pk, "team_id": self.team.pk},
+            )  # type: ignore
         ]
         self.assertCountEqual(uuids, [person1.uuid, person3.uuid])
 
