@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
-import { AnnotationScope, AnnotationType, InsightModel, AnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, InsightModel } from '~/types'
 import { forms } from 'kea-forms'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { annotationsModel } from '~/models/annotationsModel'
