@@ -17,7 +17,7 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { Chart } from 'chart.js'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
 
-/** Useer-facing format for annotation groups. */
+/** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     hour: 'MMMM D, YYYY H:00',
     day: 'MMMM D, YYYY',
