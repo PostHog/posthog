@@ -22,7 +22,7 @@ const INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT: Record<IntervalType, string> = {
 
 export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: IntervalType): string {
     // FIXME: Account for ticks sometimes including more than one group in dense graphs
-    return date.format(INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT[intervalUnit])
+    return date.startOf(intervalUnit).format(INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT[intervalUnit])
 }
 
 export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
@@ -105,7 +105,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                     if (timezone !== 'UTC') {
                         datetime = datetime.tz(timezone) // If the target is non-UTC, perform conversion
                     }
-                    return datetime.startOf(intervalUnit).format(determineAnnotationsDateGroup(datetime, intervalUnit))
+                    return determineAnnotationsDateGroup(datetime, intervalUnit)
                 })
             },
         ],
