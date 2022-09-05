@@ -133,19 +133,15 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
                 ]
             }
         )
-        self.assertEqual(
-            properties_used_in_filter(filter), {("$group_1", "event", None): 1,},
-        )
+        self.assertEqual(properties_used_in_filter(filter), {("$group_1", "event", None): 1})
 
-        filter = Filter(data={"events": [{"id": "$pageview", "type": "events", "order": 0, "math": "unique_session",}]})
-        self.assertEqual(
-            properties_used_in_filter(filter), {("$session_id", "event", None): 1,},
-        )
+        filter = Filter(data={"events": [{"id": "$pageview", "type": "events", "order": 0, "math": "unique_session"}]})
+        self.assertEqual(properties_used_in_filter(filter), {("$session_id", "event", None): 1})
 
     def test_properties_used_in_filter_with_actions(self):
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(
-            event="$autocapture", action=action, url="https://example.com/donate", url_matching=ActionStep.EXACT,
+            event="$autocapture", action=action, url="https://example.com/donate", url_matching=ActionStep.EXACT
         )
         ActionStep.objects.create(
             action=action,
@@ -239,33 +235,25 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(should_query_elements_chain_column(FILTER_WITH_GROUPS), True)
 
         filter = Filter(
-            data={"events": [{"id": "$pageview", "type": "events", "order": 0, "properties": PROPERTIES_OF_ALL_TYPES,}]}
+            data={"events": [{"id": "$pageview", "type": "events", "order": 0, "properties": PROPERTIES_OF_ALL_TYPES}]}
         )
         self.assertEqual(should_query_elements_chain_column(filter), True)
 
     def test_should_query_element_chain_column_with_actions(self):
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(
-            event="$autocapture", action=action, url="https://example.com/donate", url_matching=ActionStep.EXACT,
+            event="$autocapture", action=action, url="https://example.com/donate", url_matching=ActionStep.EXACT
         )
 
         filter = Filter(data={"actions": [{"id": action.id, "math": "dau"}]})
-        self.assertEqual(
-            EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, False,
-        )
+        self.assertEqual(EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, False)
 
-        ActionStep.objects.create(
-            action=action, event="$autocapture", tag_name="button", text="Pay $10",
-        )
+        ActionStep.objects.create(action=action, event="$autocapture", tag_name="button", text="Pay $10")
 
-        self.assertEqual(
-            EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
-        )
+        self.assertEqual(EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True)
 
         filter = BASE_FILTER.with_data({"exclusions": [{"id": action.id, "type": "actions"}]})
-        self.assertEqual(
-            EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
-        )
+        self.assertEqual(EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True)
 
     def test_group_types_to_query(self):
         group_types_to_query = lambda filter: EnterpriseColumnOptimizer(filter, self.team.id).group_types_to_query

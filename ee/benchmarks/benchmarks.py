@@ -124,21 +124,21 @@ class QuerySuite:
 
     @benchmark_clickhouse
     def track_trends_event_property_breakdown(self):
-        filter = Filter(data={"events": [{"id": "$pageview"}], "breakdown": "$host", **DATE_RANGE,})
+        filter = Filter(data={"events": [{"id": "$pageview"}], "breakdown": "$host", **DATE_RANGE})
 
         with no_materialized_columns():
             Trends().run(filter, self.team)
 
     @benchmark_clickhouse
     def track_trends_event_property_breakdown_materialized(self):
-        filter = Filter(data={"events": [{"id": "$pageview"}], "breakdown": "$host", **DATE_RANGE,})
+        filter = Filter(data={"events": [{"id": "$pageview"}], "breakdown": "$host", **DATE_RANGE})
 
         Trends().run(filter, self.team)
 
     @benchmark_clickhouse
     def track_trends_person_property_breakdown(self):
         filter = Filter(
-            data={"events": [{"id": "$pageview"}], "breakdown": "$browser", "breakdown_type": "person", **DATE_RANGE,}
+            data={"events": [{"id": "$pageview"}], "breakdown": "$browser", "breakdown_type": "person", **DATE_RANGE}
         )
 
         with no_materialized_columns():
@@ -147,14 +147,14 @@ class QuerySuite:
     @benchmark_clickhouse
     def track_trends_person_property_breakdown_materialized(self):
         filter = Filter(
-            data={"events": [{"id": "$pageview"}], "breakdown": "$browser", "breakdown_type": "person", **DATE_RANGE,}
+            data={"events": [{"id": "$pageview"}], "breakdown": "$browser", "breakdown_type": "person", **DATE_RANGE}
         )
 
         Trends().run(filter, self.team)
 
     @benchmark_clickhouse
     def track_trends_dau(self):
-        filter = Filter(data={"events": [{"id": "$pageview", "math": "dau"}], **DATE_RANGE,})
+        filter = Filter(data={"events": [{"id": "$pageview", "math": "dau"}], **DATE_RANGE})
         Trends().run(filter, self.team)
 
     @benchmark_clickhouse
@@ -233,9 +233,7 @@ class QuerySuite:
     @benchmark_clickhouse
     def track_trends_filter_by_action_current_url_materialized(self):
         action = Action.objects.create(team=self.team, name="docs view")
-        ActionStep.objects.create(
-            action=action, event="$pageview", url="docs", url_matching="contains",
-        )
+        ActionStep.objects.create(action=action, event="$pageview", url="docs", url_matching="contains")
 
         filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
         Trends().run(filter, self.team)
@@ -243,9 +241,7 @@ class QuerySuite:
     @benchmark_clickhouse
     def track_trends_filter_by_action_current_url(self):
         action = Action.objects.create(team=self.team, name="docs view")
-        ActionStep.objects.create(
-            action=action, event="$pageview", url="docs", url_matching="contains",
-        )
+        ActionStep.objects.create(action=action, event="$pageview", url="docs", url_matching="contains")
 
         filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
         with no_materialized_columns():
@@ -291,8 +287,7 @@ class QuerySuite:
     @benchmark_clickhouse
     def track_correlations_by_events(self):
         filter = Filter(
-            data={"events": [{"id": "user signed up"}, {"id": "insight analyzed"}], **SHORT_DATE_RANGE,},
-            team=self.team,
+            data={"events": [{"id": "user signed up"}, {"id": "insight analyzed"}], **SHORT_DATE_RANGE}, team=self.team
         )
 
         FunnelCorrelation(filter, self.team).run()
@@ -401,13 +396,13 @@ class QuerySuite:
 
     @benchmark_clickhouse
     def track_session_recordings_list(self):
-        filter = SessionRecordingsFilter(data=SESSIONS_DATE_RANGE, team=self.team,)
+        filter = SessionRecordingsFilter(data=SESSIONS_DATE_RANGE, team=self.team)
 
         SessionRecordingList(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_session_recordings_list_event_filter(self):
-        filter = SessionRecordingsFilter(data={"events": [{"id": "$pageview"}], **SESSIONS_DATE_RANGE}, team=self.team,)
+        filter = SessionRecordingsFilter(data={"events": [{"id": "$pageview"}], **SESSIONS_DATE_RANGE}, team=self.team)
 
         SessionRecordingList(filter, self.team).run()
 

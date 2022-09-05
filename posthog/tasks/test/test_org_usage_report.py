@@ -137,9 +137,7 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
                 updated_org_report = self.select_report_by_org_id(
                     str(default_team.organization.id), updated_org_reports
                 )
-                self.assertEqual(
-                    updated_org_report["event_count_lifetime"], org_report["event_count_lifetime"] + 2,
-                )
+                self.assertEqual(updated_org_report["event_count_lifetime"], org_report["event_count_lifetime"] + 2)
 
                 # Check event usage in current period is unchanged
                 self.assertEqual(updated_org_report["event_count_in_period"], org_report["event_count_in_period"])
@@ -177,7 +175,7 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
                     str(default_team.organization.id), org_reports_after_internal_org
                 )
                 self.assertEqual(
-                    org_report_after_internal_org["event_count_lifetime"], updated_org_report["event_count_lifetime"],
+                    org_report_after_internal_org["event_count_lifetime"], updated_org_report["event_count_lifetime"]
                 )
 
     def test_groups_usage(self) -> None:
@@ -205,7 +203,7 @@ class TestOrganizationUsageReport(APIBaseTest, ClickhouseTestMixin):
             )
 
             _create_event(
-                event="event", lib="web", distinct_id="user_7", team=self.team, timestamp="2021-11-10 10:00:00",
+                event="event", lib="web", distinct_id="user_7", team=self.team, timestamp="2021-11-10 10:00:00"
             )
 
             all_reports = send_all_reports(dry_run=True)

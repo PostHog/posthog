@@ -57,7 +57,7 @@ def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
         compared_filter = determine_compared_filter(filter)
         compared_trend_entity = func(filter=compared_filter, team=team, **kwargs)
 
-        compared_trend_entity = convert_to_comparison(compared_trend_entity, compared_filter, "previous",)
+        compared_trend_entity = convert_to_comparison(compared_trend_entity, compared_filter, "previous")
         entities_list.extend(compared_trend_entity)
     else:
         entities_list.extend(trend_entity)
@@ -167,7 +167,7 @@ def properties_to_Q(
             else:
                 person_Q &= property.property_to_Q()
 
-        filters &= Q(Exists(Person.objects.filter(person_Q, id=OuterRef("person_id"),).only("pk")))
+        filters &= Q(Exists(Person.objects.filter(person_Q, id=OuterRef("person_id")).only("pk")))
 
     event_properties = [prop for prop in properties if prop.type == "event"]
     if len(event_properties) > 0:

@@ -37,7 +37,7 @@ class Paths:
     _extra_event_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
 
-    def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None,) -> None:
+    def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None) -> None:
         self._filter = filter
         self._team = team
         self.params = {
@@ -79,9 +79,7 @@ class Paths:
 
         resp = []
         for res in results:
-            resp.append(
-                {"source": res[0], "target": res[1], "value": res[2], "average_conversion_time": res[3],}
-            )
+            resp.append({"source": res[0], "target": res[1], "value": res[2], "average_conversion_time": res[3]})
         return resp
 
     def _exec_query(self) -> List[Tuple]:
@@ -255,10 +253,7 @@ class Paths:
             ]
         )
 
-        return (
-            clause,
-            params,
-        )
+        return (clause, params)
 
     # Implemented in /ee
     def get_array_compacting_function(self) -> Literal["arrayResize", "arraySlice"]:

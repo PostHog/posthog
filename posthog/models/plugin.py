@@ -288,9 +288,7 @@ class PluginSourceFileManager(models.Manager):
 
 class PluginSourceFile(UUIDModel):
     class Meta:
-        constraints = [
-            models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename")),
-        ]
+        constraints = [models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename"))]
 
     class Status(models.TextChoices):
         LOCKED = "LOCKED", "locked"

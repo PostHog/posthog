@@ -47,7 +47,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         action1 = Action.objects.create(team=self.team, name="action1")
         ActionStep.objects.create(
-            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT,
+            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT
         )
 
         # satiesfies all conditions
@@ -149,7 +149,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             ],
                         },
                     ],
-                },
+                }
             }
         )
 
@@ -199,7 +199,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
 
@@ -256,7 +256,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
 
@@ -316,7 +316,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
 
@@ -393,7 +393,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
+                }
             }
         )
 
@@ -419,7 +419,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
         with self.assertRaises(ValueError):
@@ -465,7 +465,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
 
@@ -491,7 +491,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
 
@@ -574,7 +574,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
 
@@ -600,7 +600,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
 
@@ -649,7 +649,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
 
@@ -686,7 +686,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
 
@@ -728,7 +728,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
 
@@ -758,7 +758,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
 
@@ -802,7 +802,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             ],
                         },
                     ],
-                },
+                }
             }
         )
 
@@ -819,7 +819,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         action1 = Action.objects.create(team=self.team, name="action1")
         ActionStep.objects.create(
-            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT,
+            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT
         )
 
         # satiesfies all conditions
@@ -915,7 +915,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             ],
                         },
                     ],
-                },
+                }
             }
         )
 
@@ -947,7 +947,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         },
                         {"key": "$sample_field", "value": "test@posthog.com", "type": "person"},
                     ],
-                },
+                }
             }
         )
         flush_persons_and_events()
@@ -1011,7 +1011,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
+                }
             }
         )
 
@@ -1047,7 +1047,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
+                }
             }
         )
         query_class = CohortQuery(filter=filter, team=self.team)
@@ -1092,9 +1092,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "value": "performed_event",
                             "type": "behavioral",
                             "negation": True,
-                        },
+                        }
                     ],
-                },
+                }
             }
         )
 
@@ -1257,7 +1257,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "negation": True,
                         },
                     ],
-                },
+                }
             }
         )
 
@@ -1386,7 +1386,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "negation": True,
                         },
                     ],
-                },
+                }
             }
         )
 
@@ -1404,7 +1404,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = Filter(
-            data={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],},},
+            data={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}}
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -1498,7 +1498,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                 "properties": {
                     "type": "OR",
                     "values": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}],
-                },
+                }
             }
         )
 
@@ -1532,9 +1532,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     "type": "OR",
                     "values": [
                         {"key": "id", "value": cohort.pk, "type": "precalculated-cohort"},
-                        {"key": "name", "value": "test2", "type": "person",},
+                        {"key": "name", "value": "test2", "type": "person"},
                     ],
-                },
+                }
             }
         )
 
@@ -1584,8 +1584,8 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
-            },
+                }
+            }
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -1608,7 +1608,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
+                }
             },
             team=self.team,
         )
@@ -1666,7 +1666,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
+                }
             },
         )
 
@@ -1689,8 +1689,8 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
-            },
+                }
+            }
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -1702,14 +1702,12 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
     def test_static_cohort_filter(self):
 
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
-        cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True,)
+        cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
         flush_persons_and_events()
         cohort.insert_users_by_list(["p1"])
 
         filter = Filter(
-            data={
-                "properties": {"type": "OR", "values": [{"key": "id", "value": cohort.pk, "type": "static-cohort"}],},
-            }
+            data={"properties": {"type": "OR", "values": [{"key": "id", "value": cohort.pk, "type": "static-cohort"}]}}
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -1720,7 +1718,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
     @snapshot_clickhouse_queries
     def test_static_cohort_filter_with_extra(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
-        cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True,)
+        cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
 
         p2 = _create_person(
             team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
@@ -1750,8 +1748,8 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
-            },
+                }
+            }
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -1774,7 +1772,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
+                }
             },
             team=self.team,
         )
@@ -1823,7 +1821,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         }
                     ],
-                },
+                }
             }
         )
 
@@ -1887,7 +1885,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
+                }
             }
         )
 
@@ -1960,7 +1958,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
+                }
             }
         )
 
@@ -2058,8 +2056,8 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         },
                         {"key": "email", "value": "test@posthog.com", "type": "person"},  # pushed down
                     ],
-                },
-            },
+                }
+            }
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -2141,7 +2139,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
+                }
             }
         )
 
@@ -2213,7 +2211,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                     ],
-                },
+                }
             }
         )
 
@@ -2225,7 +2223,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
     @snapshot_clickhouse_queries
     def test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
-        cohort_static = _create_cohort(team=self.team, name="cohort static", groups=[], is_static=True,)
+        cohort_static = _create_cohort(team=self.team, name="cohort static", groups=[], is_static=True)
 
         p2 = _create_person(
             team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
@@ -2304,8 +2302,8 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             # p2 fits in here
                         },
                     ],
-                },
-            },
+                }
+            }
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
@@ -2372,7 +2370,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "time_value": 7,
                             "value": "performed_event",
                             "type": "behavioral",
-                        },
+                        }
                     ],
                 }
             },
@@ -2394,7 +2392,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                         {"key": "name", "value": "test2", "type": "person", "negation": True},
-                        {"key": "id", "value": cohort1.pk, "type": "cohort", "negation": True,},
+                        {"key": "id", "value": cohort1.pk, "type": "cohort", "negation": True},
                     ],
                 }
             },
@@ -2404,8 +2402,8 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             data={
                 "properties": {
                     "type": "OR",
-                    "values": [{"key": "id", "value": cohort2.pk, "type": "cohort"},],  # p3 fits in here
-                },
+                    "values": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],  # p3 fits in here
+                }
             },
             team=self.team,
         )
@@ -2486,7 +2484,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "time_value": 7,
                             "value": "performed_event",
                             "type": "behavioral",
-                        },
+                        }
                     ],
                 }
             },
@@ -2508,7 +2506,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "type": "behavioral",
                         },
                         {"key": "name", "value": "test2", "type": "person", "negation": True},
-                        {"key": "id", "value": cohort1.pk, "type": "cohort", "negation": True,},
+                        {"key": "id", "value": cohort1.pk, "type": "cohort", "negation": True},
                     ],
                 }
             },
@@ -2523,14 +2521,14 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     "type": "AND",
                     "values": [
                         {"key": "name", "value": "test3", "type": "person"},
-                        {"key": "id", "value": cohort2.pk, "type": "cohort", "negation": True,},
+                        {"key": "id", "value": cohort2.pk, "type": "cohort", "negation": True},
                     ],
                 }
             },
         )
 
         filter = Filter(
-            data={"properties": {"type": "OR", "values": [{"key": "id", "value": cohort3.pk, "type": "cohort"},],},},
+            data={"properties": {"type": "OR", "values": [{"key": "id", "value": cohort3.pk, "type": "cohort"}]}},
             team=self.team,
         )
 
@@ -2546,8 +2544,8 @@ class TestCohortNegationValidation(BaseTest):
         property_group = PropertyGroup(
             type=PropertyOperatorType.AND,
             values=[
-                Property(key="name", value="test", type="person",),
-                Property(key="email", value="xxx", type="person", negation=True,),
+                Property(key="name", value="test", type="person"),
+                Property(key="email", value="xxx", type="person", negation=True),
             ],
         )
 
@@ -2561,17 +2559,17 @@ class TestCohortNegationValidation(BaseTest):
             type=PropertyOperatorType.OR,
             values=[
                 PropertyGroup(
-                    type=PropertyOperatorType.AND, values=[Property(key="name", value="test", type="person",),],
+                    type=PropertyOperatorType.AND, values=[Property(key="name", value="test", type="person")]
                 ),
                 PropertyGroup(
                     type=PropertyOperatorType.AND,
                     values=[
                         PropertyGroup(
                             type=PropertyOperatorType.OR,
-                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                            values=[Property(key="email", value="xxx", type="person", negation=True)],
                         ),
                         PropertyGroup(
-                            type=PropertyOperatorType.OR, values=[Property(key="email", value="xxx", type="person",),]
+                            type=PropertyOperatorType.OR, values=[Property(key="email", value="xxx", type="person")]
                         ),
                     ],
                 ),
@@ -2588,18 +2586,18 @@ class TestCohortNegationValidation(BaseTest):
             type=PropertyOperatorType.OR,
             values=[
                 PropertyGroup(
-                    type=PropertyOperatorType.AND, values=[Property(key="name", value="test", type="person",),],
+                    type=PropertyOperatorType.AND, values=[Property(key="name", value="test", type="person")]
                 ),
                 PropertyGroup(
                     type=PropertyOperatorType.AND,
                     values=[
                         PropertyGroup(
                             type=PropertyOperatorType.OR,
-                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                            values=[Property(key="email", value="xxx", type="person", negation=True)],
                         ),
                         PropertyGroup(
                             type=PropertyOperatorType.OR,
-                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                            values=[Property(key="email", value="xxx", type="person", negation=True)],
                         ),
                     ],
                 ),
@@ -2615,19 +2613,17 @@ class TestCohortNegationValidation(BaseTest):
         property_group = PropertyGroup(
             type=PropertyOperatorType.AND,  # top level AND protects the 2 negations from being invalid
             values=[
-                PropertyGroup(
-                    type=PropertyOperatorType.OR, values=[Property(key="name", value="test", type="person",),],
-                ),
+                PropertyGroup(type=PropertyOperatorType.OR, values=[Property(key="name", value="test", type="person")]),
                 PropertyGroup(
                     type=PropertyOperatorType.AND,
                     values=[
                         PropertyGroup(
                             type=PropertyOperatorType.OR,
-                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                            values=[Property(key="email", value="xxx", type="person", negation=True)],
                         ),
                         PropertyGroup(
                             type=PropertyOperatorType.OR,
-                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                            values=[Property(key="email", value="xxx", type="person", negation=True)],
                         ),
                     ],
                 ),
@@ -2645,18 +2641,18 @@ class TestCohortNegationValidation(BaseTest):
             values=[
                 PropertyGroup(
                     type=PropertyOperatorType.OR,
-                    values=[Property(key="name", value="test", type="person", negation=True,),],
+                    values=[Property(key="name", value="test", type="person", negation=True)],
                 ),
                 PropertyGroup(
                     type=PropertyOperatorType.AND,
                     values=[
                         PropertyGroup(
                             type=PropertyOperatorType.OR,
-                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                            values=[Property(key="email", value="xxx", type="person", negation=True)],
                         ),
                         PropertyGroup(
                             type=PropertyOperatorType.OR,
-                            values=[Property(key="email", value="xxx", type="person", negation=True,),],
+                            values=[Property(key="email", value="xxx", type="person", negation=True)],
                         ),
                     ],
                 ),
@@ -2669,9 +2665,7 @@ class TestCohortNegationValidation(BaseTest):
 
     def test_empty_property_group(self):
 
-        property_group = PropertyGroup(
-            type=PropertyOperatorType.AND, values=[],  # type: ignore
-        )
+        property_group = PropertyGroup(type=PropertyOperatorType.AND, values=[])  # type: ignore
 
         has_pending_neg, has_reg = check_negation_clause(property_group)
         self.assertEqual(has_pending_neg, False)
@@ -2680,7 +2674,7 @@ class TestCohortNegationValidation(BaseTest):
     def test_basic_invalid_negation_tree(self):
 
         property_group = PropertyGroup(
-            type=PropertyOperatorType.AND, values=[Property(key="email", value="xxx", type="person", negation=True,),],
+            type=PropertyOperatorType.AND, values=[Property(key="email", value="xxx", type="person", negation=True)]
         )
 
         has_pending_neg, has_reg = check_negation_clause(property_group)
@@ -2690,7 +2684,7 @@ class TestCohortNegationValidation(BaseTest):
     def test_basic_valid_negation_tree_with_no_negations(self):
 
         property_group = PropertyGroup(
-            type=PropertyOperatorType.AND, values=[Property(key="name", value="test", type="person",),],
+            type=PropertyOperatorType.AND, values=[Property(key="name", value="test", type="person")]
         )
 
         has_pending_neg, has_reg = check_negation_clause(property_group)

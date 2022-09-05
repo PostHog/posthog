@@ -48,7 +48,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "interval": "day",
             "actions": json.dumps([]),
             "events": json.dumps(
-                [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}, {"id": "step three", "order": 2},]
+                [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}, {"id": "step three", "order": 2}]
             ),
             "properties": json.dumps([]),
             "funnel_window_days": 14,
@@ -75,7 +75,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "interval": "day",
             "actions": json.dumps([]),
             "events": json.dumps(
-                [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}, {"id": "step three", "order": 2},]
+                [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}, {"id": "step three", "order": 2}]
             ),
             "properties": json.dumps([]),
             "funnel_window_days": 14,
@@ -110,7 +110,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "interval": "day",
             "actions": json.dumps([]),
             "events": json.dumps(
-                [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}, {"id": "step three", "order": 2},]
+                [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}, {"id": "step three", "order": 2}]
             ),
             "properties": json.dumps([]),
             "funnel_window_days": 14,
@@ -151,7 +151,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "interval": "day",
             "actions": json.dumps([]),
             "events": json.dumps(
-                [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}, {"id": "step three", "order": 2},]
+                [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}, {"id": "step three", "order": 2}]
             ),
             "properties": json.dumps([]),
             "funnel_window_days": 14,
@@ -193,7 +193,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "filter_test_accounts": "false",
             "new_entity": json.dumps([]),
             "events": json.dumps(
-                [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},]
+                [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}]
             ),
             "insight": INSIGHT_FUNNELS,
             "date_from": "2020-01-01",
@@ -280,18 +280,16 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         for i in range(10):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
             )
             _create_event(
-                team=self.team, event="positively_related", distinct_id=f"user_{i}", timestamp="2020-01-03T14:00:00Z",
+                team=self.team, event="positively_related", distinct_id=f"user_{i}", timestamp="2020-01-03T14:00:00Z"
             )
-            _create_event(
-                team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z",
-            )
+            _create_event(team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z")
 
         request_data = {
             "events": json.dumps(
-                [{"id": "user signed up", "type": "events", "order": 0}, {"id": "paid", "type": "events", "order": 1},]
+                [{"id": "user signed up", "type": "events", "order": 0}, {"id": "paid", "type": "events", "order": 1}]
             ),
             "insight": INSIGHT_FUNNELS,
             "date_from": "2020-01-01",

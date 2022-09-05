@@ -93,11 +93,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
 
     dead_letter_queue_size = get_dead_letter_queue_size()
 
-    yield {
-        "key": "dead_letter_queue_size",
-        "metric": "Dead letter queue size",
-        "value": dead_letter_queue_size,
-    }
+    yield {"key": "dead_letter_queue_size", "metric": "Dead letter queue size", "value": dead_letter_queue_size}
 
     dead_letter_queue_events_last_day = get_dead_letter_queue_events_last_24h()
 

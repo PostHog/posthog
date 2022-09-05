@@ -11,6 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AlterField(
-            model_name="cohortpeople", name="id", field=models.BigIntegerField(primary_key=True, serialize=False),
+            model_name="cohortpeople",
+            name="id",
+            field=models.BigIntegerField(primary_key=True, serialize=False),
         ),
     ]

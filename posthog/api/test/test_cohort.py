@@ -198,7 +198,7 @@ email@example.org,
         Person.objects.create(team=self.team, properties={"prop": 6})
 
         self.client.post(
-            f"/api/projects/{self.team.id}/cohorts", data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]},
+            f"/api/projects/{self.team.id}/cohorts", data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]}
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
@@ -221,13 +221,9 @@ email@example.org,
         self.assertEqual(len(response.content.splitlines()), 3, response.content)
 
     def test_filter_by_cohort(self):
-        _create_person(
-            team=self.team, distinct_ids=[f"fake"], properties={},
-        )
+        _create_person(team=self.team, distinct_ids=[f"fake"], properties={})
         for i in range(150):
-            _create_person(
-                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
-            )
+            _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
 
         flush_persons_and_events()
         cohort = Cohort.objects.create(
@@ -243,13 +239,9 @@ email@example.org,
 
     def test_filter_by_cohort_prop(self):
         for i in range(5):
-            _create_person(
-                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
-            )
+            _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
 
-        _create_person(
-            team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"},
-        )
+        _create_person(team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"})
 
         cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
@@ -258,19 +250,15 @@ email@example.org,
 
         response = self.client.get(
             f"/api/cohort/{cohort.pk}/persons?properties=%s"
-            % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person",}]))
+            % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person"}]))
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
     def test_filter_by_cohort_search(self):
         for i in range(5):
-            _create_person(
-                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
-            )
+            _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
 
-        _create_person(
-            team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"},
-        )
+        _create_person(team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"})
         flush_persons_and_events()
 
         cohort = Cohort.objects.create(
@@ -289,7 +277,7 @@ email@example.org,
         team2 = Team.objects.create(organization=self.organization)
         Person.objects.create(team=team2, distinct_ids=["1"])
 
-        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now(),)
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now())
         cohort.insert_users_by_list(["1", "123"])
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
@@ -498,7 +486,7 @@ email@example.org,
             data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
         )
 
-        response = self.client.delete(f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",)
+        response = self.client.delete(f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
 

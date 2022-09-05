@@ -82,9 +82,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         )
 
     def test_is_required(self):
-        create_event(
-            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
-        )
+        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
 
         definition = get_async_migration_definition(MIGRATION_NAME)
         self.assertTrue(definition.is_required())
@@ -93,22 +91,14 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         self.assertFalse(definition.is_required())
 
     def test_completes_successfully(self):
-        create_event(
-            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
-        )
+        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
 
         self.assertTrue(run_migration())
 
     def test_data_copy_persons(self):
-        create_event(
-            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
-        )
-        create_event(
-            event_uuid=uuid2, team=self.team, distinct_id="2", event="$pageview",
-        )
-        create_event(
-            event_uuid=uuid3, team=self.team, distinct_id="3", event="$pageview",
-        )
+        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
+        create_event(event_uuid=uuid2, team=self.team, distinct_id="2", event="$pageview")
+        create_event(event_uuid=uuid3, team=self.team, distinct_id="3", event="$pageview")
         create_person(
             team_id=self.team.pk,
             version=0,
@@ -161,9 +151,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         )
 
     def test_duplicated_data_persons(self):
-        create_event(
-            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
-        )
+        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
         create_person_distinct_id(self.team.pk, "1", str(uuid1))
         create_person(
             team_id=self.team.pk,
@@ -195,9 +183,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         )
 
     def test_deleted_data_persons(self):
-        create_event(
-            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
-        )
+        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
         person = Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["1"],
@@ -211,7 +197,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         events = query_events()
         self.assertEqual(len(events), 1)
         self.assertDictContainsSubset(
-            {"distinct_id": "1", "person_id": ZERO_UUID, "person_properties": "", "person_created_at": ZERO_DATE,},
+            {"distinct_id": "1", "person_id": ZERO_UUID, "person_properties": "", "person_created_at": ZERO_DATE},
             events[0],
         )
 
@@ -250,7 +236,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
             team=self.team,
             distinct_id="1",
             event="$pageview",
-            properties={"$group_0": "org:7", "$group_1": "77", "$group_2": "77", "$group_3": "77",},
+            properties={"$group_0": "org:7", "$group_1": "77", "$group_2": "77", "$group_3": "77"},
         )
 
         self.assertTrue(run_migration())
@@ -279,9 +265,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         )
 
     def test_no_extra_tables(self):
-        create_event(
-            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
-        )
+        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
         initial_table_count = sync_execute("SELECT count() FROM system.tables")[0][0]
         initial_dictionary_count = sync_execute("SELECT count() FROM system.dictionaries")[0][0]
 
@@ -293,9 +277,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         self.assertEqual(initial_dictionary_count, new_dictionary_count)
 
     def test_rollback(self):
-        create_event(
-            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
-        )
+        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
 
         migration = get_async_migration_definition(MIGRATION_NAME)
 

@@ -26,7 +26,7 @@ django-stubs==1.8.0
 fakeredis==1.4.5
 freezegun==0.3.15
 packaging==21.3
-black==19.10b0
+black==22.8.0
 types-markdown==3.3.9
 types-PyYAML==6.0.1
 types-freezegun==1.1.3
