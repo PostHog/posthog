@@ -19,7 +19,7 @@ from posthog.test.base import (
 class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_recordings_list_test(SessionRecordingList, _create_event, Action.objects.create, ActionStep.objects.create)):  # type: ignore
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url"])
+    @test_with_materialized_columns(person_properties=["email"])
     def test_event_filter_with_person_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "bla2"})
@@ -41,7 +41,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         )
         filter = SessionRecordingsFilter(
             team=self.team,
-            data={"properties": [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}],},
+            data={"properties": [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}]},
         )
         session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
@@ -82,7 +82,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
                 )
                 filter = SessionRecordingsFilter(
                     team=self.team,
-                    data={"properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}],},
+                    data={"properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}]},
                 )
                 session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
                 (session_recordings, _) = session_recording_list_instance.run()
@@ -107,7 +107,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
             team_id=self.team.id,
         )
         filter = SessionRecordingsFilter(
-            team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
+            team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]}
         )
         session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
@@ -142,7 +142,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
 
         # Pageview within timestamps matches recording
         filter = SessionRecordingsFilter(
-            team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
+            team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]}
         )
         session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()

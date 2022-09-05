@@ -93,13 +93,12 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
     const { setFilters } = useActions(insightLogic)
 
     return (
-        <div className="flex justify-between items-center flex-wrap">
+        <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
             <div className="flex items-center space-x-2 flex-wrap my-2">
                 {showDateFilter[activeView] && !disableTable && (
                     <ConfigFilter>
                         <span>Date range</span>
                         <InsightDateFilter
-                            defaultValue={'Last 7 days'}
                             disabled={showFunnelBarOptions && isFunnelEmpty(filters)}
                             makeLabel={(key) => (
                                 <>

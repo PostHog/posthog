@@ -30,7 +30,7 @@ export function VerificationPanel(): JSX.Element {
                 {!currentTeam?.ingested_event ? (
                     <>
                         <div className="ingestion-listening-for-events">
-                            <Spinner size="lg" />
+                            <Spinner className="text-4xl" />
                             <h1 className="ingestion-title pt-4">Listening for events...</h1>
                             <p className="prompt-text">
                                 Once you have integrated the snippet and sent an event, we will verify it was properly
@@ -51,7 +51,9 @@ export function VerificationPanel(): JSX.Element {
                         </div>
                     </>
                 ) : (
-                    <>
+                    // We want a forced width for this view only
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div style={{ maxWidth: 400 }}>
                         <IconCheckCircleOutline className="text-success text-4xl" />
                         <h1 className="ingestion-title">Successfully sent events!</h1>
                         <p className="prompt-text text-muted">
@@ -69,7 +71,7 @@ export function VerificationPanel(): JSX.Element {
                                 Complete
                             </LemonButton>
                         </div>
-                    </>
+                    </div>
                 )}
             </div>
         </CardContainer>

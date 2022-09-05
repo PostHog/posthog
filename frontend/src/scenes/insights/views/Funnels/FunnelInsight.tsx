@@ -4,10 +4,10 @@ import React from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { InsightType } from '~/types'
-import { PersonsModal } from 'scenes/trends/PersonsModal'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { PersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
+import { SaveCohortModal } from 'scenes/trends/persons-modal/SaveCohortModal'
 
 export function FunnelInsight(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -39,8 +39,8 @@ export function FunnelInsight(): JSX.Element {
                 <Funnel />
             </div>
             <SaveCohortModal
-                visible={cohortModalVisible}
-                onOk={(title: string) => {
+                isOpen={cohortModalVisible}
+                onSave={(title: string) => {
                     saveCohortWithUrl(title)
                     setCohortModalVisible(false)
                 }}

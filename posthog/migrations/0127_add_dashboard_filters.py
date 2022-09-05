@@ -12,6 +12,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="dashboard", name="filters", field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
+            model_name="dashboard",
+            name="filters",
+            field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
         ),
     ]

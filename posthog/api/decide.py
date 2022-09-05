@@ -163,7 +163,7 @@ def get_decide(request: HttpRequest):
             )
             all_property_overrides = {**property_overrides, **(data.get("person_properties") or {})}
 
-            feature_flags = get_active_feature_flags(
+            feature_flags, _ = get_active_feature_flags(
                 team.pk,
                 data["distinct_id"],
                 data.get("groups") or {},
@@ -175,7 +175,5 @@ def get_decide(request: HttpRequest):
 
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
-    statsd.incr(
-        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide",},
-    )
+    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))

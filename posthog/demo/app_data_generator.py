@@ -49,7 +49,7 @@ class AppDataGenerator(DataGenerator):
                         "order": 0,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                     },
-                    {"id": rated_app_action.id, "name": "Rated App", "order": 1, "type": TREND_FILTER_TYPE_ACTIONS,},
+                    {"id": rated_app_action.id, "name": "Rated App", "order": 1, "type": TREND_FILTER_TYPE_ACTIONS},
                     {
                         "id": rated_app_action.id,
                         "name": "Rated App",

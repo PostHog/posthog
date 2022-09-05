@@ -174,7 +174,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                         <div
                                             className="p-5 mt-6 mb-4 font-medium"
                                             style={{
-                                                backgroundColor: 'var(--bg-side)',
+                                                backgroundColor: 'var(--side)',
                                             }}
                                         >
                                             <p>

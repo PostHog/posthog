@@ -72,10 +72,7 @@ class UserSerializer(serializers.ModelSerializer):
             "current_password",  # used when changing current password
             "events_column_config",
         ]
-        extra_kwargs = {
-            "date_joined": {"read_only": True},
-            "password": {"write_only": True},
-        }
+        extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
 
     def get_has_password(self, instance: User) -> bool:
         return instance.has_usable_password()
@@ -177,13 +174,9 @@ class UserSerializer(serializers.ModelSerializer):
 class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
-    permission_classes = [
-        permissions.IsAuthenticated,
-    ]
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = [
-        "is_staff",
-    ]
+    filterset_fields = ["is_staff"]
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
 

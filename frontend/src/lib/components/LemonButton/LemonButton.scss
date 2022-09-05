@@ -33,7 +33,7 @@
     .LemonButton__content {
         flex: 1;
         overflow: hidden;
-        line-height: 1rem;
+        line-height: initial;
     }
 
     &.LemonButton--centered {
@@ -176,9 +176,14 @@
                     }
                 }
                 &:not(:disabled):active {
+                    color: var(--white);
+                    .LemonIcon {
+                        color: var(--white);
+                    }
                     background: var(--#{$status}-dark, var(--#{$status}));
                 }
             }
+
             // Secondary - outlined color style
             &.LemonButton--secondary {
                 background: var(--bg-light);
@@ -223,8 +228,8 @@
     .LemonButton {
         &.LemonButton--status-primary {
             &:hover {
-                // NOTE: this is a rare case so we are hardcoding the value. Only primary status is supported
-                background: #d2dbff;
+                // NOTE: this is a rare case where we specify a unique hover style. Only primary status is supported
+                background: var(--primary-button-nested-hover);
             }
         }
     }

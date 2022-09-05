@@ -22,6 +22,8 @@ jobs:
         steps:
             - name: Set up Depot CLI
               uses: depot/setup-action@v1
+            - name: Set up buildx
+              uses: docker/setup-buildx-action@v2
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@v1
               with:
@@ -56,6 +58,7 @@ jobs:
                       ${{ steps.login-ecr.outputs.registry }}/posthog-production:${{ github.sha }}
                       ${{ steps.login-ecr.outputs.registry }}/posthog-production:latest
                   project: 1stsk4xt19 # posthog-cloud project
+                  buildx-fallback: true # if Depot builder is unavailable, fall back to local buildx
 
             - name: Push image to Amazon ECR
               id: build-image

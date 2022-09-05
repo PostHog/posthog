@@ -206,4 +206,4 @@ WithHighlightedRows.args = {
 }
 
 export const WithMandatorySorting = BasicTemplate.bind({})
-WithMandatorySorting.args = { defaultSorting: { columnKey: 'name', order: 1 }, disableSortingCancellation: true }
+WithMandatorySorting.args = { defaultSorting: { columnKey: 'name', order: 1 }, noSortingCancellation: true }

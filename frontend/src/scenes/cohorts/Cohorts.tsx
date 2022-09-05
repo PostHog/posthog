@@ -82,7 +82,7 @@ export function Cohorts(): JSX.Element {
                 }
                 return cohort.is_calculating ? (
                     <span className="flex items-center">
-                        in progress <Spinner size="sm" className="ml-2" />
+                        in progress <Spinner className="ml-2" />
                     </span>
                 ) : (
                     dayjs(cohort.last_calculation).fromNow()
@@ -167,7 +167,7 @@ export function Cohorts(): JSX.Element {
                 pagination={{ pageSize: 100 }}
                 dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
                 nouns={['cohort', 'cohorts']}
-                data-tooltip="cohorts-table"
+                data-attr="cohorts-table"
             />
         </div>
     )

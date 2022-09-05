@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.db import models
 from django.utils import timezone
 
@@ -22,12 +24,20 @@ class Annotation(models.Model):
     organization: models.ForeignKey = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, null=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     scope = models.CharField(max_length=24, choices=Scope.choices, default=Scope.INSIGHT)
-    creation_type = models.CharField(max_length=3, choices=CreationType.choices, default=CreationType.USER,)
+    creation_type = models.CharField(max_length=3, choices=CreationType.choices, default=CreationType.USER)
     date_marker: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED: replaced by scope
     apply_all: models.BooleanField = models.BooleanField(null=True)
+
+    @property
+    def insight_short_id(self) -> Optional[str]:
+        return self.dashboard_item.short_id if self.dashboard_item is not None else None
+
+    @property
+    def insight_name(self) -> Optional[str]:
+        return self.dashboard_item.name if self.dashboard_item is not None else None
 
     def get_analytics_metadata(self):
         return {"scope": str(self.scope), "date_marker": self.date_marker}

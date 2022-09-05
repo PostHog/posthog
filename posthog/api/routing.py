@@ -69,8 +69,8 @@ class StructuredViewSetMixin(_GenericViewSet):
         if team_from_token:
             return team_from_token
 
-        user = cast(User, self.request.user)
         if self.legacy_team_compatibility:
+            user = cast(User, self.request.user)
             team = user.team
             assert team is not None
             return team

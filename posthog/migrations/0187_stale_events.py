@@ -18,7 +18,10 @@ def set_created_at(apps, schema_editor):
             result = sync_execute(
                 "SELECT timestamp FROM events where team_id=%(team_id)s AND event=%(event)s"
                 " order by timestamp limit 1",
-                {"team_id": instance.team.pk, "event": instance.name,},
+                {
+                    "team_id": instance.team.pk,
+                    "event": instance.name,
+                },
             )
         if result:
             created_at = result[0][0]
@@ -41,7 +44,9 @@ class Migration(migrations.Migration):
             field=models.DateTimeField(default=django.utils.timezone.now, null=True),
         ),
         migrations.AddField(
-            model_name="eventdefinition", name="last_seen_at", field=models.DateTimeField(default=None, null=True),
+            model_name="eventdefinition",
+            name="last_seen_at",
+            field=models.DateTimeField(default=None, null=True),
         ),
         migrations.RunPython(set_created_at, migrations.RunPython.noop),
     ]

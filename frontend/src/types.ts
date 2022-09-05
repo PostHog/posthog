@@ -236,6 +236,7 @@ export interface TeamType extends TeamBasicType {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
+    test_account_filters_default_checked: boolean
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
     person_display_name_properties: string[]
@@ -429,8 +430,11 @@ export interface RRWebRecordingConsoleLogPayload {
 
 export interface RecordingConsoleLog extends RecordingTimeMixinType {
     parsedPayload: string
-    parsedTraceURL?: string
-    parsedTraceString?: string
+    hash?: string // md5() on parsedPayload. Used for deduping console logs.
+    count?: number // Number of duplicate console logs
+    previewContent?: React.ReactNode // Content to show in first line
+    fullContent?: React.ReactNode // Full content to show when item is expanded
+    traceContent?: React.ReactNode // Url content to show on right side
     level: LogLevel
 }
 
@@ -549,6 +553,13 @@ export interface PersonType {
     properties: Record<string, any>
     created_at?: string
     is_identified?: boolean
+}
+
+export interface PersonListParams {
+    properties?: AnyPropertyFilter[]
+    search?: string
+    cohort?: number
+    distinct_id?: string
 }
 
 interface MatchedRecordingEvents {
@@ -706,11 +717,11 @@ export interface RecordingTimeMixinType {
     playerTime: number | null
     playerPosition: PlayerPosition | null
     colonTimestamp?: string
+    isOutOfBand?: boolean // Did the event or console log not originate from the same client library as the recording
 }
 
 export interface RecordingEventType extends EventType, RecordingTimeMixinType {
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
-    isOutOfBandEvent: boolean // Did the event not originate from the same client library as the recording
 }
 
 export interface EventsTableRowItem {
@@ -915,7 +926,10 @@ export interface FrontendApp {
 
 export interface JobPayloadFieldOptions {
     type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    title?: string
     required?: boolean
+    default?: any
+    staff_only?: boolean
 }
 
 export interface JobSpec {
@@ -966,14 +980,16 @@ export enum AnnotationScope {
 }
 
 export interface AnnotationType {
-    id: string
+    id: number
     scope: AnnotationScope
     content: string
     date_marker: string
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string
-    dashboard_item?: number
+    dashboard_item?: number | null
+    insight_short_id?: InsightModel['short_id'] | null
+    insight_name?: InsightModel['name'] | null
     deleted?: boolean
     creation_type?: string
 }
@@ -1565,6 +1581,13 @@ export interface PropertyDefinition {
     is_action?: boolean
 }
 
+export enum PropertyDefinitionState {
+    Pending = 'pending',
+    Loading = 'loading',
+    Missing = 'missing',
+    Error = 'error',
+}
+
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
@@ -1755,7 +1778,7 @@ export interface VersionType {
     release_date?: string
 }
 
-export interface dateMappingOption {
+export interface DateMappingOption {
     key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
@@ -1957,8 +1980,10 @@ export type CombinedEvent = EventDefinition | ActionType
 
 export enum CombinedEventType {
     All = 'all',
-    Event = 'event',
     ActionEvent = 'action_event',
+    Event = 'event',
+    EventCustom = 'event_custom',
+    EventPostHog = 'event_posthog',
 }
 
 export interface IntegrationType {
@@ -2009,4 +2034,10 @@ export interface ExportedAssetType {
 export enum YesOrNoResponse {
     Yes = 'yes',
     No = 'no',
+}
+
+export interface SessionRecordingPlayerProps {
+    sessionRecordingId: SessionRecordingId
+    playerKey: string
+    includeMeta?: boolean
 }

@@ -290,17 +290,8 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>({
         }),
         clearEventToDisplay: true,
         setCurrentPage: (page: WebPerformancePage) => ({ page }),
-        openRecordingModal: (sessionRecordingId: string) => ({ sessionRecordingId }),
-        closeRecordingModal: () => true,
     },
     reducers: {
-        openedSessionRecordingId: [
-            null as null | string,
-            {
-                openRecordingModal: (_, { sessionRecordingId }) => sessionRecordingId,
-                closeRecordingModal: () => null,
-            },
-        ],
         eventToDisplay: [
             null as EventPerformanceData | null,
             {
@@ -371,17 +362,6 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>({
                 router.values.hashParams,
                 { replace: true },
             ]
-        },
-        openRecordingModal: ({ sessionRecordingId }) => {
-            return [
-                router.values.location.pathname,
-                { ...router.values.searchParams },
-                { ...router.values.hashParams, sessionRecordingId },
-            ]
-        },
-        closeRecordingModal: () => {
-            delete router.values.hashParams.sessionRecordingId
-            return [router.values.location.pathname, { ...router.values.searchParams }, { ...router.values.hashParams }]
         },
     }),
     urlToAction: ({ values, actions }) => ({

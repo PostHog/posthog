@@ -15,7 +15,7 @@ class TestChangesBetweenInsights(BaseTest):
         dashboard = Dashboard.objects.create(team=self.team, name="the dashboard")
         DashboardTile.objects.create(insight=insight_after, dashboard=dashboard)
 
-        actual = changes_between(model_type="Insight", previous=insight_before, current=insight_after,)
+        actual = changes_between(model_type="Insight", previous=insight_before, current=insight_after)
         expected = [
             Change(
                 type="Insight",
@@ -34,9 +34,7 @@ class TestChangesBetweenInsights(BaseTest):
             previous=self._an_insight_with(name="name"),
             current=self._an_insight_with(name="new name"),
         )
-        expected = [
-            Change(type="Insight", field="name", action="changed", before="name", after="new name",),
-        ]
+        expected = [Change(type="Insight", field="name", action="changed", before="name", after="new name")]
 
         self.assertCountEqual(actual, expected)
 
@@ -47,7 +45,7 @@ class TestChangesBetweenInsights(BaseTest):
             current=self._an_insight_with(tagged_items=["after", "tags"]),
         )
         expected = [
-            Change(type="Insight", field="tags", action="changed", before=["before", "tags"], after=["after", "tags"]),
+            Change(type="Insight", field="tags", action="changed", before=["before", "tags"], after=["after", "tags"])
         ]
 
         self.assertCountEqual(actual, expected)
@@ -58,9 +56,7 @@ class TestChangesBetweenInsights(BaseTest):
             previous=self._an_insight_with(derived_name="starting"),
             current=self._an_insight_with(derived_name="after"),
         )
-        expected = [
-            Change(type="Insight", field="derived_name", action="changed", before="starting", after="after"),
-        ]
+        expected = [Change(type="Insight", field="derived_name", action="changed", before="starting", after="after")]
 
         self.assertCountEqual(actual, expected)
 
@@ -70,9 +66,7 @@ class TestChangesBetweenInsights(BaseTest):
             previous=self._an_insight_with(description="starting"),
             current=self._an_insight_with(description="after"),
         )
-        expected = [
-            Change(type="Insight", field="description", action="changed", before="starting", after="after"),
-        ]
+        expected = [Change(type="Insight", field="description", action="changed", before="starting", after="after")]
 
         self.assertCountEqual(actual, expected)
 
