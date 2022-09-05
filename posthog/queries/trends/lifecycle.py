@@ -50,7 +50,7 @@ class Lifecycle:
                 additional_values = {"label": label, "status": val[2]}
                 parsed_result = parse_response(val, filter, additional_values=additional_values)
                 parsed_result.update(
-                    {"persons_urls": self._get_persons_urls(filter, entity, parsed_result["days"], val[2])}
+                    {"persons_urls": self._get_lifecycle_persons_urls(filter, entity, parsed_result["days"], val[2])}
                 )
                 res.append(parsed_result)
 
@@ -80,7 +80,9 @@ class Lifecycle:
 
         return PersonSerializer(people, many=True).data
 
-    def _get_persons_urls(self, filter: Filter, entity: Entity, times: List[str], status) -> List[Dict[str, Any]]:
+    def _get_lifecycle_persons_urls(
+        self, filter: Filter, entity: Entity, times: List[str], status
+    ) -> List[Dict[str, Any]]:
         persons_url = []
         for target_date in times:
             filter_params = filter.to_params()
