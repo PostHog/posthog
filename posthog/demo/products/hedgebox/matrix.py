@@ -79,7 +79,7 @@ class HedgeboxMatrix(Matrix):
 
         # Actions
         interacted_with_file_action = Action.objects.create(
-            name="Interacted with file", team=team, description="Logged-in interaction with a file.", created_by=user,
+            name="Interacted with file", team=team, description="Logged-in interaction with a file.", created_by=user
         )
         ActionStep.objects.bulk_create(
             (
@@ -191,7 +191,7 @@ class HedgeboxMatrix(Matrix):
                         "name": interacted_with_file_action.name,
                         "type": "actions",
                         "order": 3,
-                    },
+                    }
                 ],
                 "display": "FunnelViz",
                 "insight": "FUNNELS",
@@ -229,7 +229,7 @@ class HedgeboxMatrix(Matrix):
                         }
                     ],
                 },
-                "target_entity": {"id": EVENT_SIGNED_UP, "name": EVENT_SIGNED_UP, "type": "events", "order": 0,},
+                "target_entity": {"id": EVENT_SIGNED_UP, "name": EVENT_SIGNED_UP, "type": "events", "order": 0},
                 "retention_type": RETENTION_FIRST_TIME,
                 "total_intervals": 9,
                 "returning_entity": {
@@ -485,7 +485,7 @@ class HedgeboxMatrix(Matrix):
                         "type": "events",
                         "order": 0,
                         "properties": [
-                            {"key": "$current_url", "type": "event", "value": URL_HOME, "operator": "exact",}
+                            {"key": "$current_url", "type": "event", "value": URL_HOME, "operator": "exact"}
                         ],
                     },
                     {
@@ -495,7 +495,7 @@ class HedgeboxMatrix(Matrix):
                         "type": "events",
                         "order": 1,
                         "properties": [
-                            {"key": "$current_url", "type": "event", "value": URL_SIGNUP, "operator": "regex",}
+                            {"key": "$current_url", "type": "event", "value": URL_SIGNUP, "operator": "regex"}
                         ],
                     },
                     {"custom_name": "Signed up", "id": "signed_up", "name": "signed_up", "type": "events", "order": 2},
@@ -626,7 +626,7 @@ class HedgeboxMatrix(Matrix):
                         "type": "events",
                         "order": 0,
                         "properties": [
-                            {"key": "$current_url", "type": "event", "value": URL_SIGNUP, "operator": "exact",}
+                            {"key": "$current_url", "type": "event", "value": URL_SIGNUP, "operator": "exact"}
                         ],
                     },
                     {"id": "signed_up", "name": "signed_up", "type": "events", "order": 1},

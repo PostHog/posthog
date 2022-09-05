@@ -56,9 +56,7 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
             if not isinstance(result, dict) or not result.get("loading"):
                 fresh_result_package["last_refresh"] = now()
                 fresh_result_package["is_cached"] = False
-                cache.set(
-                    cache_key, fresh_result_package, settings.CACHED_RESULTS_TTL,
-                )
+                cache.set(cache_key, fresh_result_package, settings.CACHED_RESULTS_TTL)
                 if filter:
                     Insight.objects.filter(team_id=team.pk, filters_hash=cache_key).update(last_refresh=now())
 

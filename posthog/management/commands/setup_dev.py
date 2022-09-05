@@ -11,12 +11,8 @@ class Command(BaseCommand):
     help = "Set up the instance for development/review with demo data"
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--no-data", action="store_true", help="Create demo account without data",
-        )
-        parser.add_argument(
-            "--create-e2e-test-plugin", action="store_true", help="Create plugin for charts E2E test",
-        )
+        parser.add_argument("--no-data", action="store_true", help="Create demo account without data")
+        parser.add_argument("--create-e2e-test-plugin", action="store_true", help="Create plugin for charts E2E test")
 
     def handle(self, *args, **options):
         with transaction.atomic():
@@ -60,7 +56,7 @@ class Command(BaseCommand):
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=team, order=1, config={})
 
         PluginSourceFile.objects.update_or_create(
-            plugin=plugin, filename="plugin.json", source='{ "name": "e2e test plugin", "config": [] }',
+            plugin=plugin, filename="plugin.json", source='{ "name": "e2e test plugin", "config": [] }'
         )
         PluginSourceFile.objects.update_or_create(
             plugin=plugin,

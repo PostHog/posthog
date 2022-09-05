@@ -114,7 +114,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
 
 def _screenshot_asset(
-    image_path: str, url_to_render: str, screenshot_width: ScreenWidth, wait_for_css_selector: CSSSelector,
+    image_path: str, url_to_render: str, screenshot_width: ScreenWidth, wait_for_css_selector: CSSSelector
 ) -> None:
     driver: Optional[webdriver.Chrome] = None
     try:

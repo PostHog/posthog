@@ -21,7 +21,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--seed", type=str, help="Simulation seed for deterministic output")
         parser.add_argument(
-            "--now", type=dt.datetime.fromisoformat, help="Simulation 'now' datetime in ISO format (default: now)",
+            "--now", type=dt.datetime.fromisoformat, help="Simulation 'now' datetime in ISO format (default: now)"
         )
         parser.add_argument(
             "--days-past",
@@ -41,10 +41,10 @@ class Command(BaseCommand):
             "--reset-master", action="store_true", help="Reset master project instead of creating a demo project"
         )
         parser.add_argument(
-            "--email", type=str, default="test@posthog.com", help="Email of the demo user (default: test@posthog.com)",
+            "--email", type=str, default="test@posthog.com", help="Email of the demo user (default: test@posthog.com)"
         )
         parser.add_argument(
-            "--password", type=str, default="12345678", help="Password of the demo user (default: 12345678)",
+            "--password", type=str, default="12345678", help="Password of the demo user (default: 12345678)"
         )
 
     def handle(self, *args, **options):
@@ -95,12 +95,12 @@ class Command(BaseCommand):
         summary_lines = [f"Matrix: {matrix.PRODUCT_NAME}. Seed: {seed}."]
         for cluster in matrix.clusters:
             summary_lines.append(
-                f"    Cluster {cluster.index}: {cluster}. Radius = {cluster.radius}. Population = {len(cluster.people_matrix) * len(cluster.people_matrix[0])}.",
+                f"    Cluster {cluster.index}: {cluster}. Radius = {cluster.radius}. Population = {len(cluster.people_matrix) * len(cluster.people_matrix[0])}."
             )
             for y, person_row in enumerate(cluster.people_matrix):
                 for x, person in enumerate(person_row):
                     if verbosity >= 2:
-                        summary_lines.append(f"        Person {x, y}: {person}",)
+                        summary_lines.append(f"        Person {x, y}: {person}")
                     total_event_count += len(person.past_events) + len(person.future_events)
                     future_event_count += len(person.future_events)
                     if person.all_events:
@@ -110,20 +110,20 @@ class Command(BaseCommand):
                         for event in person.all_events:
                             if session_id := event.properties.get("$session_id"):
                                 if active_session_id != session_id:
-                                    summary_lines.append(f"            Session {session_id}:",)
+                                    summary_lines.append(f"            Session {session_id}:")
                                 active_session_id = session_id
-                            summary_lines.append(f"            {event}",)
+                            summary_lines.append(f"            {event}")
                     elif verbosity >= 2:
                         event_count = len(person.past_events) + len(person.future_events)
                         if not event_count:
-                            summary_lines.append("            No events",)
+                            summary_lines.append("            No events")
                         else:
                             session_count = len(set(event.properties.get("$session_id") for event in person.all_events))
                             summary_lines.append(
                                 f"            {event_count} event{'' if event_count == 1 else 's'} "
                                 f"across {session_count} session{'' if session_count == 1 else 's'} "
                                 f"between {cast(SimEvent, person.first_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')} "
-                                f"and {cast(SimEvent, person.last_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')}",
+                                f"and {cast(SimEvent, person.last_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
                             )
         summary_lines.append(
             f"All in all, in {duration * 1000:.2f} ms "

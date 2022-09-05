@@ -13,16 +13,25 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="dashboarditem", name="created_at", field=models.DateTimeField(auto_now_add=True, null=True),
+            model_name="dashboarditem",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, null=True),
         ),
         migrations.AddField(
             model_name="dashboarditem",
             name="created_by",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL,
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
-        migrations.AddField(model_name="dashboarditem", name="saved", field=models.BooleanField(default=False),),
+        migrations.AddField(
+            model_name="dashboarditem",
+            name="saved",
+            field=models.BooleanField(default=False),
+        ),
         migrations.AlterField(
             model_name="dashboarditem",
             name="dashboard",

@@ -17,10 +17,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         create_event(event="watched_movie", team=self.team, distinct_id="user1")
         create_event(event="$pageview", team=self.team, distinct_id="user1")
         create_event(event="$pageview", team=self.team, distinct_id="user1")
-        expected_events = [
-            "watched_movie",
-            "$pageview",
-        ]
+        expected_events = ["watched_movie", "$pageview"]
         EventDefinition.objects.create(name="watched_movie", team=self.team)
         EventDefinition.objects.create(name="$pageview", team=self.team)
 
@@ -141,7 +138,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
 
             # team leakage
             create_event(
-                distinct_id="test", team=team2, event="$pageview", properties={"$current_url": "https://posthog.com"},
+                distinct_id="test", team=team2, event="$pageview", properties={"$current_url": "https://posthog.com"}
             )
             Insight.objects.create(
                 team=team2,
@@ -183,7 +180,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
         Insight.objects.create(
             team=self.team,
-            filters={"events": [{"id": "element_discovered"}], "properties": [{"key": "atomic_number", "value": "2"}],},
+            filters={"events": [{"id": "element_discovered"}], "properties": [{"key": "atomic_number", "value": "2"}]},
         )
 
         calculate_event_property_usage_for_team(self.team.pk, complete_inference=True)

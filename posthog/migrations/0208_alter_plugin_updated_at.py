@@ -11,6 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AlterField(
-            model_name="plugin", name="updated_at", field=models.DateTimeField(blank=True, null=True),
+            model_name="plugin",
+            name="updated_at",
+            field=models.DateTimeField(blank=True, null=True),
         ),
     ]

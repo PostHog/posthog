@@ -136,9 +136,7 @@ class TestLicenseAPI(APILicensedTest):
         response = self.client.delete(f"/api/license/{self.license.pk}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(Team.objects.count(), 2)  # deleted two teams
-        self.assertEqual(
-            sorted([team.id for team in Team.objects.all()]), sorted([self.team.pk, not_to_be_deleted.pk]),
-        )
+        self.assertEqual(sorted([team.id for team in Team.objects.all()]), sorted([self.team.pk, not_to_be_deleted.pk]))
         self.assertEqual(Organization.objects.count(), 1)
 
     @pytest.mark.skip_on_multitenancy

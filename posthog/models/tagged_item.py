@@ -23,7 +23,7 @@ def build_check():
 # uniqueness across null columns.
 def build_partial_uniqueness_constraint(field: str):
     return UniqueConstraint(
-        fields=["tag", field], name=f"unique_{field}_tagged_item", condition=Q((f"{field}__isnull", False)),
+        fields=["tag", field], name=f"unique_{field}_tagged_item", condition=Q((f"{field}__isnull", False))
     )
 
 
@@ -67,7 +67,7 @@ class TaggedItem(UUIDModel):
         # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
         constraints = [
             *[build_partial_uniqueness_constraint(field=field) for field in RELATED_OBJECTS],
-            models.CheckConstraint(check=build_check(), name="exactly_one_related_object",),
+            models.CheckConstraint(check=build_check(), name="exactly_one_related_object"),
         ]
 
     def clean(self):

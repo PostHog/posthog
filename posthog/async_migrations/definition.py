@@ -10,9 +10,7 @@ if TYPE_CHECKING:
 
 
 class AsyncMigrationOperation:
-    def __init__(
-        self, fn: Callable[[str], None], rollback_fn: Callable[[str], None] = lambda _: None,
-    ):
+    def __init__(self, fn: Callable[[str], None], rollback_fn: Callable[[str], None] = lambda _: None):
         self.fn = fn
 
         # This should not be a long operation as it will be executed synchronously!

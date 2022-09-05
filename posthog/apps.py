@@ -37,7 +37,7 @@ class PostHogConfig(AppConfig):
                 phcloud_client.capture(
                     get_machine_id(),
                     "development server launched",
-                    {"posthog_version": VERSION, "git_rev": get_git_commit(), "git_branch": get_git_branch(),},
+                    {"posthog_version": VERSION, "git_rev": get_git_commit(), "git_branch": get_git_branch()},
                 )
 
             local_api_key = get_self_capture_api_token(None)
@@ -52,7 +52,7 @@ class PostHogConfig(AppConfig):
                 in_range, version = service_version_requirement.is_service_in_accepted_version()
                 if not in_range:
                     print(
-                        f"\033[91mService {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}. PostHog may not work correctly with the current version. To continue anyway, add SKIP_SERVICE_VERSION_REQUIREMENTS=1 as an environment variable\033[0m",
+                        f"\033[91mService {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}. PostHog may not work correctly with the current version. To continue anyway, add SKIP_SERVICE_VERSION_REQUIREMENTS=1 as an environment variable\033[0m"
                     )
                     exit(1)
 

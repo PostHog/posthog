@@ -27,10 +27,7 @@ class TagsTestCase(TestMigrations):
             name="private dashboard",
             deprecated_tags=["a", "b", "c", "a", "b", "existing tag", "", "  ", None],
         )
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-        }
+        filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
         self.insight_with_tags = Insight.objects.create(
             dashboard=self.dashboard,
             filters=filter_dict,
@@ -48,7 +45,7 @@ class TagsTestCase(TestMigrations):
             organization=self.org2,
             api_token="token12345",
             test_account_filters=[
-                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
             ],
         )
         self.team2_total_insights = 1_001

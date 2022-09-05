@@ -15,7 +15,7 @@ from posthog.test.base import APIBaseTest
 class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     def test_can_set_and_query_property_type_and_format(self):
         property = EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="a timestamp", property_type="DateTime",
+            team=self.team, name="a timestamp", property_type="DateTime"
         )
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -30,7 +30,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     def test_errors_on_invalid_property_type(self):
         with pytest.raises(IntegrityError):
             EnterprisePropertyDefinition.objects.create(
-                team=self.team, name="a timestamp", property_type="not an allowed option",
+                team=self.team, name="a timestamp", property_type="not an allowed option"
             )
 
     def test_retrieve_existing_property_definition(self):
@@ -132,7 +132,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(
             f"/api/projects/@current/property_definitions/{str(property.id)}/",
-            {"description": "This is a description.", "tags": ["official", "internal"],},
+            {"description": "This is a description.", "tags": ["official", "internal"]},
         )
         response_data = response.json()
         self.assertEqual(response_data["description"], "This is a description.")
@@ -150,7 +150,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         property = PropertyDefinition.objects.create(team=self.team, name="property")
 
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", {"property_type": "Numeric"},
+            f"/api/projects/@current/property_definitions/{str(property.id)}/", {"property_type": "Numeric"}
         )
 
         response_data = response.json()
@@ -168,7 +168,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", {"property_type": "DateTime"},
+            f"/api/projects/@current/property_definitions/{str(property.id)}/", {"property_type": "DateTime"}
         )
 
         response_data = response.json()
@@ -179,7 +179,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     def test_update_property_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"description": "test"},
+            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"description": "test"}
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
@@ -190,7 +190,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="description test")
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"description": "test"},
+            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"description": "test"}
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
@@ -214,11 +214,11 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="description test")
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"tags": ["a", "b", "a"]},
+            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"tags": ["a", "b", "a"]}
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])

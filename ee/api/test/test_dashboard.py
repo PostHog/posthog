@@ -210,7 +210,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         self.organization.update_available_features()
         self.organization.save()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",)
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -226,12 +226,12 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
         )
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=self.user)
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"tags": ["a", "b", "a"]},
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"tags": ["a", "b", "a"]}
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
@@ -255,5 +255,5 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEquals(
-            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard."),
+            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard.")
         )
