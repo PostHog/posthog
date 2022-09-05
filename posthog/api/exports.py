@@ -78,9 +78,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 {"export_format": ["This type of export is not supported for this resource."]}
             )
 
-        report_user_action(
-            request.user, "export created", instance.get_analytics_metadata(),
-        )
+        report_user_action(request.user, "export created", instance.get_analytics_metadata())
 
         instance.refresh_from_db()
 
@@ -119,11 +117,7 @@ class ExportedAssetViewSet(
     queryset = ExportedAsset.objects.order_by("-created_at")
     serializer_class = ExportedAssetSerializer
 
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        SessionAuthentication,
-        BasicAuthentication,
-    ]
+    authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint

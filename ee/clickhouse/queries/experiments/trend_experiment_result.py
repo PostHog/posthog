@@ -102,7 +102,7 @@ class ClickhouseTrendExperimentResult:
 
     def get_results(self):
         insight_results = self.insight.run(self.query_filter, self.team)
-        exposure_results = self.insight.run(self.exposure_filter, self.team,)
+        exposure_results = self.insight.run(self.exposure_filter, self.team)
         control_variant, test_variants = self.get_variants(insight_results, exposure_results)
 
         probabilities = self.calculate_results(control_variant, test_variants)

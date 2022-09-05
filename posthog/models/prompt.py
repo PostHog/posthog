@@ -49,10 +49,10 @@ experiment_config = [
                 ],  # buttons, can open external urls or trigger actions
                 "reference": "help-button",  # should match a `data-tooltip` reference to attach to a component
                 "icon": "messages",  # tbd if makes sense to add to the config, displays a different icon in the tooltips
-            },
+            }
         ],
         "rule": {
-            "path": {"must_match": ["/*"], "exclude": ["/ingestion", "/ingestion/*"],},
+            "path": {"must_match": ["/*"], "exclude": ["/ingestion", "/ingestion/*"]}
         },  # currently two rules enabled: `path` triggers the sequence by pathname, using wildcard matching; `must_be_completed`: allows to run a sequence only if others are completed;
         "type": "one-off",  # can be used to toggle different behaviors in the frontend
     },
@@ -84,7 +84,7 @@ experiment_config = [
                 "reference": "top-menu-toggle",
             },
         ],
-        "rule": {"path": {"must_match": ["/home"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/home"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -97,9 +97,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "dashboards-table",
                 "icon": "dashboard",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/dashboard"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/dashboard"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -122,7 +122,7 @@ experiment_config = [
                 "icon": "dashboard",
             },
         ],
-        "rule": {"path": {"must_match": ["/dashboard/*"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/dashboard/*"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -149,7 +149,7 @@ experiment_config = [
                 "icon": "insight",
             },
         ],
-        "rule": {"path": {"must_match": ["/insights/*"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/insights/*"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -162,9 +162,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "insight-save-button",
                 "icon": "insight",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/insights/new"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/insights/new"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -183,9 +183,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "session-recording-table",
                 "icon": "recordings",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/recordings"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/recordings"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -208,7 +208,7 @@ experiment_config = [
                 "icon": "recordings",
             },
         ],
-        "rule": {"path": {"must_match": ["/recordings?*"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/recordings?*"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -221,9 +221,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "feature-flag-table",
                 "icon": "feature-flags",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/feature_flags"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/feature_flags"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -246,7 +246,7 @@ experiment_config = [
                 "icon": "feature-flags",
             },
         ],
-        "rule": {"path": {"must_match": ["/feature_flags/new"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/feature_flags/new"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -262,9 +262,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "experiment-table",
                 "icon": "experiments",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/experiments"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/experiments"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -293,7 +293,7 @@ experiment_config = [
                 "icon": "experiments",
             },
         ],
-        "rule": {"path": {"must_match": ["/experiments/new"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/experiments/new"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -306,9 +306,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "waterfall-events-table",
                 "icon": "web-performance",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/web-performance"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/web-performance"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -321,9 +321,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "session-recordings-button",
                 "icon": "web-performance",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/web-performance/**/*"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/web-performance/**/*"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -347,7 +347,7 @@ experiment_config = [
                 "icon": "live-events",
             },
         ],
-        "rule": {"path": {"must_match": ["/events"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/events"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -360,9 +360,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "events-definition-table",
                 "icon": "data-management",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/data-management/events"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/data-management/events"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -375,9 +375,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "edit-definition",
                 "icon": "data-management",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/data-management/events/*"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/data-management/events/*"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -390,9 +390,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "persons-table",
                 "icon": "persons",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/persons"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/persons"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -415,7 +415,7 @@ experiment_config = [
                 "icon": "persons",
             },
         ],
-        "rule": {"path": {"must_match": ["/person/*"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/person/*"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -428,9 +428,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "cohorts-table",
                 "icon": "cohorts",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/cohorts"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/cohorts"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -443,9 +443,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "cohort-type",
                 "icon": "cohorts",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/cohorts/new"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/cohorts/new"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -468,7 +468,7 @@ experiment_config = [
                 "icon": "annotations",
             },
         ],
-        "rule": {"path": {"must_match": ["/annotations"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/annotations"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -499,7 +499,7 @@ experiment_config = [
                 "icon": "apps",
             },
         ],
-        "rule": {"path": {"must_match": ["/project/apps"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/project/apps"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -512,9 +512,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "toolbar-authorized-toggle",
                 "icon": "apps",
-            },
+            }
         ],
-        "rule": {"path": {"must_match": ["/toolbar"],}, "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/toolbar"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
 ]

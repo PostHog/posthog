@@ -104,7 +104,7 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
         "time_interval",
         "operator_value",
     ],
-    BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME: ["key", "value", "event_type", "time_value", "time_interval",],
+    BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME: ["key", "value", "event_type", "time_value", "time_interval"],
     BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE: [
         "key",
         "value",

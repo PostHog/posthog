@@ -104,7 +104,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             # pull person stats and the rest here from Postgres always
             persons_considered_total = Person.objects.filter(team_id=team.id)
             persons_considered_total_new_in_period = persons_considered_total.filter(
-                created_at__gte=period_start, created_at__lte=period_end,
+                created_at__gte=period_start, created_at__lte=period_end
             )
             team_report["persons_count_total"] = persons_considered_total.count()
             instance_usage_summary["persons_count_total"] += team_report["persons_count_total"]

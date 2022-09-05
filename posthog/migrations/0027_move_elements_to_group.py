@@ -25,7 +25,11 @@ def forwards(apps, schema_editor):
     while Event.objects.filter(element__isnull=False, elements_hash__isnull=True, event="$autocapture").exists():
         with transaction.atomic():
             events = (
-                Event.objects.filter(element__isnull=False, elements_hash__isnull=True, event="$autocapture",)
+                Event.objects.filter(
+                    element__isnull=False,
+                    elements_hash__isnull=True,
+                    event="$autocapture",
+                )
                 .prefetch_related(models.Prefetch("element_set", to_attr="elements_cache"))
                 .distinct("pk")[:1000]
             )

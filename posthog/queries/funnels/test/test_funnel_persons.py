@@ -34,7 +34,7 @@ def _create_session_recording_event(team_id, distinct_id, session_id, timestamp,
         timestamp=timestamp,
         session_id=session_id,
         window_id=window_id,
-        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot,},
+        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot},
     )
 
 
@@ -216,7 +216,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(100, len(results))
 
-        filter_offset = Filter(data={**data, "offset": 100,})
+        filter_offset = Filter(data={**data, "offset": 100})
         _, results, _ = ClickhouseFunnelActors(filter_offset, self.team).get_actors()
         self.assertEqual(10, len(results))
 
@@ -414,7 +414,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_cohort_breakdown_persons(self):
         person = _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
         _create_event(
-            team=self.team, event="sign up", distinct_id=f"person1", properties={}, timestamp="2020-01-02T12:00:00Z",
+            team=self.team, event="sign up", distinct_id=f"person1", properties={}, timestamp="2020-01-02T12:00:00Z"
         )
         cohort = Cohort.objects.create(
             team=self.team,

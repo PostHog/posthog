@@ -219,7 +219,7 @@ def parse_prop_clauses(
                 final.append(
                     " {property_operator} {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
-                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
+                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id)
                         ),
                         table_name=table_formatted,
                         property_operator=property_operator,
@@ -286,7 +286,7 @@ def parse_prop_clauses(
             else:
                 # :TRICKY: offer groups support for queries which don't support automatically joining with groups table yet (e.g. lifecycle)
                 filter_query, filter_params = prop_filter_json_extract(
-                    prop, idx, prepend, prop_var=f"group_properties", allow_denormalized_props=False,
+                    prop, idx, prepend, prop_var=f"group_properties", allow_denormalized_props=False
                 )
                 group_type_index_var = f"{prepend}_group_type_index_{idx}"
                 groups_subquery = GET_GROUP_IDS_BY_PROPERTY_SQL.format(
@@ -301,7 +301,7 @@ def parse_prop_clauses(
             cohort_id = cast(int, prop.value)
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
-            filter_query, filter_params = method(cohort_id, idx, prepend=prepend,)  # type: ignore
+            filter_query, filter_params = method(cohort_id, idx, prepend=prepend)  # type: ignore
             filter_query = f"""{person_id_joined_alias if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else 'person_id'} IN ({filter_query})"""
 
             if has_person_id_joined or person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
@@ -309,7 +309,7 @@ def parse_prop_clauses(
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
-                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
+                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id)
                 )
                 final.append(f"{property_operator} {table_formatted}distinct_id IN ({subquery})")
             params.update(filter_params)
@@ -446,7 +446,7 @@ def prop_filter_json_extract(
             )
         return (
             " {property_operator} (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
-                idx=idx, prepend=prepend, prop_var=prop_var, left=property_expr, property_operator=property_operator,
+                idx=idx, prepend=prepend, prop_var=prop_var, left=property_expr, property_operator=property_operator
             ),
             params,
         )
@@ -463,10 +463,7 @@ def prop_filter_json_extract(
             parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
         )) = %({prop_value_param_key})s"""
 
-        return (
-            query,
-            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
-        )
+        return (query, {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value})
     elif operator == "is_date_after":
         # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
@@ -488,10 +485,7 @@ def prop_filter_json_extract(
 
         query = f"""{property_operator} {first_of_date_or_timestamp} > {adjusted_value}"""
 
-        return (
-            query,
-            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
-        )
+        return (query, {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value})
     elif operator == "is_date_before":
         # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
@@ -501,10 +495,7 @@ def prop_filter_json_extract(
         first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
         query = f"""{property_operator} {first_of_date_or_timestamp} < %({prop_value_param_key})s"""
 
-        return (
-            query,
-            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
-        )
+        return (query, {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value})
     elif operator in ["gt", "lt", "gte", "lte"]:
         count_operator = get_count_operator(operator)
 

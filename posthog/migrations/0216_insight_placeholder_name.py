@@ -11,6 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="insight", name="derived_name", field=models.CharField(blank=True, max_length=400, null=True),
+            model_name="insight",
+            name="derived_name",
+            field=models.CharField(blank=True, max_length=400, null=True),
         ),
     ]
