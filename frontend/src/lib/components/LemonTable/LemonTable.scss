@@ -84,7 +84,7 @@
         > tr {
             &.LemonTable__expansion {
                 position: relative;
-                background: var(--bg-side);
+                background: var(--side);
                 > td {
                     // Disable padding inside the expansion for better tailored placement of contents
                     padding: 0 !important;
