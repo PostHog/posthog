@@ -17,14 +17,15 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { getBarColorFromStatus, getSeriesColor } from 'lib/colors'
 
 export const funnelTitle = (props: {
-    step: number
+    converted: boolean
+    step?: number
     breakdown_value?: string
     label?: string
     seriesId?: number
 }): JSX.Element => {
     return (
         <>
-            {(props.step ?? 0) >= 0 ? 'Completed' : 'Dropped off at'} step {Math.abs(props?.step ?? 0)} •{' '}
+            {props.converted ? 'Completed' : 'Dropped off at'} step {Math.abs(props?.step ?? 0)} •{' '}
             <PropertyKeyInfo value={props.label || ''} disablePopover />{' '}
             {!!props?.breakdown_value ? `• ${props.breakdown_value}` : ''}
         </>

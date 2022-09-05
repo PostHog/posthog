@@ -97,8 +97,9 @@ export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
     '$initial_geoip_subdivision_name',
 ]
 
-export type openPersonsModelProps = {
+export type OpenPersonsModelProps = {
     step: FunnelStep
+    stepIndex?: number
     converted: boolean
 }
 
@@ -139,8 +140,9 @@ export const funnelLogic = kea<funnelLogicType>({
             index,
         }),
         saveFunnelInsight: (name: string) => ({ name }),
-        openPersonsModalForStep: ({ step, converted }: openPersonsModelProps) => ({
+        openPersonsModalForStep: ({ step, stepIndex, converted }: OpenPersonsModelProps) => ({
             step,
+            stepIndex,
             converted,
         }),
         openPersonsModalForSeries: ({
@@ -1250,7 +1252,7 @@ export const funnelLogic = kea<funnelLogicType>({
         clearFunnel: ({}) => {
             actions.setFilters({ new_entity: values.filters.new_entity }, false, true)
         },
-        openPersonsModalForStep: ({ step, converted }) => {
+        openPersonsModalForStep: ({ step, stepIndex, converted }) => {
             // DEPRECATED
             if (!values.isModalActive) {
                 return
@@ -1263,7 +1265,9 @@ export const funnelLogic = kea<funnelLogicType>({
                 openPersonsModal({
                     url: converted ? step.converted_people_url : step.dropped_people_url,
                     title: funnelTitle({
-                        step: converted ? step.order : -step.order,
+                        converted,
+                        // Note - when in a legend the stepIndex is used instead
+                        step: typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1,
                         breakdown_value: breakdownValues.isEmpty
                             ? undefined
                             : breakdownValues.breakdown_value.join(', '),
@@ -1291,7 +1295,8 @@ export const funnelLogic = kea<funnelLogicType>({
                 openPersonsModal({
                     url: converted ? series.converted_people_url : series.dropped_people_url,
                     title: funnelTitle({
-                        step: converted ? step.order + 1 : -(step.order + 1),
+                        converted,
+                        step: step.order + 1,
                         breakdown_value: breakdownValues.isEmpty
                             ? undefined
                             : breakdownValues.breakdown_value.join(', '),
@@ -1319,6 +1324,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     openPersonsModal({
                         url: success ? correlation.success_people_url : correlation.failure_people_url,
                         title: funnelTitle({
+                            converted: success,
                             step: success ? values.stepsWithCount.length : -2,
                             breakdown_value,
                             label: breakdown,
