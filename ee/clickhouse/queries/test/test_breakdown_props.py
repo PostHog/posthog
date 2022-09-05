@@ -211,8 +211,8 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             data={
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-12",
                 "breakdown": "industry",
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
@@ -229,8 +229,8 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             data={
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-12",
                 "breakdown": "industry",
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
@@ -286,7 +286,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(
             data={
                 "date_from": "2020-01-02T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
+                "date_to": "2020-01-12",
                 "breakdown": "$session_duration",
                 "breakdown_type": "session",
                 "events": [{"id": "$pageview", "type": "events", "order": 0,}],
@@ -380,7 +380,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(
             data={
                 "date_from": "2020-01-02T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
+                "date_to": "2020-01-12",
                 "breakdown": "$browser",
                 "breakdown_type": "person",
                 "events": [
