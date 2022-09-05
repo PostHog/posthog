@@ -40,6 +40,9 @@ export interface AnnotationsOverlayProps {
 }
 
 interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
+    '--annotations-overlay-chart-area-left': `${myLineChart.scales.x.left}px`
+    '--annotations-overlay-chart-area-height': `${myLineChart.scales.x.top}px`
+    '--annotations-overlay-chart-width': `${myLineChart.width}px`
     '--annotations-overlay-active-badge-left': string
     '--annotations-overlay-active-badge-top': string
     '--annotations-overlay-first-tick-left': string
@@ -60,6 +63,9 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: Annotatio
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
+                    '--annotations-overlay-chart-area-left': `${chart ? chart.scales.x.left : 0}px`,
+                    '--annotations-overlay-chart-area-height': `${chart ? chart.scales.x.top : 0}px`,
+                    '--annotations-overlay-chart-width': `${chartWidth}px`,
                     '--annotations-overlay-first-tick-left': `${firstTickLeftPx}px`,
                     '--annotations-overlay-tick-interval': `${tickIntervalPx}px`,
                     ...(activeBadgeCoordinates

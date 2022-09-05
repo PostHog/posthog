@@ -22,7 +22,7 @@ import 'chartjs-adapter-dayjs'
 import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay, annotationsOverlayLogic } from 'lib/components/AnnotationsOverlay'
-import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
+import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -53,12 +53,6 @@ export interface LineGraphProps {
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
     aggregationAxisFormat?: AggregationAxisFormat
-}
-
-interface LineGraphCSSProperties extends React.CSSProperties {
-    '--line-graph-area-left': string
-    '--line-graph-area-height': string
-    '--line-graph-width': string
 }
 
 export function ensureTooltipElement(): HTMLElement {
@@ -106,9 +100,12 @@ export function LineGraph_({
     const [[chartWidth, chartHeight], setChartDimensions] = useState<[number, number]>([0, 0])
 
     const colors = getGraphColors()
+    const insightType = insight.filters?.insight
     const isHorizontal = type === GraphType.HorizontalBar
+    const isPie = type === GraphType.Pie
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
-    const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie]
+    const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie].includes(type)
+    const showAnnotations = (!insightType || insightType === InsightType.TRENDS) && !isHorizontal && !isPie
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -540,30 +537,19 @@ export function LineGraph_({
     }, [datasets, hiddenLegendKeys])
 
     return (
-        <div
-            className="LineGraph absolute w-full h-full"
-            data-attr={dataAttr}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={
-                myLineChart
-                    ? ({
-                          '--line-graph-area-left': `${myLineChart.scales.x.left}px`,
-                          '--line-graph-area-height': `${myLineChart.scales.x.top}px`,
-                          '--line-graph-width': `${myLineChart.width}px`,
-                      } as LineGraphCSSProperties)
-                    : undefined
-            }
-        >
+        <div className="LineGraph absolute w-full h-full" data-attr={dataAttr}>
             <canvas ref={canvasRef} />
-            <BindLogic
-                logic={annotationsOverlayLogic}
-                props={{
-                    dashboardItemId: insightProps.dashboardItemId,
-                    insightNumericId: insight.id || 'new',
-                }}
-            >
-                <AnnotationsOverlay chart={myLineChart} chartWidth={chartWidth} chartHeight={chartHeight} />
-            </BindLogic>
+            {showAnnotations && (
+                <BindLogic
+                    logic={annotationsOverlayLogic}
+                    props={{
+                        dashboardItemId: insightProps.dashboardItemId,
+                        insightNumericId: insight.id || 'new',
+                    }}
+                >
+                    <AnnotationsOverlay chart={myLineChart} chartWidth={chartWidth} chartHeight={chartHeight} />
+                </BindLogic>
+            )}
         </div>
     )
 }

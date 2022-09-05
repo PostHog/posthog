@@ -1,7 +1,7 @@
 .AnnotationsOverlay {
     position: absolute;
-    top: var(--line-graph-area-height);
-    left: var(--line-graph-area-left);
+    top: var(--annotations-overlay-chart-area-height);
+    left: var(--annotations-overlay-chart-area-left);
 }
 
 .AnnotationsBadge {
@@ -10,8 +10,8 @@
     align-items: center;
     justify-content: center;
     margin-left: calc(
-        var(--annotations-overlay-tick-interval) * var(--annotations-badge-index) - var(--line-graph-area-left) +
-            var(--annotations-overlay-first-tick-left)
+        var(--annotations-overlay-tick-interval) * var(--annotations-badge-index) -
+            var(--annotations-overlay-chart-area-left) + var(--annotations-overlay-first-tick-left)
     );
     height: 3rem;
     width: var(--annotations-overlay-tick-interval);
@@ -31,14 +31,14 @@
 
 .AnnotationsPopover {
     --annotations-popover-width: 26rem;
-    --annotations-popover-max-left: calc(var(--line-graph-width) - var(--annotations-popover-width));
+    --annotations-popover-max-left: calc(var(--annotations-overlay-chart-width) - var(--annotations-popover-width));
     transition: top 200ms ease, left 200ms ease, opacity 200ms ease;
     transform-origin: bottom;
     position: absolute;
     left: clamp(
         0px,
         calc(
-            var(--line-graph-area-left) + var(--annotations-overlay-active-badge-left) -
+            var(--annotations-overlay-chart-area-left) + var(--annotations-overlay-active-badge-left) -
                 var(--annotations-popover-width) / 2
         ),
         var(--annotations-popover-max-left)
@@ -46,7 +46,7 @@
     top: calc(var(--annotations-overlay-active-badge-top) - 1.25rem);
     min-width: var(--annotations-popover-width);
     max-width: var(--annotations-popover-width);
-    margin: 0 0 0 calc(var(--line-graph-area-left) * -1);
+    margin: 0 0 0 calc(var(--annotations-overlay-chart-area-left) * -1);
     max-height: none;
     background: #fff;
     border-radius: var(--radius);
