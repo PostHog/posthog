@@ -70,10 +70,9 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
             for event in item.filters.get("events", []):
                 event_definition_payloads[event["id"]].query_usage_30_day += 1
                 series_filters = event.get("properties", [])
-                for property in series_filters:
-                    flattened_properties = Filter(data={"properties": property}).property_groups.flat
-                    for property in flattened_properties:
-                        property_definition_payloads[property.key].query_usage_30_day += 1
+                flattened_properties = Filter(data={"properties": series_filters}).property_groups.flat
+                for property in flattened_properties:
+                    property_definition_payloads[property.key].query_usage_30_day += 1
 
             # convert to filter to easily parse properties and property groups
             filter_properties = item.filters.get("properties", None)

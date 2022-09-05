@@ -83,7 +83,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         EventDefinition.objects.create(team=self.team, name="custom event")
         PropertyDefinition.objects.create(team=self.team, name="$current_url")
         PropertyDefinition.objects.create(team=self.team, name="team_id")
-        PropertyDefinition.objects.create(team=self.team, name="value")
+        PropertyDefinition.objects.create(team=self.team, name="used property")
         PropertyDefinition.objects.create(team=self.team, name="unused property")
         team2 = Organization.objects.bootstrap(None)[2]
         with freeze_time("2020-08-01"):
@@ -127,7 +127,10 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
                                     },
                                 ],
                             },
-                            {"type": "OR", "values": [{"key": "value", "value": 1, "operator": "gt", "type": "event"}]},
+                            {
+                                "type": "OR",
+                                "values": [{"key": "used property", "value": 1, "operator": "gt", "type": "event"}],
+                            },
                         ],
                     },
                 },
@@ -140,7 +143,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
                     "type": "events",
                     "order": 0,
                     "properties": [
-                        {"key": "value", "value": "series-filter", "operator": "icontains", "type": "event"}
+                        {"key": "used property", "value": "series-filter", "operator": "icontains", "type": "event"}
                     ],
                 }
             ]
@@ -206,7 +209,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         self.assertEqual(4, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
         self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="team_id").query_usage_30_day)
         self.assertEqual(
-            2, PropertyDefinition.objects.get(team=self.team, name="value").query_usage_30_day
+            2, PropertyDefinition.objects.get(team=self.team, name="used property").query_usage_30_day
         )  # in a property group and in an events series filter
         self.assertEqual(0, PropertyDefinition.objects.get(team=self.team, name="unused property").query_usage_30_day)
 
