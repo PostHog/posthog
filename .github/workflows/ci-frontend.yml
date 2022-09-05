@@ -94,6 +94,6 @@ jobs:
               run: yarn install --frozen-lockfile
 
             - name: Test with Jest
-              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs yarn test
+              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs yarn test --maxWorkers=2
               env:
                   CHUNKS: ${{ needs.jest-setup.outputs['test-chunks'] }}
