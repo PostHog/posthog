@@ -189,9 +189,9 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         property_definitions = PropertyDefinition.objects.order_by("name").all()
         event_properties = EventProperty.objects.order_by("event", "property").all()
 
-        assert len(event_definitions) == 1
-        assert len(property_definitions) == 3
-        assert len(event_properties) == 2
+        assert event_definitions.count() == 1
+        assert property_definitions.count() == 3
+        assert event_properties.count() == 2
 
         assert event_definitions[0].name == "element_discovered"
         assert event_definitions[0].query_usage_30_day == 1

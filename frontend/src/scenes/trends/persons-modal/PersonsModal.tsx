@@ -10,8 +10,6 @@ import './PersonsModal.scss'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DateDisplay } from 'lib/components/DateDisplay'
-import { PersonHeader } from '../persons/PersonHeader'
-import api from '../../lib/api'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
 import { IconPersonFilled, IconSave } from 'lib/components/icons'
@@ -27,6 +25,8 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import api from 'lib/api'
+import { PersonHeader } from 'scenes/persons/PersonHeader'
 
 export interface PersonsModalProps {
     isOpen: boolean

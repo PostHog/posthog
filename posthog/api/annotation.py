@@ -5,7 +5,6 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from rest_framework import filters, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
-from rest_hooks.signals import raw_hook_event
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
@@ -89,17 +88,6 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
 @receiver(post_save, sender=Annotation, dispatch_uid="hook-annotation-created")
 def annotation_created(sender, instance, created, raw, using, **kwargs):
-    """Trigger action_defined hooks on Annotation creation."""
-
-    if created:
-        raw_hook_event.send(
-            sender=None,
-            event_name="annotation_created",
-            instance=instance,
-            payload=AnnotationSerializer(instance).data,
-            user=instance.team,
-        )
-
     if instance.created_by:
         event_name: str = "annotation created" if created else "annotation updated"
         report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())

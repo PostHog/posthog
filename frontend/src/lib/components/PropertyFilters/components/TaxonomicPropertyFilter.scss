@@ -130,11 +130,6 @@
         display: flex;
         justify-content: space-between;
         overflow: hidden;
-        .property-key-info {
-            width: auto;
-            text-overflow: ellipsis;
-            overflow: hidden;
-        }
         &.add-filter {
             width: max-content;
         }

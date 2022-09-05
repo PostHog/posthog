@@ -21,6 +21,7 @@ def report_user_signed_up(
     social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
     user_analytics_metadata: Optional[dict] = None,  # analytics metadata taken from the User object
     org_analytics_metadata: Optional[dict] = None,  # analytics metadata taken from the Organization object
+    referral_source: str = "",  # free text input to ask users where did they hear about us
 ) -> None:
     """
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
@@ -34,6 +35,7 @@ def report_user_signed_up(
         "signup_backend_processor": backend_processor,
         "signup_social_provider": social_provider,
         "realm": get_instance_realm(),
+        "referral_source": referral_source,
     }
     if user_analytics_metadata is not None:
         props.update(user_analytics_metadata)

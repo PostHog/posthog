@@ -150,7 +150,7 @@ class AutoProjectMiddleware:
                     setattr(request, "switched_team", current_team.id)
 
 
-class CHQueries(object):
+class CHQueries:
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -185,7 +185,7 @@ def shortcircuitmiddleware(f):
     return _shortcircuitmiddleware
 
 
-class ShortCircuitMiddleware(object):
+class ShortCircuitMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 

@@ -313,7 +313,7 @@ WHERE team_id = %(team_id)s
 )
 
 INSERT_PERSON_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0, %(version)s
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, %(is_deleted)s, %(version)s
 """
 
 INSERT_PERSON_BULK_SQL = """
@@ -325,15 +325,11 @@ INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)
 """
 
 INSERT_PERSON_DISTINCT_ID2 = """
-INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, 0, %(version)s, now(), 0, 0 VALUES
+INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
 """
 
 BULK_INSERT_PERSON_DISTINCT_ID2 = """
 INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) VALUES
-"""
-
-DELETE_PERSON_BY_ID = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, version, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, %(version)s, 0, 1
 """
 
 

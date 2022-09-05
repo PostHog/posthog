@@ -2,8 +2,6 @@ from typing import Any, Dict, List, Optional, cast
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Count, Prefetch
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 from django.utils.timezone import now
 from rest_framework import authentication, request, serializers, viewsets
 from rest_framework.decorators import action
@@ -11,7 +9,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from rest_hooks.signals import raw_hook_event
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -115,8 +112,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
         for step in steps:
             ActionStep.objects.create(
-                action=instance,
-                **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
+                action=instance, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
             )
 
         report_user_action(validated_data["created_by"], "action created", instance.get_analytics_metadata())
@@ -254,19 +250,6 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
             },
         )
         return Response({"count": results[0][0]})
-
-
-@receiver(post_save, sender=Action, dispatch_uid="hook-action-defined")
-def action_defined(sender, instance, created, raw, using, **kwargs):
-    """Trigger action_defined hooks on Action creation."""
-    if created:
-        raw_hook_event.send(
-            sender=None,
-            event_name="action_defined",
-            instance=instance,
-            payload=ActionSerializer(instance).data,
-            user=instance.team,
-        )
 
 
 class LegacyActionViewSet(ActionViewSet):

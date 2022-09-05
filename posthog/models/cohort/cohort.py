@@ -215,7 +215,7 @@ class Cohort(models.Model):
 
                 cursor += batch_size
                 persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
-                if len(persons) > 0 and not TEST:
+                if persons.exists() and not TEST:
                     time.sleep(5)
 
         except Exception as err:

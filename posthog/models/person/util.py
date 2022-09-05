@@ -17,7 +17,6 @@ from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, 
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
-    DELETE_PERSON_BY_ID,
     INSERT_PERSON_BULK_SQL,
     INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_DISTINCT_ID2,
@@ -52,7 +51,7 @@ if TEST:
 
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
-        create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid), sign=-1)
+        create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid), is_deleted=True)
 
     try:
         from freezegun import freeze_time
@@ -102,7 +101,9 @@ def create_person(
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
+    is_deleted: bool = False,
     timestamp: Optional[Union[datetime.datetime, str]] = None,
+    created_at: Optional[datetime.datetime] = None,
 ) -> str:
     if uuid:
         uuid = str(uuid)
@@ -117,12 +118,18 @@ def create_person(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
+    if created_at is None:
+        created_at = timestamp
+    else:
+        created_at = created_at.astimezone(pytz.utc)
+
     data = {
         "id": str(uuid),
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
-        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "is_deleted": int(is_deleted),
+        "created_at": created_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "version": version,
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -131,17 +138,28 @@ def create_person(
     return uuid
 
 
-def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, version=0, sign=1) -> None:
-    data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "_sign": sign}
+def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, version=0, is_deleted=False) -> None:
     p = ClickhouseProducer()
     if not fetch_person_distinct_id2_ready():
+        data = {
+            "distinct_id": distinct_id,
+            "person_id": person_id,
+            "team_id": team_id,
+            "_sign": -1 if is_deleted else 1,
+        }
         p.produce(topic=KAFKA_PERSON_UNIQUE_ID, sql=INSERT_PERSON_DISTINCT_ID, data=data)
-    if sign == 1:
-        p.produce(
-            topic=KAFKA_PERSON_DISTINCT_ID,
-            sql=INSERT_PERSON_DISTINCT_ID2,
-            data={"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "version": version},
-        )
+
+    p.produce(
+        topic=KAFKA_PERSON_DISTINCT_ID,
+        sql=INSERT_PERSON_DISTINCT_ID2,
+        data={
+            "distinct_id": distinct_id,
+            "person_id": person_id,
+            "team_id": team_id,
+            "version": version,
+            "is_deleted": int(is_deleted),
+        },
+    )
 
 
 def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet:
@@ -154,36 +172,27 @@ def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
     return Person.objects.filter(team_id=team.pk, uuid__in=uuids)
 
 
-# TODO: implement a safe mechanism for deleting this person's events
-def delete_person(person: Person, delete_distinct_ids=False) -> None:
-    timestamp = now()
-
-    data = {
-        "id": person.uuid,
-        "team_id": person.team.id,
-        "properties": "{}",
-        "is_identified": int(person.is_identified),
-        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-        "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-        "version": int(person.version or 0) + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
-    }
-
-    sync_execute(DELETE_PERSON_BY_ID, data)
+def delete_person(person: Person) -> None:
+    create_person(
+        uuid=str(person.uuid),
+        team_id=person.team.id,
+        properties={},
+        created_at=person.created_at,
+        is_identified=person.is_identified,
+        version=int(person.version or 0) + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
+        is_deleted=True,
+    )
 
 
-def delete_ch_distinct_ids(distinct_ids: List[str], person_uuid: str, team_id: int):
-    distinct_id_inserts = []
-    distinct_id_map: Dict[str, str] = {}
-    for i, distinct_id in enumerate(distinct_ids):
-        is_deleted = 1
-        version = 0
-        distinct_id_key = f"distinct_id_{i}"
-        distinct_id_map[distinct_id_key] = distinct_id
-        distinct_id_inserts.append(
-            f"(%({distinct_id_key})s, '{person_uuid}', {team_id}, {is_deleted}, {version}, now(), 0, 0)"
+def delete_ch_distinct_ids(person: Person):
+    for distinct_id in person.distinct_ids:
+        create_person_distinct_id(
+            team_id=person.team_id,
+            distinct_id=distinct_id,
+            person_id=str(person.uuid),
+            version=0,  # this is incorrect, see https://github.com/PostHog/posthog/issues/11590
+            is_deleted=True,
         )
-
-    sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts), distinct_id_map)
 
 
 def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:

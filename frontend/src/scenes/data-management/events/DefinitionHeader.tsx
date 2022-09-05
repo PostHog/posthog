@@ -106,15 +106,9 @@ function RawDefinitionHeader({
     const isLink = asLink && fullDetailUrl
 
     const innerContent = (
-        <PropertyKeyInfo
-            value={definition.name ?? ''}
-            disablePopover
-            disableIcon
-            className={clsx('definition-column-name-content-title', asLink && 'text-primary')}
-            style={{
-                cursor: isLink ? 'pointer' : 'text',
-            }}
-        />
+        <span className={clsx('definition-column-name-content-title', asLink && 'text-primary cursor-pointer')}>
+            <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon />
+        </span>
     )
     const linkedInnerContent = isLink ? (
         <Link to={fullDetailUrl} preventClick={!fullDetailUrl}>

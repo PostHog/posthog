@@ -13,12 +13,12 @@ from posthog.models import Organization, OrganizationDomain, OrganizationMembers
 from posthog.test.base import APIBaseTest, BaseTest
 
 
-class FakeAnswer(object):
+class FakeAnswer:
     def __init__(self, answer):
         self.answer = answer
 
 
-class FakeDNSResponse(object):
+class FakeDNSResponse:
     def __init__(self, answer):
         self.response = FakeAnswer(answer)
 

@@ -64,8 +64,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import DestroyClickhouseModelThrottle
-from posthog.settings import EE_AVAILABLE, RATE_LIMIT_ENABLED
+from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
@@ -163,8 +162,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     retention_class = Retention
     stickiness_class = Stickiness
 
-    throttle_classes = [DestroyClickhouseModelThrottle] if RATE_LIMIT_ENABLED else []
-
     def get_queryset(self):
         queryset = super().get_queryset()
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
@@ -221,9 +218,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             person_id = person.id
 
             delete_person(person=person)
-            delete_ch_distinct_ids(
-                person_uuid=str(person.uuid), distinct_ids=person.distinct_ids, team_id=person.team_id
-            )
+            delete_ch_distinct_ids(person=person)
             if "delete_events" in request.GET:
                 AsyncDeletion.objects.create(
                     deletion_type=DeletionType.Person,
@@ -279,8 +274,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         try:
             result = get_person_property_values_for_key(key, self.team, value)
             statsd.incr(
-                "get_person_property_values_for_key_success",
-                tags={"team_id": self.team.id},
+                "get_person_property_values_for_key_success", tags={"team_id": self.team.id},
             )
         except Exception as e:
             statsd.incr(
@@ -310,11 +304,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 scope="Person",
                 activity="was_merged_into_person",
                 detail=Detail(
-                    merge=Merge(
-                        type="Person",
-                        source=PersonSerializer(p).data,
-                        target=PersonSerializer(person).data,
-                    )
+                    merge=Merge(type="Person", source=PersonSerializer(p).data, target=PersonSerializer(person).data,)
                 ),
             )
 
@@ -458,7 +448,12 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         if not results_package:
             return response.Response(data=[])
 
-        actors, next_url, initial_url, missing_persons = results_package["result"]
+        # NOTE: Since missing_persons was added some cached results may be missing this value
+        if len(results_package["result"]) > 3:
+            actors, next_url, initial_url, missing_persons = results_package["result"]
+        else:
+            actors, next_url, initial_url = results_package["result"]  # type: ignore
+            missing_persons = 0
 
         return response.Response(
             data={
@@ -568,10 +563,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             )
 
         people = self.lifecycle_class().get_people(
-            target_date=target_date_parsed,
-            filter=filter,
-            team=team,
-            lifecycle_type=lifecycle_type,
+            target_date=target_date_parsed, filter=filter, team=team, lifecycle_type=lifecycle_type,
         )
         next_url = paginated_result(request, len(people), filter.offset, filter.limit)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
@@ -617,10 +609,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
 
 def paginated_result(
-    request: request.Request,
-    count: int,
-    offset: int = 0,
-    limit: int = DEFAULT_PAGE_LIMIT,
+    request: request.Request, count: int, offset: int = 0, limit: int = DEFAULT_PAGE_LIMIT,
 ) -> Optional[str]:
     return format_paginated_url(request, offset, limit) if count >= limit else None
 
