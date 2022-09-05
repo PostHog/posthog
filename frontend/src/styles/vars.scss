@@ -86,6 +86,7 @@ $colors: (
     'muted-alt-dark': #515871,
     'white': #fff,
     'light': rgba(255, 255, 255, 0.878),
+    'side': #fafaf9,
     'border': rgba(0, 0, 0, 0.15),
     'border-light': rgba(0, 0, 0, 0.08),
     'border-dark': rgba(0, 0, 0, 0.24),
@@ -114,8 +115,11 @@ $_lifecycle_dormant: #f86234;
     --primary-bg-hover: var(--primary-highlight);
     --primary-bg-active: #{$_primary_bg_active};
 
+    // Special case color for primary buttons with a nested primary button
+    --primary-button-nested-hover: #d2dbff;
+
+    --bg-side: var(--side);
     --bg-mid: #f2f2f2;
-    --bg-side: #fafaf9;
     --bg-depth: #0f0f0f;
     --bg-navy: var(--primary-alt);
     --bg-charcoal: #2d2d2d;

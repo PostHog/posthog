@@ -30,7 +30,7 @@ function FunnelTooltip({ showPersonsModal, stepIndex, series, groupTypeLabel }: 
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     return (
-        <div className="FunnelTooltip">
+        <div className="FunnelTooltip InsightTooltip">
             <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />} fullWidth>
                 <strong>
                     <EntityFilterInfo

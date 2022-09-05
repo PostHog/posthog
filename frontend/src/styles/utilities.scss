@@ -288,6 +288,18 @@
     .#{$char}-3\/4 {
         #{$kind}: 75%;
     }
+    .#{$char}-1\/5 {
+        #{$kind}: 20%;
+    }
+    .#{$char}-2\/5 {
+        #{$kind}: 40%;
+    }
+    .#{$char}-3\/5 {
+        #{$kind}: 60%;
+    }
+    .#{$char}-4\/5 {
+        #{$kind}: 80%;
+    }
 }
 
 // One-off utilities
@@ -372,6 +384,39 @@
 
 .grow-0 {
     flex-grow: 0;
+}
+
+.inset-0 {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+}
+
+.inset-x-0 {
+    left: 0;
+    right: 0;
+}
+
+.inset-y-0 {
+    top: 0;
+    bottom: 0;
+}
+
+.top-0 {
+    top: 0;
+}
+
+.bottom-0 {
+    bottom: 0;
+}
+
+.right-0 {
+    right: 0;
+}
+
+.left-0 {
+    left: 0;
 }
 
 .justify-start {

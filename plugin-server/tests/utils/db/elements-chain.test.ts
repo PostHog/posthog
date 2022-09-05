@@ -1,4 +1,4 @@
-import { chainToElements, elementsToString } from '../../../src/utils/db/elements-chain'
+import { chainToElements, elementsToString, extractElements } from '../../../src/utils/db/elements-chain'
 
 describe('elementsToString and chainToElements', () => {
     it('is reversible', () => {
@@ -93,6 +93,62 @@ describe('elementsToString and chainToElements', () => {
                 attributes: {
                     attr_class: 'xyz small\\"',
                 },
+            })
+        )
+    })
+
+    it('handles multiple classNames', () => {
+        const element = {
+            attr_class: ['something', 'another'],
+            attributes: {
+                attr__class: 'something another',
+            },
+        }
+        const elementsString = elementsToString([element])
+
+        expect(elementsString).toEqual('.another.something:attr__class="something another"nth-child="0"nth-of-type="0"')
+        expect(chainToElements(elementsString)).toEqual([expect.objectContaining(element)])
+    })
+})
+
+describe('extractElements()', () => {
+    it('parses simple elements', () => {
+        const result = extractElements([
+            { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
+            { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
+        ])
+
+        expect(result).toEqual([
+            {
+                text: undefined,
+                tag_name: 'a',
+                href: undefined,
+                attr_class: ['btn', 'btn-sm'],
+                attr_id: undefined,
+                nth_child: 1,
+                nth_of_type: 2,
+                attributes: { attr__class: 'btn btn-sm' },
+            },
+            {
+                text: '💻',
+                tag_name: 'div',
+                href: undefined,
+                attr_class: undefined,
+                attr_id: undefined,
+                nth_child: 1,
+                nth_of_type: 2,
+                attributes: {},
+            },
+        ])
+    })
+
+    it('handles arrays for attr__class', () => {
+        const result = extractElements([{ attr__class: ['btn', 'btn-sm'] }])
+
+        expect(result[0]).toEqual(
+            expect.objectContaining({
+                attr_class: ['btn', 'btn-sm'],
+                attributes: { attr__class: ['btn', 'btn-sm'] },
             })
         )
     })

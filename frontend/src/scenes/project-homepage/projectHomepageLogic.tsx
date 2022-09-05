@@ -43,7 +43,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             [] as PersonType[],
             {
                 loadPersons: async () => {
-                    const response = await api.get(`api/person/`)
+                    const response = await api.persons.list()
                     return response.results
                 },
             },

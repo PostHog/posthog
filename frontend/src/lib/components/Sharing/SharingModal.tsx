@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { sharingLogic } from './sharingLogic'
 import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import { copyToClipboard } from 'lib/utils'
-import { IconGlobeLock, IconInfo, IconLink, IconLockLemon, IconUnfoldLess, IconUnfoldMore } from '../icons'
+import { IconGlobeLock, IconInfo, IconLink, IconLock, IconUnfoldLess, IconUnfoldMore } from '../icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { Field } from 'lib/forms/Field'
@@ -160,7 +160,7 @@ export function SharingModal({
                                                         </div>
                                                         {!whitelabelAvailable ? (
                                                             <Tooltip title="Upgrade to PostHog Scale to hide PostHog branding">
-                                                                <IconLockLemon />
+                                                                <IconLock />
                                                             </Tooltip>
                                                         ) : null}
                                                     </div>

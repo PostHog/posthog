@@ -292,5 +292,7 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
     await Promise.race([piscina.broadcastTask({ task: 'teardownPlugins' }), delay(5000)])
     // Wait 2 seconds to flush the last queues and caches
     await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
-    await piscina.destroy()
+    try {
+        await piscina.destroy()
+    } catch {}
 }
