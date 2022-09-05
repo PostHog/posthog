@@ -142,10 +142,10 @@ describe('dashboardLogic', () => {
             patch: {
                 '/api/projects/:team/insights/:id/': (req) => {
                     try {
-                        if (typeof req.json() !== 'object') {
+                        const updates = req.json()
+                        if (typeof updates !== 'object') {
                             return [500, `this update should receive an object body not ${req.body}`]
                         }
-                        const updates = req.json()
                         const insightId = req.params.id
 
                         const starting: InsightModel = insights[boxToString(insightId)]
