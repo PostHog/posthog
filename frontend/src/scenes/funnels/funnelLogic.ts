@@ -1268,9 +1268,6 @@ export const funnelLogic = kea<funnelLogicType>({
                         converted,
                         // Note - when in a legend the stepIndex is used instead
                         step: typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1,
-                        breakdown_value: breakdownValues.isEmpty
-                            ? undefined
-                            : breakdownValues.breakdown_value.join(', '),
                         label: step.name,
                         seriesId: step.order,
                     }),
