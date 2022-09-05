@@ -60,14 +60,9 @@ export function FunnelLineGraph({
 
                           const props = {
                               action: { id: index, name: label ?? null, properties: [], type: EntityTypes.ACTIONS },
-                              label: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on ${dayjs(
-                                  label
-                              ).format('MMMM Do YYYY')}`, // TODO: Remove
                               date_from: day ?? '',
                               date_to: day ?? '',
                               filters: filters,
-                              saveOriginal: true, // TODO: Remove
-                              pointValue: dataset?.data?.[index] ?? undefined, // TODO: Remove
                           }
 
                           const url = buildPeopleUrl(props)

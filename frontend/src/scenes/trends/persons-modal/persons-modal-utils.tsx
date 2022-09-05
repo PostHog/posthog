@@ -97,7 +97,6 @@ export const urlsForDatasets = (
 
 export interface PeopleParamType {
     action?: ActionFilter
-    label: string
     date_to?: string | number
     date_from?: string | number
     breakdown_value?: string | number
@@ -146,7 +145,6 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
 
 // NOTE: Ideally this should be built server side and returned in `persons_urls` but for those that don't support it we can built it on the frontend
 export const buildPeopleUrl = ({
-    label,
     action,
     filters,
     date_from,
@@ -158,7 +156,7 @@ export const buildPeopleUrl = ({
         const cleanedParams = cleanFilters(filters)
         return `api/person/funnel/correlation/?${cleanedParams}`
     } else if (filters.insight === InsightType.STICKINESS) {
-        const filterParams = parsePeopleParams({ label, action, date_from, date_to, breakdown_value }, filters)
+        const filterParams = parsePeopleParams({ action, date_from, date_to, breakdown_value }, filters)
         return `api/person/stickiness/?${filterParams}`
     } else if (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends) {
         let params
@@ -184,7 +182,7 @@ export const buildPeopleUrl = ({
         return `api/person/path/?${pathParams}`
     } else {
         return `api/projects/@current/actions/people?${parsePeopleParams(
-            { label, action, date_from, date_to, breakdown_value },
+            { action, date_from, date_to, breakdown_value },
             filters
         )}`
     }
