@@ -43,14 +43,7 @@ jobs:
 
     jest:
         runs-on: ubuntu-20.04
-        name: Jest test (${{ matrix.chunk }})
-        needs: [jest-setup]
-
-        strategy:
-            # If one test fails, still run the others
-            fail-fast: false
-            matrix:
-                chunk: ${{fromJson(needs.jest-setup.outputs['test-chunk-ids'])}}
+        name: Jest test
 
         steps:
             - uses: actions/checkout@v1
