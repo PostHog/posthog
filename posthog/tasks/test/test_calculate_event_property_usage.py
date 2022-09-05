@@ -132,6 +132,28 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
                     },
                 },
             )
+
+            series_with_properties = [
+                {
+                    "id": "$pageview",
+                    "name": "$pageview",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [
+                        {"key": "value", "value": "series-filter", "operator": "icontains", "type": "event"}
+                    ],
+                }
+            ]
+
+            # with properties queried in events
+            Insight.objects.create(
+                team=self.team,
+                filters={
+                    "events": series_with_properties,
+                    "properties": [{"key": "$current_url", "value": "https://posthog2.com"}],
+                },
+            )
+
             # with non group style properties
             Insight.objects.create(
                 team=self.team,
@@ -175,15 +197,17 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
 
             calculate_event_property_usage_for_team(self.team.pk)
 
-        self.assertEqual(2, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
+        self.assertEqual(3, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
         self.assertEqual(2, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
 
         self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="custom event").query_usage_30_day)
         self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="custom event").volume_30_day)
 
-        self.assertEqual(3, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
+        self.assertEqual(4, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
         self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="team_id").query_usage_30_day)
-        self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="value").query_usage_30_day)
+        self.assertEqual(
+            2, PropertyDefinition.objects.get(team=self.team, name="value").query_usage_30_day
+        )  # in a property group and in an events series filter
         self.assertEqual(0, PropertyDefinition.objects.get(team=self.team, name="unused property").query_usage_30_day)
 
     def test_complete_inference(self) -> None:
