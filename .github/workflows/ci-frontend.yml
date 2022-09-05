@@ -97,4 +97,5 @@ jobs:
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
               run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs yarn test --maxWorkers=2
               env:
+                  NODE_OPTIONS: --max-old-space-size=6144
                   CHUNKS: ${{ needs.jest-setup.outputs['test-chunks'] }}
