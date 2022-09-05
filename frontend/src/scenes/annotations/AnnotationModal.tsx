@@ -1,4 +1,4 @@
-import { LemonButton, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
@@ -7,9 +7,11 @@ import React from 'react'
 import { annotationScopeToName, annotationModalLogic, ANNOTATION_DAYJS_FORMAT } from './annotationModalLogic'
 import { AnnotationScope } from '~/types'
 import { IconWarning } from 'lib/components/icons'
+import { shortTimeZone } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 export function AnnotationModal(): JSX.Element {
-    const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting, onSavedInsight } =
+    const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting, onSavedInsight, timezone } =
         useValues(annotationModalLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
 
@@ -64,8 +66,19 @@ export function AnnotationModal(): JSX.Element {
                 className="space-y-4"
             >
                 <div className="flex gap-2">
-                    <Field name="dateMarker" label="Date and time" className="flex-1">
-                        {/* FIXME: Take project timezone into account */}
+                    <Field
+                        name="dateMarker"
+                        label={
+                            <span>
+                                Date and time (
+                                <Link to={urls.projectSettings('timezone')} target="_blank">
+                                    {shortTimeZone(timezone)}
+                                </Link>
+                                )
+                            </span>
+                        }
+                        className="flex-1"
+                    >
                         <DatePicker
                             className="h-10"
                             allowClear={false}

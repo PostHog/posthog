@@ -7,9 +7,8 @@ import {
     ANNOTATION_DAYJS_FORMAT,
 } from './annotationModalLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { AnnotationType, AnnotationScope, InsightShortId } from '~/types'
+import { AnnotationScope, InsightShortId, ParsedAnnotationType } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
-import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -21,6 +20,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { AnnotationModal } from './AnnotationModal'
+import { shortTimeZone } from 'lib/utils'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -30,32 +30,32 @@ export const scene: SceneExport = {
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationModalLogic)
+    const { annotations, annotationsLoading, next, loadingNext, timezone } = useValues(annotationModalLogic)
     const { loadAnnotationsNext, openModalToCreateAnnotation, openModalToEditAnnotation } =
         useActions(annotationModalLogic)
 
-    const columns: LemonTableColumns<AnnotationType> = [
+    const columns: LemonTableColumns<ParsedAnnotationType> = [
         {
             title: 'Annotation',
             key: 'annotation',
             width: '30%',
-            render: function RenderAnnotation(_, annotation: AnnotationType): JSX.Element {
+            render: function RenderAnnotation(_, annotation: ParsedAnnotationType): JSX.Element {
                 return <div className="ph-no-capture">{annotation.content}</div>
             },
         },
         {
-            title: 'Date and time',
+            title: `Date and time (${shortTimeZone(timezone)})`,
             dataIndex: 'date_marker',
-            render: function RenderDateMarker(_, annotation: AnnotationType): string {
+            render: function RenderDateMarker(_, annotation: ParsedAnnotationType): string {
                 // Format marker. Minute precision is used, because that's as detailed as our graphs can be
-                return dayjs(annotation.date_marker).format(ANNOTATION_DAYJS_FORMAT)
+                return annotation.date_marker.format(ANNOTATION_DAYJS_FORMAT)
             },
-            sorter: (a, b) => dayjs(a.date_marker).diff(b.date_marker),
+            sorter: (a, b) => a.date_marker.diff(b.date_marker),
         },
         {
             title: 'Scope',
             key: 'scope',
-            render: function RenderType(_, annotation: AnnotationType): JSX.Element {
+            render: function RenderType(_, annotation: ParsedAnnotationType): JSX.Element {
                 const scopeName = annotationScopeToName[annotation.scope]
                 const tooltip =
                     annotation.scope === AnnotationScope.Insight
@@ -84,8 +84,8 @@ export function Annotations(): JSX.Element {
             },
             sorter: (a, b) => annotationScopeToLevel[a.scope] - annotationScopeToLevel[b.scope],
         },
-        createdByColumn() as LemonTableColumn<AnnotationType, keyof AnnotationType | undefined>,
-        createdAtColumn() as LemonTableColumn<AnnotationType, keyof AnnotationType | undefined>,
+        createdByColumn() as LemonTableColumn<ParsedAnnotationType, keyof ParsedAnnotationType | undefined>,
+        createdAtColumn() as LemonTableColumn<ParsedAnnotationType, keyof ParsedAnnotationType | undefined>,
         {
             key: 'actions',
             width: 0,

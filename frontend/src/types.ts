@@ -994,6 +994,10 @@ export interface AnnotationType {
     creation_type?: string
 }
 
+export interface ParsedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
+    date_marker: dayjs.Dayjs
+}
+
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',

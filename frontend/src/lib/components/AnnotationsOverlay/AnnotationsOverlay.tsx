@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
 import React, { useRef, useState } from 'react'
-import { AnnotationScope, AnnotationType, IntervalType } from '~/types'
+import { AnnotationScope, IntervalType, ParsedAnnotationType } from '~/types'
 import { IconDelete, IconEdit, IconPlusMini } from '../icons'
 import { LemonBubble } from '../LemonBubble/LemonBubble'
 import { LemonModal } from '../LemonModal'
@@ -24,8 +24,6 @@ const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     week: '[Week of] MMMM D, YYYY',
     month: 'MMMM D',
 }
-
-const LABEL_DAYJS_FORMATS = ['D-MMM-YYYY HH:mm', 'D-MMM-YYYY']
 
 export const annotationScopeToLabel: Record<AnnotationScope, string> = {
     [AnnotationScope.Insight]: 'Only this insight',
@@ -50,12 +48,16 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
 }
 
 export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: AnnotationsOverlayProps): JSX.Element {
-    const { isPopoverShown, activeBadgeCoordinates } = useValues(annotationsOverlayLogic)
+    const { isPopoverShown, activeBadgeCoordinates, timezone } = useValues(annotationsOverlayLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
     const dates: dayjs.Dayjs[] = chart
-        ? chart.scales.x.ticks.map(({ label }) => dayjs(label as string, LABEL_DAYJS_FORMATS))
+        ? chart.scales.x.ticks.map(({ label }) => {
+              return dayjs(label as string).tz(timezone, true)
+          })
         : []
+
+    console.log(dates[0]?.toString())
 
     return (
         <div
@@ -132,13 +134,15 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
             }
             onMouseEnter={() => {
                 setHovered(true)
+                console.log(activeDate?.valueOf(), date.valueOf(), activeDate === date)
                 if (!isDateLocked) {
-                    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-                    activateDate(date, [buttonRef.current!.offsetLeft, buttonRef.current!.offsetTop])
+                    const button = buttonRef.current as HTMLButtonElement
+                    activateDate(date, [button.offsetLeft, button.offsetTop])
                 }
             }}
             onMouseLeave={() => {
                 setHovered(false)
+                console.log(activeDate?.toISOString(), date.toISOString(), activeDate === date)
                 if (!isDateLocked) {
                     deactivateDate()
                 }
@@ -149,8 +153,8 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
                     : active
                     ? unlockDate
                     : () => {
-                          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-                          activateDate(date, [buttonRef.current!.offsetLeft, buttonRef.current!.offsetTop])
+                          const button = buttonRef.current as HTMLButtonElement
+                          activateDate(date, [button.offsetLeft, button.offsetTop])
                       }
             }
         >
@@ -205,7 +209,7 @@ function AnnotationsPopover(): JSX.Element {
     )
 }
 
-function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Element {
+function AnnotationCard({ annotation }: { annotation: ParsedAnnotationType }): JSX.Element {
     const { insightId } = useValues(annotationsOverlayLogic)
     const { deleteAnnotation } = useActions(annotationsModel)
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)

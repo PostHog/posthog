@@ -1,4 +1,4 @@
-import { dayjs, Dayjs } from 'lib/dayjs'
+import { Dayjs } from 'lib/dayjs'
 import { kea, path, selectors, key, props, connect, listeners, actions, reducers } from 'kea'
 import { groupBy } from 'lib/utils'
 import { AnnotationScope, InsightModel, IntervalType } from '~/types'
@@ -100,7 +100,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             (s) => [s.relevantAnnotations, s.intervalUnit, s.timezone],
             (annotations, intervalUnit, timezone) => {
                 return groupBy(annotations, (annotation) => {
-                    let datetime = dayjs.utc(annotation['date_marker'])
+                    let datetime = annotation.date_marker.utc()
                     if (timezone !== 'UTC') {
                         datetime = datetime.tz(timezone) // If the target is non-UTC, perform conversion
                     }

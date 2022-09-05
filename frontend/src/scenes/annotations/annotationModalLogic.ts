@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
-import { AnnotationScope, AnnotationType, InsightModel } from '~/types'
+import { AnnotationScope, AnnotationType, InsightModel, ParsedAnnotationType } from '~/types'
 import { forms } from 'kea-forms'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { annotationsModel } from '~/models/annotationsModel'
@@ -47,7 +47,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             initialDate,
             insightId,
         }),
-        openModalToEditAnnotation: (annotation: AnnotationType, insightId?: InsightModel['id'] | null) => ({
+        openModalToEditAnnotation: (annotation: ParsedAnnotationType, insightId?: InsightModel['id'] | null) => ({
             annotation,
             insightId,
         }),
@@ -63,7 +63,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             },
         ],
         existingModalAnnotation: [
-            null as AnnotationType | null,
+            null as ParsedAnnotationType | null,
             {
                 openModalToCreateAnnotation: () => null,
                 openModalToEditAnnotation: (_, { annotation }) => annotation,
@@ -77,10 +77,10 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         openModalToEditAnnotation: ({ annotation: { date_marker, scope, content } }) => {
             actions.setAnnotationModalValues({
-                dateMarker: dayjs(date_marker),
+                dateMarker: dayjs(date_marker).tz(values.timezone),
                 scope,
                 content,
             })
@@ -99,7 +99,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
     forms(({ actions, values }) => ({
         annotationModal: {
             defaults: {
-                dateMarker: dayjs(),
+                dateMarker: dayjs().tz(values.timezone),
                 content: '',
                 scope: AnnotationScope.Project,
                 dashboardItemId: null,
