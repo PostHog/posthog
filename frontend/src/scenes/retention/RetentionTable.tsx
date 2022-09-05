@@ -136,7 +136,7 @@ const renderPercentage = (value: number, total: number, latest = false, periodZe
             className={clsx('RetentionTable__Tab', { 'RetentionTable__Tab--period': latest })}
             style={!latest ? { backgroundColor, color } : undefined}
         >
-            {_percentage.toFixed(1)}%{latest && '*'}
+            {_percentage.toFixed(1)}%
         </div>
     )
     return latest ? <Tooltip title="Period in progress">{numberCell}</Tooltip> : numberCell
