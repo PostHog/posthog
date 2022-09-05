@@ -13,8 +13,8 @@ from posthog.models.property_definition import PropertyType
 
 @timed("calculate_event_property_usage")
 def calculate_event_property_usage() -> None:
-    for team in Team.objects.all():
-        calculate_event_property_usage_for_team(team_id=team.pk)
+    for team_id in Team.objects.values_list("id", flat=True):
+        calculate_event_property_usage_for_team(team_id=team_id)
 
 
 @dataclass
