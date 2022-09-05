@@ -49,7 +49,7 @@ class FeatureFlag(models.Model):
 
     key: models.CharField = models.CharField(max_length=400)
     name: models.TextField = models.TextField(
-        blank=True,
+        blank=True
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
 
     filters: models.JSONField = models.JSONField(default=dict)
@@ -106,8 +106,8 @@ class FeatureFlag(models.Model):
             #   We don't want to migrate to avoid /decide endpoint downtime until this code has been deployed
             return {
                 "groups": [
-                    {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage},
-                ],
+                    {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
+                ]
             }
 
     @property
@@ -144,9 +144,8 @@ class FeatureFlagHashKeyOverride(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["team", "person", "feature_flag_key"],
-                name="Unique hash_key for a user/team/feature_flag combo",
-            ),
+                fields=["team", "person", "feature_flag_key"], name="Unique hash_key for a user/team/feature_flag combo"
+            )
         ]
 
     # Can't use a foreign key to feature_flag_key directly, since
@@ -284,9 +283,9 @@ class FeatureFlagMatcher:
     def query_conditions(self) -> Dict[str, bool]:
         team_id = self.feature_flags[0].team_id
         person_query: QuerySet = Person.objects.filter(
-            team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id,
+            team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
         )
-        basic_group_query: QuerySet = Group.objects.filter(team_id=team_id,)
+        basic_group_query: QuerySet = Group.objects.filter(team_id=team_id)
         group_query_per_group_type_mapping: Dict[GroupTypeIndex, Tuple[QuerySet, List[str]]] = {}
         # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
         # If no groups for a group type are passed in, we can skip querying for that group type,
@@ -517,8 +516,8 @@ class FeatureFlagOverride(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["user", "feature_flag", "team"], name="unique feature flag for a user/team combo",
-            ),
+                fields=["user", "feature_flag", "team"], name="unique feature flag for a user/team combo"
+            )
         ]
 
     feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)

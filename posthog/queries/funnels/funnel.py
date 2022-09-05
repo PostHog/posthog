@@ -110,9 +110,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
         return ", ".join(cols)
 
-    def build_step_subquery(
-        self, level_index: int, max_steps: int, event_names_alias: str = "events",
-    ):
+    def build_step_subquery(self, level_index: int, max_steps: int, event_names_alias: str = "events"):
 
         if level_index >= max_steps:
             return f"""

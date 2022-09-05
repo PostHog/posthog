@@ -69,14 +69,14 @@ class ActorBaseQuery:
         team: Team,
         filter: Union[Filter, StickinessFilter, RetentionFilter],
         entity: Optional[Entity] = None,
-        **kwargs
+        **kwargs,
     ):
         self._team = team
         self.entity = entity
         self._filter = filter
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
-        """ Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids """
+        """Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids"""
         raise NotImplementedError()
 
     @cached_property
@@ -91,7 +91,7 @@ class ActorBaseQuery:
     def get_actors(
         self,
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
-        """ Get actors in data model and dict formats. Builds query and executes """
+        """Get actors in data model and dict formats. Builds query and executes"""
         query, params = self.actor_query()
         raw_result = sync_execute(query, params)
         actors, serialized_actors = self.get_actors_from_result(raw_result)
@@ -102,7 +102,7 @@ class ActorBaseQuery:
         return actors, serialized_actors, len(raw_result)
 
     def query_for_session_ids_with_recordings(self, session_ids: Set[str]) -> Set[str]:
-        """ Filters a list of session_ids to those that actually have recordings """
+        """Filters a list of session_ids to those that actually have recordings"""
         query = """
         SELECT DISTINCT session_id
         FROM session_recording_events
@@ -175,7 +175,7 @@ class ActorBaseQuery:
 def get_groups(
     team_id: int, group_type_index: int, group_ids: List[Any]
 ) -> Tuple[QuerySet[Group], List[SerializedGroup]]:
-    """ Get groups from raw SQL results in data model and dict formats """
+    """Get groups from raw SQL results in data model and dict formats"""
     groups: QuerySet[Group] = Group.objects.filter(
         team_id=team_id, group_type_index=group_type_index, group_key__in=group_ids
     )
@@ -183,10 +183,13 @@ def get_groups(
 
 
 def get_people(team_id: int, people_ids: List[Any]) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
-    """ Get people from raw SQL results in data model and dict formats """
-    persons: QuerySet[Person] = Person.objects.filter(team_id=team_id, uuid__in=people_ids).prefetch_related(
-        Prefetch("persondistinctid_set", to_attr="distinct_ids_cache")
-    ).order_by("-created_at", "uuid").only("id", "is_identified", "created_at", "properties", "uuid")
+    """Get people from raw SQL results in data model and dict formats"""
+    persons: QuerySet[Person] = (
+        Person.objects.filter(team_id=team_id, uuid__in=people_ids)
+        .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        .order_by("-created_at", "uuid")
+        .only("id", "is_identified", "created_at", "properties", "uuid")
+    )
     return persons, serialize_people(persons)
 
 

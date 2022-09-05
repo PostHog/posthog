@@ -1,7 +1,14 @@
 name: Frontend CI
 
 on:
-    - pull_request
+    pull_request:
+    # NOTE: by running on master, aside from highlight issues on master it also
+    # ensures we have e.g. node modules cached for master, which can then be
+    # used for branches. See https://github.com/actions/cache#cache-scopes for
+    # scope details.
+    push:
+        branches:
+            - master
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -49,6 +56,14 @@ jobs:
             test-chunk-ids: ${{ steps['set-test-chunk-ids'].outputs['test-chunk-ids'] }}
         steps:
             - uses: actions/checkout@v1
+            - uses: actions/cache@v2
+              id: node-modules-cache
+              with:
+                  path: |
+                      node_modules
+                  key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-node-modules-
             - run: yarn install --frozen-lockfile
             - id: set-test-chunks
               name: Set Chunks
@@ -87,7 +102,7 @@ jobs:
                       node_modules
                   key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-node-modules
+                      ${{ runner.os }}-node-modules-
 
             - name: Install package.json dependencies with Yarn
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
@@ -96,4 +111,5 @@ jobs:
             - name: Test with Jest
               run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs yarn test
               env:
+                  NODE_OPTIONS: --max-old-space-size=6144
                   CHUNKS: ${{ needs.jest-setup.outputs['test-chunks'] }}

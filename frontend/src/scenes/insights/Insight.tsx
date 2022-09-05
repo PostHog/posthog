@@ -6,8 +6,8 @@ import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
-import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { SaveCohortModal } from 'scenes/trends/persons-modal/SaveCohortModal'
+import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -320,8 +320,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             ) : null}
 
             <SaveCohortModal
-                visible={cohortModalVisible}
-                onOk={(title: string) => {
+                isOpen={cohortModalVisible}
+                onSave={(title: string) => {
                     saveCohortWithUrl(title)
                     setCohortModalVisible(false)
                 }}

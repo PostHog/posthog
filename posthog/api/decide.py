@@ -173,7 +173,5 @@ def get_decide(request: HttpRequest):
 
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
-    statsd.incr(
-        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide",},
-    )
+    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))

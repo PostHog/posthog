@@ -18,7 +18,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TrendActors } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dayjs } from 'lib/dayjs'
 import { groupsModel } from '~/models/groupsModel'
@@ -126,7 +125,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonsModalParams) => ({ peopleParams }),
-        setUrl: (props: LoadPeopleFromUrlProps) => ({ props }),
+        setUrlParams: (props: LoadPeopleFromUrlProps) => ({ props }),
         loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => props,
         switchToDataPoint: (seriesId: number) => ({ seriesId }), // Changes data point shown on PersonModal
         loadMorePeople: true,
@@ -230,7 +229,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
             null as LoadPeopleFromUrlProps | null,
             {
                 loadPeopleFromUrl: (_, props) => props,
-                setUrl: (_, { props }) => props,
+                setUrlParams: (_, { props }) => props,
             },
         ],
     }),
@@ -257,9 +256,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
-                const includeRecordingsParam = values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]
-                    ? '&include_recordings=true'
-                    : ''
+                const includeRecordingsParam = '&include_recordings=true'
 
                 let actors: PaginatedResponse<{
                     people: ActorType[]
@@ -284,7 +281,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
 
                 if (filters.funnel_correlation_person_entity) {
                     const cleanedParams = cleanFilters(filters)
-                    actors = await api.create(`api/person/funnel/correlation/?${searchTermParam}`, cleanedParams)
+                    actors = await api.get(`api/person/funnel/correlation/?${cleanedParams}${searchTermParam}`)
                 } else if (filters.insight === InsightType.LIFECYCLE) {
                     const filterParams = parsePeopleParams(
                         { label, action, target_date: date_from, lifecycle_type: breakdown_value },
@@ -322,17 +319,14 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     }
                     const cleanedParams = cleanFilters(params)
                     const funnelParams = toParams(cleanedParams)
-                    actors = await api.create(
+                    actors = await api.get(
                         `api/person/funnel/?${funnelParams}${searchTermParam}${includeRecordingsParam}`
                     )
                 } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
                     const pathParams = toParams(cleanedParams)
 
-                    actors = await api.create(
-                        `api/person/path/?${searchTermParam}${includeRecordingsParam}`,
-                        cleanedParams
-                    )
+                    actors = await api.get(`api/person/path/?${pathParams}${searchTermParam}${includeRecordingsParam}`)
 
                     // Manually populate URL data so that cohort creation can use this information
                     const pathsParams = {
@@ -346,7 +340,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                         crossDataset,
                         seriesId,
                     }
-                    actions.setUrl(pathsParams)
+                    actions.setUrlParams(pathsParams)
                 } else {
                     const filterParams = parsePeopleParams(
                         { label, action, date_from, date_to, breakdown_value },
@@ -392,11 +386,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 crossDataset,
                 seriesId,
             }) => {
-                if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                    // A bit hacky (doesn't account for hash params),
-                    // but it works and only needed while we have this feature flag
-                    url += '&include_recordings=true'
-                }
+                url += '&include_recordings=true'
                 const people = await api.get(url)
                 return {
                     people: people?.results[0]?.people,

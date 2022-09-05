@@ -278,7 +278,7 @@ def execute_with_progress(
 
     try:
         progress = ch_client.execute_with_progress(
-            prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types,
+            prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types
         )
         for num_rows, total_rows in progress:
             query_status = QueryStatus(

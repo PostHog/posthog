@@ -103,7 +103,6 @@ export const FEATURE_FLAGS = {
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
-    RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
@@ -125,6 +124,7 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDINGS_PLAYER_V3_FILTERING: 'session-recording-player-v3-filtering', // owner: @alexkim205
     SESSION_RECORDINGS_PLAYLIST: 'session-recording-playlist', // owner @rcmarron
     ALLOW_CSV_EXPORT_COLUMN_CHOICE: 'allow-csv-export-column-choice', //owner: @pauldambra
+    PERSONS_MODAL_V2: 'persons-modal-v2', // owner: @benjackwhite
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
 }
 

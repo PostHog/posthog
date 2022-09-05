@@ -7,7 +7,7 @@
     padding: 2.5rem 1rem;
 
     .LemonRow--disabled {
-        background-color: var(--bg-side);
+        background-color: var(--side);
         color: var(--default);
         opacity: 1;
         .LemonInput__input:disabled {
@@ -33,7 +33,7 @@
     .ConfirmOrganization__help-box {
         display: flex;
         flex-direction: row;
-        background-color: var(--bg-side);
+        background-color: var(--side);
         border-radius: var(--radius);
         padding: 1rem;
         margin-bottom: 1rem;

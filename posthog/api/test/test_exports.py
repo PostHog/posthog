@@ -44,10 +44,7 @@ class TestExports(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_ROOT_BUCKET).delete()
 
-    insight_filter_dict = {
-        "events": [{"id": "$pageview"}],
-        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-    }
+    insight_filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
 
     @classmethod
     def setUpTestData(cls):
@@ -98,7 +95,7 @@ class TestExports(APIBaseTest):
             {
                 "export_format": "text/csv",
                 "export_context": {
-                    "path": f"api/projects/{self.team.id}/insights/trend/?insight=TRENDS&events=%5B%7B%22id%22%3A%22search%20filtered%22%2C%22name%22%3A%22search%20filtered%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&display=ActionsTable&interval=day&breakdown=filters&new_entity=%5B%5D&properties=%5B%5D&breakdown_type=event&filter_test_accounts=false&date_from=-14d",
+                    "path": f"api/projects/{self.team.id}/insights/trend/?insight=TRENDS&events=%5B%7B%22id%22%3A%22search%20filtered%22%2C%22name%22%3A%22search%20filtered%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&display=ActionsTable&interval=day&breakdown=filters&new_entity=%5B%5D&properties=%5B%5D&breakdown_type=event&filter_test_accounts=false&date_from=-14d"
                 },
             },
         )
@@ -132,7 +129,7 @@ class TestExports(APIBaseTest):
             insight_id=self.insight.id,
             expected=[
                 {
-                    "user": {"first_name": self.user.first_name, "email": self.user.email,},
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
                     "activity": "exported",
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Insight",
@@ -228,7 +225,7 @@ class TestExports(APIBaseTest):
             organization=self.organization,
             api_token=self.CONFIG_API_TOKEN + "2",
             test_account_filters=[
-                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
             ],
         )
         other_dashboard = Dashboard.objects.create(
@@ -255,7 +252,7 @@ class TestExports(APIBaseTest):
             organization=self.organization,
             api_token=self.CONFIG_API_TOKEN + "2",
             test_account_filters=[
-                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
             ],
         )
         other_insight = Insight.objects.create(
@@ -263,7 +260,7 @@ class TestExports(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": other_insight.id},
+            f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": other_insight.id}
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -280,17 +277,15 @@ class TestExports(APIBaseTest):
     def test_can_download_a_csv(self, patched_request) -> None:
         with self.settings(SITE_URL="http://testserver"):
 
-            _create_event(
-                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"},
-            )
+            _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"})
             expected_event_id = _create_event(
-                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"}
             )
             second_expected_event_id = _create_event(
-                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"}
             )
             third_expected_event_id = _create_event(
-                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"}
             )
             flush_persons_and_events()
 
@@ -312,7 +307,7 @@ class TestExports(APIBaseTest):
                                 "properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D",
                                 f"after={after}",
                             ]
-                        ),
+                        )
                     },
                 },
             )
@@ -362,6 +357,4 @@ class TestExports(APIBaseTest):
         activity: List[Dict] = activity_response["results"]
 
         self.maxDiff = None
-        self.assertEqual(
-            activity, expected,
-        )
+        self.assertEqual(activity, expected)

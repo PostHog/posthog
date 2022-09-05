@@ -157,7 +157,7 @@ def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_c
     # Get all users for organization that haven't ingested any events
     users = []
     recently_created_organizations = Organization.objects.filter(
-        created_at__gte=org_created_from, created_at__lte=org_created_to,
+        created_at__gte=org_created_from, created_at__lte=org_created_to
     )
 
     for organization in recently_created_organizations:

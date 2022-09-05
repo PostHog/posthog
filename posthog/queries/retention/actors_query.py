@@ -142,7 +142,7 @@ def build_actor_activity_query(
     }
 
     query = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
-        returning_event_query=returning_event_query, target_event_query=target_event_query,
+        returning_event_query=returning_event_query, target_event_query=target_event_query
     )
 
     return query

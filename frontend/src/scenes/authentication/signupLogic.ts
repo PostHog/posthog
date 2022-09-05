@@ -46,7 +46,6 @@ export const signupLogic = kea<signupLogicType>([
                     const res = await api.create('api/signup/', payload)
                     location.href = res.redirect_url || '/'
                 } catch (e) {
-                    console.log(e)
                     actions.setSignupManualErrors({
                         generic: {
                             code: (e as Record<string, any>).code,

@@ -114,21 +114,19 @@ class TestUserAPI(APIBaseTest):
                 team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
             )
             timestamp_property = EnterprisePropertyDefinition.objects.create(
-                team=self.team, name="a timestamp", property_type="DateTime", description="This is a cool timestamp.",
+                team=self.team, name="a timestamp", property_type="DateTime", description="This is a cool timestamp."
             )
             tag_test = Tag.objects.create(name="test", team_id=self.team.id)
             tag_official = Tag.objects.create(name="official", team_id=self.team.id)
             timestamp_property.tagged_items.create(tag_id=tag_test.id)
             timestamp_property.tagged_items.create(tag_id=tag_official.id)
             EnterprisePropertyDefinition.objects.create(
-                team=self.team, name="plan", description="The current membership plan the user has active.",
+                team=self.team, name="plan", description="The current membership plan the user has active."
             )
             tagged_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="property")
             tag_test2 = Tag.objects.create(name="test2", team_id=self.team.id)
             tagged_property.tagged_items.create(tag_id=tag_test2.id)
-            EnterprisePropertyDefinition.objects.create(
-                team=self.team, name="some_prop",  # I shouldn't be counted
-            )
+            EnterprisePropertyDefinition.objects.create(team=self.team, name="some_prop")  # I shouldn't be counted
 
             response = self.client.get("/api/users/@me/")
 
@@ -226,13 +224,13 @@ class TestUserAPI(APIBaseTest):
             user.distinct_id,
             "user updated",
             properties={
-                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name"],
+                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name"]
             },
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
 
     def test_cannot_upgrade_yourself_to_staff_user(self):
-        response = self.client.patch("/api/users/@me/", {"is_staff": True},)
+        response = self.client.patch("/api/users/@me/", {"is_staff": True})
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
@@ -244,7 +242,7 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_can_update_current_organization(self, mock_capture):
-        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)},)
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["organization"]["id"], str(self.new_org.id))
@@ -262,7 +260,7 @@ class TestUserAPI(APIBaseTest):
             self.user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["current_organization", "current_team"]},
-            groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(self.new_project.uuid),},
+            groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(self.new_project.uuid)},
         )
 
     @patch("posthoganalytics.capture")
@@ -285,7 +283,7 @@ class TestUserAPI(APIBaseTest):
             self.user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["current_organization", "current_team"]},
-            groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(team.uuid),},
+            groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(team.uuid)},
         )
 
     def test_cannot_set_mismatching_org_and_team(self):
@@ -416,7 +414,7 @@ class TestUserAPI(APIBaseTest):
             user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["password"]},
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
 
         # User can log in with new password
@@ -429,7 +427,7 @@ class TestUserAPI(APIBaseTest):
         self.client.force_login(user)
 
         response = self.client.patch(
-            "/api/users/@me/", {"password": "a_new_password"},  # note we don't send current password
+            "/api/users/@me/", {"password": "a_new_password"}  # note we don't send current password
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -449,7 +447,7 @@ class TestUserAPI(APIBaseTest):
             user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["password"]},
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
 
         # User can log in with new password
@@ -462,7 +460,7 @@ class TestUserAPI(APIBaseTest):
         user.save()
         self.client.force_login(user)
 
-        response = self.client.patch("/api/users/@me/", {"password": "a_new_password"},)
+        response = self.client.patch("/api/users/@me/", {"password": "a_new_password"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Assert session is still valid
@@ -554,9 +552,7 @@ class TestUserAPI(APIBaseTest):
         for i in range(7):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertDictContainsSubset(
-            {"attr": None, "code": "throttled", "type": "throttled_error"}, response.json(),
-        )
+        self.assertDictContainsSubset({"attr": None, "code": "throttled", "type": "throttled_error"}, response.json())
 
         # Password was not changed
         self.user.refresh_from_db()
@@ -603,9 +599,7 @@ class TestUserAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         locationHeader = response.headers.get("location", "not found")
-        self.assertIn(
-            "%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22", locationHeader,
-        )
+        self.assertIn("%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22", locationHeader)
         self.maxDiff = None
         self.assertEqual(
             locationHeader,

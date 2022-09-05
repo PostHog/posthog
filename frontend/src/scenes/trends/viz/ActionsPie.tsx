@@ -5,9 +5,12 @@ import { getSeriesColor } from 'lib/colors'
 import { useValues, useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { ChartParams, GraphType, GraphDataset, ActionFilter } from '~/types'
-import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { personsModalLogic } from '../persons-modal/personsModalLogic'
+import { openPersonsModal, shouldUsePersonsModalV2 } from '../persons-modal/PersonsModalV2'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 
 export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
@@ -66,7 +69,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                             !showPersonsModal || insight.filters?.formula
                                 ? undefined
                                 : (payload) => {
-                                      const { points, index, seriesId } = payload
+                                      const { points, index, seriesId, crossDataset } = payload
                                       const dataset = points.referencePoint.dataset
                                       const action = dataset.actions?.[index]
                                       const label = dataset.labels?.[index]
@@ -84,13 +87,27 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                                           seriesId,
                                           breakdown_value: breakdown_value ?? '',
                                       }
-                                      if (dataset.persons_urls?.[index].url) {
-                                          loadPeopleFromUrl({
-                                              ...params,
-                                              url: dataset.persons_urls?.[index].url,
-                                          })
+
+                                      const urls = urlsForDatasets(crossDataset, index)
+                                      const selectedUrl = urls[index]?.value
+
+                                      if (shouldUsePersonsModalV2()) {
+                                          if (selectedUrl) {
+                                              openPersonsModal({
+                                                  urls,
+                                                  urlsIndex: index,
+                                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
+                                              })
+                                          }
                                       } else {
-                                          loadPeople(params)
+                                          if (selectedUrl) {
+                                              loadPeopleFromUrl({
+                                                  ...params,
+                                                  url: selectedUrl,
+                                              })
+                                          } else {
+                                              loadPeople(params)
+                                          }
                                       }
                                   }
                         }

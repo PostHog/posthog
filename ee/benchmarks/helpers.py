@@ -62,10 +62,7 @@ def benchmark_clickhouse(fn):
     @wraps(fn)
     def inner(*args):
         samples = [run_query(fn, *args)["ch_query_time"] for _ in range(4)]
-        return {
-            "samples": samples,
-            "number": len(samples),
-        }
+        return {"samples": samples, "number": len(samples)}
 
     return inner
 
@@ -73,9 +70,6 @@ def benchmark_clickhouse(fn):
 @contextmanager
 def no_materialized_columns():
     "Allows running a function without any materialized columns being used in query"
-    get_materialized_columns._cache = {
-        ("events",): (now(), {}),
-        ("person",): (now(), {}),
-    }
+    get_materialized_columns._cache = {("events",): (now(), {}), ("person",): (now(), {})}
     yield
     get_materialized_columns._cache = {}
