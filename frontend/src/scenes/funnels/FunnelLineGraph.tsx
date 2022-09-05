@@ -1,15 +1,14 @@
 import React from 'react'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { useActions, useValues } from 'kea'
-import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { ChartParams, GraphType, GraphDataset, EntityTypes } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { openPersonsModal, shouldUsePersonsModalV2 } from 'scenes/trends/persons-modal/PersonsModalV2'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { buildPeopleUrl } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { useValues } from 'kea'
 
 export function FunnelLineGraph({
     inSharedMode,
@@ -18,7 +17,6 @@ export function FunnelLineGraph({
     const { insightProps, insight } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const { steps, filters, aggregationTargetLabel, incompletenessOffsetFromEnd } = useValues(logic)
-    const { loadPeople } = useActions(personsModalLogic)
 
     return (
         <LineGraph
@@ -72,19 +70,15 @@ export function FunnelLineGraph({
                               pointValue: dataset?.data?.[index] ?? undefined, // TODO: Remove
                           }
 
-                          if (shouldUsePersonsModalV2()) {
-                              const url = buildPeopleUrl(props)
+                          const url = buildPeopleUrl(props)
 
-                              if (url) {
-                                  openPersonsModal({
-                                      url,
-                                      title: `${capitalizeFirstLetter(
-                                          aggregationTargetLabel.plural
-                                      )} converted on ${dayjs(label).format('MMMM Do YYYY')}`,
-                                  })
-                              }
-                          } else {
-                              loadPeople(props)
+                          if (url) {
+                              openPersonsModal({
+                                  url,
+                                  title: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on ${dayjs(
+                                      label
+                                  ).format('MMMM Do YYYY')}`,
+                              })
                           }
                       }
             }

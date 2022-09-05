@@ -1,5 +1,4 @@
 import posthog from 'posthog-js'
-import { parsePeopleParams, PeopleParamType } from 'scenes/trends/persons-modal/personsModalLogic'
 import {
     ActionType,
     AnnotationType,
@@ -404,13 +403,6 @@ const api = {
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
-        },
-        determinePeopleCsvUrl(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
-            return new ApiRequest()
-                .actions()
-                .withAction('people')
-                .withQueryString(parsePeopleParams(peopleParams, filters))
-                .assembleFullUrl(true)
         },
     },
 

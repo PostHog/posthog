@@ -1,18 +1,14 @@
 import React from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
-import { SaveCohortModal } from './persons-modal/SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ChartDisplayType, InsightType, ItemMode } from '~/types'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable'
-import { personsModalLogic } from './persons-modal/personsModalLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { LemonButton } from '@posthog/lemon-ui'
-import { PersonsModal } from './persons-modal/PersonsModal'
 
 interface Props {
     view: InsightType
@@ -21,19 +17,8 @@ interface Props {
 export function TrendInsight({ view }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { insightProps } = useValues(insightLogic)
-    const { cohortModalVisible } = useValues(personsModalLogic)
-    const { setCohortModalVisible } = useActions(personsModalLogic)
-    const {
-        filters: _filters,
-        loadMoreBreakdownUrl,
-        breakdownValuesLoading,
-        showModalActions,
-        aggregationTargetLabel,
-    } = useValues(trendsLogic(insightProps))
+    const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
-    const { showingPeople } = useValues(personsModalLogic)
-    const { saveCohortWithUrl } = useActions(personsModalLogic)
-    const { reportCohortCreatedFromPersonsModal } = useActions(eventUsageLogic)
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -101,25 +86,6 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     </LemonButton>
                 </div>
             )}
-            <PersonsModal
-                isOpen={showingPeople && !cohortModalVisible}
-                view={view}
-                filters={_filters}
-                onSaveCohort={() => {
-                    setCohortModalVisible(true)
-                }}
-                showModalActions={showModalActions}
-                aggregationTargetLabel={aggregationTargetLabel}
-            />
-            <SaveCohortModal
-                isOpen={cohortModalVisible}
-                onSave={(title: string) => {
-                    saveCohortWithUrl(title)
-                    setCohortModalVisible(false)
-                    reportCohortCreatedFromPersonsModal(_filters)
-                }}
-                onCancel={() => setCohortModalVisible(false)}
-            />
         </>
     )
 }

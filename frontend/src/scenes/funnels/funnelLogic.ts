@@ -50,7 +50,6 @@ import {
     getIncompleteConversionWindowStartDate,
     generateBaselineConversionUrl,
 } from './funnelUtils'
-import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -64,7 +63,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
-import { openPersonsModal, shouldUsePersonsModalV2 } from 'scenes/trends/persons-modal/PersonsModalV2'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 
 /* Chosen via heuristics by eyeballing some values
@@ -123,7 +122,7 @@ export const funnelLogic = kea<funnelLogicType>({
             ['groupProperties'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
-        logic: [eventUsageLogic, dashboardsModel, personsModalLogic],
+        logic: [eventUsageLogic, dashboardsModel],
     }),
 
     actions: () => ({
@@ -1259,82 +1258,40 @@ export const funnelLogic = kea<funnelLogicType>({
             const funnelStep = converted ? step.order : -step.order - 1
             const breakdownValues = getBreakdownStepValues(step, funnelStep)
 
-            if (shouldUsePersonsModalV2()) {
-                openPersonsModal({
-                    url: converted ? step.converted_people_url : step.dropped_people_url,
-                    title: funnelTitle({
-                        step: converted ? step.order : -step.order,
-                        breakdown_value: breakdownValues.isEmpty
-                            ? undefined
-                            : breakdownValues.breakdown_value.join(', '),
-                        label: step.name,
-                        seriesId: step.order,
-                    }),
-                })
-            } else {
-                personsModalLogic.actions.loadPeopleFromUrl({
-                    url: converted ? step.converted_people_url : step.dropped_people_url,
-                    // NOTE: although we have the url that contains all the info needed
-                    // to return people, we currently still need to pass something in for the
-                    // purpose of the modal displaying the label.
-                    funnelStep: converted ? step.order : -step.order,
+            openPersonsModal({
+                url: converted ? step.converted_people_url : step.dropped_people_url,
+                title: funnelTitle({
+                    step: converted ? step.order : -step.order,
                     breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                     label: step.name,
                     seriesId: step.order,
-                })
-            }
+                }),
+            })
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
             // Version of openPersonsModalForStep that accurately handles breakdown series
             const breakdownValues = getBreakdownStepValues(series, series.order)
-            if (shouldUsePersonsModalV2()) {
-                openPersonsModal({
-                    url: converted ? series.converted_people_url : series.dropped_people_url,
-                    title: funnelTitle({
-                        step: converted ? step.order + 1 : -(step.order + 1),
-                        breakdown_value: breakdownValues.isEmpty
-                            ? undefined
-                            : breakdownValues.breakdown_value.join(', '),
-                        label: step.name,
-                        seriesId: step.order,
-                    }),
-                })
-            } else {
-                personsModalLogic.actions.loadPeopleFromUrl({
-                    url: converted ? series.converted_people_url : series.dropped_people_url,
-                    // NOTE: although we have the url that contains all the info needed
-                    // to return people, we currently still need to pass something in for the
-                    // purpose of the modal displaying the label.
-                    funnelStep: converted ? step.order + 1 : -(step.order + 1),
+            openPersonsModal({
+                url: converted ? series.converted_people_url : series.dropped_people_url,
+                title: funnelTitle({
+                    step: converted ? step.order + 1 : -(step.order + 1),
                     breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                     label: step.name,
                     seriesId: step.order,
-                })
-            }
+                }),
+            })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
-                if (shouldUsePersonsModalV2()) {
-                    openPersonsModal({
-                        url: success ? correlation.success_people_url : correlation.failure_people_url,
-                        title: funnelTitle({
-                            step: success ? values.stepsWithCount.length : -2,
-                            breakdown_value,
-                            label: breakdown,
-                        }),
-                    })
-                } else {
-                    personsModalLogic.actions.loadPeopleFromUrl({
-                        url: success ? correlation.success_people_url : correlation.failure_people_url,
-                        // just display that we either completed the last step, or
-                        // dropped at the second to last step
-                        funnelStep: success ? values.stepsWithCount.length : -2,
-                        label: breakdown,
+                openPersonsModal({
+                    url: success ? correlation.success_people_url : correlation.failure_people_url,
+                    title: funnelTitle({
+                        step: success ? values.stepsWithCount.length : -2,
                         breakdown_value,
-                        date_from: '',
-                    })
-                }
+                        label: breakdown,
+                    }),
+                })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(
                     FunnelCorrelationResultsType.Properties,
@@ -1344,22 +1301,13 @@ export const funnelLogic = kea<funnelLogicType>({
             } else {
                 const { name, properties } = parseEventAndProperty(correlation.event)
 
-                if (shouldUsePersonsModalV2()) {
-                    openPersonsModal({
-                        url: success ? correlation.success_people_url : correlation.failure_people_url,
-                        title: funnelTitle({
-                            step: success ? values.stepsWithCount.length : -2,
-                            label: name,
-                        }),
-                    })
-                } else {
-                    personsModalLogic.actions.loadPeopleFromUrl({
-                        url: success ? correlation.success_people_url : correlation.failure_people_url,
-                        funnelStep: success ? values.stepsWithCount.length : -2,
+                openPersonsModal({
+                    url: success ? correlation.success_people_url : correlation.failure_people_url,
+                    title: funnelTitle({
+                        step: success ? values.stepsWithCount.length : -2,
                         label: name,
-                        date_from: '',
-                    })
-                }
+                    }),
+                })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {
                     id: name,

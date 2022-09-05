@@ -19,7 +19,6 @@ import {
 } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -550,7 +549,7 @@ describe('funnelLogic', () => {
         })
 
         it('setFilters calls personsModalLogic.loadPeople', async () => {
-            personsModalLogic.mount()
+            throw new Error('TODO: This test')
             await expectLogic().toDispatchActions(preflightLogic, ['loadPreflightSuccess'])
             await expectLogic(() => {
                 router.actions.push(urls.insightEdit(Insight123))
@@ -573,10 +572,7 @@ describe('funnelLogic', () => {
                 })
             }).toDispatchActions([
                 (action) => {
-                    return (
-                        action.type === personsModalLogic.actionTypes.loadPeopleFromUrl &&
-                        action.payload?.label === '$pageview'
-                    )
+                    return action.type === 'NOPE' && action.payload?.label === '$pageview'
                 },
             ])
         })
