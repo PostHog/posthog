@@ -2,22 +2,22 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils'
 import type { annotationsModelType } from './annotationsModelType'
-import { AnnotationType, ParsedAnnotationType } from '~/types'
+import { RawAnnotationType, AnnotationType } from '~/types'
 import { loaders } from 'kea-loaders'
 import { teamLogic } from 'scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 
-export type AnnotationData = Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+export type AnnotationData = Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
 export type AnnotationDataWithoutInsight = Omit<AnnotationData, 'dashboard_item'>
 
-export function parseAnnotation(annotation: AnnotationType, projectTimezone: string): ParsedAnnotationType {
+export function deserializeAnnotation(annotation: RawAnnotationType, projectTimezone: string): AnnotationType {
     return {
         ...annotation,
         date_marker: dayjs(annotation.date_marker).tz(projectTimezone),
     }
 }
 
-export function unparseAnnotation(annotation: ParsedAnnotationType): AnnotationType {
+export function serializeAnnotation(annotation: AnnotationType): RawAnnotationType {
     return {
         ...annotation,
         date_marker: annotation.date_marker.toISOString(),
@@ -28,11 +28,11 @@ export const annotationsModel = kea<annotationsModelType>([
     path(['models', 'annotationsModel']),
     connect({ values: [teamLogic, ['timezone']] }),
     actions({
-        deleteAnnotation: (annotation: ParsedAnnotationType) => ({ annotation }),
+        deleteAnnotation: (annotation: AnnotationType) => ({ annotation }),
         loadAnnotationsNext: () => true,
         setNext: (next: string | null) => ({ next }),
-        appendAnnotations: (annotations: AnnotationType[]) => ({ annotations }),
-        replaceAnnotation: (annotation: AnnotationType) => ({ annotation }),
+        appendAnnotations: (annotations: RawAnnotationType[]) => ({ annotations }),
+        replaceAnnotation: (annotation: RawAnnotationType) => ({ annotation }),
     }),
     loaders(({ values, actions }) => ({
         rawAnnotations: {
@@ -50,7 +50,7 @@ export const annotationsModel = kea<annotationsModelType>([
                 annotationId,
                 annotationData,
             }: {
-                annotationId: AnnotationType['id']
+                annotationId: RawAnnotationType['id']
                 annotationData: AnnotationDataWithoutInsight
             }) => {
                 const updatedAnnotation = await api.annotations.update(annotationId, annotationData)
@@ -62,7 +62,7 @@ export const annotationsModel = kea<annotationsModelType>([
                     object: { name: `${annotation.date_marker} annotation`, ...annotation },
                     callback: (undo, annotation) => {
                         if (undo) {
-                            actions.appendAnnotations([unparseAnnotation(annotation)])
+                            actions.appendAnnotations([serializeAnnotation(annotation)])
                         }
                     },
                 })
@@ -72,7 +72,7 @@ export const annotationsModel = kea<annotationsModelType>([
     })),
     reducers(() => ({
         rawAnnotations: [
-            [] as AnnotationType[],
+            [] as RawAnnotationType[],
             {
                 appendAnnotations: (state, { annotations }) => [...state, ...annotations],
                 replaceAnnotation: (state, { annotation }) => {
@@ -101,14 +101,14 @@ export const annotationsModel = kea<annotationsModelType>([
         annotations: [
             (s) => [s.rawAnnotations, s.timezone],
             (rawAnnotations, timezone) => {
-                return rawAnnotations.map((annotation): ParsedAnnotationType => parseAnnotation(annotation, timezone))
+                return rawAnnotations.map((annotation): AnnotationType => deserializeAnnotation(annotation, timezone))
             },
         ],
         annotationsLoading: [(s) => [s.rawAnnotationsLoading], (rawAnnotationsLoading) => rawAnnotationsLoading],
     }),
     listeners(({ actions, values }) => ({
         loadAnnotationsNext: async () => {
-            let results: AnnotationType[] = []
+            let results: RawAnnotationType[] = []
             if (values.next) {
                 const response = await api.get(values.next)
                 actions.setNext(response.next)

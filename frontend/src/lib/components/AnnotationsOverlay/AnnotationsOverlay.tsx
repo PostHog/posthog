@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
 import React, { useRef, useState } from 'react'
-import { AnnotationScope, IntervalType, ParsedAnnotationType } from '~/types'
+import { AnnotationScope, IntervalType, AnnotationType } from '~/types'
 import { IconDelete, IconEdit, IconPlusMini } from '../icons'
 import { LemonBubble } from '../LemonBubble/LemonBubble'
 import { LemonModal } from '../LemonModal'
@@ -209,7 +209,7 @@ function AnnotationsPopover(): JSX.Element {
     )
 }
 
-function AnnotationCard({ annotation }: { annotation: ParsedAnnotationType }): JSX.Element {
+function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Element {
     const { insightId } = useValues(annotationsOverlayLogic)
     const { deleteAnnotation } = useActions(annotationsModel)
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)

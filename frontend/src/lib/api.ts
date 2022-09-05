@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 import { parsePeopleParams, PeopleParamType } from 'scenes/trends/persons-modal/personsModalLogic'
 import {
     ActionType,
-    AnnotationType,
+    RawAnnotationType,
     CohortType,
     CombinedEventType,
     DashboardCollaboratorType,
@@ -275,7 +275,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('annotations')
     }
 
-    public annotation(id: AnnotationType['id'], teamId?: TeamType['id']): ApiRequest {
+    public annotation(id: RawAnnotationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.annotations(teamId).addPathComponent(id)
     }
 
@@ -742,21 +742,21 @@ const api = {
     },
 
     annotations: {
-        async get(annotationId: AnnotationType['id']): Promise<AnnotationType> {
+        async get(annotationId: RawAnnotationType['id']): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).get()
         },
         async update(
-            annotationId: AnnotationType['id'],
-            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
-        ): Promise<AnnotationType> {
+            annotationId: RawAnnotationType['id'],
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+        ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<AnnotationType>> {
+        async list(): Promise<PaginatedResponse<RawAnnotationType>> {
             return await new ApiRequest().annotations().get()
         },
         async create(
-            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
-        ): Promise<AnnotationType> {
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+        ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotations().create({ data })
         },
         determineDeleteEndpoint(): string {

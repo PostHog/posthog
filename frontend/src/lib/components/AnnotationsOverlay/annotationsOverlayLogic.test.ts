@@ -2,9 +2,9 @@ import { expectLogic } from 'kea-test-utils'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useMocks } from '~/mocks/jest'
-import { annotationsModel, parseAnnotation } from '~/models/annotationsModel'
+import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
 import { initKeaTests } from '~/test/init'
-import { AnnotationScope, AnnotationType, InsightShortId, IntervalType, ParsedAnnotationType } from '~/types'
+import { AnnotationScope, RawAnnotationType, InsightShortId, IntervalType, AnnotationType } from '~/types'
 import { annotationsOverlayLogic } from './annotationsOverlayLogic'
 
 jest.spyOn(Storage.prototype, 'getItem')
@@ -27,7 +27,7 @@ const BASE_MOCK_ANNOTATION = {
 }
 
 /** ID 20 at 2022-08-10T04:00:00.000Z */
-const MOCK_ANNOTATION_ORG_SCOPED: AnnotationType = {
+const MOCK_ANNOTATION_ORG_SCOPED: RawAnnotationType = {
     id: 20,
     content: 'Alpha',
     date_marker: '2022-08-10T04:00:00.000Z',
@@ -38,7 +38,7 @@ const MOCK_ANNOTATION_ORG_SCOPED: AnnotationType = {
     ...BASE_MOCK_ANNOTATION,
 }
 /** ID 10 at 2022-08-10T04:00:01.000Z */
-const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3: AnnotationType = {
+const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3: RawAnnotationType = {
     id: 10,
     content: 'Alpha',
     date_marker: '2022-08-10T04:00:01.000Z', // A second after MOCK_ANNOTATION_ORG_SCOPED
@@ -49,7 +49,7 @@ const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3: AnnotationType = {
     ...BASE_MOCK_ANNOTATION,
 }
 /** ID 17 at 2022-08-10T04:01:00.000Z */
-const MOCK_ANNOTATION_PROJECT_SCOPED: AnnotationType = {
+const MOCK_ANNOTATION_PROJECT_SCOPED: RawAnnotationType = {
     id: 17,
     content: 'Beta',
     date_marker: '2022-08-10T04:01:00.000Z', // A minute after MOCK_ANNOTATION_ORG_SCOPED
@@ -60,7 +60,7 @@ const MOCK_ANNOTATION_PROJECT_SCOPED: AnnotationType = {
     ...BASE_MOCK_ANNOTATION,
 }
 /** ID 19 at 2022-08-10T05:00:00.000Z */
-const MOCK_ANNOTATION_INSIGHT_1_SCOPED: AnnotationType = {
+const MOCK_ANNOTATION_INSIGHT_1_SCOPED: RawAnnotationType = {
     id: 19,
     content: 'Theta',
     date_marker: '2022-08-10T05:00:00.000Z', // An hour after MOCK_ANNOTATION_ORG_SCOPED
@@ -71,7 +71,7 @@ const MOCK_ANNOTATION_INSIGHT_1_SCOPED: AnnotationType = {
     ...BASE_MOCK_ANNOTATION,
 }
 /** ID 20 at 2022-08-11T04:00:00.000Z */
-const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1: AnnotationType = {
+const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1: RawAnnotationType = {
     id: 20,
     content: 'Theta',
     date_marker: '2022-08-11T04:00:00.000Z', // A day after MOCK_ANNOTATION_ORG_SCOPED
@@ -82,7 +82,7 @@ const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1: AnnotationType = {
     ...BASE_MOCK_ANNOTATION,
 }
 /** ID 21 at 2022-08-17T04:00:00.000Z */
-const MOCK_ANNOTATION_INSIGHT_3_SCOPED: AnnotationType = {
+const MOCK_ANNOTATION_INSIGHT_3_SCOPED: RawAnnotationType = {
     id: 21,
     content: 'Omega',
     date_marker: '2022-08-17T04:00:00.000Z', // A week after MOCK_ANNOTATION_ORG_SCOPED
@@ -93,7 +93,7 @@ const MOCK_ANNOTATION_INSIGHT_3_SCOPED: AnnotationType = {
     ...BASE_MOCK_ANNOTATION,
 }
 /** ID 40 at 2022-08-17T04:00:00.000Z */
-const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1: AnnotationType = {
+const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1: RawAnnotationType = {
     id: 40,
     content: 'Alpha',
     date_marker: '2022-08-17T04:00:00.000Z', // A week after MOCK_ANNOTATION_ORG_SCOPED
@@ -104,7 +104,7 @@ const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1: AnnotationType = {
     ...BASE_MOCK_ANNOTATION,
 }
 /** ID 22 at 2022-09-10T04:00:00.000Z */
-const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3: AnnotationType = {
+const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3: RawAnnotationType = {
     id: 22,
     content: 'Omega',
     date_marker: '2022-09-10T04:00:00.000Z', // A month after MOCK_ANNOTATION_ORG_SCOPED
@@ -210,7 +210,7 @@ describe('annotationsOverlayLogic', () => {
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
-                ].map((annotation) => parseAnnotation(annotation, 'UTC')),
+                ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
             })
         })
 
@@ -234,7 +234,7 @@ describe('annotationsOverlayLogic', () => {
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
-                ].map((annotation) => parseAnnotation(annotation, 'UTC')),
+                ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
             })
         })
     })
@@ -242,7 +242,7 @@ describe('annotationsOverlayLogic', () => {
     describe('groupedAnnotations', () => {
         const EXPECTED_GROUPINGS_BY_INTERVAL_AND_TIMEZONE: Record<
             string,
-            Record<IntervalType, Record<string, ParsedAnnotationType[]>> // All IntervalType variants should be covered
+            Record<IntervalType, Record<string, AnnotationType[]>> // All IntervalType variants should be covered
         > = {
             UTC: {
                 hour: {
@@ -250,18 +250,18 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
-                    ].map((annotation) => parseAnnotation(annotation, 'UTC')),
+                    ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
                     '2022-08-10 05': [MOCK_ANNOTATION_INSIGHT_1_SCOPED].map((annotation) =>
-                        parseAnnotation(annotation, 'UTC')
+                        deserializeAnnotation(annotation, 'UTC')
                     ),
                     '2022-08-11 04': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'UTC')
+                        deserializeAnnotation(annotation, 'UTC')
                     ),
                     '2022-08-17 04': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'UTC')
+                        deserializeAnnotation(annotation, 'UTC')
                     ),
                     '2022-09-10 04': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
-                        parseAnnotation(annotation, 'UTC')
+                        deserializeAnnotation(annotation, 'UTC')
                     ),
                 },
                 day: {
@@ -270,15 +270,15 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
-                    ].map((annotation) => parseAnnotation(annotation, 'UTC')),
+                    ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
                     '2022-08-11': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'UTC')
+                        deserializeAnnotation(annotation, 'UTC')
                     ),
                     '2022-08-17': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'UTC')
+                        deserializeAnnotation(annotation, 'UTC')
                     ),
                     '2022-09-10': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
-                        parseAnnotation(annotation, 'UTC')
+                        deserializeAnnotation(annotation, 'UTC')
                     ),
                 },
                 week: {
@@ -288,12 +288,12 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
-                    ].map((annotation) => parseAnnotation(annotation, 'UTC')),
+                    ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
                     '2022-08-14': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'UTC')
+                        deserializeAnnotation(annotation, 'UTC')
                     ),
                     '2022-09-04': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
-                        parseAnnotation(annotation, 'UTC')
+                        deserializeAnnotation(annotation, 'UTC')
                     ),
                 },
                 month: {
@@ -304,9 +304,9 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
-                    ].map((annotation) => parseAnnotation(annotation, 'UTC')),
+                    ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
                     '2022-09': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
-                        parseAnnotation(annotation, 'UTC')
+                        deserializeAnnotation(annotation, 'UTC')
                     ),
                 },
             },
@@ -317,18 +317,18 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
-                    ].map((annotation) => parseAnnotation(annotation, 'America/Phoenix')),
+                    ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
                     '2022-08-09 22': [MOCK_ANNOTATION_INSIGHT_1_SCOPED].map((annotation) =>
-                        parseAnnotation(annotation, 'America/Phoenix')
+                        deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                     '2022-08-10 21': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'America/Phoenix')
+                        deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                     '2022-08-16 21': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'America/Phoenix')
+                        deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                     '2022-09-09 21': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
-                        parseAnnotation(annotation, 'America/Phoenix')
+                        deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                 },
                 day: {
@@ -337,15 +337,15 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
-                    ].map((annotation) => parseAnnotation(annotation, 'America/Phoenix')),
+                    ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
                     '2022-08-10': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'America/Phoenix')
+                        deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                     '2022-08-16': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'America/Phoenix')
+                        deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                     '2022-09-09': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
-                        parseAnnotation(annotation, 'America/Phoenix')
+                        deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                 },
                 week: {
@@ -355,12 +355,12 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
-                    ].map((annotation) => parseAnnotation(annotation, 'America/Phoenix')),
+                    ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
                     '2022-08-14': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'America/Phoenix')
+                        deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                     '2022-09-04': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
-                        parseAnnotation(annotation, 'America/Phoenix')
+                        deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                 },
                 month: {
@@ -371,9 +371,9 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
-                    ].map((annotation) => parseAnnotation(annotation, 'America/Phoenix')),
+                    ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
                     '2022-09': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
-                        parseAnnotation(annotation, 'America/Phoenix')
+                        deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
                 },
             },
@@ -384,18 +384,18 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
-                    ].map((annotation) => parseAnnotation(annotation, 'Europe/Moscow')),
+                    ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
                     '2022-08-10 08': [MOCK_ANNOTATION_INSIGHT_1_SCOPED].map((annotation) =>
-                        parseAnnotation(annotation, 'Europe/Moscow')
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                     '2022-08-11 07': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'Europe/Moscow')
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                     '2022-08-17 07': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'Europe/Moscow')
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                     '2022-09-10 07': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
-                        parseAnnotation(annotation, 'Europe/Moscow')
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                 },
                 day: {
@@ -404,15 +404,15 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
-                    ].map((annotation) => parseAnnotation(annotation, 'Europe/Moscow')),
+                    ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
                     '2022-08-11': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'Europe/Moscow')
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                     '2022-08-17': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'Europe/Moscow')
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                     '2022-09-10': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
-                        parseAnnotation(annotation, 'Europe/Moscow')
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                 },
                 week: {
@@ -422,12 +422,12 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
-                    ].map((annotation) => parseAnnotation(annotation, 'Europe/Moscow')),
+                    ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
                     '2022-08-14': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
-                        parseAnnotation(annotation, 'Europe/Moscow')
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                     '2022-09-04': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
-                        parseAnnotation(annotation, 'Europe/Moscow')
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                 },
                 month: {
@@ -438,9 +438,9 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
-                    ].map((annotation) => parseAnnotation(annotation, 'Europe/Moscow')),
+                    ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
                     '2022-09': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
-                        parseAnnotation(annotation, 'Europe/Moscow')
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
                 },
             },

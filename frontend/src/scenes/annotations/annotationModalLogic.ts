@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
-import { AnnotationScope, AnnotationType, InsightModel, ParsedAnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, InsightModel, AnnotationType } from '~/types'
 import { forms } from 'kea-forms'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { annotationsModel } from '~/models/annotationsModel'
@@ -47,7 +47,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             initialDate,
             insightId,
         }),
-        openModalToEditAnnotation: (annotation: ParsedAnnotationType, insightId?: InsightModel['id'] | null) => ({
+        openModalToEditAnnotation: (annotation: AnnotationType, insightId?: InsightModel['id'] | null) => ({
             annotation,
             insightId,
         }),
@@ -63,7 +63,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             },
         ],
         existingModalAnnotation: [
-            null as ParsedAnnotationType | null,
+            null as AnnotationType | null,
             {
                 openModalToCreateAnnotation: () => null,
                 openModalToEditAnnotation: (_, { annotation }) => annotation,

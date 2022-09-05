@@ -979,7 +979,7 @@ export enum AnnotationScope {
     Organization = 'organization',
 }
 
-export interface AnnotationType {
+export interface RawAnnotationType {
     id: number
     scope: AnnotationScope
     content: string
@@ -994,7 +994,7 @@ export interface AnnotationType {
     creation_type?: string
 }
 
-export interface ParsedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
+export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
     date_marker: dayjs.Dayjs
 }
 
