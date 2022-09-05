@@ -1,5 +1,5 @@
 import { kea, connect, path, key, props, reducers, actions, selectors, listeners, afterMount } from 'kea'
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api from 'lib/api'
 import { ActorType } from '~/types'
 import { loaders } from 'kea-loaders'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -14,6 +14,15 @@ import { groupsModel } from '~/models/groupsModel'
 
 export interface PersonModalLogicProps {
     url: string
+}
+
+export interface ListActorsResponse {
+    results: {
+        count: number
+        people: ActorType[]
+    }[]
+    missing_persons?: number
+    next?: string
 }
 
 export const personsModalLogic = kea<personsModalLogicType>([
@@ -34,7 +43,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
     loaders(({ values, actions }) => ({
         actorsResponse: [
-            null as CountedPaginatedResponse<ActorType> | null,
+            null as ListActorsResponse | null,
             {
                 loadActors: async ({ url, clear }: { url: string; clear?: boolean }) => {
                     url += '&include_recordings=true'
@@ -45,16 +54,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                     const res = await api.get(url)
 
-                    const payload: CountedPaginatedResponse<ActorType> = {
-                        total_count: res?.results[0]?.count || 0,
-                        results: res?.results[0]?.people,
-                        next: res?.next,
-                    }
-
                     if (clear) {
                         actions.resetActors()
                     }
-                    return payload
+                    return res
                 },
             },
         ],
@@ -64,7 +67,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actors: [
             [] as ActorType[],
             {
-                loadActorsSuccess: (state, { actorsResponse }) => [...state, ...(actorsResponse?.results || [])],
+                loadActorsSuccess: (state, { actorsResponse }) => [
+                    ...state,
+                    ...(actorsResponse?.results?.[0]?.people || []),
+                ],
                 resetActors: () => [],
             },
         ],

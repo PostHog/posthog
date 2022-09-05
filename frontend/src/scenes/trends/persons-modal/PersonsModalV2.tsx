@@ -107,8 +107,8 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                             <span>
                                 {actorsResponse?.next ? 'More than ' : ''}
                                 <b>
-                                    {actorsResponse?.total_count || 'No'} unique{' '}
-                                    {actorsResponse?.total_count === 1 ? actorLabel.singular : actorLabel.plural}
+                                    {actors.length || 'No'} unique{' '}
+                                    {actors.length === 1 ? actorLabel.singular : actorLabel.plural}
                                 </b>
                             </span>
                         )}
@@ -155,7 +155,7 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                         icon={<IconSave />}
                         type="secondary"
                         data-attr="person-modal-save-as-cohort"
-                        disabled={actorsResponse?.total_count === 0}
+                        disabled={!actors.length}
                     >
                         Save as cohort
                     </LemonButton>
@@ -171,7 +171,7 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                             })
                         }}
                         data-attr="person-modal-download-csv"
-                        disabled={actorsResponse?.total_count === 0}
+                        disabled={!actors.length}
                     >
                         Download CSV
                     </LemonButton>
