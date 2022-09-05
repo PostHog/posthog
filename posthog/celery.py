@@ -344,6 +344,8 @@ def graphile_queue_size():
         queue_size = cursor.fetchone()[0]
         gauge("graphile_queue_size", queue_size)
 
+        # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
+        # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
         cursor.execute(
             """
         SELECT task_identifier, count(*) as c FROM graphile_worker.jobs
