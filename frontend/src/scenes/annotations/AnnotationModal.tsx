@@ -1,4 +1,4 @@
-import { LemonButton, LemonModal, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonModalProps, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
@@ -10,7 +10,10 @@ import { IconWarning } from 'lib/components/icons'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-export function AnnotationModal(): JSX.Element {
+export function AnnotationModal({
+    overlayRef,
+    contentRef,
+}: Pick<LemonModalProps, 'overlayRef' | 'contentRef'>): JSX.Element {
     const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting, onSavedInsight, timezone } =
         useValues(annotationModalLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
@@ -19,6 +22,8 @@ export function AnnotationModal(): JSX.Element {
 
     return (
         <LemonModal
+            overlayRef={overlayRef}
+            contentRef={contentRef}
             isOpen={isModalOpen}
             onClose={closeModal}
             title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}

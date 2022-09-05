@@ -539,7 +539,7 @@ export function LineGraph_({
     return (
         <div className="LineGraph absolute w-full h-full" data-attr={dataAttr}>
             <canvas ref={canvasRef} />
-            {showAnnotations && (
+            {myLineChart && showAnnotations && (
                 <BindLogic
                     logic={annotationsOverlayLogic}
                     props={{

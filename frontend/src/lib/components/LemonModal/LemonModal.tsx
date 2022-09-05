@@ -27,6 +27,8 @@ export interface LemonModalProps {
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
     closable?: boolean
+    contentRef?: React.RefCallback<HTMLDivElement>
+    overlayRef?: React.RefCallback<HTMLDivElement>
 }
 
 export const LemonModalHeader = ({ children, className }: LemonModalContentProps): JSX.Element => {
@@ -53,6 +55,8 @@ export function LemonModal({
     inline,
     simple,
     closable = true,
+    contentRef,
+    overlayRef,
 }: LemonModalProps): JSX.Element {
     const modalContent = (
         <>
@@ -114,6 +118,8 @@ export function LemonModal({
                 },
             }}
             appElement={document.getElementById('root') as HTMLElement}
+            contentRef={contentRef}
+            overlayRef={overlayRef}
         >
             {modalContent}
         </Modal>

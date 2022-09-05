@@ -33,7 +33,7 @@ export const annotationScopeToLabel: Record<AnnotationScope, string> = {
 }
 
 export interface AnnotationsOverlayProps {
-    chart: Chart | undefined
+    chart: Chart
     chartWidth: number
     chartHeight: number
 }
@@ -49,21 +49,19 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
 }
 
 export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: AnnotationsOverlayProps): JSX.Element {
-    const { isPopoverShown, activeBadgeCoordinates, timezone } = useValues(annotationsOverlayLogic)
+    const { isPopoverShown, activeBadgeCoordinates } = useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
     const overlayRef = useRef<HTMLDivElement>(null)
+    const modalContentRef = useRef<HTMLDivElement | null>(null)
+    const modalOverlayRef = useRef<HTMLDivElement | null>(null)
 
-    useOutsideClickHandler(overlayRef, () => closePopover())
+    useOutsideClickHandler([overlayRef, modalContentRef, modalOverlayRef], () => closePopover())
 
-    const dates: dayjs.Dayjs[] = chart
-        ? chart.scales.x.ticks.map(({ label }) => {
-              return dayjs(label as string).tz(timezone, true)
-          })
-        : []
-
-    console.log(dates[0]?.toString())
+    const dates: dayjs.Dayjs[] = chart.scales.x.ticks.map(({ label }) => {
+        return dayjs(label as string)
+    })
 
     return (
         <div
@@ -99,7 +97,10 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: Annotatio
             >
                 <AnnotationsPopover />
             </CSSTransition>
-            <AnnotationModal />
+            <AnnotationModal
+                contentRef={(el) => (modalContentRef.current = el)}
+                overlayRef={(el) => (modalOverlayRef.current = el)}
+            />
         </div>
     )
 }
@@ -125,7 +126,7 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
     const dateGroup = determineAnnotationsDateGroup(date, intervalUnit)
     const annotations = groupedAnnotations[dateGroup] || []
 
-    const active = activeDate === date && isPopoverShown
+    const active = activeDate?.valueOf() === date.valueOf() && isPopoverShown
     const shown = active || hovered || annotations.length > 0
 
     return (
@@ -141,7 +142,6 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
             }
             onMouseEnter={() => {
                 setHovered(true)
-                console.log(activeDate?.valueOf(), date.valueOf(), activeDate === date)
                 if (!isDateLocked) {
                     const button = buttonRef.current as HTMLButtonElement
                     activateDate(date, [button.offsetLeft, button.offsetTop])
@@ -149,7 +149,6 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
             }}
             onMouseLeave={() => {
                 setHovered(false)
-                console.log(activeDate?.toISOString(), date.toISOString(), activeDate === date)
                 if (!isDateLocked) {
                     deactivateDate()
                 }
@@ -200,11 +199,11 @@ function AnnotationsPopover(): JSX.Element {
                 width="var(--annotations-popover-width)"
             >
                 {popoverAnnotations.length > 0 ? (
-                    <div className="flex flex-col gap-1 w-full overflow-y-auto">
+                    <ul className="flex flex-col gap-1 w-full overflow-y-auto m-0 p-0">
                         {popoverAnnotations.map((annotation) => (
                             <AnnotationCard key={annotation.id} annotation={annotation} />
                         ))}
-                    </div>
+                    </ul>
                 ) : (
                     'There are no annotations in this period.'
                 )}
@@ -219,7 +218,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
 
     return (
-        <div className="AnnotationCard flex flex-col gap-2 w-full p-3 rounded border">
+        <li className="AnnotationCard flex flex-col gap-2 w-full p-3 rounded border list-none">
             <div className="flex items-center gap-2">
                 <h5 className="grow m-0 text-muted">{annotationScopeToLabel[annotation.scope]}</h5>
                 <LemonButton
@@ -247,6 +246,6 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                 />{' '}
                 • {humanFriendlyDetailedTime(annotation.created_at)}
             </div>
-        </div>
+        </li>
     )
 }

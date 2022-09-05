@@ -43,7 +43,6 @@
         var(--annotations-popover-max-left)
     );
     top: calc(var(--annotations-overlay-active-badge-top) - 1.25rem);
-    max-height: 32rem;
     transform: translateY(-100%) !important;
 
     &.AnnotationsPopover--enter,
@@ -60,6 +59,10 @@
         margin: 0 0 0 calc(var(--annotations-overlay-chart-area-left) * -1);
         min-width: unset;
         max-width: unset;
+    }
+
+    ul {
+        max-height: 28rem;
     }
 }
 

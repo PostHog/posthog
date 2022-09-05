@@ -91,7 +91,6 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 actions.setAnnotationModalValue('dateMarker', initialDate)
             }
             if (insightId) {
-                actions.setAnnotationModalValue('scope', AnnotationScope.Insight)
                 actions.setAnnotationModalValue('dashboardItemId', insightId)
             }
         },
