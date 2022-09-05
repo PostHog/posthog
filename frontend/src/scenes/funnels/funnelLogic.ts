@@ -1167,7 +1167,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 return count
             },
         ],
-        isModalActive: [(s) => [s.isViewedOnDashboard], (isViewedOnDashboard) => !isViewedOnDashboard],
         incompletenessOffsetFromEnd: [
             (s) => [s.steps, s.conversionWindow],
             (steps, conversionWindow) => {
@@ -1253,8 +1252,7 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setFilters({ new_entity: values.filters.new_entity }, false, true)
         },
         openPersonsModalForStep: ({ step, stepIndex, converted }) => {
-            // DEPRECATED
-            if (!values.isModalActive) {
+            if (!values.isViewedOnDashboard) {
                 return
             }
 
@@ -1286,6 +1284,9 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
+            if (!values.isViewedOnDashboard) {
+                return
+            }
             // Version of openPersonsModalForStep that accurately handles breakdown series
             const breakdownValues = getBreakdownStepValues(series, series.order)
             if (shouldUsePersonsModalV2()) {
@@ -1315,6 +1316,10 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
+            if (!values.isViewedOnDashboard) {
+                return
+            }
+
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
                 if (shouldUsePersonsModalV2()) {
@@ -1351,7 +1356,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     openPersonsModal({
                         url: success ? correlation.success_people_url : correlation.failure_people_url,
                         title: funnelTitle({
-                            step: success ? values.stepsWithCount.length : -2,
+                            converted: success,
+                            step: success ? values.stepsWithCount.length : undefined,
                             label: name,
                         }),
                     })

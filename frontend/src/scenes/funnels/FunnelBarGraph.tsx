@@ -279,7 +279,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
         visibleStepsWithConversionMetrics: steps,
         stepReference,
         aggregationTargetLabel,
-        isModalActive,
+        isViewedOnDashboard,
     } = useValues(funnelLogic)
     const { openPersonsModalForStep } = useActions(funnelLogic)
 
@@ -369,7 +369,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                             converted: true,
                                                         })
                                                     }
-                                                    disabled={!isModalActive}
+                                                    disabled={!isViewedOnDashboard}
                                                     popoverTitle={
                                                         <div style={{ wordWrap: 'break-word' }}>
                                                             <PropertyKeyInfo value={step.name} />
@@ -452,7 +452,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             percentage={step.conversionRates.fromBasisStep}
                                             name={step.name}
                                             onBarClick={() => openPersonsModalForStep({ step, converted: true })}
-                                            disabled={!isModalActive}
+                                            disabled={!isViewedOnDashboard}
                                             popoverTitle={<PropertyKeyInfo value={step.name} />}
                                             popoverMetrics={[
                                                 {
@@ -510,7 +510,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                     <div className="center-flex">
                                         <ValueInspectorButton
                                             onClick={() => openPersonsModalForStep({ step, converted: true })}
-                                            disabled={!isModalActive}
+                                            disabled={!isViewedOnDashboard}
                                         >
                                             <IconTrendingFlat
                                                 style={{ color: 'var(--success)' }}
@@ -545,7 +545,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                     <div className="center-flex">
                                         <ValueInspectorButton
                                             onClick={() => openPersonsModalForStep({ step, converted: false })}
-                                            disabled={!isModalActive}
+                                            disabled={!isViewedOnDashboard}
                                         >
                                             <IconTrendingFlatDown
                                                 style={{ color: 'var(--danger)' }}
