@@ -64,7 +64,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     "hash": None,
                     "elements": [ElementSerializer(element).data for element in chain_to_elements(elements[0])],
                 }
-                for elements in result
+                for elements in result  # type: ignore
             ]
         )
 
@@ -92,7 +92,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = sync_execute(
             GET_VALUES.format(), {"team_id": self.team.id, "regex": select_regex, "filter_regex": filter_regex}
         )
-        return response.Response([{"name": value[0]} for value in result])
+        return response.Response([{"name": value[0]} for value in result])  # type: ignore
 
 
 class LegacyElementViewSet(ElementViewSet):

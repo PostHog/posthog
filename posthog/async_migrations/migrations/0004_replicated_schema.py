@@ -66,6 +66,6 @@ class Migration(AsyncMigrationDefinition):
             {"database": settings.CLICKHOUSE_DATABASE, "name": table_name},
         )
 
-        return result[0][0] if len(result) > 0 else None
+        return result[0][0] if len(result) > 0 else None  # type: ignore
 
     # Check older versions of the file for the migration code

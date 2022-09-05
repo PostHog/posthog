@@ -176,7 +176,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         flattened = []
         if key == "custom_event":
             events = sync_execute(GET_CUSTOM_EVENTS, {"team_id": team.pk})
-            return response.Response([{"name": event[0]} for event in events])
+            return response.Response([{"name": event[0]} for event in events])  # type: ignore
         elif key:
             result = get_property_values_for_key(key, team, value=request.GET.get("value"))
             for value in result:

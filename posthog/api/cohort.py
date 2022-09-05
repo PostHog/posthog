@@ -211,7 +211,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
 
         raw_result = sync_execute(query, params)
-        actor_ids = [row[0] for row in raw_result]
+        actor_ids = [row[0] for row in raw_result]  # type: ignore
         actors, serialized_actors = get_people(team.pk, actor_ids)
 
         _should_paginate = len(actor_ids) >= filter.limit
@@ -265,7 +265,7 @@ def insert_cohort_people_into_pg(cohort: Cohort):
         ),
         {"cohort_id": cohort.pk, "team_id": cohort.team.pk},
     )
-    cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids])
+    cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids])  # type: ignore
 
 
 def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):

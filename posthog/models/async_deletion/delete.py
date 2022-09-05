@@ -116,7 +116,7 @@ def _verify_by_column(distinct_columns: str, async_deletions: List[AsyncDeletion
         """,
         args,
     )
-    return set(tuple(row) for row in clickhouse_result)
+    return set(tuple(row) for row in clickhouse_result)  # type: ignore
 
 
 def _column_name(async_deletion: AsyncDeletion):

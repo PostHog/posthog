@@ -73,8 +73,8 @@ def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] 
 
 def get_earliest_timestamp(team_id: int) -> datetime:
     results = sync_execute(GET_EARLIEST_TIMESTAMP_SQL, {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP})
-    if len(results) > 0:
-        return results[0][0]
+    if len(results) > 0:  # type: ignore
+        return results[0][0]  # type: ignore
     else:
         return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 

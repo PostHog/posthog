@@ -149,7 +149,7 @@ class Migration(AsyncMigrationDefinition):
         if settings.MULTI_TENANCY:
             return False
 
-        table_engine = sync_execute(
+        table_engine = sync_execute(  # type: ignore
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
             {"database": settings.CLICKHOUSE_DATABASE, "name": EVENTS_TABLE},
         )[0][0]
@@ -163,7 +163,7 @@ class Migration(AsyncMigrationDefinition):
         )
 
     def precheck(self):
-        events_failed_table_exists = sync_execute(f"EXISTS {FAILED_EVENTS_TABLE_NAME}")[0][0]
+        events_failed_table_exists = sync_execute(f"EXISTS {FAILED_EVENTS_TABLE_NAME}")[0][0]  # type: ignore
         if events_failed_table_exists:
             return (
                 False,
@@ -176,7 +176,7 @@ class Migration(AsyncMigrationDefinition):
     def healthcheck(self):
         result = sync_execute("SELECT free_space FROM system.disks")
         # 100mb or less left
-        if int(result[0][0]) < 100000000:
+        if int(result[0][0]) < 100000000:  # type: ignore
             return (False, "ClickHouse available storage below 100MB")
 
         return (True, None)
@@ -186,7 +186,7 @@ class Migration(AsyncMigrationDefinition):
         return list(
             sorted(
                 row[0]
-                for row in sync_execute(
+                for row in sync_execute(  # type: ignore
                     f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE database = %(database)s AND table='{EVENTS_TABLE}'",
                     {"database": CLICKHOUSE_DATABASE},
                 )
@@ -198,4 +198,4 @@ class Migration(AsyncMigrationDefinition):
             "SELECT engine FROM system.tables WHERE database = %(database)s AND name = 'events'",
             {"database": CLICKHOUSE_DATABASE},
         )
-        return rows[0][0]
+        return rows[0][0]  # type: ignore

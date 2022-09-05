@@ -14,7 +14,7 @@ def does_column_exist(database, table_name, column_name):
             WHERE table = '{table_name}' AND name = '{column_name}' AND database = '{database}'
         """
     )
-    return len(cols) == 1
+    return len(cols) == 1  # type: ignore
 
 
 def ensure_only_new_column_exists(database, table_name, old_column_name, new_column_name):

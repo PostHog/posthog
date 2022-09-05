@@ -99,8 +99,8 @@ class Migration(AsyncMigrationDefinition):
 
     def healthcheck(self):
         result = sync_execute("SELECT total_space, free_space FROM system.disks")
-        total_space = result[0][0]
-        free_space = result[0][1]
+        total_space = result[0][0]  # type: ignore
+        free_space = result[0][1]  # type: ignore
         if free_space > total_space / 3:
             return (True, None)
         else:
@@ -109,12 +109,12 @@ class Migration(AsyncMigrationDefinition):
     def progress(self, _):
         result = sync_execute(f"SELECT COUNT(1) FROM {TEMPORARY_TABLE_NAME}")
         result2 = sync_execute(f"SELECT COUNT(1) FROM {PERSONS_DISTINCT_ID_TABLE}")
-        total_events_to_move = result2[0][0]
-        total_events_moved = result[0][0]
+        total_events_to_move = result2[0][0]  # type: ignore
+        total_events_moved = result[0][0]  # type: ignore
 
         progress = 100 * total_events_moved / total_events_to_move
         return progress
 
     def is_required(self):
         res = sync_execute("SHOW CREATE TABLE person_distinct_id")
-        return "ReplacingMergeTree" in res[0][0]
+        return "ReplacingMergeTree" in res[0][0]  # type: ignore

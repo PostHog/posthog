@@ -48,7 +48,7 @@ class Stickiness:
             client_query_id=filter.client_query_id,
             client_query_team_id=team.pk,
         )
-        return self.process_result(counts, filter, entity)
+        return self.process_result(counts, filter, entity)  # type: ignore
 
     def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs):
         _, serialized_actors, _ = self.actor_query_class(entity=target_entity, filter=filter, team=team).get_actors()

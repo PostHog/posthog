@@ -250,7 +250,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
                 **params,
             },
         )
-        return Response({"count": results[0][0]})
+        return Response({"count": results[0][0]})  # type: ignore
 
 
 class LegacyActionViewSet(ActionViewSet):

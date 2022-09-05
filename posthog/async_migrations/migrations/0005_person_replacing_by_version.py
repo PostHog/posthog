@@ -74,7 +74,7 @@ class Migration(AsyncMigrationDefinition):
     posthog_max_version = "1.40.99"
 
     def is_required(self) -> bool:
-        person_table_engine = sync_execute(
+        person_table_engine = sync_execute(  # type: ignore
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
             {"database": settings.CLICKHOUSE_DATABASE, "name": "person"},
         )[0][0]

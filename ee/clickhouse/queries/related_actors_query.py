@@ -43,7 +43,7 @@ class RelatedActorsQuery:
 
         # :KLUDGE: We need to fetch distinct_id + person properties to be able to link to user properly.
         person_ids = self._take_first(
-            sync_execute(
+            sync_execute(  # type: ignore
                 f"""
             SELECT DISTINCT {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             FROM events e
@@ -65,7 +65,7 @@ class RelatedActorsQuery:
             return []
 
         group_ids = self._take_first(
-            sync_execute(
+            sync_execute(  # type: ignore
                 f"""
             SELECT DISTINCT $group_{group_type_index} AS group_key
             FROM events e

@@ -94,11 +94,11 @@ def _team_integrity_statistics(person_data: List[Any]) -> Counter:
     )
 
     ch_persons = _index_by(
-        sync_execute(GET_PERSON_CH_QUERY, {"person_ids": person_uuids, "team_ids": team_ids}), lambda row: row[0]
+        sync_execute(GET_PERSON_CH_QUERY, {"person_ids": person_uuids, "team_ids": team_ids}), lambda row: row[0]  # type: ignore
     )
 
     ch_distinct_ids_mapping = _index_by(
-        sync_execute(GET_DISTINCT_IDS_CH_QUERY, {"person_ids": person_uuids, "team_ids": team_ids}),
+        sync_execute(GET_DISTINCT_IDS_CH_QUERY, {"person_ids": person_uuids, "team_ids": team_ids}),  # type: ignore
         lambda row: row[1],
         flat=False,
     )

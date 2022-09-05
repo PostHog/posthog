@@ -15,7 +15,7 @@ def get_clickhouse_schema() -> List[Tuple[str, str, str]]:
     Get the ClickHouse schema of all tables that
     are not materialized views (aka: .inner_id.%)
     """
-    return sync_execute(
+    return sync_execute(  # type: ignore
         """
         SELECT
             name as table_name,
@@ -37,7 +37,7 @@ def get_clickhouse_nodes() -> List[Tuple[str]]:
     """
     Get the ClickHouse nodes part of the cluster
     """
-    return sync_execute(
+    return sync_execute(  # type: ignore
         """
         SELECT
             host_name

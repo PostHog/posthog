@@ -221,10 +221,10 @@ def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:
     )
 
     result = {
-        "prev_total_ids_with_duplicates": query_result[0][0],
-        "prev_total_extra_distinct_id_rows": query_result[0][1],
-        "new_total_ids_with_duplicates": query_result[0][2],
-        "new_total_extra_distinct_id_rows": query_result[0][3],
+        "prev_total_ids_with_duplicates": query_result[0][0],  # type: ignore
+        "prev_total_extra_distinct_id_rows": query_result[0][1],  # type: ignore
+        "new_total_ids_with_duplicates": query_result[0][2],  # type: ignore
+        "new_total_extra_distinct_id_rows": query_result[0][3],  # type: ignore
     }
     return result
 
@@ -245,8 +245,8 @@ def count_total_persons_with_multiple_ids(team_id: Union[str, int], min_ids: int
     )
 
     result = {
-        f"total_persons_with_more_than_{min_ids}_ids": query_result[0][0],
-        "max_distinct_ids_for_one_person": query_result[0][1],
+        f"total_persons_with_more_than_{min_ids}_ids": query_result[0][0],  # type: ignore
+        "max_distinct_ids_for_one_person": query_result[0][1],  # type: ignore
     }
     return result
 

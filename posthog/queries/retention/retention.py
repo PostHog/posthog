@@ -47,7 +47,7 @@ class Retention:
                     filter=filter, breakdown_values=breakdown_values, selected_interval=intervals_from_base
                 ),
             }
-            for (breakdown_values, intervals_from_base, count) in result
+            for (breakdown_values, intervals_from_base, count) in result  # type: ignore
         }
 
         return result_dict

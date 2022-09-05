@@ -801,9 +801,9 @@ class FunnelCorrelation:
         results_with_total = sync_execute(query, params)
 
         # Get the total success/failure counts from the results
-        results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]
+        results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]  # type: ignore
         _, success_total, failure_total = [
-            result for result in results_with_total if result[0] == self.TOTAL_IDENTIFIER
+            result for result in results_with_total if result[0] == self.TOTAL_IDENTIFIER  # type: ignore
         ][0]
 
         # Add a little structure, and keep it close to the query definition so it's

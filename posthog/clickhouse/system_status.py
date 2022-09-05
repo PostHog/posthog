@@ -48,8 +48,8 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "SELECT formatReadableSize(total_space), formatReadableSize(free_space) FROM system.disks"
     )
 
-    for index, (total_space, free_space) in enumerate(disk_status):
-        metric = "Clickhouse disk" if len(disk_status) == 1 else f"Clickhouse disk {index}"
+    for index, (total_space, free_space) in enumerate(disk_status):  # type: ignore
+        metric = "Clickhouse disk" if len(disk_status) == 1 else f"Clickhouse disk {index}"  # type: ignore
         yield {"key": f"clickhouse_disk_{index}_free_space", "metric": f"{metric} free space", "value": free_space}
         yield {"key": f"clickhouse_disk_{index}_total_space", "metric": f"{metric} total space", "value": total_space}
 
@@ -74,7 +74,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
     }
 
     system_metrics = sync_execute("SELECT * FROM system.asynchronous_metrics")
-    system_metrics += sync_execute("SELECT * FROM system.metrics")
+    system_metrics += sync_execute("SELECT * FROM system.metrics")  # type: ignore
 
     yield {
         "key": "clickhouse_system_metrics",
@@ -83,7 +83,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "subrows": {"columns": ["Metric", "Value", "Description"], "rows": list(sorted(system_metrics))},
     }
 
-    last_event_ingested_timestamp = sync_execute("SELECT max(_timestamp) FROM events")[0][0]
+    last_event_ingested_timestamp = sync_execute("SELECT max(_timestamp) FROM events")[0][0]  # type: ignore
 
     yield {
         "key": "last_event_ingested_timestamp",
@@ -103,7 +103,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "value": dead_letter_queue_events_last_day,
     }
 
-    total_events_ingested_last_day = sync_execute(
+    total_events_ingested_last_day = sync_execute(  # type: ignore
         "SELECT count(*) as b from events WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
     )[0][0]
     dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / max(

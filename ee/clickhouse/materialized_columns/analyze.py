@@ -51,7 +51,7 @@ class TeamManager:
 
     def _get_properties(self, query, team_id) -> Set[str]:
         rows = sync_execute(query, {"team_id": team_id})
-        return set(name for name, _ in rows)
+        return set(name for name, _ in rows)  # type: ignore
 
 
 class Query:
@@ -132,7 +132,7 @@ def _get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
         """,
         {"since": since_hours_ago, "min_query_time": min_query_time},
     )
-    return [Query(query, query_duration_ms, min_query_time) for query, query_duration_ms in raw_queries]
+    return [Query(query, query_duration_ms, min_query_time) for query, query_duration_ms in raw_queries]  # type: ignore
 
 
 def _analyze(queries: List[Query]) -> List[Suggestion]:

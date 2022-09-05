@@ -113,24 +113,24 @@ class DeadLetterQueueViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mix
 
 
 def get_dead_letter_queue_size() -> int:
-    return sync_execute("SELECT count(*) FROM events_dead_letter_queue")[0][0]
+    return sync_execute("SELECT count(*) FROM events_dead_letter_queue")[0][0]  # type: ignore
 
 
 def get_dlq_last_error_timestamp() -> int:
-    ts = sync_execute("SELECT max(error_timestamp) FROM events_dead_letter_queue")[0][0]
+    ts = sync_execute("SELECT max(error_timestamp) FROM events_dead_letter_queue")[0][0]  # type: ignore
 
     last_error_timestamp = "-" if ts.timestamp() == datetime(1970, 1, 1).timestamp() else ts
     return last_error_timestamp
 
 
 def get_dead_letter_queue_events_last_24h() -> int:
-    return sync_execute(
+    return sync_execute(  # type: ignore
         "SELECT count(*) FROM events_dead_letter_queue WHERE error_timestamp >= (NOW() - INTERVAL 1 DAY)"
     )[0][0]
 
 
 def get_dead_letter_queue_events_per_error(offset: Optional[int] = 0) -> List[Union[str, int]]:
-    return sync_execute(
+    return sync_execute(  # type: ignore
         f"""
         SELECT error, count(*) AS c
         FROM events_dead_letter_queue
@@ -143,7 +143,7 @@ def get_dead_letter_queue_events_per_error(offset: Optional[int] = 0) -> List[Un
 
 
 def get_dead_letter_queue_events_per_location(offset: Optional[int] = 0) -> List[Union[str, int]]:
-    return sync_execute(
+    return sync_execute(  # type: ignore
         f"""
         SELECT error_location, count(*) AS c
         FROM events_dead_letter_queue
@@ -156,7 +156,7 @@ def get_dead_letter_queue_events_per_location(offset: Optional[int] = 0) -> List
 
 
 def get_dead_letter_queue_events_per_day(offset: Optional[int] = 0) -> List[Union[str, int]]:
-    return sync_execute(
+    return sync_execute(  # type: ignore
         f"""
         SELECT toDate(error_timestamp) as day, count(*) AS c
         FROM events_dead_letter_queue
@@ -169,7 +169,7 @@ def get_dead_letter_queue_events_per_day(offset: Optional[int] = 0) -> List[Unio
 
 
 def get_dead_letter_queue_events_per_tag(offset: Optional[int] = 0) -> List[Union[str, int]]:
-    return sync_execute(
+    return sync_execute(  # type: ignore
         f"""
         SELECT arrayJoin(tags) as tag, count(*) as c from events_dead_letter_queue
         GROUP BY tag

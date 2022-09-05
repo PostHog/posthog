@@ -155,7 +155,7 @@ def get_breakdown_prop_values(
             **entity_format_params,
         )
 
-    return sync_execute(
+    return sync_execute(  # type: ignore
         elements_query,
         {
             "key": filter.breakdown,

@@ -57,6 +57,6 @@ class DebugCHQueries(viewsets.ViewSet):
                     "execution_time": resp[4],
                     "path": self._get_path(resp[0]),
                 }
-                for resp in response
+                for resp in response  # type: ignore
             ]
         )

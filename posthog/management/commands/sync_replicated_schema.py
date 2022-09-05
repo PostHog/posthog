@@ -72,7 +72,7 @@ class Command(BaseCommand):
         host_tables: Dict[HostName, Set[TableName]] = defaultdict(set)
         create_table_queries: Dict[TableName, Query] = {}
 
-        for host, table_name, create_table_query in rows:
+        for host, table_name, create_table_query in rows:  # type: ignore
             host_tables[host].add(table_name)
             create_table_queries[table_name] = create_table_query
 

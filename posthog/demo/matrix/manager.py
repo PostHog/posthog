@@ -303,8 +303,8 @@ class MatrixManager:
         from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
         while True:
-            person_count = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
-            person_distinct_id_count = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
+            person_count = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]  # type: ignore
+            person_distinct_id_count = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]  # type: ignore
             persons_ready = person_count >= self._persons_created
             person_distinct_ids_ready = person_distinct_id_count >= self._person_distinct_ids_created
             persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{self._persons_created}"

@@ -9,7 +9,7 @@ def analyze_enough_disk_space_free_for_table(table_name: str, required_ratio: fl
     This is done by checking whether there's at least ratio times space free to resize table_name with.
     """
 
-    current_ratio, _, required_space_pretty = sync_execute(
+    current_ratio, _, required_space_pretty = sync_execute(  # type: ignore
         f"""
         WITH (
             SELECT free_space

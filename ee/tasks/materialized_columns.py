@@ -39,7 +39,7 @@ def get_materialized_columns_with_default_expression():
 
 
 def any_ongoing_mutations() -> bool:
-    running_mutations_count = sync_execute("SELECT count(*) FROM system.mutations WHERE is_done = 0")[0][0]
+    running_mutations_count = sync_execute("SELECT count(*) FROM system.mutations WHERE is_done = 0")[0][0]  # type: ignore
     return running_mutations_count > 0
 
 
@@ -49,4 +49,4 @@ def is_default_expression(table: str, column_name: ColumnName) -> bool:
         "SELECT default_kind FROM system.columns WHERE table = %(table)s AND name = %(name)s AND database = %(database)s",
         {"table": updated_table, "name": column_name, "database": CLICKHOUSE_DATABASE},
     )
-    return len(column_query) > 0 and column_query[0][0] == "DEFAULT"
+    return len(column_query) > 0 and column_query[0][0] == "DEFAULT"  # type: ignore

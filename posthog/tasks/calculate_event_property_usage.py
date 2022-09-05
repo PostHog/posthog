@@ -126,7 +126,7 @@ def _get_events_volume(team: Team, since: timezone.datetime) -> Dict[str, Tuple[
 
     return {
         event: (volume, last_seen_at)
-        for event, volume, last_seen_at in sync_execute(GET_EVENTS_VOLUME, {"team_id": team.pk, "timestamp": since})
+        for event, volume, last_seen_at in sync_execute(GET_EVENTS_VOLUME, {"team_id": team.pk, "timestamp": since})  # type: ignore
     }
 
 
@@ -151,15 +151,15 @@ def _get_property_types(team: Team, since: timezone.datetime) -> Dict[str, Optio
 
     property_types = {
         property_key: _infer_property_type(sample_json_value)
-        for property_key, sample_json_value in sync_execute(
+        for property_key, sample_json_value in sync_execute(  # type: ignore
             GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team.pk, "timestamp": since}
         )
     }
 
-    for property_key, sample_json_value in sync_execute(GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team.pk}):
+    for property_key, sample_json_value in sync_execute(GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team.pk}):  # type: ignore
         if property_key not in property_types:
             property_types[property_key] = _infer_property_type(sample_json_value)
-    for property_key, sample_json_value in sync_execute(GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team.pk}):
+    for property_key, sample_json_value in sync_execute(GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team.pk}):  # type: ignore
         if property_key not in property_types:
             property_types[property_key] = _infer_property_type(sample_json_value)
 
@@ -171,4 +171,4 @@ def _get_event_properties(team: Team, since: timezone.datetime) -> List[Tuple[st
     from posthog.client import sync_execute
     from posthog.models.event.sql import GET_EVENT_PROPERTIES
 
-    return sync_execute(GET_EVENT_PROPERTIES, {"team_id": team.pk, "timestamp": since})
+    return sync_execute(GET_EVENT_PROPERTIES, {"team_id": team.pk, "timestamp": since})  # type: ignore

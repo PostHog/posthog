@@ -98,7 +98,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
         )
 
         group_type_index_to_properties = defaultdict(list)
-        for group_type_index, key, count in rows:
+        for group_type_index, key, count in rows:  # type: ignore
             group_type_index_to_properties[group_type_index].append({"name": key, "count": count})
 
         return response.Response(group_type_index_to_properties)
@@ -117,4 +117,4 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
             {"team_id": self.team.pk, "group_type_index": request.GET["group_type_index"], "key": request.GET["key"]},
         )
 
-        return response.Response([{"name": name[0]} for name in rows])
+        return response.Response([{"name": name[0]} for name in rows])  # type: ignore

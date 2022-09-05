@@ -99,7 +99,7 @@ class ActorBaseQuery:
         if hasattr(self._filter, "include_recordings") and self._filter.include_recordings and self._filter.insight in [INSIGHT_PATHS, INSIGHT_TRENDS, INSIGHT_FUNNELS]:  # type: ignore
             serialized_actors = self.add_matched_recordings_to_serialized_actors(serialized_actors, raw_result)
 
-        return actors, serialized_actors, len(raw_result)
+        return actors, serialized_actors, len(raw_result)  # type: ignore
 
     def query_for_session_ids_with_recordings(self, session_ids: Set[str]) -> Set[str]:
         """Filters a list of session_ids to those that actually have recordings"""
@@ -113,7 +113,7 @@ class ActorBaseQuery:
         """
         params = {"team_id": self._team.pk, "session_ids": list(session_ids)}
         raw_result = sync_execute(query, params)
-        return set([row[0] for row in raw_result])
+        return set([row[0] for row in raw_result])  # type: ignore
 
     def add_matched_recordings_to_serialized_actors(
         self, serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]], raw_result

@@ -126,7 +126,7 @@ def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, setti
         result = _deserialize(redis_client.get(key))
         return result
     else:
-        result = sync_execute(query, args, settings=settings, with_column_types=with_column_types)
+        result = sync_execute(query, args, settings=settings, with_column_types=with_column_types)  # type: ignore
         redis_client.set(key, _serialize(result), ex=ttl)
         return result
 
@@ -202,7 +202,7 @@ def query_with_columns(
         columns_to_remove = []
     if columns_to_rename is None:
         columns_to_rename = {}
-    metrics, types = sync_execute(query, args, with_column_types=True)
+    metrics, types = sync_execute(query, args, with_column_types=True)  # type: ignore
     type_names = [key for key, _type in types]
 
     rows = []

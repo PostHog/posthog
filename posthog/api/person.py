@@ -199,7 +199,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         raw_result = sync_execute(query, params)
 
-        actor_ids = [row[0] for row in raw_result]
+        actor_ids = [row[0] for row in raw_result]  # type: ignore
         actors, serialized_actors = get_people(team.pk, actor_ids)
 
         _should_paginate = len(actor_ids) >= filter.limit
@@ -251,7 +251,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
     def get_properties(self, request: request.Request):
         rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": self.team.pk})
-        return [{"name": name, "count": count} for name, count in rows]
+        return [{"name": name, "count": count} for name, count in rows]  # type: ignore
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:

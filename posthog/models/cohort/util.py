@@ -228,7 +228,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
         {**filter_params, "team_id": team.pk, "offset": offset, "limit": limit},
     )
 
-    return [str(row[0]) for row in results]
+    return [str(row[0]) for row in results]  # type: ignore
 
 
 def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int, team: Team):
@@ -328,12 +328,12 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
-    return [row[0] for row in res]
+    return [row[0] for row in res]  # type: ignore
 
 
 def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
     res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
-    return [row[0] for row in res]
+    return [row[0] for row in res]  # type: ignore
 
 
 def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:

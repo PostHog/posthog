@@ -354,5 +354,5 @@ class SessionRecordingList(EventQuery):
     def run(self, *args, **kwargs) -> SessionRecordingQueryResult:
         query, query_params = self.get_query()
         query_results = sync_execute(query, query_params)
-        session_recordings = self._data_to_return(query_results)
+        session_recordings = self._data_to_return(query_results)  # type: ignore
         return self._paginate_results(session_recordings)

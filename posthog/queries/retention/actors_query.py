@@ -80,7 +80,7 @@ class RetentionActorsByPeriod(ActorBaseQuery):
 
         actor_appearances = [
             AppearanceRow(actor_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1])
-            for row in sync_execute(actor_query)
+            for row in sync_execute(actor_query)  # type: ignore
         ]
 
         _, serialized_actors = self.get_actors_from_result(

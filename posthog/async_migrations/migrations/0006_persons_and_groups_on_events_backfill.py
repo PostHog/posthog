@@ -81,7 +81,7 @@ class Migration(AsyncMigrationDefinition):
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
-        zero_person_id_count = sync_execute(
+        zero_person_id_count = sync_execute(  # type: ignore
             """
             SELECT count()
             FROM events
@@ -333,7 +333,7 @@ class Migration(AsyncMigrationDefinition):
         sleep_until_finished("events table backill", lambda: self._count_running_mutations() > 0)
 
     def _count_running_mutations(self):
-        return sync_execute(
+        return sync_execute(  # type: ignore
             """
             SELECT count()
             FROM clusterAllReplicas(%(cluster)s, system, 'mutations')
@@ -357,7 +357,7 @@ class Migration(AsyncMigrationDefinition):
     def healthcheck(self):
         result = sync_execute("SELECT free_space FROM system.disks")
         # 100mb or less left
-        if int(result[0][0]) < 100000000:
+        if int(result[0][0]) < 100000000:  # type: ignore
             return (False, "ClickHouse available storage below 100MB")
 
         return (True, None)

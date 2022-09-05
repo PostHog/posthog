@@ -286,7 +286,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
 def get_event_count_for_team_and_period(
     team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
 ) -> int:
-    result = sync_execute(
+    result = sync_execute(  # type: ignore
         """
         SELECT count(1) as count
         FROM events
@@ -299,7 +299,7 @@ def get_event_count_for_team_and_period(
 
 
 def get_agg_event_count_for_teams(team_ids: List[Union[str, int]]) -> int:
-    result = sync_execute(
+    result = sync_execute(  # type: ignore
         """
         SELECT count(1) as count
         FROM events
@@ -313,7 +313,7 @@ def get_agg_event_count_for_teams(team_ids: List[Union[str, int]]) -> int:
 def get_agg_event_count_for_teams_and_period(
     team_ids: List[Union[str, int]], begin: timezone.datetime, end: timezone.datetime
 ) -> int:
-    result = sync_execute(
+    result = sync_execute(  # type: ignore
         """
         SELECT count(1) as count
         FROM events
@@ -328,7 +328,7 @@ def get_agg_event_count_for_teams_and_period(
 def get_agg_events_with_groups_count_for_teams_and_period(
     team_ids: List[Union[str, int]], begin: timezone.datetime, end: timezone.datetime
 ) -> int:
-    result = sync_execute(
+    result = sync_execute(  # type: ignore
         """
         SELECT count(1) as count
         FROM events
@@ -342,7 +342,7 @@ def get_agg_events_with_groups_count_for_teams_and_period(
 
 
 def get_event_count_for_team(team_id: Union[str, int]) -> int:
-    result = sync_execute(
+    result = sync_execute(  # type: ignore
         """
         SELECT count(1) as count
         FROM events
@@ -354,7 +354,7 @@ def get_event_count_for_team(team_id: Union[str, int]) -> int:
 
 
 def get_event_count() -> int:
-    result = sync_execute(
+    result = sync_execute(  # type: ignore
         """
         SELECT count(1) as count
         FROM events
@@ -364,7 +364,7 @@ def get_event_count() -> int:
 
 
 def get_event_count_for_last_month() -> int:
-    result = sync_execute(
+    result = sync_execute(  # type: ignore
         """
         -- count of events last month
         SELECT
@@ -378,7 +378,7 @@ def get_event_count_for_last_month() -> int:
 
 
 def get_event_count_month_to_date() -> int:
-    result = sync_execute(
+    result = sync_execute(  # type: ignore
         """
         -- count of events month to date
         SELECT
@@ -403,7 +403,7 @@ def get_events_count_for_team_by_client_lib(
     """,
         {"team_id": str(team_id), "begin": begin, "end": end},
     )
-    return {result[0]: result[1] for result in results}
+    return {result[0]: result[1] for result in results}  # type: ignore
 
 
 def get_events_count_for_team_by_event_type(
@@ -419,4 +419,4 @@ def get_events_count_for_team_by_event_type(
     """,
         {"team_id": str(team_id), "begin": begin, "end": end},
     )
-    return {result[0]: result[1] for result in results}
+    return {result[0]: result[1] for result in results}  # type: ignore

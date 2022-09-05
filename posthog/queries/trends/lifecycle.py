@@ -73,7 +73,7 @@ class Lifecycle:
                 "limit": filter.limit or 100,
             },
         )
-        people = get_persons_by_uuids(team=team, uuids=[p[0] for p in result])
+        people = get_persons_by_uuids(team=team, uuids=[p[0] for p in result])  # type: ignore
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
         from posthog.api.person import PersonSerializer

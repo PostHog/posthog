@@ -115,7 +115,7 @@ def _get_all_shard_connections():
             """,
             {"cluster": CLICKHOUSE_CLUSTER},
         )
-        for shard, host in rows:
+        for shard, host in rows:  # type: ignore
             ch_pool = make_ch_pool(host=host)
             yield shard, host, ch_pool
     else:
@@ -133,7 +133,7 @@ def execute_op_postgres(sql: str, query_id: str):
 
 
 def _get_number_running_on_cluster(query_pattern: str) -> int:
-    return sync_execute(
+    return sync_execute(  # type: ignore
         """
         SELECT count()
         FROM clusterAllReplicas(%(cluster)s, system, 'processes')

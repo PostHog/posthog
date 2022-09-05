@@ -352,8 +352,10 @@ def clickhouse_row_count():
         try:
             QUERY = """select count(1) freq from {table};"""
             query = QUERY.format(table=table)
-            rows = sync_execute(query)[0][0]
-            gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
+            result = sync_execute(query)
+            if result is not None:
+                rows = result[0][0]
+                gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
         except:
             pass
 
@@ -370,8 +372,9 @@ def clickhouse_part_count():
         order by freq desc;
     """
     rows = sync_execute(QUERY)
-    for (table, parts) in rows:
-        gauge(f"posthog_celery_clickhouse_table_parts_count", parts, tags={"table": table})
+    if rows is not None:
+        for (table, parts) in rows:
+            gauge(f"posthog_celery_clickhouse_table_parts_count", parts, tags={"table": table})
 
 
 @app.task(ignore_result=True)
@@ -389,8 +392,9 @@ def clickhouse_mutation_count():
         ORDER BY freq DESC
     """
     rows = sync_execute(QUERY)
-    for (table, muts) in rows:
-        gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
+    if rows is not None:
+        for (table, muts) in rows:
+            gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
 
 
 @app.task(ignore_result=True)

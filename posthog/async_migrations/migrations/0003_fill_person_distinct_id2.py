@@ -48,7 +48,7 @@ class Migration(AsyncMigrationDefinition):
             {"database": CLICKHOUSE_DATABASE},
         )
 
-        comments = [row[0] for row in rows]
+        comments = [row[0] for row in rows]  # type: ignore
         return "skip_0003_fill_person_distinct_id2" not in comments
 
     @cached_property
@@ -89,4 +89,4 @@ class Migration(AsyncMigrationDefinition):
 
     @cached_property
     def _team_ids(self):
-        return list(sorted(row[0] for row in sync_execute("SELECT DISTINCT team_id FROM person_distinct_id")))
+        return list(sorted(row[0] for row in sync_execute("SELECT DISTINCT team_id FROM person_distinct_id")))  # type: ignore

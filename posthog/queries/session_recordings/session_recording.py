@@ -57,7 +57,7 @@ class SessionRecording:
                 timestamp=timestamp,
                 snapshot_data=json.loads(snapshot_data),
             )
-            for session_id, window_id, distinct_id, timestamp, snapshot_data in response
+            for session_id, window_id, distinct_id, timestamp, snapshot_data in response  # type: ignore
         ]
 
     def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
