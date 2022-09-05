@@ -18,14 +18,14 @@ import { getBarColorFromStatus, getSeriesColor } from 'lib/colors'
 
 export const funnelTitle = (props: {
     converted: boolean
-    step?: number
+    step: number
     breakdown_value?: string
     label?: string
     seriesId?: number
 }): JSX.Element => {
     return (
         <>
-            {props.converted ? 'Completed' : 'Dropped off at'} step {Math.abs(props?.step ?? 0)} •{' '}
+            {props.converted ? 'Completed' : 'Dropped off at'} step {props.step} •{' '}
             <PropertyKeyInfo value={props.label || ''} disablePopover />{' '}
             {!!props?.breakdown_value ? `• ${props.breakdown_value}` : ''}
         </>

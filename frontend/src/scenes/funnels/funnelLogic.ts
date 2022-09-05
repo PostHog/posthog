@@ -1252,7 +1252,7 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setFilters({ new_entity: values.filters.new_entity }, false, true)
         },
         openPersonsModalForStep: ({ step, stepIndex, converted }) => {
-            if (!values.isViewedOnDashboard) {
+            if (values.isViewedOnDashboard) {
                 return
             }
 
@@ -1284,7 +1284,7 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
-            if (!values.isViewedOnDashboard) {
+            if (values.isViewedOnDashboard) {
                 return
             }
             // Version of openPersonsModalForStep that accurately handles breakdown series
@@ -1316,7 +1316,7 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
-            if (!values.isViewedOnDashboard) {
+            if (values.isViewedOnDashboard) {
                 return
             }
 
@@ -1327,7 +1327,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         url: success ? correlation.success_people_url : correlation.failure_people_url,
                         title: funnelTitle({
                             converted: success,
-                            step: success ? values.stepsWithCount.length : -2,
+                            step: values.stepsWithCount.length,
                             breakdown_value,
                             label: breakdown,
                         }),
@@ -1357,7 +1357,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         url: success ? correlation.success_people_url : correlation.failure_people_url,
                         title: funnelTitle({
                             converted: success,
-                            step: success ? values.stepsWithCount.length : undefined,
+                            step: values.stepsWithCount.length,
                             label: name,
                         }),
                     })
