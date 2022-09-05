@@ -246,7 +246,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 ENTITY_ID: sign_up_action.id,
             },
         ).json()
-        hour_grouped_grevent_response = self.client.get(
+        hour_grouped_event_response = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-05 14:00:00",
@@ -902,71 +902,3 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
 
         people = self.client.get(f"/api/projects/{self.team.id}/persons/trends/", data=params,).json()
         assert len(people["results"][0]["people"]) == 1
-
-    def _test_interval(self, date_from, interval, timestamps):
-        for index, ts in enumerate(timestamps):
-            _create_person(team_id=self.team.pk, distinct_ids=[f"person{index}"])
-            _create_event(
-                team=self.team,
-                event="watched movie",
-                distinct_id=f"person{index}",
-                timestamp=ts,
-                properties={"event_prop": f"prop{index}"},
-            )
-
-        people = self.client.get(
-            f"/api/projects/{self.team.id}/persons/trends/",
-            data={"interval": interval, "date_from": date_from, ENTITY_TYPE: "events", ENTITY_ID: "watched movie"},
-        ).json()
-
-        self.assertCountEqual(
-            [person["distinct_ids"][0] for person in people["results"][0]["people"]], ["person1", "person2"]
-        )
-
-    def test_interval_month(self):
-        self._test_interval(
-            date_from="2021-08-01T00:00:00Z",
-            interval="month",
-            timestamps=[
-                "2021-07-31T23:45:00Z",
-                "2021-08-01T00:12:00Z",
-                "2021-08-31T22:40:00Z",
-                "2021-09-01T00:00:10Z",
-            ],
-        )
-
-    def test_interval_week(self):
-        self._test_interval(
-            date_from="2021-09-05T00:00:00Z",
-            interval="week",
-            timestamps=[
-                "2021-09-04T23:45:00Z",
-                "2021-09-05T00:12:00Z",
-                "2021-09-11T22:40:00Z",
-                "2021-09-12T00:00:10Z",
-            ],
-        )
-
-    def test_interval_day(self):
-        self._test_interval(
-            date_from="2021-09-05T00:00:00Z",
-            interval="day",
-            timestamps=[
-                "2021-09-04T23:45:00Z",
-                "2021-09-05T00:12:00Z",
-                "2021-09-05T22:40:00Z",
-                "2021-09-06T00:00:10Z",
-            ],
-        )
-
-    def test_interval_hour(self):
-        self._test_interval(
-            date_from="2021-09-05T16:00:00Z",
-            interval="hour",
-            timestamps=[
-                "2021-09-05T15:45:00Z",
-                "2021-09-05T16:01:12Z",
-                "2021-09-05T16:58:00Z",
-                "2021-09-05T17:00:10Z",
-            ],
-        )
