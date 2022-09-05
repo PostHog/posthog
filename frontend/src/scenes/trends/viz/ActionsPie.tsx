@@ -8,7 +8,7 @@ import { ChartParams, GraphType, GraphDataset, ActionFilter } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { personsModalLogic } from '../persons-modal/personsModalLogic'
-import { openPersonsModal } from '../persons-modal/PersonsModalV2'
+import { openPersonsModal, shouldUsePersonsModalV2 } from '../persons-modal/PersonsModalV2'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 
@@ -91,18 +91,23 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                                       const urls = urlsForDatasets(crossDataset, index)
                                       const selectedUrl = urls[index]?.value
 
-                                      if (selectedUrl) {
-                                          loadPeopleFromUrl({
-                                              ...params,
-                                              url: selectedUrl,
-                                          })
-                                          openPersonsModal({
-                                              urls,
-                                              urlsIndex: index,
-                                              title: <PropertyKeyInfo value={label || ''} disablePopover />,
-                                          })
+                                      if (shouldUsePersonsModalV2()) {
+                                          if (selectedUrl) {
+                                              openPersonsModal({
+                                                  urls,
+                                                  urlsIndex: index,
+                                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
+                                              })
+                                          }
                                       } else {
-                                          loadPeople(params)
+                                          if (selectedUrl) {
+                                              loadPeopleFromUrl({
+                                                  ...params,
+                                                  url: selectedUrl,
+                                              })
+                                          } else {
+                                              loadPeople(params)
+                                          }
                                       }
                                   }
                         }

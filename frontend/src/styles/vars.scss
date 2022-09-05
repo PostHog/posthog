@@ -119,6 +119,7 @@ $_lifecycle_dormant: #f86234;
     // Special case color for primary buttons with a nested primary button
     --primary-button-nested-hover: #d2dbff;
 
+    --bg-side: var(--side);
     --bg-mid: #f2f2f2;
     --bg-depth: #0f0f0f;
     --bg-navy: var(--primary-alt);
