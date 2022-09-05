@@ -95,7 +95,10 @@ class Lifecycle:
 
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(
-                {"filter": extra_params, "url": f"api/person/lifecycle/?{urllib.parse.urlencode(parsed_params)}",}
+                {
+                    "filter": extra_params,
+                    "url": f"api/person/lifecycle/?{urllib.parse.urlencode(parsed_params)}",
+                }
             )
         return persons_url
 

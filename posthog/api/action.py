@@ -112,7 +112,8 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
         for step in steps:
             ActionStep.objects.create(
-                action=instance, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
+                action=instance,
+                **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
             )
 
         report_user_action(validated_data["created_by"], "action created", instance.get_analytics_metadata())
