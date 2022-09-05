@@ -247,7 +247,6 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
                 <Field name="email_opt_in">
                     {({ value, onChange }) => {
-                        console.log({ value })
                         return (
                             <LemonCheckbox
                                 checked={value}

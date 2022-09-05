@@ -299,13 +299,6 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
 export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfterClose'>
 
 export const openPersonsModal = (props: OpenPersonsModalProps): void => {
-    const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
-
-    if (!featureFlags || !featureFlags[FEATURE_FLAGS.PERSONS_MODAL_V2]) {
-        // Currrently this will display 2 modals, as we want to test this comparison in production
-        return
-    }
-
     const div = document.createElement('div')
     function destroy(): void {
         const unmountResult = ReactDOM.unmountComponentAtNode(div)
@@ -316,4 +309,10 @@ export const openPersonsModal = (props: OpenPersonsModalProps): void => {
 
     document.body.appendChild(div)
     ReactDOM.render(<PersonsModalV2 {...props} onAfterClose={destroy} />, div)
+}
+
+export const shouldUsePersonsModalV2 = (): boolean => {
+    const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
+
+    return !!featureFlags?.[FEATURE_FLAGS.PERSONS_MODAL_V2]
 }
