@@ -61,8 +61,8 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
         response = Trends().run(
             Filter(
                 data={
-                    "date_from": "2020-01-01T00:00:00Z",
-                    "date_to": "2020-01-12T00:00:00Z",
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-12",
                     "breakdown": "key",
                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
                     "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
@@ -112,8 +112,8 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             response = Trends().run(
                 Filter(
                     data={
-                        "date_from": "2020-01-01T00:00:00Z",
-                        "date_to": "2020-01-12T00:00:00Z",
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-12",
                         "breakdown": "key",
                         "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
                         "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
@@ -160,7 +160,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
 
         filter = Filter(
             data={
-                "date_from": "2020-01-01T00:00:00Z",
+                "date_from": "2020-01-01",
                 "date_to": "2020-01-12",
                 "breakdown": "industry",
                 "breakdown_type": "group",
@@ -176,9 +176,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
         self.assertEqual(response[1]["breakdown_value"], "technology")
         self.assertEqual(response[1]["count"], 1)
 
-        filter = filter.with_data(
-            {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-03"}
-        )
+        filter = filter.with_data({"breakdown_value": "technology", "date_from": "2020-01-02", "date_to": "2020-01-03"})
         entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0,})
         res = self._get_trend_people(filter, entity)
 
@@ -221,7 +219,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
 
         filter = Filter(
             data={
-                "date_from": "2020-01-01T00:00:00Z",
+                "date_from": "2020-01-01",
                 "date_to": "2020-01-12",
                 "breakdown": "industry",
                 "breakdown_type": "group",
@@ -240,7 +238,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             self.assertEqual(response[1]["count"], 1)
 
             filter = filter.with_data(
-                {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-03"}
+                {"breakdown_value": "technology", "date_from": "2020-01-02", "date_to": "2020-01-03"}
             )
             entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0,})
             res = self._get_trend_people(filter, entity)
@@ -274,8 +272,8 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
 
         filter = Filter(
             data={
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-12",
                 "breakdown": "industry",
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
@@ -322,8 +320,8 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
 
         filter = Filter(
             {
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-12",
                 "events": [{"id": "$pageview", "type": "events", "order": 0}],
                 "properties": [
                     {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0},
@@ -368,8 +366,8 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
 
         filter = Filter(
             data={
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-12",
                 "breakdown": "industry",
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
@@ -422,8 +420,8 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
 
         filter = Filter(
             {
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-12",
                 "events": [{"id": "$pageview", "type": "events", "order": 0}],
                 "properties": [
                     {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0},
@@ -473,7 +471,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
 
         filter = Filter(
             data={
-                "date_from": "2020-01-01T00:00:00Z",
+                "date_from": "2020-01-01",
                 "date_to": "2020-01-12",
                 "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
                 "properties": [
@@ -490,7 +488,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             self.assertEqual(response[0]["count"], 1)
             self.assertEqual(response[0]["data"], [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-            filter = filter.with_data({"date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02T00:00:00Z"})
+            filter = filter.with_data({"date_from": "2020-01-02", "date_to": "2020-01-02"})
             entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0,})
             res = self._get_trend_people(filter, entity)
 
