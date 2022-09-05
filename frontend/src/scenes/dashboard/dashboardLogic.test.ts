@@ -140,16 +140,16 @@ describe('dashboardLogic', () => {
                 },
             },
             patch: {
-                '/api/projects/:team/insights/:id/': (req) => {
+                '/api/projects/:team/insights/:id/': async (req) => {
                     try {
-                        const updates = req.json()
+                        const updates = await req.json()
                         if (typeof updates !== 'object') {
-                            return [500, `this update should receive an object body not ${req.body}`]
+                            return [500, `this update should receive an object body not ${JSON.stringify(updates)}`]
                         }
-                        const insightId = req.params.id
+                        const insightId = boxToString(req.params.id)
 
-                        const starting: InsightModel = insights[boxToString(insightId)]
-                        insights[boxToString(insightId)] = {
+                        const starting: InsightModel = insights[insightId]
+                        insights[insightId] = {
                             ...starting,
                             ...updates,
                         }
@@ -161,12 +161,12 @@ describe('dashboardLogic', () => {
                             )
                         })
 
-                        insights[boxToString(insightId)].dashboards?.forEach((dashboardId: number) => {
+                        insights[insightId].dashboards?.forEach((dashboardId: number) => {
                             // then add it to any it now references
-                            dashboards[dashboardId].items.push(insights[boxToString(insightId)])
+                            dashboards[dashboardId].items.push(insights[insightId])
                         })
 
-                        return [200, insights[boxToString(insightId)]]
+                        return [200, insights[insightId]]
                     } catch (e) {
                         return [500, e]
                     }
@@ -174,29 +174,6 @@ describe('dashboardLogic', () => {
             },
         })
         initKeaTests()
-    })
-
-    describe('moving between dashboards', () => {
-        beforeEach(() => {
-            logic = dashboardLogic({ id: 9 })
-            logic.mount()
-        })
-
-        it('only replaces the source dashboard with the target', async () => {
-            const startingDashboard = dashboards['9']
-            const expectedDashboard = dashboardResult(9, [])
-
-            const insights = startingDashboard.items
-            const sourceInsight = insights[0]
-
-            await expectLogic(logic, () => {
-                insightsModel.actions.moveToDashboard(sourceInsight, 9, 8, 'targetDashboard')
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    allItems: expectedDashboard,
-                })
-        })
     })
 
     describe('when there is no props id', () => {
