@@ -77,7 +77,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2019-12-21 00:00:00')
-       AND timestamp <= toDateTime('2020-01-04 13:01:01')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 5
@@ -109,7 +109,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2019-12-21 00:00:00')
-       AND timestamp <= toDateTime('2020-01-04 13:01:01')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 5
@@ -147,7 +147,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2019-12-21 00:00:00')
-       AND timestamp <= toDateTime('2020-01-04 13:01:01')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59')
        AND ((has(['test2'], replaceRegexpAll(JSONExtractRaw(person_props, '$os'), '^"|"$', ''))
              OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
      GROUP BY value

@@ -58,7 +58,7 @@
   WHERE team_id = 2
     AND event = 'event_name'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2021-01-21 00:00:00')
+    AND timestamp <= toDateTime('2021-01-21 23:59:59')
   '
 ---
 # name: TestEventQuery.test_basic_event_filter
@@ -131,7 +131,7 @@
   WHERE team_id = 2
     AND event = 'event_name'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2021-01-21 00:00:00')
+    AND timestamp <= toDateTime('2021-01-21 23:59:59')
     AND (((match(elements_chain, '(^|;)label(\\.|$|;|:)'))))
   '
 ---
@@ -143,7 +143,7 @@
   WHERE team_id = 2
     AND event = 'event_name'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2021-01-21 00:00:00')
+    AND timestamp <= toDateTime('2021-01-21 23:59:59')
     AND (0 = 192)
   '
 ---
