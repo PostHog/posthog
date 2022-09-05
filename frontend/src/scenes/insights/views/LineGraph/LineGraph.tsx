@@ -16,13 +16,13 @@ import {
     TickOptions,
     TooltipModel,
     TooltipOptions,
+    Point,
 } from 'chart.js'
 import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay, annotationsOverlayLogic } from 'lib/components/AnnotationsOverlay'
-import './LineGraph.scss'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
@@ -63,6 +63,7 @@ export interface LineGraphProps {
 interface LineGraphCSSProperties extends React.CSSProperties {
     '--line-graph-area-left': string
     '--line-graph-area-height': string
+    '--line-graph-first-tick-left': string
     '--line-graph-tick-interval': string
     '--line-graph-width': string
 }
@@ -126,24 +127,27 @@ export function LineGraph_({
     }, [])
 
     // Calculate chart content coordinates for annotations overlay positioning
-    const tickInterval = useMemo<number>(() => {
-        if (myLineChart) {
-            const _scaleLeft = myLineChart.scales.x.left
+    const [tickIntervalPx, firstTickLeftPx, pointsPerTick] = useMemo<[number, number, number]>(() => {
+        if (myLineChart && myLineChart.scales.x.ticks.length > 1) {
+            const tickCount = myLineChart.scales.x.ticks.length
             // NOTE: If there are lots of points on the X axis, Chart.js only renders a tick once n data points
             // so that the axis is readable. We use that mechanism to aggregate annotations for readability too.
-            const tickCount = myLineChart.scales.x.ticks.length
             // We use the internal _metasets instead just taking graph area width, because it's NOT guaranteed that the
             // last tick is positioned at the right edge of the graph area. We need to find out where it is.
-            const lastTickX =
-                tickCount > 1
-                    ? // @ts-expect-error - _metasets is not officially exposed
-                      myLineChart._metasets[0].dataset._points[myLineChart.scales.x.ticks[tickCount - 1].value].x -
-                      _scaleLeft
-                    : 0
-            const _tickInterval = lastTickX / (tickCount - 1)
-            return _tickInterval
+            // @ts-expect-error - _metasets is not officially exposed
+            const points = myLineChart._metasets[0].data as Point[]
+            const firstTickPointIndex = myLineChart.scales.x.ticks[0].value
+            const secondTickPointIndex = myLineChart.scales.x.ticks[1].value
+            const lastTickPointIndex = myLineChart.scales.x.ticks[tickCount - 1].value
+            const firstTickLeftPx = points[firstTickPointIndex].x
+            const lastTickLeftPx = points[lastTickPointIndex].x
+            return [
+                (lastTickLeftPx - firstTickLeftPx) / (tickCount - 1),
+                firstTickLeftPx,
+                secondTickPointIndex - firstTickPointIndex,
+            ]
         } else {
-            return 0
+            return [0, 0, 1]
         }
     }, [myLineChart, graphWidth, graphHeight])
 
@@ -569,7 +573,7 @@ export function LineGraph_({
 
     return (
         <div
-            className="LineGraph"
+            className="LineGraph absolute w-full h-full"
             data-attr={dataAttr}
             // eslint-disable-next-line react/forbid-dom-props
             style={
@@ -578,7 +582,8 @@ export function LineGraph_({
                           '--line-graph-area-left': `${myLineChart.scales.x.left}px`,
                           '--line-graph-area-height': `${myLineChart.scales.x.top}px`,
                           '--line-graph-width': `${myLineChart.width}px`,
-                          '--line-graph-tick-interval': `${tickInterval}px`,
+                          '--line-graph-first-tick-left': `${firstTickLeftPx}px`,
+                          '--line-graph-tick-interval': `${tickIntervalPx}px`,
                       } as LineGraphCSSProperties)
                     : undefined
             }
@@ -586,7 +591,11 @@ export function LineGraph_({
             <canvas ref={chartRef} />
             <BindLogic
                 logic={annotationsOverlayLogic}
-                props={{ dashboardItemId: insightProps.dashboardItemId, insightNumericId: insight.id || 'new' }}
+                props={{
+                    dashboardItemId: insightProps.dashboardItemId,
+                    insightNumericId: insight.id || 'new',
+                    pointsPerTick,
+                }}
             >
                 <AnnotationsOverlay
                     dates={

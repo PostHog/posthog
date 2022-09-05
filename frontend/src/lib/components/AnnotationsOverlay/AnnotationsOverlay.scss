@@ -9,7 +9,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-left: calc(var(--line-graph-tick-interval) * var(--annotations-badge-index));
+    margin-left: calc(
+        var(--line-graph-tick-interval) * var(--annotations-badge-index) - var(--line-graph-area-left) +
+            var(--line-graph-first-tick-left)
+    );
     height: 3rem;
     width: var(--line-graph-tick-interval);
     border: none;
@@ -32,20 +35,18 @@
     transition: top 200ms ease, left 200ms ease, opacity 200ms ease;
     transform-origin: bottom;
     position: absolute;
-    left: calc(
-        clamp(
-                0px,
-                calc(
-                    var(--line-graph-area-left) + var(--annotations-overlay-active-badge-left) -
-                        var(--annotations-popover-width) / 2
-                ),
-                var(--annotations-popover-max-left)
-            ) - var(--line-graph-area-left)
+    left: clamp(
+        0px,
+        calc(
+            var(--line-graph-area-left) + var(--annotations-overlay-active-badge-left) -
+                var(--annotations-popover-width) / 2
+        ),
+        var(--annotations-popover-max-left)
     );
     top: calc(var(--annotations-overlay-active-badge-top) - 1.25rem);
     min-width: var(--annotations-popover-width);
     max-width: var(--annotations-popover-width);
-    margin: 0;
+    margin: 0 0 0 calc(var(--line-graph-area-left) * -1);
     max-height: none;
     background: #fff;
     border-radius: var(--radius);

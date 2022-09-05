@@ -36,7 +36,8 @@
     min-height: 0;
     width: 100%;
     overflow: auto;
-    .LineGraph {
+    .LineGraph,
+    .AnnotationsOverlay {
         padding: 1rem;
     }
     .insight-empty-state {
