@@ -11,6 +11,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddIndex(
-            model_name="event", index=models.Index(fields=["timestamp"], name="posthog_eve_timesta_b00cec_idx"),
+            model_name="event",
+            index=models.Index(fields=["timestamp"], name="posthog_eve_timesta_b00cec_idx"),
         ),
     ]

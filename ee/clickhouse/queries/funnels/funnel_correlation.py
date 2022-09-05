@@ -126,9 +126,7 @@ class FunnelCorrelation:
         }
         # NOTE: we always use the final matching event for the recording because this
         # is the the right event for both drop off and successful funnels
-        filter_data.update(
-            {"include_final_matching_events": self._filter.include_recordings,}
-        )
+        filter_data.update({"include_final_matching_events": self._filter.include_recordings})
         filter = Filter(data=filter_data)
 
         funnel_order_actor_class = get_funnel_order_actor_class(filter)
@@ -279,7 +277,7 @@ class FunnelCorrelation:
 
         if self.support_autocapture_elements():
             event_type_expression, _ = get_property_string_expr(
-                "events", self.AUTOCAPTURE_EVENT_TYPE, f"'{self.AUTOCAPTURE_EVENT_TYPE}'", "properties",
+                "events", self.AUTOCAPTURE_EVENT_TYPE, f"'{self.AUTOCAPTURE_EVENT_TYPE}'", "properties"
             )
             array_join_query = f"""
                 'elements_chain' as prop_key,
@@ -730,7 +728,7 @@ class FunnelCorrelation:
                         "id": event_name,
                         "type": "events",
                         "properties": [
-                            {"key": property_key, "value": [property_value], "type": "element", "operator": "exact",}
+                            {"key": property_key, "value": [property_value], "type": "element", "operator": "exact"}
                             for property_key, property_value in elements_as_action.items()
                             if property_value is not None
                         ],

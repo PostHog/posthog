@@ -15,7 +15,7 @@ if SKIP_SERVICE_VERSION_REQUIREMENTS and not (TEST or DEBUG):
     logger.warning(["Skipping service version requirements. This is dangerous and PostHog might not work as expected!"])
 
 SERVICE_VERSION_REQUIREMENTS = [
-    ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<=14.1.0",),
-    ServiceVersionRequirement(service="redis", supported_version=">=5.0.0,<=6.3.0",),
+    ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<=14.1.0"),
+    ServiceVersionRequirement(service="redis", supported_version=">=5.0.0,<=6.3.0"),
     ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<22.4.0"),
 ]

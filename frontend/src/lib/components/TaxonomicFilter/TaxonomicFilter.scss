@@ -42,8 +42,8 @@
             margin-bottom: 2px;
             cursor: pointer;
             color: var(--primary);
-            background: var(--bg-side);
-            border-color: var(--bg-side);
+            background: var(--side);
+            border-color: var(--side);
             &.taxonomic-count-zero {
                 color: var(--muted);
                 cursor: not-allowed;

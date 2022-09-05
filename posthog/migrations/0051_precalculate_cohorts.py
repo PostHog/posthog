@@ -22,19 +22,42 @@ class Migration(migrations.Migration):
             model_name="cohort",
             name="created_by",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL,
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
-        migrations.AddField(model_name="cohort", name="is_calculating", field=models.BooleanField(default=False),),
         migrations.AddField(
-            model_name="cohort", name="last_calculation", field=models.DateTimeField(blank=True, null=True),
+            model_name="cohort",
+            name="is_calculating",
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name="cohort",
+            name="last_calculation",
+            field=models.DateTimeField(blank=True, null=True),
         ),
         migrations.CreateModel(
             name="CohortPeople",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID",),),
-                ("cohort", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Cohort"),),
-                ("person", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Person"),),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "cohort",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Cohort"),
+                ),
+                (
+                    "person",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Person"),
+                ),
             ],
         ),
         migrations.AddField(

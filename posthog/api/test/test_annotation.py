@@ -12,7 +12,7 @@ class TestAnnotation(APIBaseTest):
     @patch("posthog.api.annotation.report_user_action")
     def test_retrieving_annotation(self, mock_capture):
         Annotation.objects.create(
-            organization=self.organization, team=self.team, created_at="2020-01-04T12:00:00Z", content="hello world!",
+            organization=self.organization, team=self.team, created_at="2020-01-04T12:00:00Z", content="hello world!"
         )
 
         # Annotation creation is not reported to PostHog because it has no created_by
@@ -87,7 +87,7 @@ class TestAnnotation(APIBaseTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user, "annotation created", {"scope": "organization", "date_marker": date_marker},
+            self.user, "annotation created", {"scope": "organization", "date_marker": date_marker}
         )
 
     @patch("posthog.api.annotation.report_user_action")
@@ -100,7 +100,7 @@ class TestAnnotation(APIBaseTest):
         self.client.force_login(self.user)
 
         response = self.client.patch(
-            f"/api/projects/{second_team.id}/annotations/{test_annotation.pk}/", {"scope": Annotation.Scope.PROJECT},
+            f"/api/projects/{second_team.id}/annotations/{test_annotation.pk}/", {"scope": Annotation.Scope.PROJECT}
         )
         test_annotation.refresh_from_db()
 

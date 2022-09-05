@@ -22,7 +22,7 @@ class PropertyOptimizer:
     """
 
     def parse_property_groups(self, property_group: PropertyGroup) -> PropertyGroups:
-        " Returns outer and inner property groups for persons"
+        "Returns outer and inner property groups for persons"
 
         if len(property_group.values) == 0:
             return PropertyGroups(None, None)

@@ -228,9 +228,7 @@ class MatrixManager:
             )
         PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids, ignore_conflicts=True)
         # Groups
-        clickhouse_groups = query_with_columns(
-            SELECT_GROUPS_OF_TEAM, list_params, ["team_id", "_timestamp", "_offset"],
-        )
+        clickhouse_groups = query_with_columns(SELECT_GROUPS_OF_TEAM, list_params, ["team_id", "_timestamp", "_offset"])
         bulk_groups = []
         for row in clickhouse_groups:
             group_properties = json.loads(row.pop("group_properties", "{}"))

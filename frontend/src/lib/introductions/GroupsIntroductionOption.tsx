@@ -26,7 +26,7 @@ export function GroupsIntroductionOption({ value }: { value: any }): JSX.Element
                 width: '100%',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
-                backgroundColor: 'var(--bg-side)',
+                backgroundColor: 'var(--side)',
                 color: 'var(--muted)',
             }}
         >

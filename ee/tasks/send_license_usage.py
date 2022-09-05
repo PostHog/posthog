@@ -26,7 +26,7 @@ def send_license_usage():
         )[0][0]
         response = requests.post(
             "https://license.posthog.com/licenses/usage",
-            data={"date": date_from.strftime("%Y-%m-%d"), "key": license.key, "events_count": events_count,},
+            data={"date": date_from.strftime("%Y-%m-%d"), "key": license.key, "events_count": events_count},
         )
 
         if response.status_code == 404 and response.json().get("code") == "not_found":
@@ -48,7 +48,7 @@ def send_license_usage():
                     "events_count": events_count,
                     "organization_name": user.current_organization.name,  # type: ignore
                 },
-                groups={"organization": str(user.current_organization.id), "instance": SITE_URL,},  # type: ignore
+                groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
             )
             return
         else:
@@ -61,7 +61,7 @@ def send_license_usage():
                     "license_keys": get_instance_licenses(),
                     "organization_name": user.current_organization.name,  # type: ignore
                 },
-                groups={"organization": str(user.current_organization.id), "instance": SITE_URL,},  # type: ignore
+                groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
             )
     except Exception as err:
         posthoganalytics.capture(
@@ -72,5 +72,5 @@ def send_license_usage():
                 "date": date_from.strftime("%Y-%m-%d"),
                 "organization_name": user.current_organization.name,  # type: ignore
             },
-            groups={"organization": str(user.current_organization.id), "instance": SITE_URL,},  # type: ignore
+            groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
         )

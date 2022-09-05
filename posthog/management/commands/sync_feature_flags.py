@@ -55,7 +55,7 @@ class Command(BaseCommand):
                                     "variants": [
                                         {"key": "control", "name": "Control", "rollout_percentage": 0},
                                         {"key": "test", "name": "Test", "rollout_percentage": 100},
-                                    ],
+                                    ]
                                 },
                             },
                         )

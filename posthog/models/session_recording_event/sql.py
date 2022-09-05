@@ -37,7 +37,7 @@ SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
     ON CLUSTER '{cluster}'
     COMMENT COLUMN has_full_snapshot 'column_materializer::has_full_snapshot'
 """.format(
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    cluster=settings.CLICKHOUSE_CLUSTER
 )
 
 SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(

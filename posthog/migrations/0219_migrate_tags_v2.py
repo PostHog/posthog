@@ -24,7 +24,9 @@ def forwards(apps, schema_editor):
 
     # Collect insight tags and taggeditems
     insight_paginator = Paginator(
-        Insight.objects.exclude(Q(deprecated_tags__isnull=True) | Q(deprecated_tags=[]),)
+        Insight.objects.exclude(
+            Q(deprecated_tags__isnull=True) | Q(deprecated_tags=[]),
+        )
         .order_by("created_at")
         .values_list("deprecated_tags", "team_id", "id"),
         batch_size,
@@ -44,7 +46,9 @@ def forwards(apps, schema_editor):
 
     # Collect dashboard tags and taggeditems
     dashboard_paginator = Paginator(
-        Dashboard.objects.exclude(Q(deprecated_tags__isnull=True) | Q(deprecated_tags=[]),)
+        Dashboard.objects.exclude(
+            Q(deprecated_tags__isnull=True) | Q(deprecated_tags=[]),
+        )
         .order_by("created_at")
         .values_list("deprecated_tags", "team_id", "id"),
         batch_size,

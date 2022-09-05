@@ -59,6 +59,12 @@ class Migration(migrations.Migration):
                 check=models.Q(models.Q(("action__isnull", False)), _connector="OR"), name="exactly_one_related_object"
             ),
         ),
-        migrations.AlterUniqueTogether(name="taggeditem", unique_together={("tag", "action")},),
-        migrations.AlterUniqueTogether(name="tag", unique_together={("name", "team")},),
+        migrations.AlterUniqueTogether(
+            name="taggeditem",
+            unique_together={("tag", "action")},
+        ),
+        migrations.AlterUniqueTogether(
+            name="tag",
+            unique_together={("name", "team")},
+        ),
     ]
