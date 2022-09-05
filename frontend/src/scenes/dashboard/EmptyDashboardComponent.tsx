@@ -92,7 +92,7 @@ export function EmptyDashboardComponent({ loading }: { loading: boolean }): JSX.
                 <SkeletonCardTwo active={loading} />
             </div>
             <div className="EmptyDashboard__fade">
-                 {/*  eslint-disable-next-line react/forbid-dom-props */}
+                {/*  eslint-disable-next-line react/forbid-dom-props */}
                 <div className="flex items-center gap-2" style={{ height: '30rem' }}>
                     <SkeletonCardOne active={loading} />
                     <SkeletonCardTwo active={loading} />
