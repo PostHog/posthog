@@ -48,13 +48,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = [
-            "id",
-            "created_by",
-            "created_at",
-            "updated_at",
-            "feature_flag",
-        ]
+        read_only_fields = ["id", "created_by", "created_at", "updated_at", "feature_flag"]
 
     def validate_parameters(self, value):
         if not value:
@@ -219,7 +213,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         )
 
         result = experiment_class(
-            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,
+            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date
         ).get_results()
 
         return Response(result)
@@ -252,7 +246,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         filter = Filter(experiment.secondary_metrics[parsed_id]["filters"])
 
         result = ClickhouseSecondaryExperimentResult(
-            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,
+            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date
         ).get_results()
 
         return Response(result)

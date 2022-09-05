@@ -19,7 +19,7 @@ def _create_session_recording_event(team_id, distinct_id, session_id, timestamp,
         timestamp=timestamp,
         session_id=session_id,
         window_id=window_id,
-        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot,},
+        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot},
     )
 
 
@@ -33,7 +33,7 @@ filter_data = {
     "funnel_from_step": 0,
     "entrance_period_start": "2021-05-01 00:00:00",
     "drop_off": False,
-    "events": [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}, {"id": "step three", "order": 2},],
+    "events": [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}, {"id": "step three", "order": 2}],
     "include_recordings": "true",
 }
 
@@ -47,7 +47,7 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
                     {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$session_id": "s1a"}},
                     {"event": "step two", "timestamp": datetime(2021, 5, 2), "properties": {"$session_id": "s1b"}},
                     {"event": "step three", "timestamp": datetime(2021, 5, 3), "properties": {"$session_id": "s1c"}},
-                ],
+                ]
             },
             self.team,
         )
@@ -66,7 +66,7 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
                     {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$session_id": "s1a"}},
                     {"event": "step two", "timestamp": datetime(2021, 5, 2), "properties": {"$session_id": "s1b"}},
                     {"event": "step three", "timestamp": datetime(2021, 5, 3), "properties": {"$session_id": "s1c"}},
-                ],
+                ]
             },
             self.team,
         )
@@ -82,8 +82,8 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         persons = journeys_for(
             {
                 "user_one": [
-                    {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$session_id": "s1a"}},
-                ],
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$session_id": "s1a"}}
+                ]
             },
             self.team,
         )

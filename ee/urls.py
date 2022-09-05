@@ -21,7 +21,7 @@ def extend_api_router(
     root_router: DefaultRouterPlusPlus,
     *,
     projects_router: NestedRegistryItem,
-    project_dashboards_router: NestedRegistryItem
+    project_dashboards_router: NestedRegistryItem,
 ) -> None:
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
@@ -41,6 +41,4 @@ def extend_api_router(
     projects_router.register(r"subscriptions", subscription.SubscriptionViewSet, "subscriptions", ["team_id"])
 
 
-urlpatterns: List[Any] = [
-    path("api/saml/metadata/", authentication.saml_metadata_view),
-]
+urlpatterns: List[Any] = [path("api/saml/metadata/", authentication.saml_metadata_view)]

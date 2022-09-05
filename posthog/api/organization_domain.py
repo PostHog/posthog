@@ -65,7 +65,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             for protected_attr in self.UPDATE_ONLY_WHEN_VERIFIED:
                 if protected_attr in attrs:
                     raise serializers.ValidationError(
-                        {protected_attr: "This attribute cannot be updated until the domain is verified.",},
+                        {protected_attr: "This attribute cannot be updated until the domain is verified."},
                         code="verification_required",
                     )
 
@@ -74,11 +74,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
 
 class OrganizationDomainViewset(StructuredViewSetMixin, ModelViewSet):
     serializer_class = OrganizationDomainSerializer
-    permission_classes = [
-        IsAuthenticated,
-        OrganizationMemberPermissions,
-        OrganizationAdminWritePermissions,
-    ]
+    permission_classes = [IsAuthenticated, OrganizationMemberPermissions, OrganizationAdminWritePermissions]
     queryset = OrganizationDomain.objects.all()
 
     def get_queryset(self):

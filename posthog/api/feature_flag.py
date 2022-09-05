@@ -149,9 +149,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         instance: FeatureFlag = super().create(validated_data)
         instance.update_cohorts()
 
-        report_user_action(
-            request.user, "feature flag created", instance.get_analytics_metadata(),
-        )
+        report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
 
         return instance
 
@@ -164,9 +162,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         instance = super().update(instance, validated_data)
         instance.update_cohorts()
 
-        report_user_action(
-            request.user, "feature flag updated", instance.get_analytics_metadata(),
-        )
+        report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
         return instance
 
     def _update_filters(self, validated_data):

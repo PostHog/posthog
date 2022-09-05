@@ -26,11 +26,9 @@ from posthog.test.base import (
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
     def test_search(self) -> None:
+        _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})
         _create_person(
-            team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
-        )
-        _create_person(
-            team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com", "name": "james"},
+            team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com", "name": "james"}
         )
         _create_person(team=self.team, distinct_ids=["distinct_id_3"], properties={"name": "jane"})
 
@@ -44,12 +42,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 1)
 
     def test_properties(self) -> None:
-        _create_person(
-            team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
-        )
-        _create_person(
-            team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
-        )
+        _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})
+        _create_person(team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"})
         _create_person(team=self.team, distinct_ids=["distinct_id_3"], properties={})
         flush_persons_and_events()
 
@@ -208,11 +202,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         # Completely different organization
         another_org: Organization = Organization.objects.create()
         another_team: Team = Team.objects.create(organization=another_org)
+        _create_person(team=another_team, distinct_ids=["distinct_id", "x_another_one"])
         _create_person(
-            team=another_team, distinct_ids=["distinct_id", "x_another_one"],
-        )
-        _create_person(
-            team=another_team, distinct_ids=["x_distinct_id_2"], properties={"email": "team2_another@gmail.com"},
+            team=another_team, distinct_ids=["x_distinct_id_2"], properties={"email": "team2_another@gmail.com"}
         )
 
         # Person in current team
@@ -223,7 +215,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(
-            response.json()["results"][0]["id"], str(person.uuid),
+            response.json()["results"][0]["id"], str(person.uuid)
         )  # note that even with shared distinct IDs, only the person from the same team is returned
 
         response = self.client.get("/api/person/?distinct_id=x_another_one")
@@ -312,7 +304,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         person2 = _create_person(team=self.team, distinct_ids=["2"], properties={"random_prop": "asdf"})
 
-        response = self.client.post("/api/person/%s/merge/" % person1.uuid, {"uuids": [person2.uuid, person3.uuid]},)
+        response = self.client.post("/api/person/%s/merge/" % person1.uuid, {"uuids": [person2.uuid, person3.uuid]})
         mock_capture_internal.assert_has_calls(
             [
                 mock.call(
@@ -385,18 +377,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         }
 
         self._assert_person_activity(
-            person_id=None,  # changes for all three people
-            expected=[person_three_log, person_one_log, person_two_log,],
+            person_id=None, expected=[person_three_log, person_one_log, person_two_log]  # changes for all three people
         )
-        self._assert_person_activity(
-            person_id=person1.uuid, expected=[person_one_log,],
-        )
-        self._assert_person_activity(
-            person_id=person2.uuid, expected=[person_two_log,],
-        )
-        self._assert_person_activity(
-            person_id=person3.uuid, expected=[person_three_log,],
-        )
+        self._assert_person_activity(person_id=person1.uuid, expected=[person_one_log])
+        self._assert_person_activity(person_id=person2.uuid, expected=[person_two_log])
+        self._assert_person_activity(person_id=person3.uuid, expected=[person_three_log])
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_split_people_keep_props(self) -> None:
@@ -405,9 +390,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
         )
 
-        self.client.post(
-            "/api/person/%s/split/" % person1.pk, {"main_distinct_id": "1"},
-        )
+        self.client.post("/api/person/%s/split/" % person1.pk, {"main_distinct_id": "1"})
 
         people = Person.objects.all().order_by("id")
         self.assertEqual(people.count(), 3)
@@ -452,7 +435,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        response = self.client.post("/api/person/%s/split/" % person1.pk,)
+        response = self.client.post("/api/person/%s/split/" % person1.pk)
         people = Person.objects.all().order_by("id")
         self.assertEqual(people.count(), 3)
         self.assertEqual(people[0].distinct_ids, ["1"])
@@ -519,7 +502,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
         )
         _create_person(
-            team=self.team, distinct_ids=["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"],
+            team=self.team, distinct_ids=["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"]
         )
         flush_persons_and_events()
 
@@ -577,7 +560,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        response = self.client.post("/api/person/%s/split/" % person.uuid,).json()
+        response = self.client.post("/api/person/%s/split/" % person.uuid).json()
         self.assertTrue(response["success"])
 
         people = Person.objects.all().order_by("id")
@@ -662,7 +645,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         for index in range(0, 19):
             created_ids.append(str(index + 100))
             Person.objects.create(  # creating without _create_person to guarentee created_at ordering
-                team=self.team, distinct_ids=[str(index + 100)], properties={"$browser": "whatever", "$os": "Windows"},
+                team=self.team, distinct_ids=[str(index + 100)], properties={"$browser": "whatever", "$os": "Windows"}
             )
 
         # Very occasionally, a person might be deleted in postgres but not in Clickhouse due to network issues or whatever
@@ -698,6 +681,4 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         activity: List[Dict] = activity_response["results"]
         self.maxDiff = None
-        self.assertCountEqual(
-            activity, expected,
-        )
+        self.assertCountEqual(activity, expected)

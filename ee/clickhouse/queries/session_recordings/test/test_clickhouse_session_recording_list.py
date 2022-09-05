@@ -41,7 +41,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         )
         filter = SessionRecordingsFilter(
             team=self.team,
-            data={"properties": [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}],},
+            data={"properties": [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}]},
         )
         session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
@@ -82,7 +82,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
                 )
                 filter = SessionRecordingsFilter(
                     team=self.team,
-                    data={"properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}],},
+                    data={"properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}]},
                 )
                 session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
                 (session_recordings, _) = session_recording_list_instance.run()
@@ -107,7 +107,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
             team_id=self.team.id,
         )
         filter = SessionRecordingsFilter(
-            team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
+            team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]}
         )
         session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
@@ -142,7 +142,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
 
         # Pageview within timestamps matches recording
         filter = SessionRecordingsFilter(
-            team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
+            team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]}
         )
         session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()

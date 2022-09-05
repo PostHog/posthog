@@ -17,7 +17,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         response_data.pop("created_at")
         self.assertDictEqual(
             response_data,
-            {"id": key.id, "label": label, "last_used_at": None, "user_id": self.user.id, "value": key.value,},
+            {"id": key.id, "label": label, "last_used_at": None, "user_id": self.user.id, "value": key.value},
         )
 
     def test_create_personal_api_key_label_required(self):
@@ -51,7 +51,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         self.assertEqual(len(response_data), 1)
         response_data[0].pop("created_at")
         self.assertDictEqual(
-            response_data[0], {"id": my_key.id, "label": my_label, "last_used_at": None, "user_id": self.user.id,},
+            response_data[0], {"id": my_key.id, "label": my_label, "last_used_at": None, "user_id": self.user.id}
         )
 
     def test_get_own_personal_api_key(self):
@@ -63,7 +63,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         response_data = response.json()
         response_data.pop("created_at")
         self.assertDictEqual(
-            response_data, {"id": my_key.id, "label": my_label, "last_used_at": None, "user_id": self.user.id,},
+            response_data, {"id": my_key.id, "label": my_label, "last_used_at": None, "user_id": self.user.id}
         )
 
     def test_get_someone_elses_personal_api_key(self):

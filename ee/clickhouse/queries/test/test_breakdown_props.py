@@ -217,7 +217,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
                 "breakdown_limit": 5,
-                "events": [{"id": "$pageview", "type": "events", "order": 0,}],
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
                 "properties": [
                     {"key": "out", "value": "", "type": "group", "group_type_index": 0, "operator": "is_not_set"}
                 ],
@@ -235,14 +235,14 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
                 "breakdown_limit": 5,
-                "events": [{"id": "$pageview", "type": "events", "order": 0,}],
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
                 "properties": {
                     "type": "AND",
                     "values": [
                         {"key": "out", "value": "", "type": "group", "group_type_index": 0, "operator": "is_not_set"}
                     ],
                 },
-            },
+            }
         )
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, ["finance", "technology"])
@@ -289,8 +289,8 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 "date_to": "2020-01-12",
                 "breakdown": "$session_duration",
                 "breakdown_type": "session",
-                "events": [{"id": "$pageview", "type": "events", "order": 0,}],
-            },
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+            }
         )
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, [70, 20])
@@ -392,9 +392,9 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "math_property": "$session_duration",
                     }
                 ],
-            },
+            }
         )
-        aggregate_operation, _, _ = process_math(filter.entities[0], self.team,)
+        aggregate_operation, _, _ = process_math(filter.entities[0], self.team)
 
         result = get_breakdown_prop_values(filter, filter.entities[0], aggregate_operation, self.team)
         # test should come first, based on aggregate operation, even if absolute count of events for

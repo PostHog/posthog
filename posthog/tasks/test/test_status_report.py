@@ -121,8 +121,7 @@ def factory_status_report(_create_event: Callable, _create_person: Callable, _cr
                     team_report["events_count_new_in_period"] + 1,
                 )
                 self.assertEqual(
-                    instance_usage_summary["events_count_total"],  # type: ignore
-                    team_report["events_count_total"] + 1,
+                    instance_usage_summary["events_count_total"], team_report["events_count_total"] + 1  # type: ignore
                 )
                 self.assertEqual(
                     instance_usage_summary["persons_count_total"],  # type: ignore
@@ -152,9 +151,7 @@ def factory_status_report(_create_event: Callable, _create_person: Callable, _cr
                 updated_instance_usage_summary = status_report(dry_run=True).get("instance_usage_summary")
 
                 # Check event totals are updated
-                self.assertEqual(
-                    updated_team_report["events_count_total"], team_report["events_count_total"] + 2,
-                )
+                self.assertEqual(updated_team_report["events_count_total"], team_report["events_count_total"] + 2)
                 self.assertEqual(
                     updated_instance_usage_summary["events_count_total"],  # type: ignore
                     instance_usage_summary["events_count_total"] + 2,  # type: ignore

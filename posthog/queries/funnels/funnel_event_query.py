@@ -15,9 +15,7 @@ class FunnelEventQuery(EventQuery):
 
         aggregation_target = (
             get_aggregation_target_field(
-                self._filter.aggregation_group_type_index,
-                self.EVENT_TABLE_ALIAS,
-                f"{self.EVENT_TABLE_ALIAS}.person_id",
+                self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, f"{self.EVENT_TABLE_ALIAS}.person_id"
             )
             if self._using_person_on_events
             else get_aggregation_target_field(
