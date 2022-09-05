@@ -13,7 +13,7 @@ import { router } from 'kea-router'
 
 export const insightsModel = kea<insightsModelType>({
     path: ['models', 'insightsModel'],
-    connect: [prompt({ key: 'rename-insight' })],
+    connect: [prompt({ key: 'rename-insight' }), teamLogic],
     actions: () => ({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
