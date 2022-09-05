@@ -38,7 +38,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         distinct_id = "user_one_{}".format(self.team.pk)
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
-        _create_event(event="viewed", distinct_id=distinct_id, team=self.team, timestamp="2021-05-01 00:00:00")
+        _create_event(event="viewed", distinct_id=distinct_id, team=self.team, timestamp="2021-05-01")
 
     def _run_query(self, filter: Filter, entity=None):
         entity = entity or filter.entities[0]
@@ -58,19 +58,15 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     def test_basic_event_filter(self):
         self._run_query(
             Filter(
-                data={
-                    "date_from": "2021-05-01 00:00:00",
-                    "date_to": "2021-05-07 00:00:00",
-                    "events": [{"id": "viewed", "order": 0},],
-                }
+                data={"date_from": "2021-05-01", "date_to": "2021-05-07", "events": [{"id": "viewed", "order": 0},],}
             )
         )
 
     def test_person_properties_filter(self):
         filter = Filter(
             data={
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
+                "date_from": "2021-05-01",
+                "date_to": "2021-05-07",
                 "events": [{"id": "viewed", "order": 0},],
                 "properties": [
                     {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
@@ -94,9 +90,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        filter = Filter(
-            data={"date_from": "2021-05-01 00:00:00", "date_to": "2021-05-07 00:00:00", "events": [entity.to_dict()],}
-        )
+        filter = Filter(data={"date_from": "2021-05-01", "date_to": "2021-05-07", "events": [entity.to_dict()],})
 
         self._run_query(filter, entity)
 
@@ -104,8 +98,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     def test_event_properties_filter(self):
         filter = Filter(
             data={
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
+                "date_from": "2021-05-01",
+                "date_to": "2021-05-07",
                 "events": [{"id": "viewed", "order": 0},],
                 "properties": [{"key": "some_key", "value": "test_val", "operator": "exact", "type": "event"}],
             }
@@ -116,11 +110,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self._run_query(filter, entity)
 
         filter = Filter(
-            data={
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
-                "events": [{"id": "viewed", "order": 0},],
-            }
+            data={"date_from": "2021-05-01", "date_to": "2021-05-07", "events": [{"id": "viewed", "order": 0},],}
         )
 
         entity = Entity(
@@ -144,8 +134,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             data={
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
+                "date_from": "2021-05-01",
+                "date_to": "2021-05-07",
                 "events": [{"id": "viewed", "order": 0},],
                 "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
             }
@@ -164,8 +154,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             data={
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
+                "date_from": "2021-05-01",
+                "date_to": "2021-05-07",
                 "events": [
                     {
                         "id": "$pageview",
@@ -191,8 +181,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             data={
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
+                "date_from": "2021-05-01",
+                "date_to": "2021-05-07",
                 "events": [{"id": "viewed", "order": 0},],
                 "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
             },
@@ -429,8 +419,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             data={
-                "date_from": "2021-05-02 00:00:00",
-                "date_to": "2021-05-03 00:00:00",
+                "date_from": "2021-05-02",
+                "date_to": "2021-05-03",
                 "events": [
                     {
                         "id": "$pageview",
@@ -490,8 +480,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             data={
-                "date_from": "2021-05-02 00:00:00",
-                "date_to": "2021-05-03 00:00:00",
+                "date_from": "2021-05-02",
+                "date_to": "2021-05-03",
                 "events": [
                     {
                         "id": "$pageview",
@@ -564,8 +554,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             data={
-                "date_from": "2021-05-02 00:00:00",
-                "date_to": "2021-05-03 00:00:00",
+                "date_from": "2021-05-02",
+                "date_to": "2021-05-03",
                 "events": [
                     {
                         "id": "$pageview",
@@ -581,11 +571,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Session that should be returned
         _create_event(
-            team=self.team,
-            event="start",
-            distinct_id="p1",
-            timestamp="2021-05-02 00:00:00",
-            properties={"$session_id": "1abc"},
+            team=self.team, event="start", distinct_id="p1", timestamp="2021-05-02", properties={"$session_id": "1abc"},
         )
         _create_event(
             team=self.team,

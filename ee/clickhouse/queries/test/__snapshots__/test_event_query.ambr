@@ -58,7 +58,7 @@
   WHERE team_id = 2
     AND event = 'event_name'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2021-01-21 23:59:59')
+    AND timestamp <= toDateTime('2021-01-21 00:00:00')
   '
 ---
 # name: TestEventQuery.test_basic_event_filter
@@ -69,7 +69,7 @@
   WHERE team_id = 2
     AND event = 'viewed'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2021-05-07 00:00:00')
+    AND timestamp <= toDateTime('2021-05-07 23:59:59')
   '
 ---
 # name: TestEventQuery.test_cohort_filter
@@ -94,7 +94,7 @@
   WHERE team_id = 2
     AND event = 'viewed'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2021-05-07 00:00:00')
+    AND timestamp <= toDateTime('2021-05-07 23:59:59')
     AND (pdi.person_id IN
            (SELECT id
             FROM person
@@ -131,7 +131,7 @@
   WHERE team_id = 2
     AND event = 'event_name'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2021-01-21 23:59:59')
+    AND timestamp <= toDateTime('2021-01-21 00:00:00')
     AND (((match(elements_chain, '(^|;)label(\\.|$|;|:)'))))
   '
 ---
@@ -143,7 +143,7 @@
   WHERE team_id = 2
     AND event = 'event_name'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2021-01-21 23:59:59')
+    AND timestamp <= toDateTime('2021-01-21 00:00:00')
     AND (0 = 192)
   '
 ---
@@ -169,7 +169,7 @@
   WHERE team_id = 2
     AND event = '$pageview'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2021-05-07 00:00:00')
+    AND timestamp <= toDateTime('2021-05-07 23:59:59')
     AND (pdi.person_id IN
            (SELECT id
             FROM person
@@ -198,12 +198,12 @@
      WHERE $session_id != ''
        AND team_id = 2
        AND timestamp >= toDateTime('2021-05-02 00:00:00') - INTERVAL 24 HOUR
-       AND timestamp <= toDateTime('2021-05-03 00:00:00') + INTERVAL 24 HOUR
+       AND timestamp <= toDateTime('2021-05-03 23:59:59') + INTERVAL 24 HOUR
      GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
   WHERE team_id = 2
     AND event = '$pageview'
     AND timestamp >= toDateTime('2021-05-02 00:00:00')
-    AND timestamp <= toDateTime('2021-05-03 00:00:00')
+    AND timestamp <= toDateTime('2021-05-03 23:59:59')
     AND (sessions.session_duration > 90.0
          AND sessions.session_duration < 150.0)
   '
@@ -222,12 +222,12 @@
      WHERE $session_id != ''
        AND team_id = 2
        AND timestamp >= toDateTime('2021-05-02 00:00:00') - INTERVAL 24 HOUR
-       AND timestamp <= toDateTime('2021-05-03 00:00:00') + INTERVAL 24 HOUR
+       AND timestamp <= toDateTime('2021-05-03 23:59:59') + INTERVAL 24 HOUR
      GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
   WHERE team_id = 2
     AND event = '$pageview'
     AND timestamp >= toDateTime('2021-05-02 00:00:00')
-    AND timestamp <= toDateTime('2021-05-03 00:00:00')
+    AND timestamp <= toDateTime('2021-05-03 23:59:59')
     AND (sessions.session_duration > 90.0)
   '
 ---
@@ -240,7 +240,7 @@
   WHERE team_id = 2
     AND event = 'viewed'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2021-05-07 00:00:00')
+    AND timestamp <= toDateTime('2021-05-07 23:59:59')
     AND (has(['test_val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'some_key'), '^"|"$', '')))
   '
 ---
@@ -252,7 +252,7 @@
   WHERE team_id = 2
     AND event = 'viewed'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2021-05-07 00:00:00')
+    AND timestamp <= toDateTime('2021-05-07 23:59:59')
     AND (has(['test_val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'some_key'), '^"|"$', '')))
   '
 ---
@@ -344,7 +344,7 @@
   WHERE team_id = 2
     AND event = 'viewed'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2021-05-07 00:00:00')
+    AND timestamp <= toDateTime('2021-05-07 23:59:59')
     AND (pdi.person_id IN
            (SELECT person_id as id
             FROM person_static_cohort
@@ -366,12 +366,12 @@
      WHERE $session_id != ''
        AND team_id = 2
        AND timestamp >= toDateTime('2021-05-02 00:00:00') - INTERVAL 24 HOUR
-       AND timestamp <= toDateTime('2021-05-03 00:00:00') + INTERVAL 24 HOUR
+       AND timestamp <= toDateTime('2021-05-03 23:59:59') + INTERVAL 24 HOUR
      GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
   WHERE team_id = 2
     AND event = '$pageview'
     AND timestamp >= toDateTime('2021-05-02 00:00:00')
-    AND timestamp <= toDateTime('2021-05-03 00:00:00')
+    AND timestamp <= toDateTime('2021-05-03 23:59:59')
     AND (sessions.session_duration > 30.0)
   '
 ---
