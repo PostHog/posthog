@@ -71,11 +71,11 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
                 event_definition_payloads[event["id"]].query_usage_30_day += 1
 
             # convert to filter to easily parse properties and property groups
-            props = item.filters.get("properties", None)
-            filter_for_props = Filter(data={"properties": props})
-            list_of_properties = filter_for_props.property_groups.flat
-            for property in list_of_properties:
-                property_definition_payloads[property.key].query_usage_30_day += 1
+            filter_properties = item.filters.get("properties", None)
+            if filter_properties:
+                flattened_properties = Filter(data={"properties": filter_properties}).property_groups.flat
+                for property in flattened_properties:
+                    property_definition_payloads[property.key].query_usage_30_day += 1
 
         events_volume = _get_events_volume(team, since)
         for event, (volume, last_seen_at) in events_volume.items():
