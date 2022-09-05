@@ -124,19 +124,19 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
     )
 }
 
-const renderPercentage = (value: number, total: number, latest = false, periodZero = false): JSX.Element => {
-    const _percentage = total > 0 ? (100.0 * value) / total : 0
-    const percentageBasisForColor = periodZero ? 100 : _percentage // So that Period 0 is always shown consistently
-    const color = percentageBasisForColor >= 65 ? 'var(--white)' : 'var(--default)'
-
-    const backgroundColor = `rgb(4, 118, 251, ${(percentageBasisForColor / 100).toFixed(2)})` // rgb of var(--data-blue)
+const renderPercentage = (value: number, total: number, latest = false, firstColumn = false): JSX.Element => {
+    const percentage = total > 0 ? (100.0 * value) / total : 0
+    const color = firstColumn ? 'var(--white)' : 'var(--default)'
+    const backgroundColor = firstColumn
+        ? `var(--retention-table-dark-color)`
+        : `rgb(81, 171, 231, ${(percentage / 100).toFixed(2)})` // rgb of var(--retention-table-color)
 
     const numberCell = (
         <div
             className={clsx('RetentionTable__Tab', { 'RetentionTable__Tab--period': latest })}
             style={!latest ? { backgroundColor, color } : undefined}
         >
-            {_percentage.toFixed(1)}%
+            {percentage.toFixed(1)}%
         </div>
     )
     return latest ? <Tooltip title="Period in progress">{numberCell}</Tooltip> : numberCell

@@ -130,9 +130,7 @@ export function RetentionModal({
                                                         <div
                                                             className={clsx('RetentionTable__Tab')}
                                                             style={{
-                                                                backgroundColor: appearance
-                                                                    ? 'rgb(4, 118, 251)'
-                                                                    : 'rgb(4, 118, 251, .2)',
+                                                                opacity: appearance ? 1 : 0.2,
                                                                 color: appearance ? 'var(--white)' : 'var(--default)',
                                                             }}
                                                         />

@@ -45,7 +45,7 @@
             cursor: pointer;
 
             &:hover {
-                border-left-color: var(--data-blue);
+                border-left-color: var(--retention-table-dark-color);
             }
         }
     }
@@ -62,6 +62,7 @@
         text-align: right;
         min-height: 2rem;
         transition: transform 200ms ease-out;
+        background-color: var(--retention-table-dark-color); // NOTE: This is usually overridden in JS
 
         &:hover {
             transform: scale(1.05);
@@ -69,8 +70,8 @@
 
         &.RetentionTable__Tab--period {
             background-color: var(--white);
-            color: var(--muted);
-            border: 1px solid rgb(4, 118, 251, 0.5);
+            border: 1px solid var(--retention-table-color);
+            opacity: 0.75;
         }
     }
 }
