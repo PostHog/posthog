@@ -4,7 +4,6 @@ import { useMemo } from 'react'
 export interface AnnotationsPositioning {
     tickIntervalPx: number
     firstTickLeftPx: number
-    pointsPerTick: number // TODO: Use this
 }
 
 export function useAnnotationsPositioning(
@@ -23,20 +22,17 @@ export function useAnnotationsPositioning(
             // @ts-expect-error - _metasets is not officially exposed
             const points = chart._metasets[0].data as Point[]
             const firstTickPointIndex = chart.scales.x.ticks[0].value
-            const secondTickPointIndex = chart.scales.x.ticks[1].value
             const lastTickPointIndex = chart.scales.x.ticks[tickCount - 1].value
             const firstTickLeftPx = points[firstTickPointIndex].x
             const lastTickLeftPx = points[lastTickPointIndex].x
             return {
                 tickIntervalPx: (lastTickLeftPx - firstTickLeftPx) / (tickCount - 1),
                 firstTickLeftPx,
-                pointsPerTick: secondTickPointIndex - firstTickPointIndex,
             }
         } else {
             return {
                 tickIntervalPx: 0,
                 firstTickLeftPx: 0,
-                pointsPerTick: 1,
             }
         }
     }, [chart, chartWidth, chartHeight])
