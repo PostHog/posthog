@@ -246,13 +246,8 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 ENTITY_ID: sign_up_action.id,
             },
         ).json()
-<<<<<<< HEAD:posthog/api/test/test_action_people.py
-        hour_grouped_event_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
-=======
         hour_grouped_grevent_response = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",
->>>>>>> master:posthog/api/test/test_persons_trends.py
             data={
                 "date_from": "2020-01-05 14:00:00",
                 "date_to": "2020-01-05 15:00:00",
@@ -292,19 +287,8 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         event_response = self.client.get(
-<<<<<<< HEAD:posthog/api/test/test_action_people.py
-            f"/api/projects/{self.team.id}/actions/people/",
-            data={"date_from": "2020-01-04", "date_to": "2020-01-04", ENTITY_TYPE: "events", ENTITY_ID: "sign up",},
-=======
             f"/api/projects/{self.team.id}/persons/trends/",
-            data={
-                "date_from": "2020-01-04",
-                "date_to": "2020-01-04",
-                ENTITY_TYPE: "events",
-                ENTITY_ID: "sign up",
-                "interval": "day",
-            },
->>>>>>> master:posthog/api/test/test_persons_trends.py
+            data={"date_from": "2020-01-04", "date_to": "2020-01-04", ENTITY_TYPE: "events", ENTITY_ID: "sign up",},
         ).json()
 
         self.assertEqual(len(action_response["results"][0]["people"]), 1)
@@ -378,19 +362,14 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         week_grouped_grevent_response = self.client.get(
-<<<<<<< HEAD:posthog/api/test/test_action_people.py
-            f"/api/projects/{self.team.id}/actions/people/",
-            data={"date_from": "2019-11-01", "date_to": "2019-11-08", ENTITY_TYPE: "events", ENTITY_ID: "sign up",},
-=======
             f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "interval": "week",
                 "date_from": "2019-11-01",
-                "date_to": "2019-11-01",
+                "date_to": "2019-11-08",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
             },
->>>>>>> master:posthog/api/test/test_persons_trends.py
         ).json()
 
         self.maxDiff = None
@@ -429,19 +408,14 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         month_group_grevent_response = self.client.get(
-<<<<<<< HEAD:posthog/api/test/test_action_people.py
-            f"/api/projects/{self.team.id}/actions/people/",
-            data={"date_from": "2019-11-01", "date_to": "2019-12-01", ENTITY_TYPE: "events", ENTITY_ID: "sign up",},
-=======
             f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "interval": "month",
                 "date_from": "2019-11-01",
-                "date_to": "2019-11-01",
+                "date_to": "2019-12-01",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
             },
->>>>>>> master:posthog/api/test/test_persons_trends.py
         ).json()
 
         all_people_ids = [str(person["id"]) for person in month_group_action_response["results"][0]["people"]]
@@ -896,8 +870,6 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
-<<<<<<< HEAD:posthog/api/test/test_action_people.py
-=======
 
     @snapshot_clickhouse_queries
     def test_trends_people_endpoint_filters_search(self):
@@ -998,4 +970,3 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 "2021-09-05T17:00:10Z",
             ],
         )
->>>>>>> master:posthog/api/test/test_persons_trends.py
