@@ -695,5 +695,5 @@
 }
 
 .shadow {
-    box-shadow: 0 16px 16px -16px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--shadow-elevation);
 }
