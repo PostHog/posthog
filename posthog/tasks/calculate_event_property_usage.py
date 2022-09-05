@@ -3,7 +3,6 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from typing import DefaultDict, Dict, List, Optional, Tuple, cast
 
-from celery.app import shared_task
 from django.utils import timezone
 
 from posthog.logging.timing import timed
@@ -30,7 +29,7 @@ class _PropertyDefinitionPayload:
     query_usage_30_day: int = field(default_factory=int)
 
 
-@shared_task(ignore_result=True, max_retries=1)
+@timed("calculate_event_property_usage_for_team")
 def calculate_event_property_usage_for_team(team_id: int, *, complete_inference: bool = False) -> None:
     """Calculate Data Management stats for a specific team.
 
