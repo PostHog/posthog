@@ -80,7 +80,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
 
     return (
         <>
-            <table className="RetentionTable">
+            <table className="RetentionTable" data-attr="retention-table">
                 <tbody>
                     <tr>
                         {headings.map((heading) => (
