@@ -84,6 +84,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         PropertyDefinition.objects.create(team=self.team, name="$current_url")
         PropertyDefinition.objects.create(team=self.team, name="team_id")
         PropertyDefinition.objects.create(team=self.team, name="value")
+        PropertyDefinition.objects.create(team=self.team, name="unused property")
         team2 = Organization.objects.bootstrap(None)[2]
         with freeze_time("2020-08-01"):
             # ignore stuff older than 30 days
@@ -101,13 +102,37 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
                 properties={"$current_url": "https://posthog.com"},
             )
         with freeze_time("2020-10-01"):
+            # with property group
             Insight.objects.create(
                 team=self.team,
                 filters={
                     "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$current_url", "value": "https://posthog.com"}],
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$current_url",
+                                        "value": "https://posthog.com",
+                                        "operator": "exact",
+                                        "type": "event",
+                                    },
+                                    {
+                                        "key": "$current_url",
+                                        "value": "https://posthog2.com",
+                                        "operator": "exact",
+                                        "type": "event",
+                                    },
+                                ],
+                            },
+                            {"type": "OR", "values": [{"key": "value", "value": 1, "operator": "gt", "type": "event"}]},
+                        ],
+                    },
                 },
             )
+            # with non group style properties
             Insight.objects.create(
                 team=self.team,
                 filters={
@@ -149,15 +174,17 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             )
 
             calculate_event_property_usage_for_team(self.team.pk)
+
         self.assertEqual(2, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
         self.assertEqual(2, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
 
         self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="custom event").query_usage_30_day)
         self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="custom event").volume_30_day)
 
-        self.assertEqual(2, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
+        self.assertEqual(3, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
         self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="team_id").query_usage_30_day)
-        self.assertEqual(0, PropertyDefinition.objects.get(team=self.team, name="value").query_usage_30_day)
+        self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="value").query_usage_30_day)
+        self.assertEqual(0, PropertyDefinition.objects.get(team=self.team, name="unused property").query_usage_30_day)
 
     def test_complete_inference(self) -> None:
         assert EventDefinition.objects.count() == 0

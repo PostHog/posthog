@@ -3,11 +3,11 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from typing import DefaultDict, Dict, List, Optional, Tuple, cast
 
-from celery.app import shared_task
 from django.utils import timezone
 
 from posthog.logging.timing import timed
 from posthog.models import EventDefinition, EventProperty, Insight, PropertyDefinition, Team
+from posthog.models.filters.filter import Filter
 from posthog.models.property_definition import PropertyType
 
 
@@ -30,7 +30,7 @@ class _PropertyDefinitionPayload:
     query_usage_30_day: int = field(default_factory=int)
 
 
-@shared_task(ignore_result=True, max_retries=1)
+@timed("calculate_event_property_usage_for_team")
 def calculate_event_property_usage_for_team(team_id: int, *, complete_inference: bool = False) -> None:
     """Calculate Data Management stats for a specific team.
 
@@ -69,9 +69,13 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
         for item in Insight.objects.filter(team=team, created_at__gt=since):
             for event in item.filters.get("events", []):
                 event_definition_payloads[event["id"]].query_usage_30_day += 1
-            for prop in item.filters.get("properties", []):
-                if isinstance(prop, dict) and prop.get("key"):
-                    property_definition_payloads[prop["key"]].query_usage_30_day += 1
+
+            # convert to filter to easily parse properties and property groups
+            filter_properties = item.filters.get("properties", None)
+            if filter_properties:
+                flattened_properties = Filter(data={"properties": filter_properties}).property_groups.flat
+                for property in flattened_properties:
+                    property_definition_payloads[property.key].query_usage_30_day += 1
 
         events_volume = _get_events_volume(team, since)
         for event, (volume, last_seen_at) in events_volume.items():
