@@ -14,7 +14,7 @@ import { Form } from 'kea-forms'
 import { Spinner } from '../Spinner/Spinner'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { LemonModal } from '../LemonModal'
-import { Skeleton } from '../Skeleton/Skeleton'
+import { LemonSkeleton } from '../LemonSkeleton'
 
 export interface SharingModalProps {
     dashboardId?: number
@@ -75,7 +75,7 @@ export function SharingModal({
 
                 {!sharingConfiguration && sharingConfigurationLoading ? (
                     <div className="space-y-4">
-                        <Skeleton.Row repeat={3} />
+                        <LemonSkeleton.Row repeat={3} />
                     </div>
                 ) : !sharingConfiguration ? (
                     <p>Something went wrong...</p>

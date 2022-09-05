@@ -3,7 +3,7 @@ import './CompactList.scss'
 import { LemonDivider } from '../LemonDivider'
 import { LemonButton } from '../LemonButton'
 import { EmptyMessage, EmptyMessageProps } from '../EmptyMessage/EmptyMessage'
-import { Skeleton } from '../Skeleton/Skeleton'
+import { LemonSkeleton } from '../LemonSkeleton'
 
 interface CompactListProps {
     title: string
@@ -35,7 +35,7 @@ export function CompactList({
                 {loading ? (
                     <div className="p-2 space-y-6">
                         {Array.from({ length: 6 }, (_, index) => (
-                            <Skeleton key={index} />
+                            <LemonSkeleton key={index} />
                         ))}
                     </div>
                 ) : items.length === 0 && emptyMessage ? (

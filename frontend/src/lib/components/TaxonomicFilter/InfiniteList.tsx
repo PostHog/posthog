@@ -23,7 +23,7 @@ import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionP
 import { ControlledDefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { pluralize } from 'lib/utils'
 import { flip, offset, shift, size, useFloating } from '@floating-ui/react-dom-interactions'
-import { Skeleton } from '../Skeleton/Skeleton'
+import { LemonSkeleton } from '../LemonSkeleton'
 
 enum ListTooltip {
     None = 0,
@@ -265,7 +265,7 @@ export function InfiniteList(): JSX.Element {
                 className={`${commonDivProps.className} skeleton-row`}
                 data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
             >
-                <Skeleton />
+                <LemonSkeleton />
             </div>
         )
     }

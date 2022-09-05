@@ -3,7 +3,7 @@ import { dashboardLogic } from './dashboardLogic'
 import { useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { LemonButton } from 'lib/components/LemonButton'
-import { Skeleton } from 'lib/components/Skeleton/Skeleton'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { IconPlus } from 'lib/components/icons'
 import './EmptyDashboardComponent.scss'
 
@@ -11,8 +11,8 @@ function SkeletonCard({ children, active }: { children: React.ReactNode; active:
     return (
         <div className="border rounded p-10 h-full space-y-4 flex-1 flex flex-col justify-between">
             <div className="space-y-4">
-                <Skeleton width={'30%'} active={active} />
-                <Skeleton width={'50%'} active={active} />
+                <LemonSkeleton width={'30%'} active={active} />
+                <LemonSkeleton width={'50%'} active={active} />
             </div>
             {children}
         </div>
@@ -30,7 +30,7 @@ function SkeletonCardOne({ active }: { active: boolean }): JSX.Element {
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ width: '15%', height: '80%' }}
                     >
-                        <Skeleton active={active} height={`${height}%`} />
+                        <LemonSkeleton active={active} height={`${height}%`} />
                     </div>
                 ))}
             </div>
@@ -45,7 +45,7 @@ function SkeletonBarsRaw({ active }: { active: boolean }): JSX.Element {
                 .fill(0)
                 .map((_, index) => {
                     const height = Math.random() * 60 + 10
-                    return <Skeleton active={active} key={index} height={`${height}%`} width={'12.5%'} />
+                    return <LemonSkeleton active={active} key={index} height={`${height}%`} width={'12.5%'} />
                 })}
         </div>
     )

@@ -1,4 +1,4 @@
-.Skeleton {
+.LemonSkeleton {
     // Background is such that at 25% (one full width) the darker fade starts and finishes slightly less than 75% (3 full widths)
     // With the background size at 400% this gives the impression of movement
     background: linear-gradient(90deg, var(--border-light) 25%, var(--border) 45%, var(--border-light) 65%);
@@ -9,7 +9,7 @@
         animation: none;
     }
 
-    &.Skeleton--static {
+    &.LemonSkeleton--static {
         animation: none;
     }
 }

@@ -7,7 +7,7 @@ import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { IconCottage } from 'lib/components/icons'
 import { LemonRow } from 'lib/components/LemonRow'
 import { LemonModal } from 'lib/components/LemonModal'
-import { Skeleton } from 'lib/components/Skeleton/Skeleton'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 export function PrimaryDashboardModal(): JSX.Element {
     const { isOpen, primaryDashboardId } = useValues(primaryDashboardModalLogic)
@@ -33,7 +33,7 @@ export function PrimaryDashboardModal(): JSX.Element {
         >
             {dashboardsLoading ? (
                 <div className="space-y-2">
-                    <Skeleton.Row repeat={4} />
+                    <LemonSkeleton.Row repeat={4} />
                 </div>
             ) : (
                 <div className="space-y-2">

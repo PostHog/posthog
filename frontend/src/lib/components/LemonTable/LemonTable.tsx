@@ -9,7 +9,7 @@ import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { useScrollable } from 'lib/hooks/useScrollable'
-import { Skeleton } from '../Skeleton/Skeleton'
+import { LemonSkeleton } from '../LemonSkeleton'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -352,7 +352,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                             column.className
                                                         )}
                                                     >
-                                                        <Skeleton />
+                                                        <LemonSkeleton />
                                                     </td>
                                                 ))
                                             )}

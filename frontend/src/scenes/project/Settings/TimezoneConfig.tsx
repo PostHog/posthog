@@ -5,7 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonDialog } from 'lib/components/LemonDialog'
-import { Skeleton } from 'lib/components/Skeleton/Skeleton'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 export function TimezoneConfig(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -13,7 +13,7 @@ export function TimezoneConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
 
     if (!preflight?.available_timezones || !currentTeam) {
-        return <Skeleton width={'50%'} />
+        return <LemonSkeleton width={'50%'} />
     }
     function onChange(val: string): void {
         LemonDialog.open({

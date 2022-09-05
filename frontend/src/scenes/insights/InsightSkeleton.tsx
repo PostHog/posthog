@@ -1,5 +1,5 @@
 import React from 'react'
-import { Skeleton } from 'lib/components/Skeleton/Skeleton'
+import { Skeleton } from 'lib/components/LemonSkeleton/LemonSkeleton'
 
 export function InsightSkeleton(): JSX.Element {
     return (

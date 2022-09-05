@@ -35,7 +35,7 @@ import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SlackIntegration } from './SlackIntegration'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
-import { Skeleton } from 'lib/components/Skeleton/Skeleton'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -81,8 +81,8 @@ export function ProjectSettings(): JSX.Element {
 
     const loadingComponent = (
         <div className="space-y-4">
-            <Skeleton width={'50%'} />
-            <Skeleton repeat={3} />
+            <LemonSkeleton width={'50%'} />
+            <LemonSkeleton repeat={3} />
         </div>
     )
 

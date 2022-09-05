@@ -33,7 +33,7 @@ import { urls } from 'scenes/urls'
 import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
-import { Skeleton } from 'lib/components/Skeleton/Skeleton'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
@@ -118,12 +118,12 @@ export function EditSubscription({
                 {!subscription ? (
                     subscriptionLoading ? (
                         <div className="space-y-4">
-                            <Skeleton width={'50%'} />
-                            <Skeleton.Row />
-                            <Skeleton width={'50%'} />
-                            <Skeleton.Row />
-                            <Skeleton width={'50%'} />
-                            <Skeleton.Row />
+                            <LemonSkeleton width={'50%'} />
+                            <LemonSkeleton.Row />
+                            <LemonSkeleton width={'50%'} />
+                            <LemonSkeleton.Row />
+                            <LemonSkeleton width={'50%'} />
+                            <LemonSkeleton.Row />
                         </div>
                     ) : (
                         <div className="p-4 text-center">

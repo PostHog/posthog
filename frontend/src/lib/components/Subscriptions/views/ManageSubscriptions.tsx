@@ -8,7 +8,7 @@ import { ProfileBubbles } from 'lib/components/ProfilePicture'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { SubscriptionBaseProps } from '../utils'
 import { LemonModal } from 'lib/components/LemonModal'
-import { Skeleton } from 'lib/components/Skeleton/Skeleton'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
@@ -89,8 +89,8 @@ export function ManageSubscriptions({
             <LemonModal.Content>
                 {subscriptionsLoading && !subscriptions.length ? (
                     <div className="space-y-2">
-                        <Skeleton width={'50%'} />
-                        <Skeleton.Row repeat={2} />
+                        <LemonSkeleton width={'50%'} />
+                        <LemonSkeleton.Row repeat={2} />
                     </div>
                 ) : subscriptions.length ? (
                     <div className="space-y-2">

@@ -1,12 +1,12 @@
 import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
-import { Skeleton } from './Skeleton'
+import { Skeleton } from './LemonSkeleton'
 import { LemonLabel } from '../LemonLabel/LemonLabel'
 import { LemonModal } from '../LemonModal'
 
 export default {
-    title: 'Lemon UI/Skeleton',
+    title: 'Lemon UI/LemonSkeleton',
     component: Skeleton,
     parameters: {
         docs: {
