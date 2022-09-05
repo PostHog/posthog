@@ -390,6 +390,11 @@ export class PersonState {
             // for $identify, we'll not merge a user who's already identified into anyone else
             const isIdentifyCallToMergeAnIdentifiedUser = shouldIdentifyPerson && oldPerson.is_identified
 
+            this.statsd?.increment('merge_two_identified_users', {
+                call: isIdentifyCallToMergeAnIdentifiedUser ? 'identify' : 'alias',
+                teamId: newPerson.team_id.toString(),
+            })
+
             if (isIdentifyCallToMergeAnIdentifiedUser) {
                 status.warn('🤔', 'refused to merge an already identified user via an $identify call')
                 this.updateIsIdentified = shouldIdentifyPerson
