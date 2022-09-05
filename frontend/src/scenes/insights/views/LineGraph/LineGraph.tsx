@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { BindLogic, useValues } from 'kea'
 import {
@@ -16,7 +16,6 @@ import {
     TickOptions,
     TooltipModel,
     TooltipOptions,
-    Point,
 } from 'chart.js'
 import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
@@ -31,8 +30,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { formatAggregationAxisValue, AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { dayjs } from 'lib/dayjs'
 
 if (registerables) {
     // required for storybook to work, not found in esbuild
@@ -40,8 +37,6 @@ if (registerables) {
 }
 Chart.register(CrosshairPlugin)
 Chart.defaults.animation['duration'] = 0
-
-const LABEL_DAYJS_FORMATS = ['D-MMM-YYYY HH:mm', 'D-MMM-YYYY']
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
@@ -63,8 +58,6 @@ export interface LineGraphProps {
 interface LineGraphCSSProperties extends React.CSSProperties {
     '--line-graph-area-left': string
     '--line-graph-area-height': string
-    '--line-graph-first-tick-left': string
-    '--line-graph-tick-interval': string
     '--line-graph-width': string
 }
 
@@ -108,10 +101,9 @@ export function LineGraph_({
     const { insightProps, insight, timezone } = useValues(insightLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
-    const chartRef = useRef<HTMLCanvasElement | null>(null)
+    const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
-
-    const { width: graphWidth, height: graphHeight } = useResizeObserver({ ref: chartRef })
+    const [[chartWidth, chartHeight], setChartDimensions] = useState<[number, number]>([0, 0])
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -125,31 +117,6 @@ export function LineGraph_({
             tooltipEl?.remove()
         }
     }, [])
-
-    // Calculate chart content coordinates for annotations overlay positioning
-    const [tickIntervalPx, firstTickLeftPx, pointsPerTick] = useMemo<[number, number, number]>(() => {
-        if (myLineChart && myLineChart.scales.x.ticks.length > 1) {
-            const tickCount = myLineChart.scales.x.ticks.length
-            // NOTE: If there are lots of points on the X axis, Chart.js only renders a tick once n data points
-            // so that the axis is readable. We use that mechanism to aggregate annotations for readability too.
-            // We use the internal _metasets instead just taking graph area width, because it's NOT guaranteed that the
-            // last tick is positioned at the right edge of the graph area. We need to find out where it is.
-            // @ts-expect-error - _metasets is not officially exposed
-            const points = myLineChart._metasets[0].data as Point[]
-            const firstTickPointIndex = myLineChart.scales.x.ticks[0].value
-            const secondTickPointIndex = myLineChart.scales.x.ticks[1].value
-            const lastTickPointIndex = myLineChart.scales.x.ticks[tickCount - 1].value
-            const firstTickLeftPx = points[firstTickPointIndex].x
-            const lastTickLeftPx = points[lastTickPointIndex].x
-            return [
-                (lastTickLeftPx - firstTickLeftPx) / (tickCount - 1),
-                firstTickLeftPx,
-                secondTickPointIndex - firstTickPointIndex,
-            ]
-        } else {
-            return [0, 0, 1]
-        }
-    }, [myLineChart, graphWidth, graphHeight])
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const mainColor = dataset?.status
@@ -262,7 +229,7 @@ export function LineGraph_({
                 tooltip: {
                     ...tooltipOptions,
                     external({ tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
-                        if (!chartRef.current) {
+                        if (!canvasRef.current) {
                             return
                         }
 
@@ -320,7 +287,7 @@ export function LineGraph_({
                             )
                         }
 
-                        const bounds = chartRef.current.getBoundingClientRect()
+                        const bounds = canvasRef.current.getBoundingClientRect()
                         const horizontalBarTopOffset = isHorizontal ? tooltip.caretY - tooltipEl.clientHeight / 2 : 0
                         const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
 
@@ -447,6 +414,7 @@ export function LineGraph_({
                     seriesId: datasets[referencePoint.datasetIndex].id,
                 })
             },
+            onResize: (_, { width, height }) => setChartDimensions([width, height]),
         }
 
         if (type === GraphType.Bar) {
@@ -562,7 +530,7 @@ export function LineGraph_({
             }
         }
 
-        const newChart = new Chart(chartRef.current?.getContext('2d') as ChartItem, {
+        const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
             options,
@@ -582,28 +550,19 @@ export function LineGraph_({
                           '--line-graph-area-left': `${myLineChart.scales.x.left}px`,
                           '--line-graph-area-height': `${myLineChart.scales.x.top}px`,
                           '--line-graph-width': `${myLineChart.width}px`,
-                          '--line-graph-first-tick-left': `${firstTickLeftPx}px`,
-                          '--line-graph-tick-interval': `${tickIntervalPx}px`,
                       } as LineGraphCSSProperties)
                     : undefined
             }
         >
-            <canvas ref={chartRef} />
+            <canvas ref={canvasRef} />
             <BindLogic
                 logic={annotationsOverlayLogic}
                 props={{
                     dashboardItemId: insightProps.dashboardItemId,
                     insightNumericId: insight.id || 'new',
-                    pointsPerTick,
                 }}
             >
-                <AnnotationsOverlay
-                    dates={
-                        myLineChart
-                            ? myLineChart.scales.x.ticks.map(({ label }) => dayjs(label as string, LABEL_DAYJS_FORMATS))
-                            : []
-                    }
-                />
+                <AnnotationsOverlay chart={myLineChart} chartWidth={chartWidth} chartHeight={chartHeight} />
             </BindLogic>
         </div>
     )

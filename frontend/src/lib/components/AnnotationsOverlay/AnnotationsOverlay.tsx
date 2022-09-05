@@ -14,6 +14,8 @@ import { annotationModalLogic } from 'scenes/annotations/annotationModalLogic'
 import { ProfilePicture } from '../ProfilePicture'
 import { CSSTransition } from 'react-transition-group'
 import { annotationsModel } from '~/models/annotationsModel'
+import { Chart } from 'chart.js'
+import { useAnnotationsPositioning } from './useAnnotationsPositioning'
 
 /** Useer-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -23,6 +25,8 @@ const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     month: 'MMMM D',
 }
 
+const LABEL_DAYJS_FORMATS = ['D-MMM-YYYY HH:mm', 'D-MMM-YYYY']
+
 export const annotationScopeToLabel: Record<AnnotationScope, string> = {
     [AnnotationScope.Insight]: 'Only this insight',
     [AnnotationScope.Project]: 'All insights in this project',
@@ -30,28 +34,41 @@ export const annotationScopeToLabel: Record<AnnotationScope, string> = {
 }
 
 export interface AnnotationsOverlayProps {
-    dates: dayjs.Dayjs[] | undefined
+    chart: Chart | undefined
+    chartWidth: number
+    chartHeight: number
 }
 
 interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
     '--annotations-overlay-active-badge-left': string
     '--annotations-overlay-active-badge-top': string
+    '--annotations-overlay-first-tick-left': string
+    '--annotations-overlay-tick-interval': string
 }
 
-export function AnnotationsOverlay({ dates }: AnnotationsOverlayProps): JSX.Element {
+export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: AnnotationsOverlayProps): JSX.Element {
     const { isPopoverShown, activeBadgeCoordinates } = useValues(annotationsOverlayLogic)
+    const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
+
+    const dates: dayjs.Dayjs[] = chart
+        ? chart.scales.x.ticks.map(({ label }) => dayjs(label as string, LABEL_DAYJS_FORMATS))
+        : []
 
     return (
         <div
             className="AnnotationsOverlay"
             // eslint-disable-next-line react/forbid-dom-props
             style={
-                activeBadgeCoordinates
-                    ? ({
-                          '--annotations-overlay-active-badge-left': `${activeBadgeCoordinates[0]}px`,
-                          '--annotations-overlay-active-badge-top': `${activeBadgeCoordinates[1]}px`,
-                      } as AnnotationsOverlayCSSProperties)
-                    : undefined
+                {
+                    '--annotations-overlay-first-tick-left': `${firstTickLeftPx}px`,
+                    '--annotations-overlay-tick-interval': `${tickIntervalPx}px`,
+                    ...(activeBadgeCoordinates
+                        ? {
+                              '--annotations-overlay-active-badge-left': `${activeBadgeCoordinates[0]}px`,
+                              '--annotations-overlay-active-badge-top': `${activeBadgeCoordinates[1]}px`,
+                          }
+                        : {}),
+                } as AnnotationsOverlayCSSProperties
             }
         >
             {dates?.map((date, index) => (

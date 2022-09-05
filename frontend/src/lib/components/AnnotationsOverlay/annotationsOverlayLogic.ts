@@ -9,7 +9,6 @@ import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotat
 export interface InsightAnnotationsLogicProps {
     dashboardItemId: InsightModel['short_id'] | 'new'
     insightNumericId: InsightModel['id'] | 'new'
-    pointsPerTick: number
 }
 
 /** Internal format for annotation groups. */

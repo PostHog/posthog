@@ -10,11 +10,11 @@
     align-items: center;
     justify-content: center;
     margin-left: calc(
-        var(--line-graph-tick-interval) * var(--annotations-badge-index) - var(--line-graph-area-left) +
-            var(--line-graph-first-tick-left)
+        var(--annotations-overlay-tick-interval) * var(--annotations-badge-index) - var(--line-graph-area-left) +
+            var(--annotations-overlay-first-tick-left)
     );
     height: 3rem;
-    width: var(--line-graph-tick-interval);
+    width: var(--annotations-overlay-tick-interval);
     border: none;
     background: none;
     transform: translate(-50%, -50%);
