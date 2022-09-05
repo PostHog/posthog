@@ -27,6 +27,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/SessionRecordingsPlaylist'
 
 const { TabPane } = Tabs
 
@@ -91,6 +94,7 @@ export function Person(): JSX.Element | null {
         useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!person) {
         return personLoading ? (
@@ -124,7 +128,6 @@ export function Person(): JSX.Element | null {
                         <LemonButton
                             onClick={() => setSplitMergeModalShown(true)}
                             data-attr="merge-person-button"
-                            data-tooltip="person-split-merge-button"
                             type="secondary"
                         >
                             Split or merge IDs
@@ -141,7 +144,7 @@ export function Person(): JSX.Element | null {
                     navigateToTab(tab as PersonsTabType)
                 }}
                 destroyInactiveTabPane={true}
-                data-tooltip="persons-tabs"
+                data-attr="persons-tabs"
             >
                 <TabPane
                     tab={<span data-attr="persons-properties-tab">Properties</span>}
@@ -177,11 +180,19 @@ export function Person(): JSX.Element | null {
                             </AlertMessage>
                         </div>
                     ) : null}
-                    <SessionRecordingsTable
-                        key={person.uuid} // force refresh if user changes
-                        personUUID={person.uuid}
-                        isPersonPage
-                    />
+                    {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST] ? (
+                        <SessionRecordingsPlaylist
+                            key={person.uuid} // force refresh if user changes
+                            personUUID={person.uuid}
+                            isPersonPage
+                        />
+                    ) : (
+                        <SessionRecordingsTable
+                            key={person.uuid} // force refresh if user changes
+                            personUUID={person.uuid}
+                            isPersonPage
+                        />
+                    )}
                 </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>

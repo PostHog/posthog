@@ -61,6 +61,13 @@ class TrendsEventQuery(EventQuery):
             + (self._get_extra_person_columns())
         )
 
+        if self._using_person_on_events:
+            for column_name in sorted(self._column_optimizer.person_on_event_columns_to_query):
+                _fields += f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
+
+            for column_name in sorted(self._column_optimizer.group_on_event_columns_to_query):
+                _fields += f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
+
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
@@ -117,6 +124,7 @@ class TrendsEventQuery(EventQuery):
                         allow_denormalized_props=False,
                         column="person_properties",
                         table_alias=self.EVENT_TABLE_ALIAS,
+                        materialised_table_column="person_properties",
                     ),
                     column_name=column_name,
                 )

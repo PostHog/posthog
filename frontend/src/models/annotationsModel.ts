@@ -1,93 +1,95 @@
-import { kea } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
-import { deleteWithUndo, toParams } from 'lib/utils'
-import { dayjs, now } from 'lib/dayjs'
-import { getNextKey } from 'lib/components/Annotations/utils'
+import { deleteWithUndo } from 'lib/utils'
 import type { annotationsModelType } from './annotationsModelType'
-import { AnnotationScope, AnnotationType } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
+import { AnnotationType } from '~/types'
+import { loaders } from 'kea-loaders'
 
-export const annotationsModel = kea<annotationsModelType>({
-    path: ['models', 'annotationsModel'],
-    actions: {
-        createGlobalAnnotation: (
-            content: string,
-            date_marker: string,
-            insightNumericId?: number,
-            annotationScope?: AnnotationScope
-        ) => ({
-            content,
-            date_marker,
-            created_at: now(),
-            created_by: userLogic.values.user,
-            insightNumericId,
-            annotationScope,
-        }),
-        deleteGlobalAnnotation: (id) => ({ id }),
-    },
-    loaders: ({ values }) => ({
-        globalAnnotations: {
-            __default: [] as AnnotationType[],
-            loadGlobalAnnotations: async () => {
-                const response = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/annotations/?${toParams({
-                        scope: 'organization',
-                        deleted: false,
-                    })}`
-                )
+export type AnnotationData = Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+export type AnnotationDataWithoutInsight = Omit<AnnotationData, 'dashboard_item'>
+
+export const annotationsModel = kea<annotationsModelType>([
+    path(['models', 'annotationsModel']),
+    actions({
+        deleteAnnotation: (annotation: AnnotationType) => ({ annotation }),
+        loadAnnotationsNext: () => true,
+        setNext: (next: string | null) => ({ next }),
+        appendAnnotations: (annotations: AnnotationType[]) => ({ annotations }),
+        replaceAnnotation: (annotation: AnnotationType) => ({ annotation }),
+    }),
+    loaders(({ values, actions }) => ({
+        annotations: {
+            __default: [],
+            loadAnnotations: async () => {
+                const response = await api.annotations.list()
+                actions.setNext(response.next || null)
                 return response.results
             },
-            createGlobalAnnotation: async ({ insightNumericId, content, date_marker, created_at, annotationScope }) => {
-                await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
-                    content,
-                    date_marker: (dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker)).toISOString(),
-                    created_at: created_at.toISOString(),
-                    dashboard_item: insightNumericId,
-                    scope: annotationScope || AnnotationScope.Organization,
-                } as Partial<AnnotationType>)
-                return values.globalAnnotations || []
+            createAnnotationGenerically: async (annotationData: AnnotationData) => {
+                const createdAnnotation = await api.annotations.create(annotationData)
+                actions.appendAnnotations([createdAnnotation])
+            },
+            updateAnnotation: async ({
+                annotationId,
+                annotationData,
+            }: {
+                annotationId: AnnotationType['id']
+                annotationData: AnnotationDataWithoutInsight
+            }) => {
+                const updatedAnnotation = await api.annotations.update(annotationId, annotationData)
+                actions.replaceAnnotation(updatedAnnotation)
+            },
+            deleteAnnotation: async ({ annotation }) => {
+                await deleteWithUndo({
+                    endpoint: api.annotations.determineDeleteEndpoint(),
+                    object: { name: `${annotation.date_marker} annotation`, ...annotation },
+                    callback: (undo, annotation) => {
+                        if (undo) {
+                            actions.appendAnnotations([annotation])
+                        }
+                    },
+                })
+                return values.annotations.filter((a) => a.id !== annotation.id)
             },
         },
-    }),
-    reducers: {
-        globalAnnotations: {
-            createGlobalAnnotation: (state, { content, date_marker, created_at, created_by, annotationScope }) => [
-                ...state,
-                {
-                    id: getNextKey(state).toString(),
-                    content,
-                    date_marker: date_marker,
-                    created_at: created_at.toISOString(),
-                    updated_at: created_at.toISOString(),
-                    created_by,
-                    scope: annotationScope || AnnotationScope.Organization,
-                } as AnnotationType,
-            ],
-            deleteGlobalAnnotation: (state, { id }) => {
-                return state.filter((a) => a.id !== id)
-            },
-        },
-    },
-    selectors: {
-        activeGlobalAnnotations: [
-            (s) => [s.globalAnnotations],
-            (globalAnnotations) => {
-                return globalAnnotations.filter((annotation) => !annotation.deleted)
+    })),
+    reducers(() => ({
+        annotations: [
+            [] as AnnotationType[],
+            {
+                appendAnnotations: (state, { annotations }) => [...state, ...annotations],
+                replaceAnnotation: (state, { annotation }) => {
+                    const copy = state.slice()
+                    const index = copy.findIndex((iterationAnnotation) => iterationAnnotation.id === annotation.id)
+                    copy[index] = annotation
+                    return copy
+                },
             },
         ],
-    },
-    listeners: ({ actions }) => ({
-        deleteGlobalAnnotation: ({ id }) => {
-            id >= 0 &&
-                deleteWithUndo({
-                    endpoint: `projects/${teamLogic.values.currentTeamId}/annotations`,
-                    object: { name: 'Annotation', id },
-                    callback: () => actions.loadGlobalAnnotations(),
-                })
+        next: [
+            null as string | null,
+            {
+                setNext: (_, { next }) => next,
+            },
+        ],
+        loadingNext: [
+            false,
+            {
+                loadAnnotationsNext: () => true,
+                appendAnnotations: () => false,
+            },
+        ],
+    })),
+    listeners(({ actions, values }) => ({
+        loadAnnotationsNext: async () => {
+            let results: AnnotationType[] = []
+            if (values.next) {
+                const response = await api.get(values.next)
+                actions.setNext(response.next)
+                results = response.results
+            }
+            actions.appendAnnotations(results)
         },
-    }),
-    events: ({ actions }) => ({
-        afterMount: () => actions.loadGlobalAnnotations(),
-    }),
-})
+    })),
+    afterMount(({ actions }) => actions.loadAnnotations()),
+])

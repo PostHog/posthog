@@ -42,11 +42,16 @@ class Stickiness:
         SETTINGS optimize_move_to_prewhere = 0
         """
 
-        counts = sync_execute(query, {**event_params, "num_intervals": filter.total_intervals})
+        counts = sync_execute(
+            query,
+            {**event_params, "num_intervals": filter.total_intervals},
+            client_query_id=filter.client_query_id,
+            client_query_team_id=team.pk,
+        )
         return self.process_result(counts, filter, entity)
 
     def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs):
-        _, serialized_actors = self.actor_query_class(entity=target_entity, filter=filter, team=team).get_actors()
+        _, serialized_actors, _ = self.actor_query_class(entity=target_entity, filter=filter, team=team).get_actors()
         return serialized_actors
 
     def process_result(self, counts: List, filter: StickinessFilter, entity: Entity) -> Dict[str, Any]:

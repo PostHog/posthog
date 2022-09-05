@@ -1,7 +1,6 @@
 import json
 
 from freezegun import freeze_time
-from rest_framework.test import APIRequestFactory
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models import Filter
@@ -161,6 +160,36 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ],
             )
 
+            #  entities filtering
+            result = trends().run(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [
+                            {
+                                "properties": [{"key": "$number", "value": 1}],
+                                "id": "$pageview",
+                                "type": "events",
+                                "order": 0,
+                            }
+                        ],
+                        "shown_as": TRENDS_LIFECYCLE,
+                    }
+                ),
+                self.team,
+            )
+
+            self.assertLifecycleResults(
+                result,
+                [
+                    {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
+                    {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                    {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 1, 0, 1]},
+                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+                ],
+            )
+
         def test_lifecycle_trends_distinct_id_repeat(self):
             with freeze_time("2020-01-12T12:00:00Z"):
                 person_factory(team_id=self.team.pk, distinct_ids=["p1", "another_p1"], properties={"name": "p1"})
@@ -227,8 +256,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
             p1 = people[0]
-            request_factory = APIRequestFactory()
-            request = request_factory.get("/person/lifecycle")
 
             result = trends().get_people(
                 Filter(
@@ -242,7 +269,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "returning",
-                request,
             )
 
             self.assertEqual(len(result), 1)
@@ -260,7 +286,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
-                request,
             )
 
             self.assertEqual(len(dormant_result), 2)
@@ -277,7 +302,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-14T00:00:00Z"),
                 "dormant",
-                request,
             )
 
             self.assertEqual(len(dormant_result), 1)
@@ -529,9 +553,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ],
             )
 
-            request_factory = APIRequestFactory()
-            request = request_factory.get("/person/lifecycle")
-
             trends().get_people(
                 Filter(
                     data={
@@ -546,7 +567,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
-                request,
             )
 
         def assertLifecycleResults(self, results, expected):

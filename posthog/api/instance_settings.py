@@ -26,7 +26,7 @@ def cast_str_to_desired_type(str_value: str, target_type: type) -> Any:
     return str_value
 
 
-class InstanceSettingHelper(object):
+class InstanceSettingHelper:
     key: str = ""
     value: Union[str, bool, int, None] = None
     value_type: str = ""

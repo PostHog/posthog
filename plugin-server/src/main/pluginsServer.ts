@@ -67,19 +67,7 @@ export async function startPluginsServer(
     let httpServer: Server | undefined
     let stopEventLoopMetrics: (() => void) | undefined
 
-    let shutdownStatus = 0
-
     async function closeJobs(): Promise<void> {
-        shutdownStatus += 1
-        if (shutdownStatus === 2) {
-            status.info('🔁', 'Try again to shut down forcibly')
-            return
-        }
-        if (shutdownStatus >= 3) {
-            status.info('❗️', 'Shutting down forcibly!')
-            void piscina?.destroy()
-            process.exit()
-        }
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
@@ -304,5 +292,7 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
     await Promise.race([piscina.broadcastTask({ task: 'teardownPlugins' }), delay(5000)])
     // Wait 2 seconds to flush the last queues and caches
     await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
-    await piscina.destroy()
+    try {
+        await piscina.destroy()
+    } catch {}
 }

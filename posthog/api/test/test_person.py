@@ -135,6 +135,33 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
         self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
 
+    @snapshot_clickhouse_queries
+    def test_filter_person_prop(self):
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id", "another_one"],
+            properties={"email": "someone@gmail.com"},
+            is_identified=True,
+            immediate=True,
+        )
+        person2: Person = _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id_2"],
+            properties={"email": "another@gmail.com", "some_prop": "some_value"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        # Filter
+        response = self.client.get(
+            "/api/person/?properties=%s" % json.dumps([{"key": "some_prop", "value": "some_value", "type": "person"}])
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
+        self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
+
     def test_filter_person_list(self):
 
         person1: Person = _create_person(
@@ -362,13 +389,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             expected=[person_three_log, person_one_log, person_two_log,],
         )
         self._assert_person_activity(
-            person_id=person1.pk, expected=[person_one_log,],
+            person_id=person1.uuid, expected=[person_one_log,],
         )
         self._assert_person_activity(
-            person_id=person2.pk, expected=[person_two_log,],
+            person_id=person2.uuid, expected=[person_two_log,],
         )
         self._assert_person_activity(
-            person_id=person3.pk, expected=[person_three_log,],
+            person_id=person3.uuid, expected=[person_three_log,],
         )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
@@ -390,7 +417,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(people[2].distinct_ids, ["3"])
 
         self._assert_person_activity(
-            person_id=person1.pk,
+            person_id=person1.uuid,
             expected=[
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com"},
@@ -559,18 +586,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertCountEqual(clickhouse_people, [(person.uuid,) for person in people])
 
-        distinct_id_rows = PersonDistinctId.objects.all().order_by("person_id")
-        pdis = sync_execute(
-            "SELECT person_id, distinct_id FROM person_distinct_id FINAL WHERE team_id = %(team_id)s",
-            {"team_id": self.team.pk},
-        )
-        self.assertCountEqual(pdis, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])
-
         pdis2 = sync_execute(
-            "SELECT person_id, distinct_id FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s",
+            "SELECT person_id, distinct_id, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )
-        self.assertCountEqual(pdis2, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])
+
+        self.assertEqual(len(pdis2), PersonDistinctId.objects.count())
+
+        for person in people:
+            self.assertEqual(len(person.distinct_ids), 1)
+            matching_row = next(row for row in pdis2 if row[0] == person.uuid)
+            self.assertEqual(matching_row, (person.uuid, person.distinct_ids[0], 0))
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_patch_user_property_activity(self):
@@ -589,7 +615,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.client.get("/api/person/%s/" % person.uuid)
 
         self._assert_person_activity(
-            person_id=person.pk,
+            person_id=person.uuid,
             expected=[
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
@@ -657,7 +683,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-    def _get_person_activity(self, person_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK):
+    def _get_person_activity(self, person_id: Optional[str] = None, expected_status: int = status.HTTP_200_OK):
         if person_id:
             url = f"/api/person/{person_id}/activity"
         else:
@@ -667,7 +693,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
 
-    def _assert_person_activity(self, person_id: Optional[int], expected: List[Dict]):
+    def _assert_person_activity(self, person_id: Optional[str], expected: List[Dict]):
         activity_response = self._get_person_activity(person_id)
 
         activity: List[Dict] = activity_response["results"]

@@ -1,10 +1,18 @@
+import { RetryError } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { TaskList } from 'graphile-worker'
 
 import { EnqueuedJob, Hub, JobQueue, JobQueueType } from '../../types'
+import { instrument } from '../../utils/metrics'
+import { runRetriableFunction } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { logOrThrowJobQueueError } from '../../utils/utils'
 import { jobQueueMap } from './job-queues'
+
+export interface InstrumentationContext {
+    key: string
+    tag: string
+}
 
 export class JobQueueManager implements JobQueue {
     pluginsServer: Hub
@@ -50,7 +58,35 @@ export class JobQueueManager implements JobQueue {
         }
     }
 
-    async enqueue(jobName: string, job: EnqueuedJob): Promise<void> {
+    async enqueue(jobName: string, job: EnqueuedJob, instrumentationContext?: InstrumentationContext): Promise<void> {
+        const jobType = 'type' in job ? job.type : 'buffer'
+        const jobPayload = 'payload' in job ? job.payload : job.eventPayload
+        const pluginServerMode = this.pluginsServer.PLUGIN_SERVER_MODE ?? 'full'
+        await instrument(
+            this.pluginsServer.statsd,
+            {
+                metricName: 'job_queues_enqueue',
+                key: instrumentationContext?.key ?? '?',
+                tag: instrumentationContext?.tag ?? '?',
+                tags: { jobName, type: jobType },
+                data: { timestamp: job.timestamp, type: jobType, payload: jobPayload },
+            },
+            () =>
+                runRetriableFunction({
+                    hub: this.pluginsServer,
+                    metricName: 'job_queues_enqueue',
+                    metricTags: {
+                        pluginServerMode,
+                        jobName,
+                    },
+                    tryFn: async () => this._enqueue(jobName, job),
+                    catchFn: () => status.error('🔴', 'Exhausted attempts to enqueue job.'),
+                    payload: job,
+                })
+        )
+    }
+
+    async _enqueue(jobName: string, job: EnqueuedJob): Promise<void> {
         for (const jobQueue of this.jobQueues) {
             try {
                 await jobQueue.enqueue(jobName, job)
@@ -70,7 +106,7 @@ export class JobQueueManager implements JobQueue {
 
         this.pluginsServer.statsd?.increment('enqueue_job.fail', { jobName })
 
-        const error = new Error('No JobQueue available')
+        const error = new RetryError('No JobQueue available')
         Sentry.captureException(error, {
             extra: {
                 jobName,
@@ -79,6 +115,7 @@ export class JobQueueManager implements JobQueue {
             },
         })
 
+        status.warn('⚠️', 'Failed to enqueue job.')
         throw error
     }
 

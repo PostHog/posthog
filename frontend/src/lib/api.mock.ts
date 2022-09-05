@@ -46,6 +46,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     test_account_filters: [
         { key: 'email', type: 'person', value: 'posthog.com', operator: PropertyOperator.NotIContains },
     ],
+    test_account_filters_default_checked: false,
     path_cleaning_filters: [],
     is_demo: false,
     timezone: 'Europe/Brussels',

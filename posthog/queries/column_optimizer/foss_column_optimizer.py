@@ -34,16 +34,27 @@ class FOSSColumnOptimizer:
         return self.columns_to_query("events", set(self._used_properties_with_type("event")))
 
     @cached_property
+    def person_on_event_columns_to_query(self) -> Set[ColumnName]:
+        "Returns a list of event table person columns containing materialized properties that this query needs"
+
+        return self.columns_to_query("events", set(self._used_properties_with_type("person")), "person_properties")
+
+    @cached_property
     def person_columns_to_query(self) -> Set[ColumnName]:
         "Returns a list of person table columns containing materialized properties that this query needs"
 
         return self.columns_to_query("person", set(self._used_properties_with_type("person")))
 
-    def columns_to_query(self, table: TableWithProperties, used_properties: Set[PropertyIdentifier]) -> Set[ColumnName]:
+    def columns_to_query(
+        self, table: TableWithProperties, used_properties: Set[PropertyIdentifier], table_column: str = "properties"
+    ) -> Set[ColumnName]:
         "Transforms a list of property names to what columns are needed for that query"
 
         materialized_columns = get_materialized_columns(table)
-        return set(materialized_columns.get(property_name, "properties") for property_name, _, _ in used_properties)
+        return set(
+            materialized_columns.get((property_name, table_column), table_column)
+            for property_name, _, _ in used_properties
+        )
 
     @cached_property
     def is_using_person_properties(self) -> bool:
@@ -55,6 +66,10 @@ class FOSSColumnOptimizer:
 
     @cached_property
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
+        return set()
+
+    @cached_property
+    def group_on_event_columns_to_query(self) -> Set[ColumnName]:
         return set()
 
     @cached_property

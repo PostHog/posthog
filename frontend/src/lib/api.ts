@@ -1,8 +1,8 @@
 import posthog from 'posthog-js'
-import { parsePeopleParams, PeopleParamType } from 'scenes/trends/personsModalLogic'
+import { parsePeopleParams, PeopleParamType } from 'scenes/trends/persons-modal/personsModalLogic'
 import {
     ActionType,
-    ActorType,
+    AnnotationType,
     CohortType,
     CombinedEventType,
     DashboardCollaboratorType,
@@ -15,6 +15,10 @@ import {
     InsightModel,
     IntegrationType,
     LicenseType,
+    OrganizationType,
+    PersonListParams,
+    PersonProperty,
+    PersonType,
     PluginLogEntry,
     PropertyDefinition,
     SharingConfigurationType,
@@ -23,14 +27,13 @@ import {
     TeamType,
     UserType,
 } from '~/types'
-import { getCurrentTeamId } from './utils/logics'
+import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
 import { DashboardPrivilegeLevel } from './constants'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
-import { PersonFilters } from 'scenes/persons/personsLogic'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 
@@ -40,9 +43,10 @@ export interface PaginatedResponse<T> {
     results: T[]
     next?: string
     previous?: string
+    missing_persons?: number
 }
 
-export interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
+export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     total_count: number
 }
 
@@ -114,16 +118,18 @@ class ApiRequest {
 
     // API-aware endpoint composition
 
-    // # Organizations
+    // # Utils
+    public current(): ApiRequest {
+        return this.addPathComponent('@current')
+    }
 
+    // # Organizations
     public organizations(): ApiRequest {
         return this.addPathComponent('organizations')
     }
 
-    // # Current
-
-    public current(): ApiRequest {
-        return this.addPathComponent('@current')
+    public organizationsDetail(id: OrganizationType['id'] = getCurrentOrganizationId()): ApiRequest {
+        return this.organizations().addPathComponent(id)
     }
 
     // # Projects
@@ -135,6 +141,23 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
+    // # Insights
+    public insights(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('insights')
+    }
+
+    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent(id)
+    }
+
+    public insightsActivity(teamId?: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent('activity')
+    }
+
+    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insight(id, teamId).addPathComponent('sharing')
+    }
+
     // # Plugins
     public plugins(): ApiRequest {
         return this.addPathComponent('plugins')
@@ -142,6 +165,10 @@ class ApiRequest {
 
     public pluginLogs(pluginConfigId: number): ApiRequest {
         return this.addPathComponent('plugin_configs').addPathComponent(pluginConfigId).addPathComponent('logs')
+    }
+
+    public pluginsActivity(): ApiRequest {
+        return this.organizations().current().plugins().addPathComponent('activity')
     }
 
     // # Actions
@@ -228,19 +255,28 @@ class ApiRequest {
     }
 
     // # Persons
-    public persons(): ApiRequest {
-        return this.addPathComponent('person')
+    public persons(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('persons')
     }
 
-    public person(id: number): ApiRequest {
-        return this.persons().addPathComponent(id)
+    public person(id: string | number, teamId?: TeamType['id']): ApiRequest {
+        return this.persons(teamId).addPathComponent(id)
     }
 
-    public personActivity(id: number | undefined): ApiRequest {
-        if (typeof id === 'number') {
+    public personActivity(id: string | number | undefined): ApiRequest {
+        if (id) {
             return this.person(id).addPathComponent('activity')
         }
         return this.persons().addPathComponent('activity')
+    }
+
+    // # Annotations
+    public annotations(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('annotations')
+    }
+
+    public annotation(id: AnnotationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.annotations(teamId).addPathComponent(id)
     }
 
     // # Feature flags
@@ -269,26 +305,6 @@ class ApiRequest {
 
     public license(id: LicenseType['id']): ApiRequest {
         return this.licenses().addPathComponent(id)
-    }
-
-    public insights(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('insights')
-    }
-
-    public insightsActivity(teamId?: TeamType['id']): ApiRequest {
-        return this.insights(teamId).addPathComponent('activity')
-    }
-
-    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.insights(teamId).addPathComponent(id)
-    }
-
-    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.insight(id, teamId).addPathComponent('sharing')
-    }
-
-    public pluginsActivity(): ApiRequest {
-        return this.organizations().current().plugins().addPathComponent('activity')
     }
 
     // # Subscriptions
@@ -383,20 +399,6 @@ const api = {
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
-        async getPeople(
-            peopleParams: PeopleParamType,
-            filters: Partial<FilterType>,
-            searchTerm?: string
-        ): Promise<PaginatedResponse<{ people: ActorType[]; count: number }>> {
-            return await new ApiRequest()
-                .actions()
-                .withAction('people')
-                .withQueryString(
-                    parsePeopleParams(peopleParams, filters) +
-                        (searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : '')
-                )
-                .get()
-        },
         async getCount(actionId: ActionType['id']): Promise<number> {
             return (await new ApiRequest().actionsDetail(actionId).withAction('count').get()).count
         },
@@ -417,10 +419,10 @@ const api = {
             activityLogProps: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<CountedPaginatedResponse> {
+        ): Promise<CountedPaginatedResponse<ActivityLogItem>> {
             const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
-                    return new ApiRequest().featureFlagsActivity(props.id || null, teamId)
+                    return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
                 },
                 [ActivityScope.PERSON]: (props) => {
                     return new ApiRequest().personActivity(props.id)
@@ -632,8 +634,8 @@ const api = {
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
-        determineCSVUrl(cohortId: number | 'new', filters: PersonFilters): string {
-            return `/api/cohort/${cohortId}/persons?${toParams(filters)}`
+        determineListUrl(cohortId: number | 'new', params: PersonListParams): string {
+            return `/api/cohort/${cohortId}/persons?${toParams(params)}`
         },
     },
 
@@ -660,9 +662,19 @@ const api = {
         },
     },
 
-    person: {
-        determineCSVUrl(filters: PersonFilters): string {
-            return new ApiRequest().persons().withQueryString(toParams(filters)).assembleFullUrl()
+    persons: {
+        async getProperties(): Promise<PersonProperty[]> {
+            return new ApiRequest().persons().withAction('properties').get()
+        },
+
+        async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
+            return new ApiRequest().person(id).update({ data: person })
+        },
+        async list(params: PersonListParams = {}): Promise<PaginatedResponse<PersonType>> {
+            return await new ApiRequest().persons().withQueryString(toParams(params)).get()
+        },
+        determineListUrl(params: PersonListParams = {}): string {
+            return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
         },
     },
 
@@ -726,6 +738,29 @@ const api = {
                 .get()
 
             return response.results
+        },
+    },
+
+    annotations: {
+        async get(annotationId: AnnotationType['id']): Promise<AnnotationType> {
+            return await new ApiRequest().annotation(annotationId).get()
+        },
+        async update(
+            annotationId: AnnotationType['id'],
+            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content'>
+        ): Promise<AnnotationType> {
+            return await new ApiRequest().annotation(annotationId).update({ data })
+        },
+        async list(): Promise<PaginatedResponse<AnnotationType>> {
+            return await new ApiRequest().annotations().get()
+        },
+        async create(
+            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+        ): Promise<AnnotationType> {
+            return await new ApiRequest().annotations().create({ data })
+        },
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().annotations().assembleEndpointUrl()
         },
     },
 
@@ -841,7 +876,7 @@ const api = {
         return await getJSONOrThrow(response)
     },
 
-    async create(url: string, data?: any): Promise<any> {
+    async create(url: string, data?: any, signal?: AbortSignal): Promise<any> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -853,6 +888,7 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
+            signal,
         })
 
         if (!response.ok) {

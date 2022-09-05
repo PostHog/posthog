@@ -7,9 +7,9 @@ import hashlib
 import json
 import os
 import re
-import shutil
+import secrets
+import string
 import subprocess
-import sys
 import time
 import uuid
 import zlib
@@ -22,7 +22,6 @@ from typing import (
     List,
     Mapping,
     Optional,
-    Sequence,
     Tuple,
     Union,
     cast,
@@ -31,6 +30,7 @@ from urllib.parse import urljoin, urlparse
 
 import lzstring
 import pytz
+import structlog
 from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
@@ -61,6 +61,9 @@ DATERANGE_MAP = {
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
 
 DEFAULT_DATE_FROM_DAYS = 7
+
+
+logger = structlog.get_logger(__name__)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
@@ -726,7 +729,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
             if license is not None and AvailableFeature.ZAPIER in license.available_features:
                 return True
             else:
-                print_warning(["You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!"])
+                logger.warning("You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!")
 
     return False
 
@@ -759,7 +762,7 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
         if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
             output["google-oauth2"] = True
         else:
-            print_warning(["You have Google login set up, but not the required license!"])
+            logger.warning("You have Google login set up, but not the required license!")
 
     return output
 
@@ -904,14 +907,6 @@ def str_to_bool(value: Any) -> bool:
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
 
 
-def print_warning(warning_lines: Sequence[str], *, top_emoji="🔻", bottom_emoji="🔺"):
-    highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
-    print(
-        "\n".join(("", top_emoji * highlight_length, *warning_lines, bottom_emoji * highlight_length, "",)),
-        file=sys.stderr,
-    )
-
-
 def get_helm_info_env() -> dict:
     try:
         return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
@@ -1037,3 +1032,8 @@ def should_read_recordings_from_object_storage(team_id: Optional[int]) -> bool:
         and settings.OBJECT_STORAGE_ENABLED
         and team_id == settings.READ_RECORDINGS_FROM_OBJECT_STORAGE_FOR_TEAM
     )
+
+
+def generate_short_id():
+    """Generate securely random 8 characters long alphanumeric ID."""
+    return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))

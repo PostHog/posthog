@@ -6,6 +6,7 @@ from typing import Dict, Generator, List, Optional, Set, Tuple
 import structlog
 
 from ee.clickhouse.materialized_columns.columns import (
+    DEFAULT_TABLE_COLUMN,
     backfill_materialized_columns,
     get_materialized_columns,
     materialize,
@@ -16,15 +17,15 @@ from ee.settings import (
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
-from posthog.clickhouse.materialized_columns.util import instance_memoize
+from posthog.cache_utils import instance_memoize
 from posthog.client import sync_execute
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
-from posthog.models.property import PropertyName, TableWithProperties
+from posthog.models.person.sql import GET_EVENT_PROPERTIES_COUNT, GET_PERSON_PROPERTIES_COUNT
+from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
 
-Suggestion = Tuple[TableWithProperties, PropertyName, int]
+Suggestion = Tuple[TableWithProperties, TableColumn, PropertyName, int]
 
 logger = structlog.get_logger(__name__)
 
@@ -32,12 +33,25 @@ logger = structlog.get_logger(__name__)
 class TeamManager:
     @instance_memoize
     def person_properties(self, team_id: str) -> Set[str]:
-        rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": team_id})
-        return set(name for name, _ in rows)
+        return self._get_properties(GET_PERSON_PROPERTIES_COUNT, team_id)
 
     @instance_memoize
     def event_properties(self, team_id: str) -> Set[str]:
         return set(PropertyDefinition.objects.filter(team_id=team_id).values_list("name", flat=True))
+
+    @instance_memoize
+    def person_on_events_properties(self, team_id: str) -> Set[str]:
+        return self._get_properties(GET_EVENT_PROPERTIES_COUNT.format(column_name="person_properties"), team_id)
+
+    @instance_memoize
+    def group_on_events_properties(self, group_type_index: int, team_id: str) -> Set[str]:
+        return self._get_properties(
+            GET_EVENT_PROPERTIES_COUNT.format(column_name=f"group{group_type_index}_properties"), team_id
+        )
+
+    def _get_properties(self, query, team_id) -> Set[str]:
+        rows = sync_execute(query, {"team_id": team_id})
+        return set(name for name, _ in rows)
 
 
 class Query:
@@ -60,19 +74,42 @@ class Query:
         return matches[0] if matches else None
 
     @cached_property
-    def _all_properties(self) -> List[PropertyName]:
-        return re.findall(r"JSONExtract\w+\(\S+, '([^']+)'\)", self.query_string)
+    def _all_properties(self) -> List[Tuple[str, PropertyName]]:
+        return re.findall(r"JSONExtract\w+\((\S+), '([^']+)'\)", self.query_string)
 
-    def properties(self, team_manager: TeamManager) -> Generator[Tuple[TableWithProperties, PropertyName], None, None]:
+    def properties(
+        self, team_manager: TeamManager
+    ) -> Generator[Tuple[TableWithProperties, TableColumn, PropertyName], None, None]:
         # Reverse-engineer whether a property is an "event" or "person" property by getting their event definitions.
         # :KLUDGE: Note that the same property will be found on both tables if both are used.
+        # We try to hone in on the right column by looking at the column from which the property is extracted.
         person_props = team_manager.person_properties(self.team_id)
         event_props = team_manager.event_properties(self.team_id)
-        for property in self._all_properties:
-            if property in person_props:
-                yield "person", property
+        person_on_events_props = team_manager.person_on_events_properties(self.team_id)
+        group0_props = team_manager.group_on_events_properties(0, self.team_id)
+        group1_props = team_manager.group_on_events_properties(1, self.team_id)
+        group2_props = team_manager.group_on_events_properties(2, self.team_id)
+        group3_props = team_manager.group_on_events_properties(3, self.team_id)
+        group4_props = team_manager.group_on_events_properties(4, self.team_id)
+
+        for table_column, property in self._all_properties:
             if property in event_props:
-                yield "events", property
+                yield "events", DEFAULT_TABLE_COLUMN, property
+            if property in person_props:
+                yield "person", DEFAULT_TABLE_COLUMN, property
+
+            if property in person_on_events_props and "person_properties" in table_column:
+                yield "events", "person_properties", property
+            if property in group0_props and "group0_properties" in table_column:
+                yield "events", "group0_properties", property
+            if property in group1_props and "group1_properties" in table_column:
+                yield "events", "group1_properties", property
+            if property in group2_props and "group2_properties" in table_column:
+                yield "events", "group2_properties", property
+            if property in group3_props and "group3_properties" in table_column:
+                yield "events", "group3_properties", property
+            if property in group4_props and "group4_properties" in table_column:
+                yield "events", "group4_properties", property
 
 
 def _get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
@@ -86,7 +123,7 @@ def _get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
         FROM system.query_log
         WHERE
             query NOT LIKE '%%query_log%%'
-            AND query LIKE '/* request:%%'
+            AND (query LIKE '/* user_id:%%' OR query LIKE '/* request:%%')
             AND query NOT LIKE '%%INSERT%%'
             AND type = 'QueryFinish'
             AND query_start_time > now() - toIntervalHour(%(since)s)
@@ -112,11 +149,12 @@ def _analyze(queries: List[Query]) -> List[Suggestion]:
         if not query.is_valid:
             continue
 
-        for table, property in query.properties(team_manager):
-            costs[(table, property)] += query.cost
+        for table, table_column, property in query.properties(team_manager):
+            costs[(table, table_column, property)] += query.cost
 
     return [
-        (table, property_name, cost) for (table, property_name), cost in sorted(costs.items(), key=lambda kv: -kv[1])
+        (table, table_column, property_name, cost)
+        for (table, table_column, property_name), cost in sorted(costs.items(), key=lambda kv: -kv[1])
     ]
 
 
@@ -136,8 +174,8 @@ def materialize_properties_task(
         columns_to_materialize = _analyze(_get_queries(time_to_analyze_hours, min_query_time))
     result = []
     for suggestion in columns_to_materialize:
-        table, property_name, _ = suggestion
-        if property_name not in get_materialized_columns(table):
+        table, table_column, property_name, _ = suggestion
+        if (property_name, table_column) not in get_materialized_columns(table):
             result.append(suggestion)
 
     if len(result) > 0:
@@ -145,16 +183,16 @@ def materialize_properties_task(
     else:
         logger.info("Found no columns to materialize.")
 
-    properties: Dict[TableWithProperties, List[PropertyName]] = {
+    properties: Dict[TableWithProperties, List[Tuple[PropertyName, TableColumn]]] = {
         "events": [],
         "person": [],
     }
-    for table, property_name, cost in result[:maximum]:
+    for table, table_column, property_name, cost in result[:maximum]:
         logger.info(f"Materializing column. table={table}, property_name={property_name}, cost={cost}")
 
         if not dry_run:
-            materialize(table, property_name)
-        properties[table].append(property_name)
+            materialize(table, property_name, table_column=table_column)
+        properties[table].append((property_name, table_column))
 
     if backfill_period_days > 0 and not dry_run:
         logger.info(f"Starting backfill for new materialized columns. period_days={backfill_period_days}")

@@ -21,6 +21,7 @@ from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
     BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES,
     BREAKDOWNS,
+    CLIENT_QUERY_ID,
     COMPARE,
     DATE_FROM,
     DATE_TO,
@@ -90,6 +91,16 @@ class ShownAsMixin(BaseParamMixin):
     @include_dict
     def shown_as_to_dict(self):
         return {"shown_as": self.shown_as} if self.shown_as else {}
+
+
+class ClientQueryIdMixin(BaseParamMixin):
+    @cached_property
+    def client_query_id(self) -> Optional[str]:
+        return self._data.get(CLIENT_QUERY_ID, None)
+
+    @include_dict
+    def client_query_id_to_dict(self):
+        return {"client_query_id": self.client_query_id} if self.client_query_id else {}
 
 
 class FilterTestAccountsMixin(BaseParamMixin):
@@ -486,6 +497,10 @@ class SearchMixin(BaseParamMixin):
     def search(self) -> Optional[str]:
         search = self._data.get("search", None)
         return search
+
+    @include_dict
+    def search_to_dict(self):
+        return {"search": self.search} if self.search else {}
 
 
 class DistinctIdMixin(BaseParamMixin):

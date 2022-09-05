@@ -31,6 +31,7 @@ class TestFilter(BaseTest):
                 "interval": "",
                 "actions": [],
                 "date_from": "2020-01-01T20:00:00Z",
+                "search": "query",
             }
         )
         self.assertCountEqual(
@@ -44,6 +45,7 @@ class TestFilter(BaseTest):
                 "interval",
                 "smoothing_intervals",
                 "breakdown_attribution_type",
+                "search",
             ],
         )
 
@@ -357,7 +359,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(3):
             matched_person = (
                 Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
                 .filter(properties_to_Q(filter.property_groups.flat, team_id=self.team.pk, is_direct_query=True))

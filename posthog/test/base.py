@@ -24,6 +24,7 @@ from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from posthog.models.event.util import bulk_create_events
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
 from posthog.models.person.sql import (
@@ -43,7 +44,7 @@ from posthog.settings import CLICKHOUSE_REPLICATION
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
-persons_ordering_int: int = 0
+persons_ordering_int: int = 1
 
 
 def _setup_test_data(klass):
@@ -142,10 +143,17 @@ class TestMixin:
             _setup_test_data(cls)
 
     def setUp(self):
+
+        if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+            from posthog.models.team import util
+
+            util.can_enable_person_on_events = True
+
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
 
     def tearDown(self):
+
         if len(persons_cache_tests) > 0:
             persons_cache_tests.clear()
             raise Exception(
@@ -216,7 +224,43 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
     return response
 
 
-def test_with_materialized_columns(event_properties=[], person_properties=[], verify_no_jsonextract=True):
+def default_materialised_columns():
+    try:
+        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
+        from ee.clickhouse.materialized_columns.test.test_columns import EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
+
+    except:
+        # EE not available? Skip
+        return []
+
+    default_columns = []
+    for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS:
+        column_name = get_materialized_columns("events")[(prop, "properties")]
+        default_columns.append(column_name)
+
+    return default_columns
+
+
+def cleanup_materialized_columns():
+    try:
+        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
+    except:
+        # EE not available? Skip
+        return
+
+    default_columns = default_materialised_columns()
+    for column_name in get_materialized_columns("events").values():
+        if column_name not in default_columns:
+            sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
+    for column_name in get_materialized_columns("person").values():
+        sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
+    for column_name in get_materialized_columns("groups").values():
+        sync_execute(f"ALTER TABLE groups DROP COLUMN {column_name}")
+
+
+def test_with_materialized_columns(
+    event_properties=[], person_properties=[], group_properties=[], verify_no_jsonextract=True
+):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
 
@@ -224,7 +268,7 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
     """
 
     try:
-        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns, materialize
+        from ee.clickhouse.materialized_columns.analyze import materialize
     except:
         # EE not available? Just run the main test
         return lambda fn: fn
@@ -240,21 +284,19 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
                 materialize("events", prop)
             for prop in person_properties:
                 materialize("person", prop)
+                materialize("events", prop, table_column="person_properties")
+            for group_type_index, prop in group_properties:
+                materialize("events", prop, table_column=f"group{group_type_index}_properties")  # type: ignore
 
             try:
                 with self.capture_select_queries() as sqls:
                     fn(self, *args, **kwargs)
             finally:
-                for prop in event_properties:
-                    column_name = get_materialized_columns("events")[prop]
-                    sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
-                for prop in person_properties:
-                    column_name = get_materialized_columns("person")[prop]
-                    sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
+                cleanup_materialized_columns()
 
             if verify_no_jsonextract:
                 for sql in sqls:
-                    self.assertNotIn("JSONExtract(properties", sql)
+                    self.assertNotIn("JSONExtract", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
         frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore

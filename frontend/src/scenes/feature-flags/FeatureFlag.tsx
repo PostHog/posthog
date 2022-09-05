@@ -16,7 +16,6 @@ import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 import { Link } from 'lib/components/Link'
@@ -100,7 +99,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <Field name="active">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
-                                            data-tooltip="feature-flag-enabled-toggle"
+                                            data-attr="feature-flag-enabled-toggle"
                                             checked={value}
                                             onChange={onChange}
                                             label={
@@ -204,12 +203,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     <div className="border rounded p-4">
                                         <LemonCheckbox
                                             id="continuity-checkbox"
-                                            label={
-                                                <div>
-                                                    Persist flag across authentication steps{' '}
-                                                    <LemonTag type="warning">Beta</LemonTag>
-                                                </div>
-                                            }
+                                            label="Persist flag across authentication steps"
                                             onChange={() => onChange(!value)}
                                             fullWidth
                                             checked={value}
@@ -218,8 +212,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             If your feature flag is applied prior to an identify or authentication
                                             event, use this to ensure that feature flags are not reset after a person is
                                             identified. This ensures the experience for the anonymous person is carried
-                                            forward to the authenticated person. Currently supported for posthog-js
-                                            only.
+                                            forward to the authenticated person.
                                         </div>
                                     </div>
                                 )}
@@ -269,7 +262,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                             </Link>
                                                         )}
                                                         String value (Multivariate test){' '}
-                                                        <LemonTag type="warning">Beta</LemonTag>
                                                     </div>
                                                 </Tooltip>
                                             ),
@@ -419,7 +411,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     </div>
 
                     <div className="feature-flag-form-row">
-                        <div data-tooltip="feature-flag-release-conditions">
+                        <div data-attr="feature-flag-release-conditions">
                             <h3 className="l3">Release conditions</h3>
                             <div className="text-muted mb-4">
                                 Specify the {aggregationTargetName} to which you want to release this flag. Note that

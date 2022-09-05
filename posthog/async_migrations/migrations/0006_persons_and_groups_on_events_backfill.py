@@ -101,7 +101,8 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    CREATE TABLE {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}} AS {settings.CLICKHOUSE_DATABASE}.person
+                    CREATE TABLE {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}
+                    AS {settings.CLICKHOUSE_DATABASE}.person
                     ENGINE = ReplacingMergeTree(version)
                     ORDER BY (team_id, id)
                     SETTINGS index_granularity = 128 {STORAGE_POLICY_SETTING()}
@@ -111,7 +112,8 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    CREATE TABLE {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}} AS {settings.CLICKHOUSE_DATABASE}.person_distinct_id2
+                    CREATE TABLE {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}
+                    AS {settings.CLICKHOUSE_DATABASE}.person_distinct_id2
                     ENGINE = ReplacingMergeTree(version)
                     ORDER BY (team_id, distinct_id)
                     SETTINGS index_granularity = 128
@@ -121,7 +123,8 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    CREATE TABLE {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}} AS {settings.CLICKHOUSE_DATABASE}.groups
+                    CREATE TABLE {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}
+                    AS {settings.CLICKHOUSE_DATABASE}.groups
                     ENGINE = ReplacingMergeTree(_timestamp)
                     ORDER BY (team_id, group_type_index, group_key)
                     SETTINGS index_granularity = 128 {STORAGE_POLICY_SETTING()}
@@ -131,24 +134,24 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    ALTER TABLE {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}
-                    REPLACE PARTITION tuple() FROM person
+                    ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}
+                    REPLACE PARTITION tuple() FROM {settings.CLICKHOUSE_DATABASE}.person
                 """,
                 rollback=None,
                 per_shard=True,
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    ALTER TABLE {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}
-                    REPLACE PARTITION tuple() FROM person_distinct_id2
+                    ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}
+                    REPLACE PARTITION tuple() FROM {settings.CLICKHOUSE_DATABASE}.person_distinct_id2
                 """,
                 rollback=None,
                 per_shard=True,
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    ALTER TABLE {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}
-                    REPLACE PARTITION tuple() FROM groups
+                    ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}
+                    REPLACE PARTITION tuple() FROM {settings.CLICKHOUSE_DATABASE}.groups
                 """,
                 rollback=None,
                 per_shard=True,
@@ -157,7 +160,7 @@ class Migration(AsyncMigrationDefinition):
                 fn=lambda query_id: run_optimize_table(
                     unique_name="0006_persons_and_groups_on_events_backfill_person",
                     query_id=query_id,
-                    table_name=TEMPORARY_PERSONS_TABLE_NAME,
+                    table_name=f"{settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PERSONS_TABLE_NAME}",
                     final=True,
                     deduplicate=True,
                     per_shard=True,
@@ -167,7 +170,7 @@ class Migration(AsyncMigrationDefinition):
                 fn=lambda query_id: run_optimize_table(
                     unique_name="0006_persons_and_groups_on_events_backfill_pdi2",
                     query_id=query_id,
-                    table_name=TEMPORARY_PDI2_TABLE_NAME,
+                    table_name=f"{settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PDI2_TABLE_NAME}",
                     final=True,
                     deduplicate=True,
                     per_shard=True,
@@ -177,7 +180,7 @@ class Migration(AsyncMigrationDefinition):
                 fn=lambda query_id: run_optimize_table(
                     unique_name="0006_persons_and_groups_on_events_backfill_groups",
                     query_id=query_id,
-                    table_name=TEMPORARY_GROUPS_TABLE_NAME,
+                    table_name=f"{settings.CLICKHOUSE_DATABASE}.{TEMPORARY_GROUPS_TABLE_NAME}",
                     final=True,
                     deduplicate=True,
                     per_shard=True,
@@ -185,7 +188,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    ALTER TABLE {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}
+                    ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}
                     DELETE WHERE is_deleted = 1 OR person_id IN (
                         SELECT id FROM {TEMPORARY_PERSONS_TABLE_NAME} WHERE is_deleted=1
                     )
@@ -196,7 +199,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    ALTER TABLE {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}
+                    ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}
                     DELETE WHERE is_deleted = 1
                 """,
                 sql_settings={"mutations_sync": 2},
@@ -266,13 +269,13 @@ class Migration(AsyncMigrationDefinition):
         for column in columns:
             execute_op_clickhouse(
                 query_id=query_id,
-                sql=f"ALTER TABLE {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY COLUMN {column} VARCHAR Codec({codec})",
+                sql=f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY COLUMN {column} VARCHAR Codec({codec})",
             )
 
     def _create_dictionaries(self, query_id):
         execute_op_clickhouse(
             f"""
-                CREATE DICTIONARY IF NOT EXISTS person_dict {{on_cluster_clause}}
+                CREATE DICTIONARY IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}.person_dict {{on_cluster_clause}}
                 (
                     team_id Int64,
                     id UUID,
@@ -290,7 +293,7 @@ class Migration(AsyncMigrationDefinition):
         ),
         execute_op_clickhouse(
             f"""
-                CREATE DICTIONARY IF NOT EXISTS person_distinct_id2_dict {{on_cluster_clause}}
+                CREATE DICTIONARY IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict {{on_cluster_clause}}
                 (
                     team_id Int64,
                     distinct_id String,
@@ -307,7 +310,7 @@ class Migration(AsyncMigrationDefinition):
         ),
         execute_op_clickhouse(
             f"""
-                CREATE DICTIONARY IF NOT EXISTS groups_dict {{on_cluster_clause}}
+                CREATE DICTIONARY IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}.groups_dict {{on_cluster_clause}}
                 (
                     team_id Int64,
                     group_type_index UInt8,
@@ -341,12 +344,12 @@ class Migration(AsyncMigrationDefinition):
 
     def _clear_temporary_tables(self, query_id):
         queries = [
-            f"DROP DICTIONARY IF EXISTS person_dict {{on_cluster_clause}}",
-            f"DROP DICTIONARY IF EXISTS person_distinct_id2_dict {{on_cluster_clause}}",
-            f"DROP DICTIONARY IF EXISTS groups_dict {{on_cluster_clause}}",
-            f"DROP TABLE IF EXISTS {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}",
-            f"DROP TABLE IF EXISTS {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}",
-            f"DROP TABLE IF EXISTS {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}",
+            f"DROP DICTIONARY IF EXISTS {settings.CLICKHOUSE_DATABASE}.person_dict {{on_cluster_clause}}",
+            f"DROP DICTIONARY IF EXISTS {settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict {{on_cluster_clause}}",
+            f"DROP DICTIONARY IF EXISTS {settings.CLICKHOUSE_DATABASE}.groups_dict {{on_cluster_clause}}",
+            f"DROP TABLE IF EXISTS {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}",
+            f"DROP TABLE IF EXISTS {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}",
+            f"DROP TABLE IF EXISTS {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}",
         ]
         for query in queries:
             execute_op_clickhouse(query_id=query_id, sql=query, per_shard=True)
