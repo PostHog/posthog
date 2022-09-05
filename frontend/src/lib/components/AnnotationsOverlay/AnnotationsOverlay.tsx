@@ -16,6 +16,7 @@ import { CSSTransition } from 'react-transition-group'
 import { annotationsModel } from '~/models/annotationsModel'
 import { Chart } from 'chart.js'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
+import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -49,7 +50,12 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
 
 export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: AnnotationsOverlayProps): JSX.Element {
     const { isPopoverShown, activeBadgeCoordinates, timezone } = useValues(annotationsOverlayLogic)
+    const { closePopover } = useActions(annotationsOverlayLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
+
+    const overlayRef = useRef<HTMLDivElement>(null)
+
+    useOutsideClickHandler(overlayRef, () => closePopover())
 
     const dates: dayjs.Dayjs[] = chart
         ? chart.scales.x.ticks.map(({ label }) => {
@@ -78,6 +84,7 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: Annotatio
                         : {}),
                 } as AnnotationsOverlayCSSProperties
             }
+            ref={overlayRef}
         >
             {dates?.map((date, index) => (
                 <AnnotationsBadge key={date.toISOString()} index={index} date={date} />
@@ -212,7 +219,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
 
     return (
-        <div className="AnnotationCard flex flex-col gap-2 w-full p-3 rounded border border-border">
+        <div className="AnnotationCard flex flex-col gap-2 w-full p-3 rounded border">
             <div className="flex items-center gap-2">
                 <h5 className="grow m-0 text-muted">{annotationScopeToLabel[annotation.scope]}</h5>
                 <LemonButton
