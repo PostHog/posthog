@@ -129,22 +129,32 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                             return null
                         },
                     }}
-                    expandable={
-                        currentTab === SessionRecordingTab.CONSOLE
-                            ? undefined
-                            : {
-                                  expandedRowRender: function renderExpand(record) {
-                                      return (
-                                          record && (
-                                              <EventDetails
-                                                  event={record as EventType}
-                                                  tableProps={{ size: 'xs', bordered: false, className: 'pt-1' }}
-                                              />
-                                          )
-                                      )
-                                  },
-                              }
-                    }
+                    expandable={{
+                        expandedRowRender: function renderExpand(record) {
+                            if (!record) {
+                                return null
+                            }
+                            if (currentTab === SessionRecordingTab.CONSOLE) {
+                                console.log('record', record.fullContent)
+                                return (
+                                    <>
+                                        {record.fullContent?.map((content: JSX.Element, i: number) => (
+                                            <React.Fragment key={i}>
+                                                {content}
+                                                <br />
+                                            </React.Fragment>
+                                        ))}
+                                    </>
+                                )
+                            }
+                            return (
+                                <EventDetails
+                                    event={record as EventType}
+                                    tableProps={{ size: 'xs', bordered: false, className: 'pt-1' }}
+                                />
+                            )
+                        },
+                    }}
                 />
             </div>
         </Col>

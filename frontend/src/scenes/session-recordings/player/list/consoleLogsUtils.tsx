@@ -42,6 +42,7 @@ export function parseEntry(entry?: string): ParsedEntry {
     }
 
     // Align all whitespace
+    console.log('RAW entry', rawEntry)
     rawEntry = rawEntry.replace(/\\n/g, ' ').replace(/\s+/g, ' ')
 
     // Wrap urls with anchor tags
