@@ -47,7 +47,7 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
 }
 
 export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: AnnotationsOverlayProps): JSX.Element {
-    const { activeBadgeRef } = useValues(annotationsOverlayLogic)
+    const { activeBadgeElement } = useValues(annotationsOverlayLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
     const overlayRef = useRef<HTMLDivElement | null>(null)
@@ -75,7 +75,7 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: An
             {tickDates?.map((date, index) => (
                 <AnnotationsBadge key={date.toISOString()} index={index} date={date} />
             ))}
-            {activeBadgeRef && <AnnotationsPopover overlayRefs={[overlayRef, modalContentRef, modalOverlayRef]} />}
+            {activeBadgeElement && <AnnotationsPopover overlayRefs={[overlayRef, modalContentRef, modalOverlayRef]} />}
             <AnnotationModal
                 contentRef={(el) => (modalContentRef.current = el)}
                 overlayRef={(el) => (modalOverlayRef.current = el)}
@@ -122,7 +122,7 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
             onMouseEnter={() => {
                 setHovered(true)
                 if (!isDateLocked) {
-                    activateDate(date, buttonRef)
+                    activateDate(date, buttonRef.current as HTMLButtonElement)
                 }
             }}
             onMouseLeave={() => {
@@ -131,7 +131,13 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
                     deactivateDate()
                 }
             }}
-            onClick={!isDateLocked ? lockDate : active ? unlockDate : () => activateDate(date, buttonRef)}
+            onClick={
+                !isDateLocked
+                    ? lockDate
+                    : active
+                    ? unlockDate
+                    : () => activateDate(date, buttonRef.current as HTMLButtonElement)
+            }
         >
             <LemonBubble
                 count={annotations.length || <IconPlusMini className="w-full h-full" />}
@@ -147,8 +153,15 @@ function AnnotationsPopover({
 }: {
     overlayRefs: React.MutableRefObject<HTMLDivElement | null>[]
 }): JSX.Element {
-    const { popoverAnnotations, activeDate, intervalUnit, isDateLocked, insightId, activeBadgeRef, isPopoverShown } =
-        useValues(annotationsOverlayLogic)
+    const {
+        popoverAnnotations,
+        activeDate,
+        intervalUnit,
+        isDateLocked,
+        insightId,
+        activeBadgeElement,
+        isPopoverShown,
+    } = useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
@@ -157,7 +170,7 @@ function AnnotationsPopover({
             additionalRefs={overlayRefs}
             className="AnnotationsPopover"
             placement="top"
-            referenceElement={activeBadgeRef.current}
+            referenceElement={activeBadgeElement as HTMLElement}
             visible={isPopoverShown}
             onClickOutside={closePopover}
             overlay={
