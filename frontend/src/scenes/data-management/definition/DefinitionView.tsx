@@ -115,24 +115,26 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <Divider />
                     <DefinitionPopup.Grid cols={2}>
                         {isEvent && (
-                            <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(definition.created_at)} />
+                            <>
+                                <DefinitionPopup.Card
+                                    title="First seen"
+                                    value={formatTimeFromNow(definition.created_at)}
+                                />
+                                <DefinitionPopup.Card
+                                    title="Last seen"
+                                    value={formatTimeFromNow(definition.last_seen_at)}
+                                />
+                                <DefinitionPopup.Card
+                                    title={<ThirtyDayVolumeTitle />}
+                                    value={
+                                        definition.volume_30_day == null
+                                            ? '-'
+                                            : humanFriendlyNumber(definition.volume_30_day)
+                                    }
+                                />
+                            </>
                         )}
-                        {isEvent && (
-                            <DefinitionPopup.Card
-                                title="Last seen"
-                                value={formatTimeFromNow(definition.last_seen_at)}
-                            />
-                        )}
-                        {isEvent && (
-                            <DefinitionPopup.Card
-                                title={<ThirtyDayVolumeTitle />}
-                                value={
-                                    definition.volume_30_day == null
-                                        ? '-'
-                                        : humanFriendlyNumber(definition.volume_30_day)
-                                }
-                            />
-                        )}
+
                         <DefinitionPopup.Card
                             title={<ThirtyDayQueryCountTitle />}
                             value={
