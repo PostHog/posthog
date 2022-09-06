@@ -97,8 +97,9 @@ export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
     '$initial_geoip_subdivision_name',
 ]
 
-export type openPersonsModelProps = {
+export type OpenPersonsModelProps = {
     step: FunnelStep
+    stepIndex?: number
     converted: boolean
 }
 
@@ -110,7 +111,7 @@ export const funnelLogic = kea<funnelLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'isViewedOnDashboard', 'hiddenLegendKeys'],
+            ['filters', 'insight', 'insightLoading', 'isInDashboardContext', 'hiddenLegendKeys'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -139,8 +140,9 @@ export const funnelLogic = kea<funnelLogicType>({
             index,
         }),
         saveFunnelInsight: (name: string) => ({ name }),
-        openPersonsModalForStep: ({ step, converted }: openPersonsModelProps) => ({
+        openPersonsModalForStep: ({ step, stepIndex, converted }: OpenPersonsModelProps) => ({
             step,
+            stepIndex,
             converted,
         }),
         openPersonsModalForSeries: ({
@@ -1165,7 +1167,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 return count
             },
         ],
-        isModalActive: [(s) => [s.isViewedOnDashboard], (isViewedOnDashboard) => !isViewedOnDashboard],
         incompletenessOffsetFromEnd: [
             (s) => [s.steps, s.conversionWindow],
             (steps, conversionWindow) => {
@@ -1250,9 +1251,8 @@ export const funnelLogic = kea<funnelLogicType>({
         clearFunnel: ({}) => {
             actions.setFilters({ new_entity: values.filters.new_entity }, false, true)
         },
-        openPersonsModalForStep: ({ step, converted }) => {
-            // DEPRECATED
-            if (!values.isModalActive) {
+        openPersonsModalForStep: ({ step, stepIndex, converted }) => {
+            if (values.isInDashboardContext) {
                 return
             }
 
@@ -1263,10 +1263,9 @@ export const funnelLogic = kea<funnelLogicType>({
                 openPersonsModal({
                     url: converted ? step.converted_people_url : step.dropped_people_url,
                     title: funnelTitle({
-                        step: converted ? step.order : -step.order,
-                        breakdown_value: breakdownValues.isEmpty
-                            ? undefined
-                            : breakdownValues.breakdown_value.join(', '),
+                        converted,
+                        // Note - when in a legend the step.order is always 0 so we use stepIndex instead
+                        step: typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1,
                         label: step.name,
                         seriesId: step.order,
                     }),
@@ -1285,13 +1284,17 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
+            if (values.isInDashboardContext) {
+                return
+            }
             // Version of openPersonsModalForStep that accurately handles breakdown series
             const breakdownValues = getBreakdownStepValues(series, series.order)
             if (shouldUsePersonsModalV2()) {
                 openPersonsModal({
                     url: converted ? series.converted_people_url : series.dropped_people_url,
                     title: funnelTitle({
-                        step: converted ? step.order + 1 : -(step.order + 1),
+                        converted,
+                        step: step.order + 1,
                         breakdown_value: breakdownValues.isEmpty
                             ? undefined
                             : breakdownValues.breakdown_value.join(', '),
@@ -1313,13 +1316,18 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
+            if (values.isInDashboardContext) {
+                return
+            }
+
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
                 if (shouldUsePersonsModalV2()) {
                     openPersonsModal({
                         url: success ? correlation.success_people_url : correlation.failure_people_url,
                         title: funnelTitle({
-                            step: success ? values.stepsWithCount.length : -2,
+                            converted: success,
+                            step: values.stepsWithCount.length,
                             breakdown_value,
                             label: breakdown,
                         }),
@@ -1348,7 +1356,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     openPersonsModal({
                         url: success ? correlation.success_people_url : correlation.failure_people_url,
                         title: funnelTitle({
-                            step: success ? values.stepsWithCount.length : -2,
+                            converted: success,
+                            step: values.stepsWithCount.length,
                             label: name,
                         }),
                     })

@@ -3,6 +3,7 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from typing import DefaultDict, Dict, List, Optional, Tuple, cast
 
+from django.db.models import Sum
 from django.utils import timezone
 
 from posthog.logging.timing import timed
@@ -15,6 +16,20 @@ from posthog.models.property_definition import PropertyType
 def calculate_event_property_usage() -> None:
     for team_id in Team.objects.values_list("id", flat=True):
         calculate_event_property_usage_for_team(team_id=team_id)
+
+
+def gauge_event_property_usage() -> None:
+    from posthog.internal_metrics import gauge
+
+    event_query_usage_30_day_sum: int = EventDefinition.objects.aggregate(sum=Sum("query_usage_30_day"))["sum"]
+    event_volume_30_day_sum: int = EventDefinition.objects.aggregate(sum=Sum("volume_30_day"))["sum"]
+    property_query_usage_30_day_sum: int = PropertyDefinition.objects.aggregate(sum=Sum("query_usage_30_day"))["sum"]
+    property_volume_30_day_sum: int = PropertyDefinition.objects.aggregate(sum=Sum("volume_30_day"))["sum"]
+
+    gauge("calculate_event_property_usage.event_query_usage_30_day_sum", value=event_query_usage_30_day_sum or 0)
+    gauge("calculate_event_property_usage.event_volume_30_day_sum", value=event_volume_30_day_sum or 0)
+    gauge("calculate_event_property_usage.property_query_usage_30_day_sum", value=property_query_usage_30_day_sum or 0)
+    gauge("calculate_event_property_usage.property_volume_30_day_sum", value=property_volume_30_day_sum or 0)
 
 
 @dataclass
