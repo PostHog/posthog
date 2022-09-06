@@ -268,7 +268,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                             {Object.keys(actor.properties).length ? (
                                 <PropertiesTable properties={actor.properties} />
                             ) : (
-                                <p>There are no properties.</p>
+                                <p className="text-center m-4">There are no properties.</p>
                             )}
                         </Tabs.TabPane>
                         <Tabs.TabPane tab="Recordings" key="recordings">
@@ -285,7 +285,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                                         </LemonButton>
                                     ))
                                 ) : (
-                                    <div className="text-center m-2">No recordings</div>
+                                    <div className="text-center m-2">There are no recordings.</div>
                                 )}
                             </div>
                         </Tabs.TabPane>
