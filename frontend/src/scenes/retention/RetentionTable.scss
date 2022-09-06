@@ -1,26 +1,3 @@
-.retention-table {
-    .ant-table-tbody .ant-table-cell {
-        padding: 0px !important;
-    }
-
-    .percentage-cell {
-        padding: 8px;
-    }
-
-    .period-in-progress {
-        background: repeating-linear-gradient(-45deg, #e4edf9, #e4edf9 10px, #f8fbfe 10px, #f8fbfe 20px);
-        color: #555555;
-    }
-}
-
-.retention-success {
-    border-radius: var(--radius);
-    background-color: var(--depr-lighten-primary-20);
-}
-.retention-dropped {
-    background-color: var(--bg-mid);
-}
-
 .RetentionTable {
     font-weight: 500;
     width: 100%;
