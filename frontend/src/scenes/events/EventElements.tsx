@@ -14,7 +14,7 @@ export function EventElements({ event }: { event: EventType }): JSX.Element {
         <div
             className="p-4 m-2 rounded"
             style={{
-                backgroundColor: 'rgb(39, 40, 34)', // consistent with JSON bg okaidia color
+                backgroundColor: 'rgb(39, 40, 34)', // consistent with okaidia syntax highlighter color
             }}
         >
             {elements.map((element, index) => (
