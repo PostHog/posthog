@@ -185,8 +185,7 @@ export default {
     // transform: undefined,
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation
-    transformIgnorePatterns: ['node_modules/(?!(query-selector-shadow-dom)|react-syntax-highlighter/)'],
-
+    transformIgnorePatterns: ['node_modules/(?!(query-selector-shadow-dom)/)'],
     // An array of regexp pattern strings that are matched against all modules before the module loader will automatically return a mock for them
     // unmockedModulePathPatterns: undefined,
 
