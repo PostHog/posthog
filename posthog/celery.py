@@ -3,7 +3,7 @@ import time
 from random import randrange
 from typing import Any, Dict, List
 
-from celery import Celery
+from celery import Celery, chain
 from celery.schedules import crontab
 from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
 from django.conf import settings
@@ -94,9 +94,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sender.add_periodic_task(
-        settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS,
-        check_cached_items.s(),
-        name="check dashboard items",
+        settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items",
     )
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
@@ -490,11 +488,28 @@ def debug_task(self):
     print(f"Request: {self.request!r}")
 
 
-@app.task(ignore_result=True)
+@app.task(ignore_result=False)
+def calculate_event_property_usage_chain():
+    # .subtask(immutable=True) means the chain runs in order but doesn't care about the results of the previous step
+    return chain(
+        gauge_event_property_usage.subtask(immutable=True),
+        calculate_event_property_usage.subtask(immutable=True),
+        gauge_event_property_usage.subtask(immutable=True),
+    ).apply_async()
+
+
+@app.task(ignore_result=False)
 def calculate_event_property_usage():
     from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
 
-    calculate_event_property_usage()
+    return calculate_event_property_usage()
+
+
+@app.task(ignore_result=False)
+def gauge_event_property_usage():
+    from posthog.tasks.calculate_event_property_usage import gauge_event_property_usage
+
+    return gauge_event_property_usage()
 
 
 @app.task(ignore_result=True)
