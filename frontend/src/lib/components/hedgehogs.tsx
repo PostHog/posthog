@@ -22,66 +22,77 @@ import supportHeroHog from 'public/hedgehog/support-hero-hog.png'
 import xRayHog2 from 'public/hedgehog/x-ray-hogs-02.png'
 import laptopHog3 from 'public/hedgehog/laptop-hog-03.png'
 
-export const SurprisedHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={surprisedHog} width={200} height={200} {...props} />
+type HedgehogProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>
+
+// w200 x h200
+const SquaredHedgehog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
+    return <img src={props.src} width={200} height={200} {...props} />
 }
-export const XRayHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={xRayHog} width={200} height={200} {...props} />
+// any width x h200
+const RectangularHedgehog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
+    return <img src={props.src} height={200} {...props} />
 }
-export const XRayHog2 = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={xRayHog2} height={200} {...props} />
+
+export const SurprisedHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={surprisedHog} {...props} />
 }
-export const HospitalHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={hospitalHog} width={200} height={200} {...props} />
+export const XRayHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={xRayHog} {...props} />
 }
-export const BlushingHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={blushingHog} height={200} width={200} {...props} />
+export const XRayHog2 = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={xRayHog2} {...props} />
 }
-export const LaptopHog1 = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={laptopHog1} height={200} {...props} />
+export const HospitalHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={hospitalHog} {...props} />
 }
-export const LaptopHog2 = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={laptopHog2} height={200} {...props} />
+export const BlushingHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={blushingHog} {...props} />
 }
-export const LaptopHog3 = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={laptopHog3} height={200} {...props} />
+export const LaptopHog1 = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={laptopHog1} {...props} />
 }
-export const ExplorerHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={explorerHog} {...props} width={200} height={200} {...props} />
+export const LaptopHog2 = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={laptopHog2} {...props} />
 }
-export const RunningHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={runningHog} width={200} height={200} {...props} />
+export const LaptopHog3 = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={laptopHog3} {...props} />
 }
-export const SpaceHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={spaceHog} height={200} {...props} />
+export const ExplorerHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={explorerHog} {...props} />
 }
-export const TronHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={tronHog} width={200} height={200} {...props} />
+export const RunningHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={runningHog} {...props} />
 }
-export const HeartHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={heartHog} width={200} height={200} {...props} />
+export const SpaceHog = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={spaceHog} {...props} />
 }
-export const StarHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={starHog} width={200} height={200} {...props} />
+export const TronHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={tronHog} {...props} />
 }
-export const PoliceHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={policeHog} width={200} height={200} {...props} />
+export const HeartHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={heartHog} {...props} />
 }
-export const SleepingHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={sleepingHog} width={200} height={200} {...props} />
+export const StarHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={starHog} {...props} />
 }
-export const BuilderHog1 = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={builderHog1} width={200} height={200} {...props} />
+export const PoliceHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={policeHog} {...props} />
 }
-export const BuilderHog2 = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={builderHog2} height={200} {...props} />
+export const SleepingHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={sleepingHog} {...props} />
 }
-export const BuilderHog3 = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={builderHog3} width={200} height={200} {...props} />
+export const BuilderHog1 = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={builderHog1} {...props} />
 }
-export const ProfessorHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={professorHog} width={200} height={200} {...props} />
+export const BuilderHog2 = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={builderHog2} {...props} />
 }
-export const SupportHeroHog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={supportHeroHog} width={200} height={200} {...props} />
+export const BuilderHog3 = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={builderHog3} {...props} />
+}
+export const ProfessorHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={professorHog} {...props} />
+}
+export const SupportHeroHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={supportHeroHog} {...props} />
 }
