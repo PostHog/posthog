@@ -170,7 +170,10 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             person = _create_person(team_id=self.team.pk, distinct_ids=[f"person-{id}"])
             persons.append(person)
             _create_event(
-                team=self.team, event="sign up", distinct_id=f"person-{id}", timestamp=timestamp,
+                team=self.team,
+                event="sign up",
+                distinct_id=f"person-{id}",
+                timestamp=timestamp,
             )
 
         flush_persons_and_events()
@@ -248,7 +251,9 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertListEqual(sorted(all_people_ids), sorted([str(people[1].uuid), str(people[2].uuid)]))
         self.assertEqual(len(all_people_ids), 2)
         self.assertEntityResponseEqual(
-            hour_grouped_action_response["results"], hour_grouped_event_response["results"], remove=[],
+            hour_grouped_action_response["results"],
+            hour_grouped_event_response["results"],
+            remove=[],
         )
 
     def test_day_range(self):
@@ -277,7 +282,12 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         ).json()
         event_response = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",
-            data={"date_from": "2020-01-04", "date_to": "2020-01-04", ENTITY_TYPE: "events", ENTITY_ID: "sign up",},
+            data={
+                "date_from": "2020-01-04",
+                "date_to": "2020-01-04",
+                ENTITY_TYPE: "events",
+                ENTITY_ID: "sign up",
+            },
         ).json()
 
         self.assertEqual(len(action_response["results"][0]["people"]), 1)

@@ -29,8 +29,8 @@ def factory_status_report(_create_event: Callable, _create_person: Callable, _cr
 
             self.assertEqual(report["posthog_version"], VERSION)
             self.assertEqual(report["deployment"], "tests")
-            self.assertLess(report["table_sizes"]["posthog_event"], 10 ** 7)  # <10MB
-            self.assertLess(report["table_sizes"]["posthog_sessionrecordingevent"], 10 ** 7)  # <10MB
+            self.assertLess(report["table_sizes"]["posthog_event"], 10**7)  # <10MB
+            self.assertLess(report["table_sizes"]["posthog_sessionrecordingevent"], 10**7)  # <10MB
 
         def test_instance_status_report_event_counts(self) -> None:
             with freeze_time("2020-11-02"):

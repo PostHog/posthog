@@ -16,5 +16,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        AddFiendNullSafe(model_name="asyncmigration", name="parameters", field=models.JSONField(default=dict),),
+        AddFiendNullSafe(
+            model_name="asyncmigration",
+            name="parameters",
+            field=models.JSONField(default=dict),
+        ),
     ]

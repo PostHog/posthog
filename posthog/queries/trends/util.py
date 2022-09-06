@@ -125,7 +125,11 @@ def get_next_interval_date_to(date_from: datetime, filter: Filter) -> datetime:
 
 
 def build_persons_urls(
-    filter: Filter, entity: Entity, team_id: int, dates: List[datetime], additional_params: Dict[str, Any] = {},
+    filter: Filter,
+    entity: Entity,
+    team_id: int,
+    dates: List[datetime],
+    additional_params: Dict[str, Any] = {},
 ) -> List[Dict[str, Any]]:
     persons_urls = []
     for date in dates:

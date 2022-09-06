@@ -439,7 +439,10 @@ class TrendsBreakdown:
             entity,
             team_id,
             dates,
-            additional_params={"breakdown_value": breakdown_value, "breakdown_type": filter.breakdown_type or "event",},
+            additional_params={
+                "breakdown_value": breakdown_value,
+                "breakdown_type": filter.breakdown_type or "event",
+            },
         )
 
     def _breakdown_result_descriptors(self, breakdown_value, filter: Filter, entity: Entity):

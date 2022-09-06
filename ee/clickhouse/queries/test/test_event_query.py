@@ -57,7 +57,13 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_basic_event_filter(self):
         self._run_query(
-            Filter(data={"date_from": "2021-05-01", "date_to": "2021-05-07", "events": [{"id": "viewed", "order": 0}],})
+            Filter(
+                data={
+                    "date_from": "2021-05-01",
+                    "date_to": "2021-05-07",
+                    "events": [{"id": "viewed", "order": 0}],
+                }
+            )
         )
 
     def test_person_properties_filter(self):
@@ -108,7 +114,11 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self._run_query(filter, entity)
 
         filter = Filter(
-            data={"date_from": "2021-05-01", "date_to": "2021-05-07", "events": [{"id": "viewed", "order": 0}],}
+            data={
+                "date_from": "2021-05-01",
+                "date_to": "2021-05-07",
+                "events": [{"id": "viewed", "order": 0}],
+            }
         )
 
         entity = Entity(
@@ -561,7 +571,11 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Session that should be returned
         _create_event(
-            team=self.team, event="start", distinct_id="p1", timestamp="2021-05-02", properties={"$session_id": "1abc"},
+            team=self.team,
+            event="start",
+            distinct_id="p1",
+            timestamp="2021-05-02",
+            properties={"$session_id": "1abc"},
         )
         _create_event(
             team=self.team,
