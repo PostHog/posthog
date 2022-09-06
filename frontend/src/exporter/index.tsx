@@ -6,6 +6,7 @@ import { loadPostHogJS } from '~/loadPostHogJS'
 import { initKea } from '~/initKea'
 import { Exporter } from '~/exporter/Exporter'
 import { ExportedData } from '~/exporter/types'
+import { ErrorBoundary } from '@sentry/react'
 
 // Disable tracking for all exports and embeds.
 // This is explicitly set as to not track our customers' customers data.
@@ -17,4 +18,23 @@ initKea()
 
 const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
 
-ReactDOM.render(<Exporter {...exportedData} />, document.getElementById('root'))
+function renderApp(): void {
+    const root = document.getElementById('root')
+    if (root) {
+        ReactDOM.render(
+            <ErrorBoundary>
+                <Exporter {...exportedData} />
+            </ErrorBoundary>,
+            root
+        )
+    } else {
+        console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')
+    }
+}
+
+// Render react only when DOM has loaded - javascript might be cached and loaded before the page is ready.
+if (document.readyState !== 'loading') {
+    renderApp()
+} else {
+    document.addEventListener('DOMContentLoaded', renderApp)
+}
