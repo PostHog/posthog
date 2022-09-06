@@ -39,7 +39,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { FeatureFlagsTabs } from './featureFlagsLogic'
 import { flagActivityDescriber } from './activityDescriptions'
-import { genericOperatorToHumanName, propertyValueToHumanName } from 'lib/components/DefinitionPopup/utils'
+import { genericOperatorToHumanName } from 'lib/components/DefinitionPopup/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 
 export const scene: SceneExport = {
@@ -144,6 +144,16 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 }
                             />
                             <Divider />
+                            {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
+                                <AlertMessage type="warning">
+                                    This feature flag is linked to an experiment. It's recommended to only make changes
+                                    to this flag{' '}
+                                    <Link to={urls.experiment(featureFlag.experiment_set[0])}>
+                                        using the experiment creation screen.
+                                    </Link>
+                                </AlertMessage>
+                            )}
+                            <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons. To sidestep this, you can choose to override server properties when requesting the feature flag." />
                             <Row gutter={16} style={{ marginBottom: 32 }}>
                                 <Col span={12} className="space-y-4">
                                     <Field
@@ -213,7 +223,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     authentication event, use this to ensure that feature flags are not
                                                     reset after a person is identified. This ensures the experience for
                                                     the anonymous person is carried forward to the authenticated person.
-                                                    Currently supported for posthog-js only.
                                                 </div>
                                             </div>
                                         )}
@@ -245,7 +254,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     data-attr="cancel-feature-flag"
                                     type="secondary"
                                     onClick={() => {
-                                        router.actions.push(urls.featureFlags())
+                                        if (isEditingFlag) {
+                                            editFeatureFlag(false)
+                                            loadFeatureFlag()
+                                        } else {
+                                            router.actions.push(urls.featureFlags())
+                                        }
                                     }}
                                     disabled={featureFlagLoading}
                                 >
@@ -417,7 +431,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     </Link>
                                 </AlertMessage>
                             )}
-                            <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons" />
+                            <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons. To sidestep this, you can choose to override server properties when requesting the feature flag." />
                             <h3 className="l3 mt-4">General configuration</h3>
                             <div className="text-muted mb-4">
                                 General settings for your feature flag and integration instructions.
@@ -486,7 +500,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     authentication event, use this to ensure that feature flags are not
                                                     reset after a person is identified. This ensures the experience for
                                                     the anonymous person is carried forward to the authenticated person.
-                                                    Currently supported for posthog-js only.
                                                 </div>
                                             </div>
                                         )}
@@ -516,7 +529,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         <Radio.Group
                                             options={[
                                                 {
-                                                    label: 'Boolean value (A/B test)',
+                                                    label: 'Release toggle (boolean)',
                                                     value: false,
                                                 },
                                                 {
@@ -875,7 +888,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
         aggregationTargetName,
         featureFlag,
     } = useValues(featureFlagLogic)
-    const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled, duplicateVariant } =
+    const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled } =
         useActions(featureFlagLogic)
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
     const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
@@ -888,8 +901,8 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                         Served value:{' '}
                         <b>
                             {featureFlag.filters.multivariate
-                                ? 'String value (Multivariate test)'
-                                : 'Boolean value (A/B test)'}
+                                ? 'Multiple variants with rollout percentages (A/B test)'
+                                : 'Release toggle (boolean)'}
                         </b>
                     </div>
                     {featureFlag.filters.multivariate && (
@@ -952,7 +965,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                             <Radio.Group
                                 options={[
                                     {
-                                        label: 'Boolean value (A/B test)',
+                                        label: 'Release toggle (boolean)',
                                         value: false,
                                     },
                                     {
@@ -972,7 +985,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                             />
                                                         </Link>
                                                     )}
-                                                    String value (Multivariate test){' '}
+                                                    Multiple variants with rollout percentages (A/B test)
                                                 </div>
                                             </Tooltip>
                                         ),
@@ -1081,15 +1094,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     </Col>
                                     <Col span={2}>
                                         <Row>
-                                            <LemonButton
-                                                icon={<IconCopy />}
-                                                status="primary-alt"
-                                                data-attr={`show-prop-duplicate-${index}`}
-                                                noPadding
-                                                onClick={() => {
-                                                    duplicateVariant(index)
-                                                }}
-                                            />
                                             {variants.length > 1 && (
                                                 <LemonButton
                                                     icon={<IconDelete />}
@@ -1251,9 +1255,20 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 ) : (
                                                     <span style={{ width: 14 }}>&</span>
                                                 )}
-                                                <span className="simple-tag tag-light-blue">{property.key} </span>
+                                                <span className="simple-tag tag-light-blue text-primary-alt">
+                                                    {property.key}{' '}
+                                                </span>
                                                 <span>{genericOperatorToHumanName(property.operator)} </span>
-                                                <span>{propertyValueToHumanName(property.value)}</span>
+                                                {[...(Array.isArray(property.value) ? property.value : [])].map(
+                                                    (val, idx) => (
+                                                        <span
+                                                            key={idx}
+                                                            className="simple-tag tag-light-blue text-primary-alt"
+                                                        >
+                                                            {val}
+                                                        </span>
+                                                    )
+                                                )}
                                             </Row>
                                         </>
                                     ))}
