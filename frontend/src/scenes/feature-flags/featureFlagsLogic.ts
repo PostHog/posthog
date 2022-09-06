@@ -19,6 +19,10 @@ export interface FeatureFlagsFilters {
     created_by?: string
 }
 
+interface FeatureFlagCreators {
+    [id: string]: string
+}
+
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
     path: ['scenes', 'feature-flags', 'featureFlagsLogic'],
     connect: {
@@ -74,7 +78,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         uniqueCreators: [
             (selectors) => [selectors.featureFlags],
             (featureFlags) => {
-                const creators = {}
+                const creators: FeatureFlagCreators = {}
                 for (const flag of featureFlags) {
                     if (flag.created_by) {
                         if (!creators[flag.created_by.id]) {
