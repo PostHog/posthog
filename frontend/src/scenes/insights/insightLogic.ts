@@ -7,7 +7,6 @@ import type { insightLogicType } from './insightLogicType'
 import {
     ActionType,
     FilterType,
-    DashboardTile,
     InsightLogicProps,
     InsightModel,
     InsightShortId,
@@ -37,7 +36,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 
@@ -386,16 +384,17 @@ export const insightLogic = kea<insightLogicType>({
                 ...insight,
             }),
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
-            [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item, dashboardIds }) => {
-                if (item.short_id !== state.short_id) {
-                    return state
-                }
-
-                const updateIsForThisDashboard = props.dashboardId && (dashboardIds || []).includes(props.dashboardId)
+            [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item, extraDashboardIds }) => {
+                // TODO when is this called without changes originating in this logic
+                const targetDashboards = (item.dashboards || []).concat(extraDashboardIds || [])
+                const updateIsForThisDashboard =
+                    item.short_id === state.short_id &&
+                    props.dashboardId &&
+                    targetDashboards.includes(props.dashboardId)
                 if (updateIsForThisDashboard) {
-                    return { ...item }
+                    return { ...state, ...item }
                 } else {
-                    return mergeWithDashboardTile(item, state as DashboardTile)
+                    return state
                 }
             },
         },
