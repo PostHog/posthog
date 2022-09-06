@@ -5,6 +5,7 @@ import { AnnotationScope, InsightModel, IntervalType } from '~/types'
 import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
+import { teamLogic } from 'scenes/teamLogic'
 
 export interface InsightAnnotationsLogicProps {
     dashboardItemId: InsightModel['short_id'] | 'new'
@@ -23,9 +24,11 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     connect({
         values: [
             insightLogic,
-            ['intervalUnit', 'timezone', 'insightId'],
+            ['intervalUnit', 'insightId'],
             annotationsModel,
             ['annotations', 'annotationsLoading'],
+            teamLogic,
+            ['timezone'],
         ],
         actions: [annotationsModel, ['createAnnotationGenerically', 'updateAnnotation', 'deleteAnnotation']],
     }),
