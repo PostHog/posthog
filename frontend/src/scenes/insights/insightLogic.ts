@@ -28,7 +28,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { actionsModel } from '~/models/actionsModel'
 import * as Sentry from '@sentry/react'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
@@ -199,10 +198,7 @@ export const insightLogic = kea<insightLogicType>({
                     }
                     callback?.(updatedInsight)
 
-                    savedInsightsLogic.findMounted()?.actions.loadInsights()
-                    for (const id of updatedInsight.dashboards ?? []) {
-                        dashboardLogic.findMounted({ id })?.actions.loadDashboardItems()
-                    }
+                    dashboardsModel.actions.updateDashboardInsight(updatedInsight)
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
@@ -853,7 +849,7 @@ export const insightLogic = kea<insightLogicType>({
                     action: () => router.actions.push(urls.savedInsights()),
                 },
             })
-            savedInsightsLogic.findMounted()?.actions.loadInsights()
+
             dashboardsModel.actions.updateDashboardInsight(savedInsight)
 
             if (redirectToViewMode) {
