@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
+import { dayjs, dayjsWithTimezone } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
 import React, { useRef, useState } from 'react'
 import { AnnotationScope, IntervalType, AnnotationType } from '~/types'
@@ -49,7 +49,7 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
 }
 
 export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: AnnotationsOverlayProps): JSX.Element {
-    const { isPopoverShown, activeBadgeCoordinates } = useValues(annotationsOverlayLogic)
+    const { isPopoverShown, activeBadgeCoordinates, timezone } = useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
@@ -60,7 +60,7 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: Annotatio
     useOutsideClickHandler([overlayRef, modalContentRef, modalOverlayRef], () => closePopover())
 
     const dates: dayjs.Dayjs[] = chart.scales.x.ticks.map(({ label }) => {
-        return dayjs(label as string)
+        return dayjsWithTimezone(label as string, timezone, true, ['D-MMM-YYYY HH:mm', 'D-MMM-YYYY'], true)
     })
 
     return (

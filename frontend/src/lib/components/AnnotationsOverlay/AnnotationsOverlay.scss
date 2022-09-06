@@ -62,7 +62,7 @@
     }
 
     ul {
-        max-height: 28rem;
+        max-height: calc(4 * 7rem + 3 * 0.25rem); // Fit in 4 annotations without scrolling
     }
 }
 

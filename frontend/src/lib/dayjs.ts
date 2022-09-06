@@ -23,6 +23,24 @@ const now = (): Dayjs => dayjs()
 
 export { dayjs, now }
 
+/** Parse datetime string using Day.js, taking into account time zone conversion edge cases. */
+export function dayjsWithTimezone(
+    isoString: string,
+    timezone: string,
+    local = false,
+    format?: dayjs.OptionType,
+    strict?: boolean
+): Dayjs {
+    // Strings from the API have the timezone offset set to UTC ("Z" suffix), so they are explicitly non-local.
+    // When there's no timezone offset in the string though, Day.js assumes it's a local datetime,
+    // which we need to correct - in that case the `local` arg should be `true`.
+    let datetime = dayjs(isoString, format, strict).utc(local)
+    if (!['GMT', 'UTC'].includes(timezone)) {
+        datetime = datetime.tz(timezone) // If the target is non-UTC, perform conversion
+    }
+    return datetime
+}
+
 // The lines below are copied from "node_modules/dayjs/index.ts" to help typescript and typegen.
 // We could only use types like "dayjs.OpUnitType", causing errors such as:
 // error TS2312: An interface can only extend an object type or intersection of object types with statically known members.

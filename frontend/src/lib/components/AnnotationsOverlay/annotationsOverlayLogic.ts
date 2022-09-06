@@ -11,17 +11,9 @@ export interface InsightAnnotationsLogicProps {
     insightNumericId: InsightModel['id'] | 'new'
 }
 
-/** Internal format for annotation groups. */
-const INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT: Record<IntervalType, string> = {
-    hour: 'YYYY-MM-DD HH',
-    day: 'YYYY-MM-DD',
-    week: 'YYYY-MM-DD',
-    month: 'YYYY-MM',
-}
-
 export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: IntervalType): string {
     // FIXME: Account for ticks sometimes including more than one group in dense graphs
-    return date.startOf(intervalUnit).format(INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT[intervalUnit])
+    return date.startOf(intervalUnit).format('YYYY-MM-DD HH:mm:ssZZ')
 }
 
 export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
@@ -97,14 +89,10 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             },
         ],
         groupedAnnotations: [
-            (s) => [s.relevantAnnotations, s.intervalUnit, s.timezone],
-            (annotations, intervalUnit, timezone) => {
+            (s) => [s.relevantAnnotations, s.intervalUnit],
+            (annotations, intervalUnit) => {
                 return groupBy(annotations, (annotation) => {
-                    let datetime = annotation.date_marker.utc()
-                    if (timezone !== 'UTC') {
-                        datetime = datetime.tz(timezone) // If the target is non-UTC, perform conversion
-                    }
-                    return determineAnnotationsDateGroup(datetime, intervalUnit)
+                    return determineAnnotationsDateGroup(annotation.date_marker, intervalUnit)
                 })
             },
         ],
