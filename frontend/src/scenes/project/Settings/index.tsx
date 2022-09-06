@@ -81,7 +81,7 @@ export function ProjectSettings(): JSX.Element {
 
     const loadingComponent = (
         <div className="space-y-4">
-            <LemonSkeleton width={'50%'} />
+            <LemonSkeleton className="w-1/2" />
             <LemonSkeleton repeat={3} />
         </div>
     )

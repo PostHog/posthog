@@ -6,19 +6,13 @@ import './LemonSkeleton.scss'
 
 export interface LemonSkeletonProps {
     className?: string
-    width?: string | number
-    height?: string | number
     repeat?: number
     active?: boolean
 }
 
-export function LemonSkeleton({ className, width, height, repeat, active = true }: LemonSkeletonProps): JSX.Element {
-    // eslint-disable-next-line react/forbid-dom-props
+export function LemonSkeleton({ className, repeat, active = true }: LemonSkeletonProps): JSX.Element {
     const content = (
-        <div
-            className={clsx('LemonSkeleton', !active && 'LemonSkeleton--static', className || 'h-4 w-full rounded')}
-            style={{ width, height }}
-        />
+        <div className={clsx('LemonSkeleton rounded h-4', !active && 'LemonSkeleton--static', className || 'w-full')} />
     )
 
     if (repeat) {
@@ -42,7 +36,7 @@ LemonSkeleton.Row = function LemonSkeletonRow({ className, ...props }: LemonSkel
 }
 
 LemonSkeleton.Circle = function LemonSkeletonCircle({ className, ...props }: LemonSkeletonProps) {
-    return <LemonSkeleton className={clsx('rounded-full h-10 w-10 shrink-0', className)} {...props} />
+    return <LemonSkeleton className={clsx('rounded-full shrink-0', className || 'h-10 w-10')} {...props} />
 }
 
 LemonSkeleton.Button = function LemonSkeletonButton({
@@ -53,10 +47,10 @@ LemonSkeleton.Button = function LemonSkeletonButton({
     return (
         <LemonSkeleton
             className={clsx(
-                'rounded w-20 px-3',
+                'rounded px-3',
                 size === 'small' && 'h-10',
                 (!size || size === 'medium') && 'h-10',
-                className
+                className || 'w-20'
             )}
             {...props}
         />

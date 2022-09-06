@@ -17,7 +17,7 @@ export function PersonDisplayNameProperties(): JSX.Element {
     )
 
     if (!currentTeam) {
-        return <LemonSkeleton width={'50%'} />
+        return <LemonSkeleton className="w-1/2" />
     }
 
     return (

@@ -89,7 +89,7 @@ export function ManageSubscriptions({
             <LemonModal.Content>
                 {subscriptionsLoading && !subscriptions.length ? (
                     <div className="space-y-2">
-                        <LemonSkeleton width={'50%'} />
+                        <LemonSkeleton className="w-1/2" />
                         <LemonSkeleton.Row repeat={2} />
                     </div>
                 ) : subscriptions.length ? (

@@ -1,13 +1,13 @@
 import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
-import { Skeleton } from './LemonSkeleton'
+import { LemonSkeleton } from './LemonSkeleton'
 import { LemonLabel } from '../LemonLabel/LemonLabel'
 import { LemonModal } from '../LemonModal'
 
 export default {
-    title: 'Lemon UI/LemonSkeleton',
-    component: Skeleton,
+    title: 'Lemon UI/Lemon Skeleton',
+    component: LemonSkeleton,
     parameters: {
         docs: {
             description: {
@@ -18,10 +18,10 @@ Skeleton screens are used to indicate that a screen is loading, are perceived as
             },
         },
     },
-} as ComponentMeta<typeof Skeleton>
+} as ComponentMeta<typeof LemonSkeleton>
 
 export function Default(): JSX.Element {
-    return <Skeleton />
+    return <LemonSkeleton />
 }
 
 export function Presets(): JSX.Element {
@@ -30,9 +30,9 @@ export function Presets(): JSX.Element {
             <p>Skeletons have a bunch of presets to help with simulating other LemonUI Components</p>
 
             <div className="flex items-center gap-2">
-                <Skeleton.Circle />
-                <Skeleton />
-                <Skeleton.Button />
+                <LemonSkeleton.Circle />
+                <LemonSkeleton />
+                <LemonSkeleton.Button />
             </div>
 
             <p>Here is an example of "skeletoning" a LemonModal</p>
@@ -44,14 +44,14 @@ export function Presets(): JSX.Element {
                 title="Loading..."
                 footer={
                     <>
-                        <Skeleton.Button />
-                        <Skeleton.Button />
+                        <LemonSkeleton.Button />
+                        <LemonSkeleton.Button />
                     </>
                 }
             >
                 <div className="space-y-2">
-                    <Skeleton width={'50%'} />
-                    <Skeleton.Row repeat={3} />
+                    <LemonSkeleton className="w-1/2" />
+                    <LemonSkeleton.Row repeat={3} />
                 </div>
             </LemonModal>
         </div>
@@ -64,9 +64,9 @@ export function Customisation(): JSX.Element {
             <p>Skeletons are most easily styled with utility classNames</p>
 
             <LemonLabel>Default</LemonLabel>
-            <Skeleton />
+            <LemonSkeleton />
             <LemonLabel>Custom classNames</LemonLabel>
-            <Skeleton className="h-10 rounded-lg" width={200} />
+            <LemonSkeleton className="h-10 rounded-lg w-1/3" />
         </div>
     )
 }

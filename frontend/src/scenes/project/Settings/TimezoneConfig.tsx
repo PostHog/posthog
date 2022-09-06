@@ -13,7 +13,7 @@ export function TimezoneConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
 
     if (!preflight?.available_timezones || !currentTeam) {
-        return <LemonSkeleton width={'50%'} />
+        return <LemonSkeleton className="w-1/2" />
     }
     function onChange(val: string): void {
         LemonDialog.open({

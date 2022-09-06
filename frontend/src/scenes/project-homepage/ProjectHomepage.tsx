@@ -72,7 +72,7 @@ export function ProjectHomepage(): JSX.Element {
                 <div>
                     <div className="homepage-dashboard-header">
                         <div className="dashboard-title-container">
-                            {!dashboard && <LemonSkeleton width={200} />}
+                            {!dashboard && <LemonSkeleton className="w-20" />}
                             {dashboard?.name && (
                                 <>
                                     <IconCottage className="mr-2 text-warning text-2xl" />

@@ -77,7 +77,7 @@ export function LemonSelectMultiple({
                         <div>
                             {range(5).map((x) => (
                                 <div key={x} className="LemonSelectMultipleDropdown__skeleton">
-                                    <LemonSkeleton.Circle width={'1.5rem'} height={'1.5rem'} />
+                                    <LemonSkeleton.Circle className="w-6 h-6" />
                                     <LemonSkeleton />
                                 </div>
                             ))}

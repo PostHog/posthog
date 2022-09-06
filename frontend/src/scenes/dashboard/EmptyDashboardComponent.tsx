@@ -11,8 +11,8 @@ function SkeletonCard({ children, active }: { children: React.ReactNode; active:
     return (
         <div className="border rounded p-10 h-full space-y-4 flex-1 flex flex-col justify-between">
             <div className="space-y-4">
-                <LemonSkeleton width={'30%'} active={active} />
-                <LemonSkeleton width={'50%'} active={active} />
+                <LemonSkeleton className="w-1/3 h-4" active={active} />
+                <LemonSkeleton className="w-1/2 h-4" active={active} />
             </div>
             {children}
         </div>
@@ -30,7 +30,10 @@ function SkeletonCardOne({ active }: { active: boolean }): JSX.Element {
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ width: '15%', height: '80%' }}
                     >
-                        <LemonSkeleton active={active} height={`${height}%`} />
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        <div style={{ height: `${height}%` }}>
+                            <LemonSkeleton active={active} className="h-full w-full" />
+                        </div>
                     </div>
                 ))}
             </div>
@@ -45,7 +48,18 @@ function SkeletonBarsRaw({ active }: { active: boolean }): JSX.Element {
                 .fill(0)
                 .map((_, index) => {
                     const height = Math.random() * 60 + 10
-                    return <LemonSkeleton active={active} key={index} height={`${height}%`} width={'12.5%'} />
+                    return (
+                        <div
+                            key={index}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                height: `${height}%`,
+                                width: '12.5%',
+                            }}
+                        >
+                            <LemonSkeleton active={active} className="h-full w-full" />
+                        </div>
+                    )
                 })}
         </div>
     )

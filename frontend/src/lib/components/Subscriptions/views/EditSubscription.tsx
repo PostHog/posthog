@@ -118,11 +118,11 @@ export function EditSubscription({
                 {!subscription ? (
                     subscriptionLoading ? (
                         <div className="space-y-4">
-                            <LemonSkeleton width={'50%'} />
+                            <LemonSkeleton className="w-1/2" />
                             <LemonSkeleton.Row />
-                            <LemonSkeleton width={'50%'} />
+                            <LemonSkeleton className="w-1/2" />
                             <LemonSkeleton.Row />
-                            <LemonSkeleton width={'50%'} />
+                            <LemonSkeleton className="w-1/2" />
                             <LemonSkeleton.Row />
                         </div>
                     ) : (

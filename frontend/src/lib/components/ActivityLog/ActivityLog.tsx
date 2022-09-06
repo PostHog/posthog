@@ -6,7 +6,7 @@ import './ActivityLog.scss'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityScope, Describer } from 'lib/components/ActivityLog/humanizeActivity'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
-import { Skeleton } from '../Skeleton/Skeleton'
+import { LemonSkeleton } from '../LemonSkeleton'
 
 export interface ActivityLogProps {
     scope: ActivityScope
@@ -44,10 +44,10 @@ const Empty = ({ scope, idExists }: { scope: string; idExists: boolean }): JSX.E
 const SkeletonLog = (): JSX.Element => {
     return (
         <div className="activity-log-row items-start">
-            <Skeleton.Circle />
+            <LemonSkeleton.Circle />
             <div className="details space-y-4 mt-2">
-                <Skeleton width={'50%'} />
-                <Skeleton />
+                <LemonSkeleton className="w-1/2" />
+                <LemonSkeleton />
             </div>
         </div>
     )
