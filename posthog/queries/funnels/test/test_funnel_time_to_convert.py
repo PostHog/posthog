@@ -234,7 +234,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         # Let's verify that behavior with steps unspecified is the same as when first and last steps specified
         funnel_trends_steps_specified = ClickhouseFunnelTimeToConvert(
-            Filter(data={**filter._data, "funnel_from_step": 0, "funnel_to_step": 2,}), self.team
+            Filter(data={**filter._data, "funnel_from_step": 0, "funnel_to_step": 2}), self.team
         )
         results_steps_specified = funnel_trends_steps_specified.run()
 

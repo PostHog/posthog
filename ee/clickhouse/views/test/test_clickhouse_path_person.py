@@ -89,9 +89,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
             {"insight": "PATHS", "filter_test_accounts": "false", "date_from": "2021-05-01", "date_to": "2021-05-10"},
         )
 
-        insert_cohort_from_insight_filter(
-            cohort_id, params,
-        )
+        insert_cohort_from_insight_filter(cohort_id, params)
 
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk)

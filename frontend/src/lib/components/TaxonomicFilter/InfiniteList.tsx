@@ -120,7 +120,7 @@ const renderItemContents = ({
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
                 {icon}
-                <PropertyKeyInfo value={item.name ?? ''} disablePopover disableIcon style={{ maxWidth: '100%' }} />
+                <PropertyKeyInfo value={item.name ?? ''} disablePopover disableIcon className="w-full" />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
             {isUnusedEventProperty && unusedIndicator(eventNames)}
@@ -128,7 +128,7 @@ const renderItemContents = ({
     ) : (
         <div className="taxonomic-list-row-contents">
             {listGroupType === TaxonomicFilterGroupType.Elements ? (
-                <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
+                <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover className="w-full" />
             ) : (
                 <>
                     {group.getIcon ? icon : null}

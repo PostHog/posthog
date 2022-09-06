@@ -63,7 +63,7 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED,
+    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
 )
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
@@ -346,7 +346,7 @@ GROUP BY tag_name, elements_chain
 ORDER BY tag_count desc, tag_name
 LIMIT %(limit)s
 """.format(
-    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX,
+    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
 )
 
 GET_CUSTOM_EVENTS = """

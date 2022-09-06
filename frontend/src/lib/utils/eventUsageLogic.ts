@@ -28,7 +28,7 @@ import {
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
+import type { PersonsModalParams } from 'scenes/trends/persons-modal/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 
@@ -460,6 +460,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
         reportIngestionContinueWithoutVerifying: true,
+        reportIngestionContinueWithoutBilling: true,
         reportIngestionThirdPartyAboutClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
@@ -1093,6 +1094,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportIngestionContinueWithoutVerifying: () => {
             posthog.capture('ingestion continue without verifying')
+        },
+        reportIngestionContinueWithoutBilling: () => {
+            posthog.capture('ingestion continue without adding billing details')
         },
         reportIngestionThirdPartyAboutClicked: ({ name }) => {
             posthog.capture('ingestion third party about clicked', {

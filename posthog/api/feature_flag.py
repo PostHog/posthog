@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import parse_bool
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import FeatureFlag
@@ -149,9 +150,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         instance: FeatureFlag = super().create(validated_data)
         instance.update_cohorts()
 
-        report_user_action(
-            request.user, "feature flag created", instance.get_analytics_metadata(),
-        )
+        report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
 
         return instance
 
@@ -164,9 +163,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         instance = super().update(instance, validated_data)
         instance.update_cohorts()
 
-        report_user_action(
-            request.user, "feature flag updated", instance.get_analytics_metadata(),
-        )
+        report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
         return instance
 
     def _update_filters(self, validated_data):
@@ -193,6 +190,12 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
+        filters = self.request.GET.dict()
+        for key, value in filters.items():
+            if key == "active":
+                queryset = queryset.filter(active=parse_bool(value))
+            if key == "created_by":
+                queryset = queryset.filter(created_by=value)
         if self.action == "list":
             queryset = queryset.filter(deleted=False).prefetch_related("experiment_set")
 

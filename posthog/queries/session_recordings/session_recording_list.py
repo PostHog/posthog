@@ -210,9 +210,7 @@ class SessionRecordingList(EventQuery):
             else:
                 operator = "<"
             duration_clause = "\nAND duration {operator} %(recording_duration)s".format(operator=operator)
-            duration_params = {
-                "recording_duration": self._filter.recording_duration_filter.value,
-            }
+            duration_params = {"recording_duration": self._filter.recording_duration_filter.value}
         return duration_clause, duration_params
 
     def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> Tuple[str, Dict[str, Any]]:
@@ -265,7 +263,7 @@ class SessionRecordingList(EventQuery):
 
         params = {**params, "event_names": list(event_names_to_filter)}
 
-        return EventFiltersSQL(aggregate_select_clause, aggregate_having_clause, where_conditions, params,)
+        return EventFiltersSQL(aggregate_select_clause, aggregate_having_clause, where_conditions, params)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         offset = self._filter.offset or 0

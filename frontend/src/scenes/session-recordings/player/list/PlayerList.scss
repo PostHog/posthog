@@ -1,7 +1,7 @@
 .PlayerList {
     display: flex;
     flex-direction: column;
-    background-color: var(--bg-side);
+    background-color: var(--side);
     height: inherit;
 
     .ReactVirtualized__Grid__innerScrollContainer {
@@ -14,7 +14,10 @@
         overflow: hidden;
 
         .PlayerList__item__content--current {
-            box-shadow: 4px 0px 0px 0px rgba(142, 164, 255, 1) inset;
+            .PlayerList__item__content__header,
+            .PlayerList__item__content__expandable {
+                box-shadow: 4px 0px 0px 0px rgba(142, 164, 255, 1) inset;
+            }
         }
     }
 

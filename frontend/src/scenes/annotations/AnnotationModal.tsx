@@ -1,21 +1,29 @@
-import { LemonButton, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonModalProps, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { DatePicker } from 'lib/components/DatePicker'
 import React from 'react'
-import { annotationScopeToName, annotationsPageLogic, ANNOTATION_DAYJS_FORMAT } from './annotationsPageLogic'
+import { annotationScopeToName, annotationModalLogic, ANNOTATION_DAYJS_FORMAT } from './annotationModalLogic'
 import { AnnotationScope } from '~/types'
 import { IconWarning } from 'lib/components/icons'
+import { shortTimeZone } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
-export function AnnotationModal(): JSX.Element {
-    const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting } = useValues(annotationsPageLogic)
-    const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationsPageLogic)
+export function AnnotationModal({
+    overlayRef,
+    contentRef,
+}: Pick<LemonModalProps, 'overlayRef' | 'contentRef'>): JSX.Element {
+    const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting, onSavedInsight, timezone } =
+        useValues(annotationModalLogic)
+    const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
 
     const isInsightScoped = existingModalAnnotation?.scope === AnnotationScope.Insight
 
     return (
         <LemonModal
+            overlayRef={overlayRef}
+            contentRef={contentRef}
             isOpen={isModalOpen}
             onClose={closeModal}
             title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
@@ -56,14 +64,26 @@ export function AnnotationModal(): JSX.Element {
             }
         >
             <Form
-                logic={annotationsPageLogic}
+                logic={annotationModalLogic}
                 formKey="annotationModal"
                 id="annotation-modal-form"
                 enableFormOnSubmit
                 className="space-y-4"
             >
                 <div className="flex gap-2">
-                    <Field name="dateMarker" label="Date and time" className="flex-1">
+                    <Field
+                        name="dateMarker"
+                        label={
+                            <span>
+                                Date and time (
+                                <Link to={urls.projectSettings('timezone')} target="_blank">
+                                    {shortTimeZone(timezone)}
+                                </Link>
+                                )
+                            </span>
+                        }
+                        className="flex-1"
+                    >
                         <DatePicker
                             className="h-10"
                             allowClear={false}
@@ -75,7 +95,7 @@ export function AnnotationModal(): JSX.Element {
                     <Field name="scope" label="Scope" className="flex-1">
                         <LemonSelect
                             options={[
-                                ...(existingModalAnnotation?.scope === AnnotationScope.Insight
+                                ...(existingModalAnnotation?.scope === AnnotationScope.Insight || onSavedInsight
                                     ? [
                                           {
                                               value: AnnotationScope.Insight,

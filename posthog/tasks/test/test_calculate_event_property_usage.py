@@ -17,10 +17,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         create_event(event="watched_movie", team=self.team, distinct_id="user1")
         create_event(event="$pageview", team=self.team, distinct_id="user1")
         create_event(event="$pageview", team=self.team, distinct_id="user1")
-        expected_events = [
-            "watched_movie",
-            "$pageview",
-        ]
+        expected_events = ["watched_movie", "$pageview"]
         EventDefinition.objects.create(name="watched_movie", team=self.team)
         EventDefinition.objects.create(name="$pageview", team=self.team)
 
@@ -86,7 +83,8 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         EventDefinition.objects.create(team=self.team, name="custom event")
         PropertyDefinition.objects.create(team=self.team, name="$current_url")
         PropertyDefinition.objects.create(team=self.team, name="team_id")
-        PropertyDefinition.objects.create(team=self.team, name="value")
+        PropertyDefinition.objects.create(team=self.team, name="used property")
+        PropertyDefinition.objects.create(team=self.team, name="unused property")
         team2 = Organization.objects.bootstrap(None)[2]
         with freeze_time("2020-08-01"):
             # ignore stuff older than 30 days
@@ -104,13 +102,62 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
                 properties={"$current_url": "https://posthog.com"},
             )
         with freeze_time("2020-10-01"):
+            # with property group
             Insight.objects.create(
                 team=self.team,
                 filters={
                     "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$current_url", "value": "https://posthog.com"}],
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$current_url",
+                                        "value": "https://posthog.com",
+                                        "operator": "exact",
+                                        "type": "event",
+                                    },
+                                    {
+                                        "key": "$current_url",
+                                        "value": "https://posthog2.com",
+                                        "operator": "exact",
+                                        "type": "event",
+                                    },
+                                ],
+                            },
+                            {
+                                "type": "OR",
+                                "values": [{"key": "used property", "value": 1, "operator": "gt", "type": "event"}],
+                            },
+                        ],
+                    },
                 },
             )
+
+            series_with_properties = [
+                {
+                    "id": "$pageview",
+                    "name": "$pageview",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [
+                        {"key": "used property", "value": "series-filter", "operator": "icontains", "type": "event"}
+                    ],
+                }
+            ]
+
+            # with properties queried in events
+            Insight.objects.create(
+                team=self.team,
+                filters={
+                    "events": series_with_properties,
+                    "properties": [{"key": "$current_url", "value": "https://posthog2.com"}],
+                },
+            )
+
+            # with non group style properties
             Insight.objects.create(
                 team=self.team,
                 filters={
@@ -141,7 +188,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
 
             # team leakage
             create_event(
-                distinct_id="test", team=team2, event="$pageview", properties={"$current_url": "https://posthog.com"},
+                distinct_id="test", team=team2, event="$pageview", properties={"$current_url": "https://posthog.com"}
             )
             Insight.objects.create(
                 team=team2,
@@ -152,15 +199,19 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             )
 
             calculate_event_property_usage_for_team(self.team.pk)
-        self.assertEqual(2, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
+
+        self.assertEqual(3, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
         self.assertEqual(2, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
 
         self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="custom event").query_usage_30_day)
         self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="custom event").volume_30_day)
 
-        self.assertEqual(2, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
+        self.assertEqual(4, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
         self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="team_id").query_usage_30_day)
-        self.assertEqual(0, PropertyDefinition.objects.get(team=self.team, name="value").query_usage_30_day)
+        self.assertEqual(
+            2, PropertyDefinition.objects.get(team=self.team, name="used property").query_usage_30_day
+        )  # in a property group and in an events series filter
+        self.assertEqual(0, PropertyDefinition.objects.get(team=self.team, name="unused property").query_usage_30_day)
 
     def test_complete_inference(self) -> None:
         assert EventDefinition.objects.count() == 0
@@ -183,7 +234,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
         Insight.objects.create(
             team=self.team,
-            filters={"events": [{"id": "element_discovered"}], "properties": [{"key": "atomic_number", "value": "2"}],},
+            filters={"events": [{"id": "element_discovered"}], "properties": [{"key": "atomic_number", "value": "2"}]},
         )
 
         calculate_event_property_usage_for_team(self.team.pk, complete_inference=True)

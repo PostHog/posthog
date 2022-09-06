@@ -150,7 +150,7 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
     return []
 
 
-def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500,) -> None:
+def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500) -> None:
     resource = exported_asset.export_context
 
     path: str = resource["path"]
@@ -212,7 +212,7 @@ def make_api_call(
     try:
         url = add_query_params(request_url, {"limit": str(limit)})
         response = requests.request(
-            method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
+            method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"}
         )
         return response
     except Exception as ex:
@@ -229,7 +229,7 @@ def make_api_call(
 
 
 @timed("csv_exporter")
-def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 3_500,) -> None:
+def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 3_500) -> None:
     if not limit:
         limit = 1000
 

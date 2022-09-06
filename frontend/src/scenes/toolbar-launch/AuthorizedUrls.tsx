@@ -12,7 +12,6 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Field } from 'lib/forms/Field'
-import Typography from 'antd/lib/typography'
 
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
@@ -122,12 +121,9 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                 Suggestion
                                             </LemonTag>
                                         )}
-                                        <Typography.Text
-                                            ellipsis={{ tooltip: keyedAppURL.url }}
-                                            className="text-muted-alt flex-1"
-                                        >
+                                        <span title={keyedAppURL.url} className="flex-1 truncate">
                                             {keyedAppURL.url}
-                                        </Typography.Text>
+                                        </span>
                                         <div className="Actions flex space-x-2 shrink-0">
                                             {keyedAppURL.type === 'suggestion' ? (
                                                 <LemonButton

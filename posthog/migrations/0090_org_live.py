@@ -49,10 +49,22 @@ class Migration(migrations.Migration):
             name="name",
             field=models.CharField(default="Default Project", max_length=200, null=True),
         ),
-        migrations.RemoveConstraint(model_name="organizationinvite", name="max_uses_respected",),
-        migrations.RemoveField(model_name="organizationinvite", name="last_used_by",),
-        migrations.RemoveField(model_name="organizationinvite", name="max_uses",),
-        migrations.RemoveField(model_name="organizationinvite", name="uses",),
+        migrations.RemoveConstraint(
+            model_name="organizationinvite",
+            name="max_uses_respected",
+        ),
+        migrations.RemoveField(
+            model_name="organizationinvite",
+            name="last_used_by",
+        ),
+        migrations.RemoveField(
+            model_name="organizationinvite",
+            name="max_uses",
+        ),
+        migrations.RemoveField(
+            model_name="organizationinvite",
+            name="uses",
+        ),
         migrations.AlterField(
             model_name="organizationinvite",
             name="target_email",

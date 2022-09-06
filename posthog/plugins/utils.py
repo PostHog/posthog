@@ -263,7 +263,7 @@ def extract_plugin_code(
 ) -> Tuple[str, Optional[str], Optional[str]]:
     """Extract plugin.json, index.ts (which can be aliased) and frontend.tsx out of an archive.
 
-        If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
+    If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
     if archive is None:
         raise ValueError(f"There is no archive to extract code from")
     # Extract plugin.json - required, might be provided already

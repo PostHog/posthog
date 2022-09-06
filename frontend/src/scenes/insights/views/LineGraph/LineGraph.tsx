@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import {
     registerables,
     ActiveElement,
@@ -19,23 +19,18 @@ import {
 } from 'chart.js'
 import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
-import { areObjectValuesEmpty, lightenDarkenColor, mapRange } from '~/lib/utils'
+import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
-import { AnnotationMarker, Annotations, insightAnnotationsLogic } from 'lib/components/Annotations'
-import { useEscapeKey } from 'lib/hooks/useEscapeKey'
-import './LineGraph.scss'
-import { dayjs } from 'lib/dayjs'
-import { AnnotationScope, AnnotationType, GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
+import { AnnotationsOverlay, annotationsOverlayLogic } from 'lib/components/AnnotationsOverlay'
+import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { formatAggregationAxisValue, AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-//--Chart Style Options--//
 if (registerables) {
     // required for storybook to work, not found in esbuild
     Chart.register(...registerables)
@@ -43,9 +38,7 @@ if (registerables) {
 Chart.register(CrosshairPlugin)
 Chart.defaults.animation['duration'] = 0
 
-//--Chart Style Options--//
-
-interface LineGraphProps {
+export interface LineGraphProps {
     datasets: GraphDataset[]
     hiddenLegendKeys?: Record<string | number, boolean | undefined>
     labels: string[]
@@ -62,8 +55,6 @@ interface LineGraphProps {
     aggregationAxisFormat?: AggregationAxisFormat
 }
 
-const noop = (): void => {}
-
 export function ensureTooltipElement(): HTMLElement {
     let tooltipEl = document.getElementById('InsightTooltipWrapper')
     if (!tooltipEl) {
@@ -76,16 +67,9 @@ export function ensureTooltipElement(): HTMLElement {
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
-    const { insightProps, insight } = useValues(insightLogic)
-
     return (
         <ErrorBoundary>
-            <BindLogic
-                logic={insightAnnotationsLogic}
-                props={{ dashboardItemId: insightProps.dashboardItemId, insightNumericId: insight.id || 'new' }}
-            >
-                <LineGraph_ {...props} />
-            </BindLogic>
+            <LineGraph_ {...props} />
         </ErrorBoundary>
     )
 }
@@ -98,7 +82,6 @@ export function LineGraph_({
     isInProgress = false,
     onClick,
     ['data-attr']: dataAttr,
-    inSharedMode = false,
     showPersonsModal = true,
     isCompare = false,
     incompletenessOffsetFromEnd = -1,
@@ -109,75 +92,20 @@ export function LineGraph_({
     let datasets = _datasets
 
     const { createTooltipData } = useValues(lineGraphLogic)
-    const { timezone } = useValues(insightLogic)
+    const { insightProps, insight, timezone } = useValues(insightLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
-    const chartRef = useRef<HTMLCanvasElement | null>(null)
-    const myLineChart = useRef<Chart<ChartType, any, string>>()
-    const annotationsRoot = useRef<HTMLDivElement | null>(null)
-    const [left, setLeft] = useState(-1)
-    const [holdLeft, setHoldLeft] = useState(0)
-    const [enabled, setEnabled] = useState(false)
-    const [focused, setFocused] = useState(false)
-    const [annotationsFocused, setAnnotationsFocused] = useState(false)
-    const [labelIndex, setLabelIndex] = useState<number | null>(null)
-    const [holdLabelIndex, setHoldLabelIndex] = useState<number | null>(null)
-    const [selectedDayLabel, setSelectedDayLabel] = useState<string | null>(null)
-
-    // insightAnnotationsLogic's props must be bound using BindLogic - this is so that we can avoid prop drilling here
-    const { createAnnotation } = !inSharedMode ? useActions(insightAnnotationsLogic) : { createAnnotation: noop }
-    const { annotations, annotationsLoading } = !inSharedMode
-        ? useValues(insightAnnotationsLogic)
-        : { annotations: [], annotationsLoading: false }
-
-    const [leftExtent, setLeftExtent] = useState(0)
-    const [boundaryInterval, setBoundaryInterval] = useState(0)
-    const [topExtent, setTopExtent] = useState(0)
-    const [annotationInRange, setInRange] = useState(false)
-    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: chartRef })
+    const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
+    const [[chartWidth, chartHeight], setChartDimensions] = useState<[number, number]>([0, 0])
 
     const colors = getGraphColors()
+    const insightType = insight.filters?.insight
     const isHorizontal = type === GraphType.HorizontalBar
+    const isPie = type === GraphType.Pie
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
-    const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie]
-    const isAnnotated = [GraphType.Line, GraphType.Bar].includes(type)
-
-    const annotationsCondition =
-        isAnnotated && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // exclude stickiness graphs
-
-    useEscapeKey(() => setFocused(false), [focused])
-
-    useEffect(() => {
-        buildChart()
-    }, [datasets, hiddenLegendKeys])
-
-    // annotation related effects
-
-    // update boundaries and axis padding when user hovers with mouse or annotations load
-    useEffect(() => {
-        if (annotationsCondition && myLineChart.current?.options?.scales?.x?.grid) {
-            myLineChart.current.options.scales.x.grid.tickLength = annotationInRange || focused ? 45 : 10
-            myLineChart.current.update()
-            calculateBoundaries()
-        }
-    }, [annotationsLoading, annotationsCondition, annotations, annotationInRange])
-
-    useEffect(() => {
-        if (annotationsCondition && (datasets?.[0]?.days?.length ?? 0) > 0) {
-            const begin = dayjs(datasets[0].days?.[0])
-            const end = dayjs(datasets[0].days?.[datasets[0].days.length - 1]).add(2, 'days')
-            const checkBetween = (element: AnnotationType): boolean =>
-                dayjs(element.date_marker).isSameOrBefore(end) && dayjs(element.date_marker).isSameOrAfter(begin)
-            setInRange(annotations.some(checkBetween))
-        }
-    }, [datasets, annotations, annotationsCondition])
-
-    // update only boundaries when window size changes or chart type changes
-    useEffect(() => {
-        if (annotationsCondition) {
-            calculateBoundaries()
-        }
-    }, [myLineChart.current, chartWidth, chartHeight, type, annotationsCondition])
+    const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie].includes(type)
+    const showAnnotations = (!insightType || insightType === InsightType.TRENDS) && !isHorizontal && !isPie
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -186,25 +114,6 @@ export function LineGraph_({
             tooltipEl?.remove()
         }
     }, [])
-
-    function calculateBoundaries(): void {
-        if (myLineChart.current) {
-            let boundaryLeftExtent = myLineChart.current.scales.x.left
-            const boundaryRightExtent = myLineChart.current.scales.x.right
-            const boundaryTicks = myLineChart.current.scales.x.ticks.length
-            const boundaryDelta = boundaryRightExtent - boundaryLeftExtent
-            let _boundaryInterval = boundaryDelta / (boundaryTicks - 1)
-            if (type === GraphType.Bar) {
-                // With Bar graphs we want the annotations to be in the middle
-                _boundaryInterval = boundaryDelta / boundaryTicks
-                boundaryLeftExtent += _boundaryInterval / 2
-            }
-            const boundaryTopExtent = myLineChart.current.scales.x.top + 8
-            setLeftExtent(boundaryLeftExtent)
-            setBoundaryInterval(_boundaryInterval)
-            setTopExtent(boundaryTopExtent)
-        }
-    }
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const mainColor = dataset?.status
@@ -231,13 +140,8 @@ export function LineGraph_({
         }
     }
 
-    function buildChart(): void {
-        const myChartRef = chartRef.current?.getContext('2d')
-
-        if (typeof myLineChart.current !== 'undefined') {
-            myLineChart.current.destroy()
-        }
-
+    // Build chart
+    useEffect(() => {
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
             if (isHorizontal || type === GraphType.Pie) {
@@ -322,7 +226,7 @@ export function LineGraph_({
                 tooltip: {
                     ...tooltipOptions,
                     external({ tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
-                        if (!chartRef.current) {
+                        if (!canvasRef.current) {
                             return
                         }
 
@@ -380,7 +284,7 @@ export function LineGraph_({
                             )
                         }
 
-                        const bounds = chartRef.current.getBoundingClientRect()
+                        const bounds = canvasRef.current.getBoundingClientRect()
                         const horizontalBarTopOffset = isHorizontal ? tooltip.caretY - tooltipEl.clientHeight / 2 : 0
                         const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
 
@@ -433,6 +337,8 @@ export function LineGraph_({
                 const point = chart.getElementsAtEventForMode(nativeEvent, 'index', { intersect: true }, true)
 
                 if (onClick && point.length) {
+                    // FIXME: Whole graph should have cursor: pointer from the get-go if it's persons modal-enabled
+                    // This code gives it that style, but only once the user hovers over a data point
                     target.style.cursor = 'pointer'
                 }
             },
@@ -505,6 +411,7 @@ export function LineGraph_({
                     seriesId: datasets[referencePoint.datasetIndex].id,
                 })
             },
+            onResize: (_, { width, height }) => setChartDimensions([width, height]),
         }
 
         if (type === GraphType.Bar) {
@@ -536,9 +443,10 @@ export function LineGraph_({
                     display: true,
                     ticks: tickOptions,
                     grid: {
-                        display: false,
+                        display: true,
+                        drawOnChartArea: false,
                         borderColor: colors.axisLine as string,
-                        tickLength: annotationInRange || focused ? 45 : 10,
+                        tickLength: 12,
                     },
                 },
                 y: {
@@ -619,116 +527,34 @@ export function LineGraph_({
             }
         }
 
-        myLineChart.current = new Chart(myChartRef as ChartItem, {
+        const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
             options,
         })
-    }
+        setMyLineChart(newChart)
+        return () => newChart.destroy()
+    }, [datasets, hiddenLegendKeys])
 
     return (
-        <div
-            className="graph-container"
-            data-attr={dataAttr}
-            onMouseMove={(e) => {
-                setEnabled(true)
-                if (annotationsCondition && myLineChart.current) {
-                    const rect = e.currentTarget.getBoundingClientRect(),
-                        offsetX = e.clientX - rect.left,
-                        offsetY = e.clientY - rect.top
-                    if (offsetY < topExtent - 30 && !focused && !annotationsFocused) {
-                        setEnabled(false)
-                        setLeft(-1)
-                        return
-                    }
-
-                    const xAxis = myLineChart.current.scales.x
-                    let _leftExtent = xAxis.left
-                    const _rightExtent = xAxis.right
-                    const ticks = xAxis.ticks.length
-                    const delta = _rightExtent - _leftExtent
-                    let _interval = delta / (ticks - 1)
-
-                    if (type === GraphType.Bar) {
-                        // With Bar graphs we want the annotations to be in the middle
-                        _interval = delta / ticks
-                        _leftExtent += _interval / 2
-                    }
-                    if (offsetX < _leftExtent - _interval / 2) {
-                        return
-                    }
-                    const index = mapRange(offsetX, _leftExtent - _interval / 2, _rightExtent + _interval / 2, 0, ticks)
-                    if (index >= 0 && index < ticks && offsetY >= topExtent - 30) {
-                        setLeft(index * _interval + _leftExtent)
-                        setLabelIndex(index)
-                    }
-                }
-            }}
-            onMouseLeave={() => setEnabled(false)}
-        >
-            <canvas ref={chartRef} />
-            <div className="annotations-root" ref={annotationsRoot}>
-                {annotationsCondition && (
-                    <Annotations
-                        dates={datasets[0].days ?? []}
-                        leftExtent={leftExtent}
-                        interval={boundaryInterval}
-                        topExtent={topExtent}
-                        currentDateMarker={
-                            focused || annotationsFocused
-                                ? selectedDayLabel
-                                : enabled && labelIndex
-                                ? datasets[0].days?.[labelIndex]
-                                : null
-                        }
-                        onClick={() => {
-                            setFocused(false)
-                            setAnnotationsFocused(true)
-                        }}
-                        onClose={() => {
-                            setAnnotationsFocused(false)
-                        }}
-                        color={colors.annotationColor}
-                        accessoryColor={colors.annotationAccessoryColor}
-                        timezone={timezone}
+        <div className="LineGraph absolute w-full h-full" data-attr={dataAttr}>
+            <canvas ref={canvasRef} />
+            {myLineChart && showAnnotations && (
+                <BindLogic
+                    logic={annotationsOverlayLogic}
+                    props={{
+                        dashboardItemId: insightProps.dashboardItemId,
+                        insightNumericId: insight.id || 'new',
+                    }}
+                >
+                    <AnnotationsOverlay
+                        chart={myLineChart}
+                        dates={datasets[0]?.days || []}
+                        chartWidth={chartWidth}
+                        chartHeight={chartHeight}
                     />
-                )}
-                {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
-                    <AnnotationMarker
-                        currentDateMarker={
-                            focused ? selectedDayLabel : labelIndex ? datasets[0].days?.[labelIndex] : null
-                        }
-                        onClick={() => {
-                            setFocused(true)
-                            setHoldLeft(left)
-                            setHoldLabelIndex(labelIndex)
-                            setSelectedDayLabel(labelIndex ? datasets[0].days?.[labelIndex] ?? null : null)
-                        }}
-                        getPopupContainer={
-                            annotationsRoot?.current ? () => annotationsRoot.current as HTMLDivElement : undefined
-                        }
-                        onCreate={(textInput, applyAll) => {
-                            const date = holdLabelIndex ? datasets[0].days?.[holdLabelIndex] : null
-                            if (date) {
-                                createAnnotation({
-                                    content: textInput,
-                                    date_marker: dayjs(date)
-                                        .tz(timezone as string)
-                                        .toISOString(),
-                                    scope: applyAll ? AnnotationScope.Project : AnnotationScope.Insight,
-                                })
-                            }
-                        }}
-                        onClose={() => setFocused(false)}
-                        dynamic
-                        left={(focused ? holdLeft : left) - 12.5}
-                        top={topExtent}
-                        label="Add note"
-                        color={colors.annotationColor}
-                        accessoryColor={colors.annotationAccessoryColor}
-                    />
-                )}
-            </div>
+                </BindLogic>
+            )}
         </div>
     )
 }

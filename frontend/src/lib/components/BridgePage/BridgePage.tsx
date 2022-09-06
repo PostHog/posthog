@@ -9,8 +9,10 @@ export type BridgePageProps = {
     className?: string
     children?: React.ReactNode
     footer?: React.ReactNode
+    header?: React.ReactNode
     view: string
     noHedgehog?: boolean
+    noLogo?: boolean
     message?: React.ReactNode
     fixedWidth?: boolean
 }
@@ -18,10 +20,12 @@ export type BridgePageProps = {
 export function BridgePage({
     children,
     className,
+    header,
     footer,
     view,
     message,
     noHedgehog = false,
+    noLogo = false,
     fixedWidth = true,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
@@ -46,9 +50,12 @@ export function BridgePage({
                     </div>
                 ) : null}
                 <div className="BridgePage__content-wrapper">
-                    <div className="BridgePage__header-logo">
-                        <WelcomeLogo view={view} />
-                    </div>
+                    {!noLogo && (
+                        <div className="BridgePage__header-logo">
+                            <WelcomeLogo view={view} />
+                        </div>
+                    )}
+                    <div className="BridgePage__header">{header}</div>
                     <div className="BridgePage__content">{children}</div>
                 </div>
             </div>

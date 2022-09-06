@@ -6,9 +6,7 @@ from posthog.test.base import ClickhouseTestMixin
 
 
 def _create_session_recording_event(**kwargs):
-    create_session_recording_event(
-        uuid=uuid4(), **kwargs,
-    )
+    create_session_recording_event(uuid=uuid4(), **kwargs)
 
 
 class ClickhouseTestSessionRecordingsAPI(ClickhouseTestMixin, factory_test_session_recordings_api(_create_session_recording_event)):  # type: ignore

@@ -16,14 +16,7 @@ Relative_Date = Tuple[int, OperatorInterval]
 Event = Tuple[str, Union[str, int]]
 
 
-INTERVAL_TO_SECONDS = {
-    "minute": 60,
-    "hour": 3600,
-    "day": 86400,
-    "week": 604800,
-    "month": 2592000,
-    "year": 31536000,
-}
+INTERVAL_TO_SECONDS = {"minute": 60, "hour": 3600, "day": 86400, "week": 604800, "month": 2592000, "year": 31536000}
 
 
 def relative_date_to_seconds(date: Tuple[Optional[int], Union[OperatorInterval, None]]):
@@ -78,14 +71,10 @@ def convert_to_entity_params(events: List[Event]) -> Tuple[List, List]:
         event_val = event[1]
 
         if event_type == "events":
-            res_events.append(
-                {"id": event_val, "name": event_val, "order": idx, "type": event_type,}
-            )
+            res_events.append({"id": event_val, "name": event_val, "order": idx, "type": event_type})
         elif event_type == "actions":
             action = Action.objects.get(id=event_val)
-            res_actions.append(
-                {"id": event_val, "name": action.name, "order": idx, "type": event_type,}
-            )
+            res_actions.append({"id": event_val, "name": action.name, "order": idx, "type": event_type})
 
     return res_events, res_actions
 
