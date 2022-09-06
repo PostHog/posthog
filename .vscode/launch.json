@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Celery Message One Queue",
+            "name": "Celery Specific Worker Queue",
             "type": "python",
             "request": "launch",
             "module": "celery",
@@ -23,7 +23,7 @@
                 "--without-gossip",
                 "--without-mingle",
                 "-Q",
-                "message_one_queue"
+                "CALCULATE_EVENT_PROPERTY_QUEUE"
             ],
             "env": {
                 "PYTHONUNBUFFERED": "1",

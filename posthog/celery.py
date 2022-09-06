@@ -166,12 +166,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="count tiles with no filters_hash",
         )
 
-        sender.add_periodic_task(
-            1,
-            send_message_one.s("message_one_queue"),
-        )
-        sender.add_periodic_task(1, send_message_two.s())
-
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
@@ -186,22 +180,6 @@ def teardown_instrumentation(task_id, task, **kwargs):
     from posthog import client
 
     client._request_information = None
-
-
-@app.task(rate_limit="5/m", queue=settings.CALCULATE_EVENT_PROPERTY_QUEUE)
-def send_message_one(message: str):
-    import structlog
-
-    logger = structlog.get_logger(__name__)
-    logger.info("I AM MESSAGE ONE: " + message)
-
-
-@app.task()
-def send_message_two():
-    import structlog
-
-    logger = structlog.get_logger(__name__)
-    logger.info("I AM MESSAGE TWO")
 
 
 @app.task(ignore_result=True)
@@ -517,6 +495,13 @@ def calculate_event_property_usage():
     from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
 
     calculate_event_property_usage()
+
+
+@app.task(rate_limit="2/m", queue=settings.CALCULATE_EVENT_PROPERTY_QUEUE)
+def calculate_event_property_usage_for_team_task(team_id: int):
+    from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
+
+    calculate_event_property_usage_for_team(team_id)
 
 
 @app.task(ignore_result=True)

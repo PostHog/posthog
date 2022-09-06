@@ -3,8 +3,10 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from typing import DefaultDict, Dict, List, Optional, Tuple, cast
 
+from celery import group
 from django.utils import timezone
 
+from posthog.celery import calculate_event_property_usage_for_team_task
 from posthog.logging.timing import timed
 from posthog.models import EventDefinition, EventProperty, Insight, PropertyDefinition, Team
 from posthog.models.filters.filter import Filter
@@ -13,8 +15,11 @@ from posthog.models.property_definition import PropertyType
 
 @timed("calculate_event_property_usage")
 def calculate_event_property_usage() -> None:
+    tasks = []
     for team_id in Team.objects.values_list("id", flat=True):
-        calculate_event_property_usage_for_team(team_id=team_id)
+        tasks.append(calculate_event_property_usage_for_team_task.s(team_id=team_id))
+
+    group(tasks).apply_async()
 
 
 @dataclass
