@@ -166,6 +166,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="count tiles with no filters_hash",
         )
 
+        sender.add_periodic_task(5, send_message_one.s())
+
+        sender.add_periodic_task(5, send_message_two.s())
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
@@ -180,6 +184,22 @@ def teardown_instrumentation(task_id, task, **kwargs):
     from posthog import client
 
     client._request_information = None
+
+
+@app.task()
+def send_message_one():
+    import structlog
+
+    logger = structlog.get_logger(__name__)
+    logger.info("I AM MESSAGE ONE")
+
+
+@app.task()
+def send_message_two():
+    import structlog
+
+    logger = structlog.get_logger(__name__)
+    logger.info("I AM MESSAGE TWO")
 
 
 @app.task(ignore_result=True)
