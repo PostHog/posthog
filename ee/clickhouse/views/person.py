@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from rest_framework import request, response
 from rest_framework.decorators import action
@@ -17,31 +17,12 @@ class EnterprisePersonViewSet(PersonViewSet):
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
-        results_package = self.calculate_funnel_correlation_persons(request)
-
-        if not results_package:
-            return response.Response(data=[])
-
-        people, next_url, initial_url, missing_persons = results_package["result"]
-
-        return response.Response(
-            data={
-                "results": [{"people": people, "count": len(people)}],
-                "next": next_url,
-                "initial": initial_url,
-                "is_cached": results_package.get("is_cached"),
-                "last_refresh": results_package.get("last_refresh"),
-                "missing_persons": missing_persons,
-            }
-        )
+        return self._respond_with_cached_results(self.calculate_funnel_correlation_persons(request))
 
     @cached_function
     def calculate_funnel_correlation_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[list, Optional[str], Optional[str], int]]:
-        if request.user.is_anonymous or not self.team:
-            return {"result": ([], None, None, False)}
-
+    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         if not filter.correlation_person_limit:
             filter = filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})

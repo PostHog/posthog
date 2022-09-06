@@ -67,7 +67,7 @@
             }
         }
 
-        .graph-container {
+        .LineGraph {
             width: calc(100% - 2rem);
             height: calc(100% - 3rem);
         }
@@ -260,7 +260,7 @@
         justify-content: center;
         align-items: center;
         margin-top: 1rem;
-        background-color: var(--bg-side);
+        background-color: var(--side);
         border: 1px solid var(--border);
         width: 100%;
         min-height: 320px;
@@ -272,7 +272,7 @@
     height: 24px;
     width: 24px;
     text-align: center;
-    background-color: var(--bg-side);
+    background-color: var(--side);
     color: var(--primary-alt);
     font-weight: 700;
     margin-right: 0.5rem;

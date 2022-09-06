@@ -33,7 +33,7 @@ class TestPerson(BaseTest):
         ActionStep.objects.create(action=action, event="user signed up")
 
         person2 = Person.objects.create(
-            distinct_ids=["person_2"], team=self.team, properties={"$os": "Apple", "$browser": "MS Edge"},
+            distinct_ids=["person_2"], team=self.team, properties={"$os": "Apple", "$browser": "MS Edge"}
         )
         person3 = Person.objects.create(distinct_ids=["person_3"], team=self.team, properties={"$os": "PlayStation"})
 
@@ -83,10 +83,10 @@ class TestPerson(BaseTest):
         person = Person.objects.create(team=self.team)
         delete_person(person)
         ch_persons = sync_execute(
-            "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
+            "SELECT toString(id), version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual(ch_persons, [(100, 1, "{}")])
+        self.assertEqual(ch_persons, [(str(person.uuid), 100, 1, "{}")])
 
     def test_delete_ch_distinct_ids(self):
         person = Person.objects.create(team=self.team, distinct_ids=["distinct_id1"])
@@ -97,9 +97,9 @@ class TestPerson(BaseTest):
         )
         self.assertEqual(ch_distinct_ids, [(0, 0)])
 
-        delete_ch_distinct_ids(person_uuid=str(person.uuid), distinct_ids=person.distinct_ids, team_id=person.team_id)
+        delete_ch_distinct_ids(person)
         ch_distinct_ids = sync_execute(
-            "SELECT version, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
+            "SELECT toString(person_id), version, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
             {"team_id": self.team.pk, "distinct_id": "distinct_id1"},
         )
-        self.assertEqual(ch_distinct_ids, [(0, 1)])
+        self.assertEqual(ch_distinct_ids, [(str(person.uuid), 0, 1)])

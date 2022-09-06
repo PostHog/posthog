@@ -150,12 +150,12 @@ class AutoProjectMiddleware:
                     setattr(request, "switched_team", current_team.id)
 
 
-class CHQueries(object):
+class CHQueries:
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
-        """ Install monkey-patch on demand.
+        """Install monkey-patch on demand.
         If monkey-patch has not been run in for this process (assuming multiple preforked processes),
         then do it now.
         """
@@ -163,11 +163,7 @@ class CHQueries(object):
 
         route = resolve(request.path)
         route_id = f"{route.route} ({route.func.__name__})"
-        client._request_information = {
-            "user_id": request.user.pk,
-            "kind": "request",
-            "id": request.path,
-        }
+        client._request_information = {"user_id": request.user.pk, "kind": "request", "id": request.path}
 
         response: HttpResponse = self.get_response(request)
 
@@ -180,8 +176,8 @@ class CHQueries(object):
 
 
 def shortcircuitmiddleware(f):
-    """ view decorator, the sole purpose to is 'rename' the function
-    '_shortcircuitmiddleware' """
+    """view decorator, the sole purpose to is 'rename' the function
+    '_shortcircuitmiddleware'"""
 
     def _shortcircuitmiddleware(*args, **kwargs):
         return f(*args, **kwargs)
@@ -189,7 +185,7 @@ def shortcircuitmiddleware(f):
     return _shortcircuitmiddleware
 
 
-class ShortCircuitMiddleware(object):
+class ShortCircuitMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 

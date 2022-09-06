@@ -128,7 +128,7 @@ export function LemonSelect<T>({
                                     sideIcon={option.sideIcon}
                                     tooltip={option.tooltip}
                                     onClick={() => {
-                                        if (option.value != localValue) {
+                                        if (option.value !== localValue) {
                                             onChange?.(option.value ?? null)
                                             setLocalValue(option.value)
                                         }
@@ -139,7 +139,7 @@ export function LemonSelect<T>({
                                     fullWidth
                                     data-attr={option['data-attr']}
                                 >
-                                    {option.label || option.value}
+                                    {option.label ?? option.value}
                                     {option.element}
                                 </LemonButton>
                             ))}
@@ -152,7 +152,7 @@ export function LemonSelect<T>({
                     className: popup?.className,
                     maxContentWidth: dropdownMaxContentWidth,
                 }}
-                icon={localValue && allOptions.find((o) => o.value === localValue)?.icon}
+                icon={allOptions.find((o) => o.value === localValue)?.icon}
                 // so that the pop-up isn't shown along with the close button
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 type="secondary"
@@ -160,7 +160,7 @@ export function LemonSelect<T>({
                 {...buttonProps}
             >
                 <span>
-                    {(localValue && (allOptions.find((o) => o.value === localValue)?.label || localValue)) || (
+                    {allOptions.find((o) => o.value === localValue)?.label ?? localValue ?? (
                         <span className="text-muted">{placeholder}</span>
                     )}
                 </span>

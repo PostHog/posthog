@@ -1,9 +1,8 @@
 import posthog from 'posthog-js'
-import { parsePeopleParams, PeopleParamType } from 'scenes/trends/personsModalLogic'
+import { parsePeopleParams, PeopleParamType } from 'scenes/trends/persons-modal/personsModalLogic'
 import {
     ActionType,
-    ActorType,
-    AnnotationType,
+    RawAnnotationType,
     CohortType,
     CombinedEventType,
     DashboardCollaboratorType,
@@ -17,6 +16,9 @@ import {
     IntegrationType,
     LicenseType,
     OrganizationType,
+    PersonListParams,
+    PersonProperty,
+    PersonType,
     PluginLogEntry,
     PropertyDefinition,
     SharingConfigurationType,
@@ -32,7 +34,6 @@ import { toParams } from 'lib/utils'
 import { DashboardPrivilegeLevel } from './constants'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
-import { PersonFilters } from 'scenes/persons/personsLogic'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 
@@ -45,7 +46,7 @@ export interface PaginatedResponse<T> {
     missing_persons?: number
 }
 
-export interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
+export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     total_count: number
 }
 
@@ -254,12 +255,12 @@ class ApiRequest {
     }
 
     // # Persons
-    public persons(): ApiRequest {
-        return this.addPathComponent('person')
+    public persons(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('persons')
     }
 
-    public person(id: string | number): ApiRequest {
-        return this.persons().addPathComponent(id)
+    public person(id: string | number, teamId?: TeamType['id']): ApiRequest {
+        return this.persons(teamId).addPathComponent(id)
     }
 
     public personActivity(id: string | number | undefined): ApiRequest {
@@ -274,7 +275,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('annotations')
     }
 
-    public annotation(id: AnnotationType['id'], teamId?: TeamType['id']): ApiRequest {
+    public annotation(id: RawAnnotationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.annotations(teamId).addPathComponent(id)
     }
 
@@ -398,20 +399,6 @@ const api = {
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
-        async getPeople(
-            peopleParams: PeopleParamType,
-            filters: Partial<FilterType>,
-            searchTerm?: string
-        ): Promise<PaginatedResponse<{ people: ActorType[]; count: number }>> {
-            return await new ApiRequest()
-                .actions()
-                .withAction('people')
-                .withQueryString(
-                    parsePeopleParams(peopleParams, filters) +
-                        (searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : '')
-                )
-                .get()
-        },
         async getCount(actionId: ActionType['id']): Promise<number> {
             return (await new ApiRequest().actionsDetail(actionId).withAction('count').get()).count
         },
@@ -432,7 +419,7 @@ const api = {
             activityLogProps: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<CountedPaginatedResponse> {
+        ): Promise<CountedPaginatedResponse<ActivityLogItem>> {
             const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
@@ -647,8 +634,8 @@ const api = {
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
-        determineCSVUrl(cohortId: number | 'new', filters: PersonFilters): string {
-            return `/api/cohort/${cohortId}/persons?${toParams(filters)}`
+        determineListUrl(cohortId: number | 'new', params: PersonListParams): string {
+            return `/api/cohort/${cohortId}/persons?${toParams(params)}`
         },
     },
 
@@ -675,9 +662,19 @@ const api = {
         },
     },
 
-    person: {
-        determineCSVUrl(filters: PersonFilters): string {
-            return new ApiRequest().persons().withQueryString(toParams(filters)).assembleFullUrl()
+    persons: {
+        async getProperties(): Promise<PersonProperty[]> {
+            return new ApiRequest().persons().withAction('properties').get()
+        },
+
+        async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
+            return new ApiRequest().person(id).update({ data: person })
+        },
+        async list(params: PersonListParams = {}): Promise<PaginatedResponse<PersonType>> {
+            return await new ApiRequest().persons().withQueryString(toParams(params)).get()
+        },
+        determineListUrl(params: PersonListParams = {}): string {
+            return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
         },
     },
 
@@ -745,21 +742,21 @@ const api = {
     },
 
     annotations: {
-        async get(annotationId: AnnotationType['id']): Promise<AnnotationType> {
+        async get(annotationId: RawAnnotationType['id']): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).get()
         },
         async update(
-            annotationId: AnnotationType['id'],
-            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content'>
-        ): Promise<AnnotationType> {
+            annotationId: RawAnnotationType['id'],
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+        ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<AnnotationType>> {
+        async list(): Promise<PaginatedResponse<RawAnnotationType>> {
             return await new ApiRequest().annotations().get()
         },
         async create(
-            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
-        ): Promise<AnnotationType> {
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+        ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotations().create({ data })
         },
         determineDeleteEndpoint(): string {

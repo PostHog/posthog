@@ -60,7 +60,7 @@ def copy_graphile_jobs_between_teams(source_team_id: int, target_team_id: int):
     This is a bit dirty and only intended for demo data, not production.
     """
     _execute_graphile_query(
-        COPY_GRAPHILE_JOBS_BETWEEN_TEAMS_SQL, {"target_team_id": target_team_id, "source_team_id": source_team_id},
+        COPY_GRAPHILE_JOBS_BETWEEN_TEAMS_SQL, {"target_team_id": target_team_id, "source_team_id": source_team_id}
     )
 
 

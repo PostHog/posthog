@@ -20,7 +20,7 @@ def _deliver_subscription_report(
 
     subscription = (
         Subscription.objects.prefetch_related("dashboard__insights")
-        .select_related("created_by", "insight", "dashboard",)
+        .select_related("created_by", "insight", "dashboard")
         .get(pk=subscription_id)
     )
 

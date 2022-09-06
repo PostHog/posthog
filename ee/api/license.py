@@ -52,7 +52,10 @@ class LicenseSerializer(serializers.ModelSerializer):
 
 
 class LicenseViewSet(
-    mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    viewsets.GenericViewSet,
 ):
     queryset = License.objects.all()
     serializer_class = LicenseSerializer

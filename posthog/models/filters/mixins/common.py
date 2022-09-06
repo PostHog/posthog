@@ -262,7 +262,7 @@ class InsightMixin(BaseParamMixin):
 
 class DisplayDerivedMixin(InsightMixin):
     @cached_property
-    def display(self,) -> Literal[DISPLAY_TYPES]:
+    def display(self) -> Literal[DISPLAY_TYPES]:
         return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY[self.insight])
 
     @include_dict
@@ -496,6 +496,10 @@ class SearchMixin(BaseParamMixin):
     def search(self) -> Optional[str]:
         search = self._data.get("search", None)
         return search
+
+    @include_dict
+    def search_to_dict(self):
+        return {"search": self.search} if self.search else {}
 
 
 class DistinctIdMixin(BaseParamMixin):

@@ -16,17 +16,19 @@ export type LemonModalFooterProps = {
 
 export interface LemonModalProps {
     children?: React.ReactNode
-    isOpen: boolean
-    onClose: () => void
+    isOpen?: boolean
+    onClose?: () => void
     onAfterClose?: () => void
     width?: number | string
     inline?: boolean
-    title: string | JSX.Element
-    description?: string | JSX.Element
+    title: React.ReactNode
+    description?: React.ReactNode
     footer?: React.ReactNode
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
     closable?: boolean
+    contentRef?: React.RefCallback<HTMLDivElement>
+    overlayRef?: React.RefCallback<HTMLDivElement>
 }
 
 export const LemonModalHeader = ({ children, className }: LemonModalContentProps): JSX.Element => {
@@ -44,7 +46,7 @@ export const LemonModalContent = ({ children, className }: LemonModalContentProp
 export function LemonModal({
     width,
     children,
-    isOpen,
+    isOpen = true,
     onClose,
     onAfterClose,
     title,
@@ -53,6 +55,8 @@ export function LemonModal({
     inline,
     simple,
     closable = true,
+    contentRef,
+    overlayRef,
 }: LemonModalProps): JSX.Element {
     const modalContent = (
         <>
@@ -76,7 +80,13 @@ export function LemonModal({
                         {title ? (
                             <LemonModalHeader>
                                 <h3>{title}</h3>
-                                {description ? <p>{description}</p> : null}
+                                {description ? (
+                                    typeof description === 'string' ? (
+                                        <p>{description}</p>
+                                    ) : (
+                                        description
+                                    )
+                                ) : null}
                             </LemonModalHeader>
                         ) : null}
 
@@ -88,7 +98,10 @@ export function LemonModal({
         </>
     )
     return inline ? (
-        <div className="LemonModal ReactModal__Content--after-open">{modalContent}</div>
+        // eslint-disable-next-line react/forbid-dom-props
+        <div className="LemonModal ReactModal__Content--after-open" style={{ width }}>
+            {modalContent}
+        </div>
     ) : (
         <Modal
             isOpen={isOpen}
@@ -105,6 +118,8 @@ export function LemonModal({
                 },
             }}
             appElement={document.getElementById('root') as HTMLElement}
+            contentRef={contentRef}
+            overlayRef={overlayRef}
         >
             {modalContent}
         </Modal>

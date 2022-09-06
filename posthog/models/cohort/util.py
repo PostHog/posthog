@@ -38,7 +38,7 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 logger = structlog.get_logger(__name__)
 
 
-def format_person_query(cohort: Cohort, index: int,) -> Tuple[str, Dict[str, Any]]:
+def format_person_query(cohort: Cohort, index: int) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
         return format_static_cohort_query(cohort.pk, index, prepend="")
 
@@ -66,10 +66,7 @@ def format_static_cohort_query(cohort_id: int, index: int, prepend: str) -> Tupl
 
 def format_precalculated_cohort_query(cohort_id: int, index: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
     filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
-    return (
-        filter_query,
-        {f"{prepend}_cohort_id_{index}": cohort_id},
-    )
+    return (filter_query, {f"{prepend}_cohort_id_{index}": cohort_id})
 
 
 def get_entity_cohort_subquery(
@@ -105,7 +102,7 @@ def get_entity_cohort_subquery(
 
         return f"{'NOT' if is_negation else ''} {custom_match_field} IN ({extract_person})", params
     else:
-        extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query,)
+        extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query)
         return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
 
 
@@ -214,7 +211,7 @@ def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="perso
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int] = None, offset: Optional[int] = None):
     from posthog.models.property.util import parse_prop_grouped_clauses
 
-    filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
+    filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]})
     filter_query, filter_params = parse_prop_grouped_clauses(
         team_id=team.pk, property_group=filters.property_groups, table_name="pdi"
     )
@@ -256,10 +253,7 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
 
     if before_count:
         logger.info(
-            "Recalculating cohortpeople starting",
-            team_id=cohort.team_id,
-            cohort_id=cohort.pk,
-            size_before=before_count,
+            "Recalculating cohortpeople starting", team_id=cohort.team_id, cohort_id=cohort.pk, size_before=before_count
         )
 
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)

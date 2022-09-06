@@ -16,10 +16,7 @@ class TestSubscription(APILicensedTest):
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
 
-    insight_filter_dict = {
-        "events": [{"id": "$pageview"}],
-        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-    }
+    insight_filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
 
     @classmethod
     def setUpTestData(cls):

@@ -44,7 +44,7 @@ from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.stickiness import StickinessActors
-from posthog.queries.trends.person import TrendsActors
+from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,

@@ -11,8 +11,16 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RenameField(model_name="dashboard", old_name="tags", new_name="deprecated_tags_v2",),
-        migrations.RenameField(model_name="insight", old_name="tags", new_name="deprecated_tags_v2",),
+        migrations.RenameField(
+            model_name="dashboard",
+            old_name="tags",
+            new_name="deprecated_tags_v2",
+        ),
+        migrations.RenameField(
+            model_name="insight",
+            old_name="tags",
+            new_name="deprecated_tags_v2",
+        ),
         migrations.AlterField(
             model_name="dashboard",
             name="deprecated_tags_v2",

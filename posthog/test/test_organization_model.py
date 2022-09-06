@@ -19,7 +19,7 @@ class TestOrganization(BaseTest):
 
         expired_invite = OrganizationInvite.objects.create(organization=self.organization)
         OrganizationInvite.objects.filter(id=expired_invite.id).update(
-            created_at=timezone.now() - timezone.timedelta(hours=73),
+            created_at=timezone.now() - timezone.timedelta(hours=73)
         )
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
@@ -33,11 +33,9 @@ class TestOrganization(BaseTest):
                 self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
             )
 
+        self.assertEqual(Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 1)
         self.assertEqual(
-            Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 1,
-        )
-        self.assertEqual(
-            Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name, "helloworldplugin",
+            Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name, "helloworldplugin"
         )
         self.assertEqual(mock_get.call_count, 2)
         mock_get.assert_called_with(

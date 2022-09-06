@@ -32,6 +32,12 @@ from posthog.tasks.calculate_event_property_usage import calculate_event_propert
 from .matrix import Matrix
 from .models import SimEvent, SimPerson
 
+# Because the Postgres `Person.id` value is synthesized here (instead of relying on the DB sequence), we can
+# bulk insert persons AND person distinct IDs into Postgres without having to query for the person IDs resulting
+# from auto-incrementation. The trade-off is that we need to make sure synthesized IDs don't collide between teams,
+# so the limit is used as an ID multiplier.
+PERSON_COUNT_LIMIT = 500_000
+
 
 class MatrixManager:
     # ID of the team under which demo data will be pre-saved
@@ -129,6 +135,12 @@ class MatrixManager:
         team.save()
 
     def _save_analytics_data(self, data_team: Team):
+        sim_persons = self.matrix.people
+        if len(sim_persons) >= PERSON_COUNT_LIMIT:
+            raise exceptions.ValidationError(
+                f"The simulation has {len(sim_persons)} persons, when the limit is {PERSON_COUNT_LIMIT}. "
+                "Reduce the number of clusters."
+            )
         bulk_group_type_mappings = []
         for group_type_index, (group_type, groups) in enumerate(self.matrix.groups.items()):
             bulk_group_type_mappings.append(
@@ -139,7 +151,6 @@ class MatrixManager:
                     data_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group, self.matrix.now
                 )
         GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
-        sim_persons = self.matrix.people
         for sim_person in sim_persons:
             self._save_sim_person(data_team, sim_person)
 
@@ -198,7 +209,7 @@ class MatrixManager:
         )
         bulk_persons: Dict[str, Person] = {}
         for i, row in enumerate(clickhouse_persons):
-            synthetic_id = target_team_id * 100_000_000 + i
+            synthetic_id = target_team_id * PERSON_COUNT_LIMIT + i
             properties = json.loads(row.pop("properties", "{}"))
             bulk_persons[row["uuid"]] = Person(id=synthetic_id, team_id=target_team_id, properties=properties, **row)
         Person.objects.bulk_create(bulk_persons.values())
@@ -217,9 +228,7 @@ class MatrixManager:
             )
         PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids, ignore_conflicts=True)
         # Groups
-        clickhouse_groups = query_with_columns(
-            SELECT_GROUPS_OF_TEAM, list_params, ["team_id", "_timestamp", "_offset"],
-        )
+        clickhouse_groups = query_with_columns(SELECT_GROUPS_OF_TEAM, list_params, ["team_id", "_timestamp", "_offset"])
         bulk_groups = []
         for row in clickhouse_groups:
             group_properties = json.loads(row.pop("group_properties", "{}"))

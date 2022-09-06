@@ -43,7 +43,7 @@ def get_kafka_ssl_context():
     # existing for the shortest amount of time.  As extra caution password
     # protect/encrypt the client key
     with NamedTemporaryFile(suffix=".crt") as cert_file, NamedTemporaryFile(
-        suffix=".key",
+        suffix=".key"
     ) as key_file, NamedTemporaryFile(suffix=".crt") as trust_file:
         cert_file.write(base64.b64decode(os.environ["KAFKA_CLIENT_CERT_B64"].encode("utf-8")))
         cert_file.flush()
