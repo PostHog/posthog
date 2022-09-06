@@ -28,6 +28,15 @@ const dashboardResult = (dashboardId: number, items: InsightModel[]): DashboardT
 
 const uncached = (insight: InsightModel): InsightModel => ({ ...insight, result: null, last_refresh: null })
 
+const boxToString = (param: string | readonly string[]): string => {
+    //path params from msw can be a string or an array
+    if (typeof param === 'string') {
+        return param
+    } else {
+        throw new Error("this shouldn't be an arry")
+    }
+}
+
 describe('dashboardLogic', () => {
     let logic: ReturnType<typeof dashboardLogic.build>
 
@@ -122,7 +131,7 @@ describe('dashboardLogic', () => {
                     if (!dashboard) {
                         throw new Error('the logic must always add this param')
                     }
-                    const matched = insights[req.params['id']]
+                    const matched = insights[boxToString(req.params['id'])]
                     if (matched) {
                         return [200, matched]
                     } else {
@@ -131,15 +140,15 @@ describe('dashboardLogic', () => {
                 },
             },
             patch: {
-                '/api/projects/:team/insights/:id/': (req) => {
+                '/api/projects/:team/insights/:id/': async (req) => {
                     try {
-                        if (typeof req.body !== 'object') {
-                            return [500, `this update should receive an object body not ${req.body}`]
+                        const updates = await req.json()
+                        if (typeof updates !== 'object') {
+                            return [500, `this update should receive an object body not ${JSON.stringify(updates)}`]
                         }
-                        const updates = req.body
-                        const insightId = req.params.id
+                        const insightId = boxToString(req.params.id)
 
-                        const starting = insights[insightId]
+                        const starting: InsightModel = insights[insightId]
                         insights[insightId] = {
                             ...starting,
                             ...updates,
@@ -152,7 +161,7 @@ describe('dashboardLogic', () => {
                             )
                         })
 
-                        insights[insightId].dashboards?.forEach((dashboardId) => {
+                        insights[insightId].dashboards?.forEach((dashboardId: number) => {
                             // then add it to any it now references
                             dashboards[dashboardId].items.push(insights[insightId])
                         })
@@ -165,29 +174,6 @@ describe('dashboardLogic', () => {
             },
         })
         initKeaTests()
-    })
-
-    describe('moving between dashboards', () => {
-        beforeEach(() => {
-            logic = dashboardLogic({ id: 9 })
-            logic.mount()
-        })
-
-        it('only replaces the source dashboard with the target', async () => {
-            const startingDashboard = dashboards['9']
-            const expectedDashboard = dashboardResult(9, [])
-
-            const insights = startingDashboard.items
-            const sourceInsight = insights[0]
-
-            await expectLogic(logic, () => {
-                insightsModel.actions.moveToDashboard(sourceInsight, 9, 8, 'targetDashboard')
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    allItems: expectedDashboard,
-                })
-        })
     })
 
     describe('when there is no props id', () => {

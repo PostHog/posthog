@@ -3,18 +3,18 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from typing import DefaultDict, Dict, List, Optional, Tuple, cast
 
-from celery.app import shared_task
 from django.utils import timezone
 
 from posthog.logging.timing import timed
 from posthog.models import EventDefinition, EventProperty, Insight, PropertyDefinition, Team
+from posthog.models.filters.filter import Filter
 from posthog.models.property_definition import PropertyType
 
 
 @timed("calculate_event_property_usage")
 def calculate_event_property_usage() -> None:
-    for team in Team.objects.all():
-        calculate_event_property_usage_for_team(team_id=team.pk)
+    for team_id in Team.objects.values_list("id", flat=True):
+        calculate_event_property_usage_for_team(team_id=team_id)
 
 
 @dataclass
@@ -30,7 +30,7 @@ class _PropertyDefinitionPayload:
     query_usage_30_day: int = field(default_factory=int)
 
 
-@shared_task(ignore_result=True, max_retries=1)
+@timed("calculate_event_property_usage_for_team")
 def calculate_event_property_usage_for_team(team_id: int, *, complete_inference: bool = False) -> None:
     """Calculate Data Management stats for a specific team.
 
@@ -43,8 +43,6 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
     from posthog.internal_metrics import incr
 
     try:
-        team = Team.objects.get(pk=team_id)
-
         # Prepare update payloads
         event_definition_payloads: DefaultDict[str, _EventDefinitionPayload] = defaultdict(
             _EventDefinitionPayload,
@@ -66,21 +64,29 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
 
         since = timezone.now() - timezone.timedelta(days=30)
 
-        for item in Insight.objects.filter(team=team, created_at__gt=since):
+        for item in Insight.objects.filter(team__id=team_id, created_at__gt=since):
             for event in item.filters.get("events", []):
                 event_definition_payloads[event["id"]].query_usage_30_day += 1
-            for prop in item.filters.get("properties", []):
-                if isinstance(prop, dict) and prop.get("key"):
-                    property_definition_payloads[prop["key"]].query_usage_30_day += 1
+                series_filters = event.get("properties", [])
+                flattened_properties = Filter(data={"properties": series_filters}).property_groups.flat
+                for property in flattened_properties:
+                    property_definition_payloads[property.key].query_usage_30_day += 1
 
-        events_volume = _get_events_volume(team, since)
+            # convert to filter to easily parse properties and property groups
+            filter_properties = item.filters.get("properties", None)
+            if filter_properties:
+                flattened_properties = Filter(data={"properties": filter_properties}).property_groups.flat
+                for property in flattened_properties:
+                    property_definition_payloads[property.key].query_usage_30_day += 1
+
+        events_volume = _get_events_volume(team_id, since)
         for event, (volume, last_seen_at) in events_volume.items():
             event_definition_payloads[event].volume_30_day = volume
             event_definition_payloads[event].last_seen_at = last_seen_at
 
         if complete_inference:
             # Infer (event, property) pairs
-            event_properties = _get_event_properties(team, since)
+            event_properties = _get_event_properties(team_id, since)
             EventProperty.objects.bulk_create(
                 [
                     EventProperty(team_id=team_id, event=event, property=property_key)
@@ -89,7 +95,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
                 ignore_conflicts=True,
             )
             # Infer property types
-            property_types = _get_property_types(team, since)
+            property_types = _get_property_types(team_id, since)
             for property_key, property_type in property_types.items():
                 if property_definition_payloads[property_key].property_type is not None:
                     continue  # Don't override property type if it's already set
@@ -120,13 +126,13 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
         raise exc
 
 
-def _get_events_volume(team: Team, since: timezone.datetime) -> Dict[str, Tuple[int, timezone.datetime]]:
+def _get_events_volume(team_id: int, since: timezone.datetime) -> Dict[str, Tuple[int, timezone.datetime]]:
     from posthog.client import sync_execute
     from posthog.models.event.sql import GET_EVENTS_VOLUME
 
     return {
         event: (volume, last_seen_at)
-        for event, volume, last_seen_at in sync_execute(GET_EVENTS_VOLUME, {"team_id": team.pk, "timestamp": since})
+        for event, volume, last_seen_at in sync_execute(GET_EVENTS_VOLUME, {"team_id": team_id, "timestamp": since})
     }
 
 
@@ -142,7 +148,7 @@ def _infer_property_type(sample_json_value: str) -> Optional[PropertyType]:
     return None
 
 
-def _get_property_types(team: Team, since: timezone.datetime) -> Dict[str, Optional[PropertyType]]:
+def _get_property_types(team_id: int, since: timezone.datetime) -> Dict[str, Optional[PropertyType]]:
     """Determine property types based on ClickHouse data."""
     from posthog.client import sync_execute
     from posthog.models.event.sql import GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES
@@ -152,23 +158,23 @@ def _get_property_types(team: Team, since: timezone.datetime) -> Dict[str, Optio
     property_types = {
         property_key: _infer_property_type(sample_json_value)
         for property_key, sample_json_value in sync_execute(
-            GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team.pk, "timestamp": since}
+            GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team_id, "timestamp": since}
         )
     }
 
-    for property_key, sample_json_value in sync_execute(GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team.pk}):
+    for property_key, sample_json_value in sync_execute(GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team_id}):
         if property_key not in property_types:
             property_types[property_key] = _infer_property_type(sample_json_value)
-    for property_key, sample_json_value in sync_execute(GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team.pk}):
+    for property_key, sample_json_value in sync_execute(GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team_id}):
         if property_key not in property_types:
             property_types[property_key] = _infer_property_type(sample_json_value)
 
     return property_types
 
 
-def _get_event_properties(team: Team, since: timezone.datetime) -> List[Tuple[str, str]]:
+def _get_event_properties(team_id: int, since: timezone.datetime) -> List[Tuple[str, str]]:
     """Determine which properties have been since with which events based on ClickHouse data."""
     from posthog.client import sync_execute
     from posthog.models.event.sql import GET_EVENT_PROPERTIES
 
-    return sync_execute(GET_EVENT_PROPERTIES, {"team_id": team.pk, "timestamp": since})
+    return sync_execute(GET_EVENT_PROPERTIES, {"team_id": team_id, "timestamp": since})
