@@ -89,6 +89,12 @@
     }
 }
 
+@each $space in $spaces {
+    .leading-#{$space} {
+        line-height: #{$space/4}rem;
+    }
+}
+
 .space-y-px {
     & > * + * {
         margin-top: 1px;
@@ -480,6 +486,12 @@
 }
 .font-black {
     font-weight: 900;
+}
+.italic {
+    font-style: italic;
+}
+.not-italic {
+    font-style: normal;
 }
 
 .whitespace-normal {
