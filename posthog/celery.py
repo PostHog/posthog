@@ -166,9 +166,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="count tiles with no filters_hash",
         )
 
-        sender.add_periodic_task(5, send_message_one.s("message_one_queue"), queue="message_one_queue")
-        sender.add_periodic_task(1, send_message_one.s("default queue"))
-        sender.add_periodic_task(5, send_message_two.s())
+        sender.add_periodic_task(1, send_message_one.s("message_one_queue"), queue="message_one_queue")
+        sender.add_periodic_task(1, send_message_two.s())
 
 
 # Set up clickhouse query instrumentation
