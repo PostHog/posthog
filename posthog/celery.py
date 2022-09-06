@@ -94,7 +94,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sender.add_periodic_task(
-        settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items",
+        settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS,
+        check_cached_items.s(),
+        name="check dashboard items",
     )
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
@@ -542,7 +544,8 @@ def count_teams_with_no_property_query_count():
 
             count = cursor.fetchone()
             gauge(
-                f"calculate_event_property_usage.teams_with_no_property_query_count", count[0],
+                f"calculate_event_property_usage.teams_with_no_property_query_count",
+                count[0],
             )
         except Exception as exc:
             logger.error("calculate_event_property_usage.count_teams_failed", exc=exc, exc_info=True)
