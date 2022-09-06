@@ -1264,7 +1264,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     url: converted ? step.converted_people_url : step.dropped_people_url,
                     title: funnelTitle({
                         converted,
-                        // Note - when in a legend the stepIndex is used instead
+                        // Note - when in a legend the step.order is always 0 so we use stepIndex instead
                         step: typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1,
                         label: step.name,
                         seriesId: step.order,
