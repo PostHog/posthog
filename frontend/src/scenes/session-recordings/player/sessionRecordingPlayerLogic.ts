@@ -178,18 +178,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setPlayer(null)
                 return
             }
-            try {
-                const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
-                    root: values.rootFrame,
-                    triggerFocus: false,
-                    insertStyleRules: [
-                        `.ph-no-capture {   background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg=="); }`,
-                    ],
-                })
-                actions.setPlayer({ replayer, windowId })
-            } catch (e) {
-                console.error('blahalhah', e)
-            }
+            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
+                root: values.rootFrame,
+                triggerFocus: false,
+                insertStyleRules: [
+                    `.ph-no-capture {   background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg=="); }`,
+                ],
+            })
+            actions.setPlayer({ replayer, windowId })
         },
         setPlayer: ({ player }) => {
             if (player) {
@@ -360,7 +356,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Otherwise play
             else {
                 values.player?.replayer?.play(playerPosition.time)
-
                 actions.updateAnimation()
                 actions.endBuffer()
             }

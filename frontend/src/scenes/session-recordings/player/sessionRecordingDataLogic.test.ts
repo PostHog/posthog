@@ -280,8 +280,8 @@ describe('sessionRecordingDataLogic', () => {
             ]
 
         it('no next url', async () => {
-            await expectLogic(logic, async () => {
-                await logic.actions.loadRecordingSnapshots()
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots()
             })
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
@@ -320,8 +320,8 @@ describe('sessionRecordingDataLogic', () => {
                     }
                 })
 
-            await expectLogic(logic, async () => {
-                await logic.actions.loadRecordingSnapshots()
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots()
             })
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
