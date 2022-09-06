@@ -549,9 +549,9 @@ export function LineGraph_({
                 >
                     <AnnotationsOverlay
                         chart={myLineChart}
+                        dates={datasets[0]?.days || []}
                         chartWidth={chartWidth}
                         chartHeight={chartHeight}
-                        dates={datasets[0]?.days || []}
                     />
                 </BindLogic>
             )}

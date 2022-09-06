@@ -17,7 +17,6 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { Chart } from 'chart.js'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import { teamLogic } from 'scenes/teamLogic'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -50,15 +49,9 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
     '--annotations-overlay-active-badge-top'?: `${string}px`
 }
 
-export function AnnotationsOverlay({
-    chart,
-    chartWidth,
-    chartHeight,
-    dates: _dates,
-}: AnnotationsOverlayProps): JSX.Element {
+export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: AnnotationsOverlayProps): JSX.Element {
     const { isPopoverShown, activeBadgeCoordinates } = useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
-    const { timezone } = useValues(teamLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
     const overlayRef = useRef<HTMLDivElement>(null)
@@ -67,7 +60,8 @@ export function AnnotationsOverlay({
 
     useOutsideClickHandler([overlayRef, modalContentRef, modalOverlayRef], () => closePopover())
 
-    const dates = _dates.map((label) => dayjs(label).tz(timezone))
+    const tickPointIndices: number[] = chart.scales.x.ticks.map(({ value }) => value)
+    const tickDates: dayjs.Dayjs[] = tickPointIndices.map((dateIndex) => dayjs(dates[dateIndex]))
 
     return (
         <div
@@ -90,7 +84,7 @@ export function AnnotationsOverlay({
             }
             ref={overlayRef}
         >
-            {dates?.map((date, index) => (
+            {tickDates?.map((date, index) => (
                 <AnnotationsBadge key={date.toISOString()} index={index} date={date} />
             ))}
             {/* FIXME: Fix appear animation to be smooth too */}
