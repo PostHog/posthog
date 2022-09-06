@@ -148,7 +148,7 @@ class WorkerMonitor(threading.Thread):
 
         total_threads = Gauge("gunicorn_max_worker_threads", "Size of the thread pool per worker.", labelnames=["pid"])
         active_threads = Gauge(
-            "gunicorn_active_worker_threads", "Number of threads actively processing requests.", labelnames=["pid"],
+            "gunicorn_active_worker_threads", "Number of threads actively processing requests.", labelnames=["pid"]
         )
 
         pending_requests = Gauge(

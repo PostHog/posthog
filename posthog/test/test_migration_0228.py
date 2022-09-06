@@ -27,7 +27,7 @@ class FixingDashboardTilesTestCase(TestMigrations):
         # dashboard tile with valid layouts
         # Expect: no conversion for this tile
         insight_for_case_1 = Insight.objects.create(
-            team=team, filters={"insight": "TRENDS", "date_from": "-7d"}, name="has valid layouts on tile",
+            team=team, filters={"insight": "TRENDS", "date_from": "-7d"}, name="has valid layouts on tile"
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight_for_case_1, layouts={"a": "dict"})
 
@@ -35,7 +35,7 @@ class FixingDashboardTilesTestCase(TestMigrations):
         # dashboard with layout that has been stringified once
         # Expect: conversion for this tile
         insight_for_case_2 = Insight.objects.create(
-            team=team, filters={"insight": "TRENDS", "date_from": "-7d"}, name="has invalid layouts on tile",
+            team=team, filters={"insight": "TRENDS", "date_from": "-7d"}, name="has invalid layouts on tile"
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight_for_case_2, layouts=json.dumps({"a": "dict"}))
 

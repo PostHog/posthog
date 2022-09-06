@@ -49,7 +49,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     test_account_filters_default_checked: false,
     path_cleaning_filters: [],
     is_demo: false,
-    timezone: 'Europe/Brussels',
+    timezone: 'UTC',
     data_attributes: ['data-attr'],
     person_display_name_properties: ['email', 'name', 'username'],
     correlation_config: {

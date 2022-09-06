@@ -512,6 +512,7 @@ export const insightLogic = kea<insightLogicType>({
                 ),
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
+        insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
             (s) => [s.insight],
             (insight) =>

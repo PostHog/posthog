@@ -15,8 +15,8 @@ process.on('unhandledRejection', (err) => {
 export function initKeaTests(mountCommonLogic = true, teamForWindowContext: TeamType = MOCK_DEFAULT_TEAM): void {
     dayjs.tz.setDefault('UTC')
     window.POSTHOG_APP_CONTEXT = {
-        current_team: teamForWindowContext,
         ...window.POSTHOG_APP_CONTEXT,
+        current_team: teamForWindowContext,
     } as unknown as AppContext
     posthog.init('no token', {
         test: true,

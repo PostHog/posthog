@@ -41,7 +41,7 @@ class TeamManager(models.Manager):
                 "key": "$host",
                 "operator": "is_not",
                 "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
-            },
+            }
         ]
         if organization:
             example_emails = organization.members.only("email")
@@ -51,7 +51,7 @@ class TeamManager(models.Manager):
                 example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
                     return [
-                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
+                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"}
                     ] + filters
         return filters
 
@@ -97,7 +97,7 @@ class Team(UUIDClassicModel):
     )
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
     name: models.CharField = models.CharField(
-        max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
+        max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")]
     )
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)

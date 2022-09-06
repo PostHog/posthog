@@ -8,7 +8,7 @@ from posthog.models.session_recording_event.util import create_session_recording
 
 
 def _create_session_recording_event(**kwargs) -> str:
-    return create_session_recording_event(uuid=uuid4(), **kwargs,)
+    return create_session_recording_event(uuid=uuid4(), **kwargs)
 
 
 def create_snapshot(
@@ -75,7 +75,7 @@ def create_chunked_snapshots(
                                         "childNodes": [],
                                         "id": 729,
                                     },
-                                },
+                                }
                             ],
                         },
                         "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,

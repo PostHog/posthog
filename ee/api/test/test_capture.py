@@ -28,8 +28,8 @@ class TestCaptureAPI(APIBaseTest):
             {
                 "data": json.dumps(
                     [
-                        {"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token,},},
-                        {"event": "event2", "properties": {"distinct_id": "id2", "token": self.team.api_token,},},
+                        {"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token}},
+                        {"event": "event2", "properties": {"distinct_id": "id2", "token": self.team.api_token}},
                     ]
                 ),
                 "api_key": self.team.api_token,
@@ -88,8 +88,8 @@ class TestCaptureAPI(APIBaseTest):
             {
                 "data": json.dumps(
                     [
-                        {"event": "event1", "properties": {"distinct_id": "eeee", "token": self.team.api_token,},},
-                        {"event": "event2", "properties": {"distinct_id": "aaaa", "token": self.team.api_token,},},
+                        {"event": "event1", "properties": {"distinct_id": "eeee", "token": self.team.api_token}},
+                        {"event": "event2", "properties": {"distinct_id": "aaaa", "token": self.team.api_token}},
                     ]
                 ),
                 "api_key": self.team.api_token,
@@ -141,8 +141,8 @@ class TestCaptureAPI(APIBaseTest):
                         {
                             "event": "event1",
                             "uuid": "017d37c1-f285-0000-0e8b-e02d131925dc",
-                            "properties": {"distinct_id": "id1", "token": self.team.api_token,},
-                        },
+                            "properties": {"distinct_id": "id1", "token": self.team.api_token},
+                        }
                     ]
                 ),
                 "api_key": self.team.api_token,
@@ -164,7 +164,7 @@ class TestCaptureAPI(APIBaseTest):
             "/capture/",
             {
                 "data": json.dumps(
-                    [{"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token,},},]
+                    [{"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token}}]
                 ),
                 "api_key": self.team.api_token,
             },

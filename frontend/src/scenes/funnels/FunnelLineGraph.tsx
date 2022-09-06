@@ -8,7 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModalV2'
+import { openPersonsModal, shouldUsePersonsModalV2 } from 'scenes/trends/persons-modal/PersonsModalV2'
 import { buildPeopleUrl } from 'scenes/trends/persons-modal/persons-modal-utils'
 
 export function FunnelLineGraph({
@@ -72,17 +72,20 @@ export function FunnelLineGraph({
                               pointValue: dataset?.data?.[index] ?? undefined, // TODO: Remove
                           }
 
-                          const url = buildPeopleUrl(props)
-                          if (url) {
-                              openPersonsModal({
-                                  url,
-                                  title: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on ${dayjs(
-                                      label
-                                  ).format('MMMM Do YYYY')}`,
-                              })
-                          }
+                          if (shouldUsePersonsModalV2()) {
+                              const url = buildPeopleUrl(props)
 
-                          loadPeople(props)
+                              if (url) {
+                                  openPersonsModal({
+                                      url,
+                                      title: `${capitalizeFirstLetter(
+                                          aggregationTargetLabel.plural
+                                      )} converted on ${dayjs(label).format('MMMM Do YYYY')}`,
+                                  })
+                              }
+                          } else {
+                              loadPeople(props)
+                          }
                       }
             }
         />

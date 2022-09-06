@@ -19,12 +19,10 @@ class AsyncDeletion(models.Model):
                 condition=models.Q(group_type_index__isnull=True),
             ),
             models.UniqueConstraint(
-                name="unique deletion for groups", fields=["deletion_type", "key", "group_type_index"],
+                name="unique deletion for groups", fields=["deletion_type", "key", "group_type_index"]
             ),
         ]
-        indexes = [
-            models.Index(name="delete_verified_at index", fields=["delete_verified_at"]),
-        ]
+        indexes = [models.Index(name="delete_verified_at index", fields=["delete_verified_at"])]
 
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     # Should be one of the DeletionType enum

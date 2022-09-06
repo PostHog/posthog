@@ -36,7 +36,7 @@ class TestAbsoluteUrls(TestCase):
             ("/api/path", "https://my-amazing.site/", "https://my-amazing.site/api/path"),
             ("api/path", "https://my-amazing.site/base_url/", "https://my-amazing.site/base_url/api/path"),
             ("/api/path", "https://my-amazing.site/base_url", "https://my-amazing.site/base_url/api/path"),
-            (regression_11204, "https://app.posthog.com", f"https://app.posthog.com/{regression_11204}",),
+            (regression_11204, "https://app.posthog.com", f"https://app.posthog.com/{regression_11204}"),
             ("https://app.posthog.com", "https://app.posthog.com", "https://app.posthog.com"),
             (
                 "https://app.posthog.com/some/path?=something",
@@ -104,7 +104,7 @@ class TestFormatUrls(TestCase):
             ((None, None, "off2", "lim2"), "http://www.testserver"),
             ((50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
             ((None, 50, "off2", "lim2"), "http://www.testserver?lim2=50"),
-            ((50, 50, "off2", "lim2"), "http://www.testserver?off2=50&lim2=50",),
+            ((50, 50, "off2", "lim2"), "http://www.testserver?off2=50&lim2=50"),
         ]
 
         for params, expected in test_to_expected:
