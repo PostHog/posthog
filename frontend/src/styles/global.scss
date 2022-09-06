@@ -206,12 +206,6 @@ input::-ms-clear {
     height: var(--radius);
 }
 
-// Table styles
-
-.table-bordered td {
-    border: 1px solid var(--border);
-}
-
 // Card styles
 
 .ant-card-body > :first-child {
