@@ -78,7 +78,6 @@ export interface CodeSnippetProps {
     wrap?: boolean
     actions?: Action[]
     style?: React.CSSProperties
-    codeStyle?: React.CSSProperties
     copyDescription?: string
     hideCopyButton?: boolean
 }
@@ -88,7 +87,6 @@ export function CodeSnippet({
     language = Language.Text,
     wrap = false,
     style,
-    codeStyle,
     actions,
     copyDescription = 'code snippet',
     hideCopyButton = false,
@@ -117,13 +115,7 @@ export function CodeSnippet({
                 )}
             </div>
             <SyntaxHighlighter
-                style={{
-                    ...okaidia,
-                    'pre[class*="language-"]': {
-                        ...okaidia['pre[class*="language-"]'],
-                        ...codeStyle,
-                    },
-                }}
+                style={okaidia}
                 language={language}
                 wrapLines={wrap}
                 lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}

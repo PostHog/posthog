@@ -63,7 +63,9 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                 </div>
             </TabPane>
             <TabPane tab="JSON" key="json">
-                <EventJSON event={event} />
+                <div className="px-2">
+                    <EventJSON event={event} />
+                </div>
             </TabPane>
             {event.elements && event.elements.length > 0 && (
                 <TabPane tab="Elements" key="elements">
