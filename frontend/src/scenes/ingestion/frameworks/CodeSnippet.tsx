@@ -1,6 +1,6 @@
 import React from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { okaidia } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import okaidia from 'react-syntax-highlighter/dist/esm/styles/prism/okaidia'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
