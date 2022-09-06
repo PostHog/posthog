@@ -9,12 +9,14 @@ interface NotFoundProps {
 
 export function NotFound({ object }: NotFoundProps): JSX.Element {
     return (
-        <div className="not-found-component">
-            <div className="graphic" />
-            <h1 className="page-title">{capitalizeFirstLetter(object)} not found</h1>
-            <b>It seems this page may have been lost in space.</b>
+        <div className="NotFoundComponent space-y-2">
+            <div className="NotFoundComponent__graphic" />
+            <h1>{capitalizeFirstLetter(object)} not found</h1>
             <p>
-                It’s possible this {object} may have been deleted or its sharing settings changed. Please check with the
+                <b>It seems this page may have been lost in space.</b>
+            </p>
+            <p>
+                It's possible this {object} may have been deleted or its sharing settings changed. Please check with the
                 person who sent you here, or{' '}
                 <Link
                     to={`https://posthog.com/support?utm_medium=in-product&utm_campaign=${object}-not-found`}
