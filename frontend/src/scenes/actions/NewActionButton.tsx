@@ -74,7 +74,9 @@ export function NewActionButton(): JSX.Element {
                         </LemonButton>
                     </div>
                 ) : (
-                    <AuthorizedUrls />
+                    <div style={{ maxWidth: '40rem' }}>
+                        <AuthorizedUrls />
+                    </div>
                 )}
             </LemonModal>
         </>
