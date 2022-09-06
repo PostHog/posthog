@@ -382,8 +382,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             {
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-12",
                 "events": [{"id": "$pageview", "type": "events", "order": 0}],
                 "properties": [
                     {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0},
@@ -402,8 +402,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             {
-                "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-12",
                 "events": [{"id": "$pageview", "type": "events", "order": 0}],
                 "properties": [
                     {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0},

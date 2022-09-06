@@ -278,7 +278,7 @@
   WHERE team_id = 2
     AND event = '$pageview'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2020-01-12 00:00:00')
+    AND timestamp <= toDateTime('2020-01-12 23:59:59')
     AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
          AND (has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'another'), '^"|"$', ''))))
   '
@@ -318,7 +318,7 @@
   WHERE team_id = 2
     AND event = '$pageview'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
-    AND timestamp <= toDateTime('2020-01-12 00:00:00')
+    AND timestamp <= toDateTime('2020-01-12 23:59:59')
     AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))))
   '
 ---
