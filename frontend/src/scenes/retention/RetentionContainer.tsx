@@ -12,7 +12,7 @@ export function RetentionContainer({
     inSharedMode?: boolean
 }): JSX.Element {
     return (
-        <div className="retention-container space-y-4">
+        <div className="RetentionContainer space-y-4">
             {inCardView ? (
                 <RetentionTable inCardView={inCardView} />
             ) : (
