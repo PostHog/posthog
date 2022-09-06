@@ -153,7 +153,7 @@ export function TaxonomicPropertyFilter({
                         {filter?.type === 'cohort' ? (
                             <div>{selectedCohortName || `Cohort #${filter?.value}`}</div>
                         ) : filter?.key ? (
-                            <PropertyKeyInfo value={filter.key} disablePopover />
+                            <PropertyKeyInfo value={filter.key} disablePopover ellipsis />
                         ) : (
                             <>
                                 {orFiltering && propertyGroupType ? (

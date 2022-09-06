@@ -17,7 +17,7 @@
     line-height: 1.5rem;
     font-weight: 500;
     cursor: pointer;
-    -webkit-appearance: none !important; // Important as this gets overridden by Antd styles...
+    -webkit-appearance: none !important; // Important as this gets overridden by Ant styles...
 
     &:disabled {
         opacity: var(--opacity-disabled);
@@ -139,7 +139,7 @@
         }
     }
 
-    @each $status in ('default', 'primary', 'danger', 'primary-alt') {
+    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 
@@ -162,25 +162,24 @@
             &.LemonButton--primary {
                 color: var(--white);
                 background: var(--#{$status});
-
                 .LemonIcon {
                     color: var(--white);
                 }
+
                 &:not(:disabled):hover,
                 &.LemonButton--active {
                     color: var(--white);
                     background: var(--#{$status}-light, var(--#{$status}));
-
                     .LemonIcon {
                         color: var(--white);
                     }
                 }
                 &:not(:disabled):active {
+                    background: var(--#{$status}-dark, var(--#{$status}));
                     color: var(--white);
                     .LemonIcon {
                         color: var(--white);
                     }
-                    background: var(--#{$status}-dark, var(--#{$status}));
                 }
             }
 
@@ -228,8 +227,8 @@
     .LemonButton {
         &.LemonButton--status-primary {
             &:hover {
-                // NOTE: this is a rare case so we are hardcoding the value. Only primary status is supported
-                background: #d2dbff;
+                // NOTE: this is a rare case where we specify a unique hover style. Only primary status is supported
+                background: var(--primary-button-nested-hover);
             }
         }
     }

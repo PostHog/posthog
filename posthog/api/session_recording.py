@@ -83,7 +83,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
 
         session_recordings = list(
-            map(lambda x: {**x, "viewed": x["session_id"] in viewed_session_recordings,}, session_recordings,)
+            map(lambda x: {**x, "viewed": x["session_id"] in viewed_session_recordings}, session_recordings)
         )
 
         session_recording_serializer = SessionRecordingSerializer(data=session_recordings, many=True)

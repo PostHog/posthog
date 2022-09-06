@@ -84,11 +84,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_update_dashboard(self):
         dashboard = Dashboard.objects.create(
-            team=self.team, name="private dashboard", created_by=self.user, creation_mode="template",
+            team=self.team, name="private dashboard", created_by=self.user, creation_mode="template"
         )
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {"name": "dashboard new name", "creation_mode": "duplicate", "description": "Internal system metrics.",},
+            {"name": "dashboard new name", "creation_mode": "duplicate", "description": "Internal system metrics."},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -123,7 +123,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_shared_dashboard(self):
         self.client.logout()
-        dashboard = Dashboard.objects.create(team=self.team, name="public dashboard",)
+        dashboard = Dashboard.objects.create(team=self.team, name="public dashboard")
         SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, access_token="testtoken", enabled=True)
 
         response = self.client.get("/shared_dashboard/testtoken")
@@ -131,15 +131,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_return_cached_results_bleh(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-        }
+        filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
         filter = Filter(data=filter_dict)
 
-        item = Insight.objects.create(filters=filter_dict, team=self.team,)
+        item = Insight.objects.create(filters=filter_dict, team=self.team)
         DashboardTile.objects.create(dashboard=dashboard, insight=item)
-        item2 = Insight.objects.create(filters=filter.to_dict(), team=self.team,)
+        item2 = Insight.objects.create(filters=filter.to_dict(), team=self.team)
         DashboardTile.objects.create(dashboard=dashboard, insight=item2)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
         self.assertEqual(response["items"][0]["result"], None)
@@ -201,10 +198,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-        }
+        filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
 
         with freeze_time("2020-01-04T13:00:01Z"):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
@@ -226,7 +220,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             item_default: Insight = Insight.objects.create(
                 filters=Filter(
-                    data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
+                    data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
                 ).to_dict(),
                 team=self.team,
                 last_refresh=now(),
@@ -271,7 +265,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_dashboard_endpoints(self):
         # create
-        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Default", "pinned": "true"},)
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Default", "pinned": "true"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Default")
         self.assertEqual(response.json()["creation_mode"], "default")
@@ -284,16 +278,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["results"][0]["name"], "Default")  # type: ignore
 
         # soft-delete
-        self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{pk}/", {"deleted": True},
-        )
+        self.client.patch(f"/api/projects/{self.team.id}/dashboards/{pk}/", {"deleted": True})
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/").json()
         self.assertEqual(len(response["results"]), 0)
 
         # restore after soft-deletion
-        self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{pk}/", {"deleted": False},
-        )
+        self.client.patch(f"/api/projects/{self.team.id}/dashboards/{pk}/", {"deleted": False})
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/").json()
         self.assertEqual(len(response["results"]), 1)
 
@@ -379,7 +369,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_id, _ = self._create_dashboard({"name": "asdasd", "pinned": True})
 
         insight_id, _ = self._create_insight(
-            {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "another"},
+            {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "another"}
         )
 
         # layouts used to live on insights, but moved onto the relation from a dashboard to its insights
@@ -391,7 +381,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                         "id": insight_id,
                         "layouts": {
                             "lg": {"x": "0", "y": "0", "w": "6", "h": "5"},
-                            "sm": {"w": "7", "h": "5", "x": "0", "y": "0", "moved": "False", "static": "False",},
+                            "sm": {"w": "7", "h": "5", "x": "0", "y": "0", "moved": "False", "static": "False"},
                             "xs": {"x": "0", "y": "0", "w": "6", "h": "5"},
                             "xxs": {"x": "0", "y": "0", "w": "2", "h": "5"},
                         },
@@ -422,44 +412,42 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # invalid - both use_template and use_dashboard are set
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards",
-            {"name": "another", "use_template": "DEFAULT_APP", "use_dashboard": 1,},
+            {"name": "another", "use_template": "DEFAULT_APP", "use_dashboard": 1},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # invalid - use_template is set and use_dashboard empty string
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards",
-            {"name": "another", "use_template": "DEFAULT_APP", "use_dashboard": "",},
+            {"name": "another", "use_template": "DEFAULT_APP", "use_dashboard": ""},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # valid - use_template empty and use_dashboard is not set
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_template": "",},
-        )
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_template": ""})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # valid - only use_template is set
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_template": "DEFAULT_APP",},
+            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_template": "DEFAULT_APP"}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # valid - only use_dashboard is set
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_dashboard": existing_dashboard.id,},
+            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_dashboard": existing_dashboard.id}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # valid - use_dashboard is set and use_template empty string
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards",
-            {"name": "another", "use_template": "", "use_dashboard": existing_dashboard.id,},
+            {"name": "another", "use_template": "", "use_dashboard": existing_dashboard.id},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # valid - both use_template and use_dashboard are not set
-        response = self.client.post(f"/api/projects/{self.team.id}/dashboards", {"name": "another",},)
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards", {"name": "another"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_dashboard_creation_mode(self):
@@ -482,9 +470,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_dashboard_duplication(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
-        insight1 = Insight.objects.create(filters={"name": "test1"}, team=self.team, last_refresh=now(),)
+        insight1 = Insight.objects.create(filters={"name": "test1"}, team=self.team, last_refresh=now())
         DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight1)
-        insight2 = Insight.objects.create(filters={"name": "test2"}, team=self.team, last_refresh=now(),)
+        insight2 = Insight.objects.create(filters={"name": "test2"}, team=self.team, last_refresh=now())
         DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight2)
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_dashboard": existing_dashboard.id}
@@ -513,8 +501,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         another_team = Team.objects.create(organization=self.organization)
         another_team_dashboard = Dashboard.objects.create(team=another_team, name="Another Team's Dashboard")
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/",
-            {"name": "another", "use_dashboard": another_team_dashboard.id,},
+            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_dashboard": another_team_dashboard.id}
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -606,7 +593,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_insights_with_no_insight_set(self):
         # We were saving some insights on the default dashboard with no insight
         dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
-        item = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team=self.team, last_refresh=now(),)
+        item = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team=self.team, last_refresh=now())
         DashboardTile.objects.create(insight=item, dashboard=dashboard)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}").json()
         self.assertEqual(
@@ -670,7 +657,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         api_response = self.client.delete(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}")
         self.assertEqual(api_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(
-            self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code, status.HTTP_200_OK,
+            self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code, status.HTTP_200_OK
         )
 
     def test_soft_delete_can_be_reversed_with_patch(self) -> None:
@@ -696,7 +683,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         api_response = self.client.patch(f"/api/projects/{self.team.id}/{model_type}/{model_id}", {"deleted": True})
         self.assertEqual(api_response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            self.client.get(f"/api/projects/{self.team.id}/{model_type}/{model_id}").status_code, expected_get_status,
+            self.client.get(f"/api/projects/{self.team.id}/{model_type}/{model_id}").status_code, expected_get_status
         )
 
     def _create_dashboard(self, data: Dict[str, Any], team_id: Optional[int] = None) -> Tuple[int, Dict[str, Any]]:
@@ -728,7 +715,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         if "filters" not in data:
             data["filters"] = {"events": [{"id": "$pageview"}]}
 
-        response = self.client.post(f"/api/projects/{team_id}/insights", data=data,)
+        response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
         self.assertEqual(response.status_code, expected_status)
 
         response_json = response.json()

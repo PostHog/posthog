@@ -37,7 +37,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     def test_individual_property_formats(self):
         property = PropertyDefinition.objects.create(
-            team=self.team, name="timestamp_property", property_type="DateTime",
+            team=self.team, name="timestamp_property", property_type="DateTime"
         )
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -89,7 +89,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
             self.assertEqual(response.json()["count"], 308)
             self.assertEqual(
-                len(response.json()["results"]), 100 if i < 2 else 8,
+                len(response.json()["results"]), 100 if i < 2 else 8
             )  # Each page has 100 except the last one
             self.assertEqual(response.json()["results"][0]["name"], f"z_property_{property_checkpoints[i]}")
 

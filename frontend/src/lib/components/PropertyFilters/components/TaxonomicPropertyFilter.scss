@@ -20,18 +20,22 @@
             grid-row: 1;
             grid-column: 1;
         }
+
         .taxonomic-button {
             grid-row: 1;
             grid-column: 2;
         }
+
         .taxonomic-operator {
             grid-row: 1;
             grid-column: 3;
         }
+
         .taxonomic-value-select {
             grid-row: 1;
             grid-column: 4;
         }
+
         .taxonomic-validation-error {
             color: var(--danger);
             grid-row: 2;
@@ -49,18 +53,22 @@
                 grid-row: 1;
                 grid-column: 1;
             }
+
             .taxonomic-button {
                 grid-row: 1;
                 grid-column: 2 / 4;
             }
+
             .taxonomic-operator {
                 grid-row: 2;
                 grid-column: 2 / 4;
             }
+
             .taxonomic-value-select {
                 grid-row: 3;
                 grid-column: 2 / 4;
             }
+
             .taxonomic-validation-error {
                 grid-row: 4;
                 grid-column: 2 / 4;
@@ -79,6 +87,7 @@
                     display: none;
                 }
             }
+
             &.logical-operator-filtering {
                 grid-template-columns: 16px auto 140px;
             }
@@ -89,6 +98,7 @@
                 grid-row: 2;
                 grid-column: 2 / 4;
             }
+
             .taxonomic-validation-error {
                 grid-row: 3;
                 grid-column: 2 / 4;
@@ -134,12 +144,6 @@
 
         .LemonIcon {
             color: var(--muted-alt);
-        }
-
-        .property-key-info {
-            width: auto;
-            text-overflow: ellipsis;
-            overflow: hidden;
         }
 
         &.add-filter {

@@ -76,21 +76,21 @@ class TrendsTotalVolume:
                 # TODO: for groups aggregation as well
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
                 content_sql = VOLUME_SQL.format(
-                    event_query=cumulative_sql, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
+                    event_query=cumulative_sql, start_of_week_fix=start_of_week_fix(filter), **content_sql_params
                 )
             elif entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_VOLUME_SQL.format(
-                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
+                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params
                 )
             else:
                 content_sql = VOLUME_SQL.format(
-                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
+                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params
                 )
 
             null_sql = NULL_SQL.format(
-                trunc_func=trunc_func, interval_func=interval_func, start_of_week_fix=start_of_week_fix(filter),
+                trunc_func=trunc_func, interval_func=interval_func, start_of_week_fix=start_of_week_fix(filter)
             )
             params["interval"] = filter.interval
 
@@ -119,12 +119,12 @@ class TrendsTotalVolume:
     def _parse_total_volume_result(self, filter: Filter, entity: Entity, team: Team) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
-            for _, stats in enumerate(result):
-                parsed_result = parse_response(stats, filter)
-                parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team.pk, stats[0])})
-                parsed_results.append(parsed_result)
-
-                parsed_result.update({"filter": filter.to_dict()})
+            if result is not None:
+                for stats in result:
+                    parsed_result = parse_response(stats, filter)
+                    parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team.pk, stats[0])})
+                    parsed_results.append(parsed_result)
+                    parsed_result.update({"filter": filter.to_dict()})
             return parsed_results
 
         return _parse

@@ -43,9 +43,7 @@ def assert_funnel_breakdown_result_is_correct(result, steps: List[FunnelStepResu
     for index, step_result in enumerate(steps):
         step_results.append(funnel_result(step_result, index))
 
-    assert_funnel_results_equal(
-        result, step_results,
-    )
+    assert_funnel_results_equal(result, step_results)
 
 
 def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):
@@ -406,17 +404,17 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     },
                 ],
                 "person3": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Safari"}},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Safari"}}
                 ],
                 "person4": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "random"}},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "random"}}
                 ],
                 "person5": [
                     {
                         "event": "sign up",
                         "timestamp": datetime(2020, 1, 2, 15),
                         "properties": {"$browser": "another one"},
-                    },
+                    }
                 ],
             }
 
@@ -506,7 +504,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     },
                 ],
                 "person3": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Safari"}},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Safari"}}
                 ],
             }
 
@@ -721,9 +719,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
                     # no breakdown value for this guy
             events_by_person["person_null"] = [
-                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12),},
-                {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13),},
-                {"event": "buy", "timestamp": datetime(2020, 1, 1, 15),},
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
+                {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
             ]
             people = journeys_for(events_by_person, self.team)
 
@@ -775,9 +773,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
                     # no breakdown value for this guy
             events_by_person["person_null"] = [
-                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12),},
-                {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13),},
-                {"event": "buy", "timestamp": datetime(2020, 1, 1, 15),},
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
+                {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
             ]
             people = journeys_for(events_by_person, self.team)
 
@@ -827,25 +825,25 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = sorted(result, key=lambda res: res[0]["breakdown"])
 
             assert_funnel_breakdown_result_is_correct(
-                result[0], [FunnelStepResult(name="sign up", breakdown=["0"], count=1),]
+                result[0], [FunnelStepResult(name="sign up", breakdown=["0"], count=1)]
             )
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "0"), [people["person1"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
-                result[1], [FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),]
+                result[1], [FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"])]
             )
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
-                result[2], [FunnelStepResult(name="sign up", count=1, breakdown=["Mac"]),]
+                result[2], [FunnelStepResult(name="sign up", count=1, breakdown=["Mac"])]
             )
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Mac"), [people["person1"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
-                result[3], [FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),]
+                result[3], [FunnelStepResult(name="sign up", count=1, breakdown=["Safari"])]
             )
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Safari"), [people["person1"].uuid])
@@ -929,9 +927,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         def test_funnel_cohort_breakdown(self):
             # This caused some issues with SQL parsing
             _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
-            people = journeys_for(
-                {"person1": [{"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)},]}, self.team
-            )
+            people = journeys_for({"person1": [{"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)}]}, self.team)
 
             cohort = Cohort.objects.create(
                 team=self.team,
@@ -1061,7 +1057,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @test_with_materialized_columns(["$current_url"])
         def test_basic_funnel_default_funnel_days_breakdown_action(self):
             # Same case as test_basic_funnel_default_funnel_days_breakdown_event but with an action
-            user_signed_up_action = _create_action(name="user signed up", event="user signed up", team=self.team,)
+            user_signed_up_action = _create_action(name="user signed up", event="user signed up", team=self.team)
 
             events_by_person = {
                 "user_1": [
@@ -1157,7 +1153,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
                 ],
                 "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
                     {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}},
                 ],
                 "person3": [
@@ -1171,8 +1167,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
                 # no properties dude, represented by ''
                 "person5": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15),},
-                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15)},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16)},
                 ],
             }
             people = journeys_for(events_by_person, self.team)
@@ -1291,8 +1287,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
                 # no properties dude, represented by ''
                 "person5": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15),},
-                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15)},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16)},
                 ],
             }
             people = journeys_for(events_by_person, self.team)
@@ -1402,7 +1398,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
                 ],
                 "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
                     {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}},
                 ],
                 "person3": [
@@ -1502,7 +1498,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
                 ],
                 "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
                     {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}},
                 ],
                 "person3": [
@@ -1596,7 +1592,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
                 ],
                 "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
                     {
                         "event": "buy",
                         "timestamp": datetime(2020, 1, 2, 13),
@@ -1617,8 +1613,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
                 # no properties dude, represented by ''
                 "person5": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15),},
-                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15)},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16)},
                 ],
             }
             people = journeys_for(events_by_person, self.team)
@@ -1734,7 +1730,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
                 ],
                 "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
                     {
                         "event": "buy",
                         "timestamp": datetime(2020, 1, 2, 13),
@@ -1755,8 +1751,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
                 # no properties dude, represented by ''
                 "person5": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15),},
-                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15)},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16)},
                 ],
             }
             people = journeys_for(events_by_person, self.team)
@@ -1786,7 +1782,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 result[1],
                 [
                     FunnelStepResult(name="sign up", breakdown=["0", "0"], count=1),
-                    FunnelStepResult(name="buy", breakdown=["0", "0"], count=0,),
+                    FunnelStepResult(name="buy", breakdown=["0", "0"], count=0),
                 ],
             )
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["0", "0"]), [people["person4"].uuid])
@@ -1811,7 +1807,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 result[3],
                 [
                     FunnelStepResult(name="sign up", count=1, breakdown=["Mac", ""]),
-                    FunnelStepResult(name="buy", breakdown=["Mac", ""], count=0,),
+                    FunnelStepResult(name="buy", breakdown=["Mac", ""], count=0),
                 ],
             )
 
@@ -1858,7 +1854,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
                 ],
                 "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
                     # {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}}
                 ],
                 "person3": [
@@ -1932,7 +1928,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
                 ],
                 "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
                     # {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}}
                 ],
                 "person3": [
@@ -2011,7 +2007,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
                 ],
                 "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
                     {
                         "event": "buy",
                         "timestamp": datetime(2020, 1, 2, 13),
@@ -2032,8 +2028,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
                 # no properties dude, represented by ''
                 "person5": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15),},
-                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15)},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16)},
                 ],
             }
             journeys_for(events_by_person, self.team)
@@ -2072,11 +2068,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "timestamp": datetime(2020, 1, 1, 12),
                         "properties": {"$browser": "Chrome", "$version": "xyz"},
                     },
-                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 13), "properties": {"$browser": "Chrome"},},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 13), "properties": {"$browser": "Chrome"}},
                     # discarded at step 1 because doesn't meet criteria
                 ],
                 "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
                     {
                         "event": "buy",
                         "timestamp": datetime(2020, 1, 2, 13),
@@ -2093,8 +2089,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
                 # no properties dude, represented by '', who finished step 0
                 "person5": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15),},
-                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15)},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16)},
                 ],
             }
             journeys_for(events_by_person, self.team)
@@ -2136,11 +2132,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "timestamp": datetime(2020, 1, 1, 12),
                         "properties": {"$browser": "Chrome", "$version": "xyz"},
                     },
-                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 13), "properties": {"$browser": "Chrome"},},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 13), "properties": {"$browser": "Chrome"}},
                     # discarded because doesn't meet criteria
                 ],
                 "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
                     {
                         "event": "buy",
                         "timestamp": datetime(2020, 1, 2, 13),
@@ -2157,8 +2153,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
                 # no properties dude, doesn't make it to step 1, and since breakdown on step 1, is discarded completely
                 "person5": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15),},
-                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15)},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16)},
                 ],
             }
             journeys_for(events_by_person, self.team)

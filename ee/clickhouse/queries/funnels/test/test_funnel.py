@@ -39,9 +39,7 @@ class TestClickhouseFunnel(funnel_test_factory(ClickhouseFunnel, _create_event, 
         _create_person(distinct_ids=[f"user_3"], team=self.team, properties={"email": "fake_2@test.com"})
 
         action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="$pageview", action=action1,
-        )
+        ActionStep.objects.create(event="$pageview", action=action1)
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -65,7 +63,7 @@ class TestClickhouseFunnel(funnel_test_factory(ClickhouseFunnel, _create_event, 
                     "event": "paid",
                     "timestamp": datetime(2020, 1, 3, 14),
                     "properties": {"$group_0": "org:5"},
-                },
+                }
             ],
             "user_3": [
                 {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$group_0": "org:7"}},

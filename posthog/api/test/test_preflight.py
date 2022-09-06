@@ -15,11 +15,7 @@ class TestPreflight(APIBaseTest):
     maxDiff = 2000
 
     def instance_preferences(self, **kwargs):
-        return {
-            "debug_queries": False,
-            "disable_paid_fs": False,
-            **kwargs,
-        }
+        return {"debug_queries": False, "disable_paid_fs": False, **kwargs}
 
     def preflight_dict(self, options={}):
         preflight = {
@@ -34,7 +30,7 @@ class TestPreflight(APIBaseTest):
             "clickhouse": True,
             "kafka": True,
             "realm": "hosted-clickhouse",
-            "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
+            "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
             "can_create_org": False,
             "email_service_available": False,
             "slack_service": {"available": False, "client_id": None},
@@ -54,7 +50,7 @@ class TestPreflight(APIBaseTest):
             "licensed_users_available": None,
             "site_url": "http://localhost:8000",
             "can_create_org": False,
-            "instance_preferences": {"debug_queries": True, "disable_paid_fs": False,},
+            "instance_preferences": {"debug_queries": True, "disable_paid_fs": False},
             "object_storage": False,
             "buffer_conversion_seconds": 60,
         }
@@ -121,7 +117,7 @@ class TestPreflight(APIBaseTest):
                 self.preflight_dict(
                     {
                         "email_service_available": True,
-                        "slack_service": {"available": True, "client_id": "slack-client-id",},
+                        "slack_service": {"available": True, "client_id": "slack-client-id"},
                         "can_create_org": True,
                         "cloud": True,
                         "realm": "cloud",
@@ -144,7 +140,7 @@ class TestPreflight(APIBaseTest):
                         "can_create_org": True,
                         "cloud": True,
                         "realm": "cloud",
-                        "instance_preferences": {"debug_queries": False, "disable_paid_fs": False,},
+                        "instance_preferences": {"debug_queries": False, "disable_paid_fs": False},
                         "site_url": "https://app.posthog.com",
                     }
                 ),
@@ -174,9 +170,9 @@ class TestPreflight(APIBaseTest):
                         "can_create_org": True,
                         "cloud": True,
                         "realm": "cloud",
-                        "instance_preferences": {"debug_queries": False, "disable_paid_fs": True,},
+                        "instance_preferences": {"debug_queries": False, "disable_paid_fs": True},
                         "site_url": "http://localhost:8000",
-                        "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False,},
+                        "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False},
                         "email_service_available": True,
                     }
                 ),
@@ -202,10 +198,7 @@ class TestPreflight(APIBaseTest):
             pass
         else:
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
-                key="key_123",
-                plan="free_clickhouse",
-                valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
-                max_users=3,
+                key="key_123", plan="free_clickhouse", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
             )
 
             OrganizationInvite.objects.create(organization=self.organization, target_email="invite@posthog.com")
@@ -237,7 +230,7 @@ class TestPreflight(APIBaseTest):
             pass
         else:
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
-                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
             )
             with self.settings(MULTI_ORG_ENABLED=True):
                 response = self.client.get("/_preflight/")

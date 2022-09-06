@@ -278,12 +278,10 @@ def test_get_active_segments_from_event_list():
 
 def test_get_active_segments_from_single_event():
     base_time = datetime(2019, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    events = [
-        EventActivityData(is_active=True, timestamp=base_time),
-    ]
+    events = [EventActivityData(is_active=True, timestamp=base_time)]
     active_segments = get_active_segments_from_event_list(events, window_id="1", activity_threshold_seconds=60)
     assert active_segments == [
-        RecordingSegment(start_time=base_time, end_time=base_time, window_id="1", is_active=True,),
+        RecordingSegment(start_time=base_time, end_time=base_time, window_id="1", is_active=True)
     ]
 
 
@@ -366,7 +364,7 @@ def test_generate_inactive_segments_for_last_segment():
         base_time,
         base_time + timedelta(seconds=60),
         "2",
-        {"2": {"start_time": base_time, "end_time": base_time + timedelta(seconds=70)},},
+        {"2": {"start_time": base_time, "end_time": base_time + timedelta(seconds=70)}},
         is_last_segment=True,
     )
     millisecond = timedelta(milliseconds=1)
@@ -376,7 +374,7 @@ def test_generate_inactive_segments_for_last_segment():
             end_time=base_time + timedelta(seconds=60),
             window_id="2",
             is_active=False,
-        ),
+        )
     ]
 
 

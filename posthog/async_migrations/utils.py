@@ -36,9 +36,7 @@ def send_analytics_to_posthog(event, data):
     if user and user.current_organization:
         data["organization_name"] = user.current_organization.name
         groups["organization"] = str(user.current_organization.id)
-    posthoganalytics.capture(
-        get_machine_id(), event, data, groups=groups,
-    )
+    posthoganalytics.capture(get_machine_id(), event, data, groups=groups)
 
 
 def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
@@ -233,9 +231,7 @@ def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = Tr
 
     task = run_async_migration.delay(migration_instance.name, fresh_start)
 
-    update_async_migration(
-        migration_instance=migration_instance, celery_task_id=str(task.id),
-    )
+    update_async_migration(migration_instance=migration_instance, celery_task_id=str(task.id))
 
 
 def force_stop_migration(

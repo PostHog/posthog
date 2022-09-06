@@ -1,18 +1,18 @@
 import React from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { PersonsModal } from './PersonsModal'
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
-import { SaveCohortModal } from './SaveCohortModal'
+import { SaveCohortModal } from './persons-modal/SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ChartDisplayType, InsightType, ItemMode } from '~/types'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable'
-import { personsModalLogic } from './personsModalLogic'
+import { personsModalLogic } from './persons-modal/personsModalLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { LemonButton } from '@posthog/lemon-ui'
+import { PersonsModal } from './persons-modal/PersonsModal'
 
 interface Props {
     view: InsightType
@@ -112,8 +112,8 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 aggregationTargetLabel={aggregationTargetLabel}
             />
             <SaveCohortModal
-                visible={cohortModalVisible}
-                onOk={(title: string) => {
+                isOpen={cohortModalVisible}
+                onSave={(title: string) => {
                     saveCohortWithUrl(title)
                     setCohortModalVisible(false)
                     reportCohortCreatedFromPersonsModal(_filters)

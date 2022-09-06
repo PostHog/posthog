@@ -4,10 +4,15 @@ import '@testing-library/jest-dom'
 import React from 'react'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 describe('the activity log logic', () => {
     describe('humanizing persons', () => {
-        const personTestSetup = makeTestSetup(ActivityScope.PERSON, personActivityDescriber, '/api/person/7/activity/')
+        const personTestSetup = makeTestSetup(
+            ActivityScope.PERSON,
+            personActivityDescriber,
+            `/api/projects/${MOCK_TEAM_ID}/persons/7/activity/`
+        )
         it('can handle addition of a property', async () => {
             const logic = await personTestSetup('test person', 'updated', [
                 {

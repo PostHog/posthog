@@ -64,7 +64,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         action1 = Action.objects.create(team=self.team, name="action1")
         step1 = ActionStep.objects.create(
-            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT,
+            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT
         )
         query, params = filter_event(step1)
 
@@ -96,7 +96,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         )
 
         action1 = Action.objects.create(team=self.team, name="action1")
-        step1 = ActionStep.objects.create(event="$autocapture", action=action1, url="https://posthog.com/feedback/123",)
+        step1 = ActionStep.objects.create(event="$autocapture", action=action1, url="https://posthog.com/feedback/123")
         query, params = filter_event(step1)
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
@@ -128,7 +128,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         action1 = Action.objects.create(team=self.team, name="action1")
         step1 = ActionStep.objects.create(
-            event="$autocapture", action=action1, url="/123", url_matching=ActionStep.REGEX,
+            event="$autocapture", action=action1, url="/123", url_matching=ActionStep.REGEX
         )
         query, params = filter_event(step1)
 
@@ -138,9 +138,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
     def test_double(self):
         # Tests a regression where the second step properties would override those of the first step, causing issues
-        _create_event(
-            event="insight viewed", team=self.team, distinct_id="whatever", properties={"filters_count": 2},
-        )
+        _create_event(event="insight viewed", team=self.team, distinct_id="whatever", properties={"filters_count": 2})
 
         action1 = Action.objects.create(team=self.team, name="action1")
         ActionStep.objects.create(

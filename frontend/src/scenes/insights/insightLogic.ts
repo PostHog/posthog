@@ -44,8 +44,9 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 
-export const defaultFilterTestAccounts = (): boolean => {
-    return localStorage.getItem('default_filter_test_accounts') === 'true' || false
+export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {
+    // if the current _global_ value is true respect that over any local preference
+    return localStorage.getItem('default_filter_test_accounts') === 'true' || current_filter_test_accounts
 }
 
 function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
@@ -55,12 +56,15 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
     )
 }
 
-export const createEmptyInsight = (insightId: InsightShortId | `new-${string}` | 'new'): Partial<InsightModel> => ({
+export const createEmptyInsight = (
+    insightId: InsightShortId | `new-${string}` | 'new',
+    filterTestAccounts: boolean
+): Partial<InsightModel> => ({
     short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
     name: '',
     description: '',
     tags: [],
-    filters: {},
+    filters: filterTestAccounts ? { filter_test_accounts: true } : {},
     result: null,
 })
 
@@ -72,7 +76,7 @@ export const insightLogic = kea<insightLogicType>({
     connect: {
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeamId', 'currentTeam'],
             featureFlagLogic,
             ['featureFlags'],
             groupsModel,
@@ -151,7 +155,11 @@ export const insightLogic = kea<insightLogicType>({
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
-            props.cachedInsight ?? createEmptyInsight(props.dashboardItemId || 'new'),
+            props.cachedInsight ??
+                createEmptyInsight(
+                    props.dashboardItemId || 'new',
+                    values.currentTeam?.test_account_filters_default_checked || false
+                ),
             {
                 loadInsight: async ({ shortId }) => {
                     const response = await api.get(
@@ -504,6 +512,7 @@ export const insightLogic = kea<insightLogicType>({
                 ),
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
+        insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
             (s) => [s.insight],
             (insight) =>
@@ -523,7 +532,7 @@ export const insightLogic = kea<insightLogicType>({
                 !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
                 !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})),
         ],
-        isViewedOnDashboard: [
+        isInDashboardContext: [
             () => [router.selectors.location],
             ({ pathname }) =>
                 pathname.startsWith('/dashboard') ||
@@ -686,7 +695,7 @@ export const insightLogic = kea<insightLogicType>({
         },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
             await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
-            if (!values.isViewedOnDashboard) {
+            if (!values.isInDashboardContext) {
                 const { fromDashboard } = router.values.hashParams
                 const changedKeysObj: Record<string, any> | undefined =
                     previousFilters && extractObjectDiffKeys(previousFilters, filters)
@@ -799,6 +808,7 @@ export const insightLogic = kea<insightLogicType>({
             try {
                 if (insightNumericId && emptyFilters(values.insight.filters)) {
                     const error = new Error('Will not override empty filters in saveInsight.')
+
                     Sentry.captureException(error, {
                         extra: {
                             filters: JSON.stringify(values.insight.filters),

@@ -22,7 +22,7 @@ class TestAccessMiddleware(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertIn(b"IP is not allowed", response.content)
 
-            response = self.client.get("/batch/", REMOTE_ADDR="10.0.0.1",)
+            response = self.client.get("/batch/", REMOTE_ADDR="10.0.0.1")
 
             self.assertEqual(
                 response.status_code, status.HTTP_400_BAD_REQUEST
@@ -65,27 +65,21 @@ class TestAccessMiddleware(APIBaseTest):
             self.assertIn(b"IP is not allowed", response.content)
 
     def test_trusted_proxies(self):
-        with self.settings(
-            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True,
-        ):
+        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
-                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",)
+                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1")
                 self.assertNotIn(b"IP is not allowed", response.content)
 
     def test_attempt_spoofing(self):
-        with self.settings(
-            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True,
-        ):
+        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
-                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.2",)
+                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.2")
                 self.assertIn(b"IP is not allowed", response.content)
 
     def test_trust_all_proxies(self):
-        with self.settings(
-            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True,
-        ):
+        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True):
             with self.settings(TRUST_ALL_PROXIES=True):
-                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",)
+                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1")
                 self.assertNotIn(b"IP is not allowed", response.content)
 
 

@@ -206,12 +206,6 @@ input::-ms-clear {
     height: var(--radius);
 }
 
-// Table styles
-
-.table-bordered td {
-    border: 1px solid var(--border);
-}
-
 // Card styles
 
 .ant-card-body > :first-child {
@@ -634,13 +628,13 @@ body {
     }
 
     h5 {
-        font-size: 11px;
+        font-size: 0.6875rem;
         font-weight: 600;
         color: var(--muted-alt);
         text-transform: uppercase;
         letter-spacing: 0.5px;
         margin-bottom: 0.25rem;
-        line-height: 2;
+        line-height: 1.5rem;
     }
 
     .ant-layout {

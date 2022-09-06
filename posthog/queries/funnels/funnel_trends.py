@@ -213,9 +213,4 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             hour_min_sec = " %H:%M:%S" if self._filter.interval == "hour" else ""
             days.append(timestamp.strftime(f"%Y-%m-%d{hour_min_sec}"))
             labels.append(timestamp.strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
-        return {
-            "count": count,
-            "data": data,
-            "days": days,
-            "labels": labels,
-        }
+        return {"count": count, "data": data, "days": days, "labels": labels}
