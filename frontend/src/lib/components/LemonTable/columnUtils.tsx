@@ -7,17 +7,18 @@ import { UserBasicType } from '~/types'
 
 export function createdAtColumn<T extends { created_at?: string | null }>(): LemonTableColumn<T, 'created_at'> {
     return {
-        title: 'Created on',
+        title: 'Created',
         dataIndex: 'created_at',
         render: function RenderCreatedAt(created_at) {
             return created_at ? (
-                <div style={{ whiteSpace: 'nowrap' }}>
+                <div className="whitespace-nowrap text-right">
                     <TZLabel time={created_at} />
                 </div>
             ) : (
                 <span style={{ color: 'var(--muted)' }}>—</span>
             )
         },
+        align: 'right',
         sorter: (a, b) => (new Date(a.created_at || 0) > new Date(b.created_at || 0) ? 1 : -1),
     }
 }

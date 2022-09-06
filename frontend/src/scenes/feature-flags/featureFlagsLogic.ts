@@ -6,10 +6,21 @@ import { Breadcrumb, FeatureFlagType } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
+import { toParams } from 'lib/utils'
+import { LemonSelectOption } from 'lib/components/LemonSelect'
 
 export enum FeatureFlagsTabs {
     OVERVIEW = 'overview',
     HISTORY = 'history',
+}
+
+export interface FeatureFlagsFilters {
+    active?: string
+    created_by?: string
+}
+
+interface FeatureFlagCreators {
+    [id: string]: string
 }
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
@@ -22,12 +33,16 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         deleteFlag: (id: number) => ({ id }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setActiveTab: (tabKey: FeatureFlagsTabs) => ({ tabKey }),
+        setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
     },
     loaders: ({ values }) => ({
         featureFlags: {
             __default: [] as FeatureFlagType[],
             loadFeatureFlags: async () => {
-                const response = await api.get(`api/projects/${values.currentTeamId}/feature_flags/`)
+                const params = values.filters || {}
+                const response = await api.get(
+                    `api/projects/${values.currentTeamId}/feature_flags/?${toParams(params)}`
+                )
                 return response.results as FeatureFlagType[]
             },
             updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
@@ -60,6 +75,24 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 },
             ],
         ],
+        uniqueCreators: [
+            (selectors) => [selectors.featureFlags],
+            (featureFlags) => {
+                const creators: FeatureFlagCreators = {}
+                for (const flag of featureFlags) {
+                    if (flag.created_by) {
+                        if (!creators[flag.created_by.id]) {
+                            creators[flag.created_by.id] = flag.created_by.first_name
+                        }
+                    }
+                }
+                const response: LemonSelectOption<string>[] = [
+                    { label: 'Any user', value: 'any' },
+                    ...Object.entries(creators).map(([id, first_name]) => ({ label: first_name, value: id })),
+                ]
+                return response
+            },
+        ],
     },
     reducers: {
         searchTerm: {
@@ -82,7 +115,23 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     Object.values<string>(FeatureFlagsTabs).includes(tabKey) ? tabKey : state,
             },
         ],
+        filters: [
+            {} as Partial<FeatureFlagsFilters> | null,
+            {
+                setFeatureFlagsFilters: (state, { filters, replace }) => {
+                    if (replace) {
+                        return { ...filters }
+                    }
+                    return { ...state, ...filters }
+                },
+            },
+        ],
     },
+    listeners: ({ actions }) => ({
+        setFeatureFlagsFilters: () => {
+            actions.loadFeatureFlags()
+        },
+    }),
     actionToUrl: ({ values }) => ({
         setActiveTab: () => {
             const searchParams = {
