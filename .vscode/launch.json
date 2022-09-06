@@ -32,7 +32,8 @@
                 "KAFKA_URL": "kafka://localhost",
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "WORKER_CONCURRENCY": "2",
-                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "CALCULATE_EVENT_PROPERTY_QUEUE": "CALCULATE_EVENT_PROPERTY_QUEUE"
             }
         },
         {
@@ -61,7 +62,8 @@
                 "KAFKA_URL": "kafka://localhost",
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "WORKER_CONCURRENCY": "2",
-                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "CALCULATE_EVENT_PROPERTY_QUEUE": "CALCULATE_EVENT_PROPERTY_QUEUE"
             }
         },
         {

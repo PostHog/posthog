@@ -5,6 +5,7 @@ from kombu import Exchange, Queue
 from posthog.settings.base_variables import TEST
 from posthog.settings.data_stores import REDIS_URL
 from posthog.settings.ee import EE_AVAILABLE
+from posthog.settings.utils import get_from_env
 
 # Only listen to the default queue "celery", unless overridden via the CLI
 CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
@@ -17,6 +18,8 @@ CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ign
 CELERY_RESULT_EXPIRES = timedelta(days=4)  # expire tasks after 4 days instead of the default 1
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 CELERY_CREATE_MISSING_QUEUES = True
+
+CALCULATE_EVENT_PROPERTY_QUEUE = get_from_env("CALCULATE_EVENT_PROPERTY_QUEUE", CELERY_DEFAULT_QUEUE)
 
 if TEST:
     import celery

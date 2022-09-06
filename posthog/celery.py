@@ -166,7 +166,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="count tiles with no filters_hash",
         )
 
-        sender.add_periodic_task(1, send_message_one.s("message_one_queue"), queue="message_one_queue")
+        sender.add_periodic_task(
+            1,
+            send_message_one.s("message_one_queue"),
+        )
         sender.add_periodic_task(1, send_message_two.s())
 
 
@@ -185,7 +188,7 @@ def teardown_instrumentation(task_id, task, **kwargs):
     client._request_information = None
 
 
-@app.task(rate_limit="5/m")
+@app.task(rate_limit="5/m", queue=settings.CALCULATE_EVENT_PROPERTY_QUEUE)
 def send_message_one(message: str):
     import structlog
 
