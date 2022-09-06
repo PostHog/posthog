@@ -15,7 +15,7 @@ import {
 } from 'scenes/ingestion/frameworks'
 import React from 'react'
 import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { WebInstructions } from '../frameworks/WebInstructions'
 
@@ -34,8 +34,7 @@ const frameworksSnippet: Record<string, React.ComponentType> = {
 }
 
 export function InstructionsPanel(): JSX.Element {
-    const { index, platform, framework, frameworkString } = useValues(ingestionLogic)
-    const { setFramework, setPlatform } = useActions(ingestionLogic)
+    const { platform, framework, frameworkString } = useValues(ingestionLogic)
 
     if (platform !== WEB && !framework) {
         return <></>
@@ -46,11 +45,11 @@ export function InstructionsPanel(): JSX.Element {
     return (
         <div className="InstructionsPanel mb-8">
             {platform === WEB ? (
-                <CardContainer index={index} showFooter={true} onBack={() => setPlatform(null)}>
+                <CardContainer showFooter>
                     <WebInstructions />
                 </CardContainer>
             ) : framework === API ? (
-                <CardContainer index={index} showFooter={true} onBack={() => setFramework(null)}>
+                <CardContainer showFooter>
                     <h2>{frameworkString}</h2>
                     <p className="prompt-text">
                         {
@@ -60,7 +59,7 @@ export function InstructionsPanel(): JSX.Element {
                     <FrameworkSnippet />
                 </CardContainer>
             ) : (
-                <CardContainer index={index} showFooter={true} onBack={() => setFramework(null)}>
+                <CardContainer showFooter>
                     <h1>{`Setup ${frameworkString}`}</h1>
 
                     {platform === BACKEND ? (
