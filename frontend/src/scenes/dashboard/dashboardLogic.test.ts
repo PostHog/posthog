@@ -37,14 +37,12 @@ const boxToString = (param: string | readonly string[]): string => {
     }
 }
 
-const insight800 = (): InsightModel => {
-    return {
-        ...insightsOnDashboard([9, 10])[1],
-        id: 800,
-        short_id: '800' as InsightShortId,
-        last_refresh: now().toISOString(),
-    }
-}
+const insight800 = (): InsightModel => ({
+    ...insightsOnDashboard([9, 10])[1],
+    id: 800,
+    short_id: '800' as InsightShortId,
+    last_refresh: now().toISOString(),
+})
 
 describe('dashboardLogic', () => {
     let logic: ReturnType<typeof dashboardLogic.build>
@@ -429,5 +427,38 @@ describe('dashboardLogic', () => {
                 .toNotHaveDispatchedActions(['refreshAllDashboardItems'])
                 .toFinishListeners()
         })
+    })
+
+    it('can move an insight off a dashboard', async () => {
+        const nineLogic = dashboardLogic({ id: 9 })
+        nineLogic.mount()
+        await expectLogic(nineLogic).toFinishAllListeners()
+
+        const fiveLogic = dashboardLogic({ id: 5 })
+        fiveLogic.mount()
+        await expectLogic(fiveLogic).toFinishAllListeners()
+
+        expect(
+            fiveLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
+        ).toEqual([
+            { dashboards: [5, 6], short_id: '172' },
+            { dashboards: [5, 6], short_id: '175' },
+        ])
+        expect(
+            nineLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
+        ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
+
+        dashboardsModel.actions.updateDashboardInsight({ ...insight800(), dashboards: [10, 5] }, [9])
+
+        expect(
+            fiveLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
+        ).toEqual([
+            { dashboards: [5, 6], short_id: '172' },
+            { dashboards: [5, 6], short_id: '175' },
+            { dashboards: [10, 5], short_id: '800' },
+        ])
+        expect(
+            nineLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
+        ).toEqual([])
     })
 })

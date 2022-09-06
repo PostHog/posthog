@@ -190,7 +190,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 },
                 [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                     const targetDashboards = (item.dashboards || []).concat(extraDashboardIds || [])
-                    if (props.id && !targetDashboards.includes(props.id)) {
+                    if (!props.id) {
+                        // what are we even updating?
+                        return state
+                    }
+                    if (!targetDashboards.includes(props.id)) {
                         // this update is not for this dashboard
                         return state
                     }
@@ -200,7 +204,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         const newItems = state.items.slice(0)
 
                         if (itemIndex >= 0) {
-                            newItems[itemIndex] = { ...newItems[itemIndex], ...item }
+                            if (item.dashboards?.includes(props.id)) {
+                                newItems[itemIndex] = { ...newItems[itemIndex], ...item }
+                            } else {
+                                newItems.splice(itemIndex, 1)
+                            }
                         } else {
                             newItems.push(item)
                         }
