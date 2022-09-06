@@ -5,7 +5,7 @@ import { Divider } from 'antd'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, PropertyDefinition } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
@@ -92,7 +92,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     }
                                 />
                                 <div className="definition-sent-as">
-                                    Raw event name: <pre>{definition.name}</pre>
+                                    Raw {singular} name: <pre>{definition.name}</pre>
                                 </div>
                             </>
                         }
@@ -114,14 +114,25 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     />
                     <Divider />
                     <DefinitionPopup.Grid cols={2}>
-                        <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(definition.created_at)} />
-                        <DefinitionPopup.Card title="Last seen" value={formatTimeFromNow(definition.last_seen_at)} />
-                        <DefinitionPopup.Card
-                            title={<ThirtyDayVolumeTitle />}
-                            value={
-                                definition.volume_30_day == null ? '-' : humanFriendlyNumber(definition.volume_30_day)
-                            }
-                        />
+                        {isEvent && (
+                            <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(definition.created_at)} />
+                        )}
+                        {isEvent && (
+                            <DefinitionPopup.Card
+                                title="Last seen"
+                                value={formatTimeFromNow(definition.last_seen_at)}
+                            />
+                        )}
+                        {isEvent && (
+                            <DefinitionPopup.Card
+                                title={<ThirtyDayVolumeTitle />}
+                                value={
+                                    definition.volume_30_day == null
+                                        ? '-'
+                                        : humanFriendlyNumber(definition.volume_30_day)
+                                }
+                            />
+                        )}
                         <DefinitionPopup.Card
                             title={<ThirtyDayQueryCountTitle />}
                             value={
@@ -130,6 +141,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     : humanFriendlyNumber(definition.query_usage_30_day)
                             }
                         />
+                        {!isEvent && (
+                            <DefinitionPopup.Card
+                                title="Property Type"
+                                value={(definition as PropertyDefinition).property_type ?? '-'}
+                            />
+                        )}
                     </DefinitionPopup.Grid>
                     <Divider />
                     {isEvent && definition.id !== 'new' && (

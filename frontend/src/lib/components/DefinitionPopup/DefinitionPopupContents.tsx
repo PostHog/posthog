@@ -234,12 +234,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 <DefinitionPopup.Grid cols={2}>
-                    <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(_definition.created_at)} />
-                    <DefinitionPopup.Card title="Last seen" value={formatTimeFromNow(_definition.last_seen_at)} />
-                    <DefinitionPopup.Card
-                        title="30 day volume"
-                        value={_definition.volume_30_day == null ? '-' : humanFriendlyNumber(_definition.volume_30_day)}
-                    />
                     <DefinitionPopup.Card
                         title="30 day queries"
                         value={
@@ -247,6 +241,10 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 ? '-'
                                 : humanFriendlyNumber(_definition.query_usage_30_day)
                         }
+                    />
+                    <DefinitionPopup.Card
+                        title="Property Type"
+                        value={<DefinitionPopup.Type propertyType={_definition.property_type} />}
                     />
                 </DefinitionPopup.Grid>
                 <DefinitionPopup.HorizontalLine />
@@ -264,11 +262,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 </Typography.Text>
                             </>
                         }
-                    />
-                    <DefinitionPopup.Card
-                        title={<>&nbsp;</>}
-                        value={<DefinitionPopup.Type propertyType={_definition.property_type} />}
-                        alignItems={'end'}
                     />
                 </DefinitionPopup.Grid>
             </>
