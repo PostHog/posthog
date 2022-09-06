@@ -188,7 +188,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         items: state?.items.map((item) => ({ ...item, layouts: itemLayouts[item.short_id] })),
                     } as DashboardType
                 },
-                [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item, extraDashboardIds }) => {
+                [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                     const targetDashboards = (item.dashboards || []).concat(extraDashboardIds || [])
                     if (props.id && !targetDashboards.includes(props.id)) {
                         // this update is not for this dashboard
@@ -685,7 +685,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         )
                     }
 
-                    dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
+                    dashboardsModel.actions.updateDashboardInsight(refreshedDashboardItem)
                     actions.setRefreshStatus(dashboardItem.short_id)
                 } catch (e: any) {
                     if (isBreakpoint(e)) {

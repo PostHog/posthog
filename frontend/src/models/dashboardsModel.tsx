@@ -21,7 +21,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
         // can provide extra dashboard ids if not all listeners will choose to respond to this action
         // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
-        updateDashboardItem: (item: InsightModel, extraDashboardIds?: Array<DashboardType['id']>) => ({
+        updateDashboardInsight: (item: InsightModel, extraDashboardIds?: Array<DashboardType['id']>) => ({
             item,
             extraDashboardIds,
         }),

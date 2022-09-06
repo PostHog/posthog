@@ -281,10 +281,10 @@ describe('dashboardLogic', () => {
                     .toDispatchActionsInAnyOrder([
                         // and updates the action in the model
                         (a) =>
-                            a.type === dashboardsModel.actionTypes.updateDashboardItem &&
+                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
                             a.payload.item.short_id === dashboards['5'].items[1].short_id,
                         (a) =>
-                            a.type === dashboardsModel.actionTypes.updateDashboardItem &&
+                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
                             a.payload.item.short_id === dashboards['5'].items[0].short_id,
                         // no longer reloading
                         logic.actionCreators.setRefreshStatus(dashboards['5'].items[0].short_id, false),
@@ -322,7 +322,7 @@ describe('dashboardLogic', () => {
                     })
                     .toDispatchActionsInAnyOrder([
                         (a) =>
-                            a.type === dashboardsModel.actionTypes.updateDashboardItem &&
+                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
                             a.payload.item.short_id === dashboards['5'].items[0].short_id,
                         logic.actionCreators.setRefreshStatus(dashboards['5'].items[0].short_id, false),
                     ])
@@ -351,7 +351,7 @@ describe('dashboardLogic', () => {
             expect(logic.values.allItems?.items[0].filters.interval).toEqual('day')
 
             const copiedInsight = insight800()
-            dashboardsModel.actions.updateDashboardItem({
+            dashboardsModel.actions.updateDashboardInsight({
                 ...copiedInsight,
                 filters: { ...copiedInsight.filters, date_from: '-1d', interval: 'hour' },
             })
