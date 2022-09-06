@@ -62,7 +62,7 @@ export function Plan({
                         Subscribe now
                     </LemonButton>
                 )}
-                {canHideDetails && (
+                {canHideDetails && planDetails && (
                     <LemonButton
                         data-attr="btn-pricing-info"
                         fullWidth

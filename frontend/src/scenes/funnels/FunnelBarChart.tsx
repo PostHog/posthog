@@ -136,7 +136,7 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
             >
                 {showPersonsModal ? (
                     <ValueInspectorButton
-                        onClick={() => openPersonsModalForStep({ step, converted: true })}
+                        onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
                         style={{ padding: 0 }}
                     >
                         {convertedCountPresentation}
@@ -151,9 +151,9 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
                 style={{ color: 'unset' }} // Prevent status color from affecting text
                 title="Users who dropped of at this step"
             >
-                {showPersonsModal ? (
+                {showPersonsModal && stepIndex ? (
                     <ValueInspectorButton
-                        onClick={() => openPersonsModalForStep({ step, converted: false })}
+                        onClick={() => openPersonsModalForStep({ step, stepIndex, converted: false })}
                         style={{ padding: 0 }}
                     >
                         {droppedOffCountPresentation}

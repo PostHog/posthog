@@ -106,7 +106,6 @@ export const FEATURE_FLAGS = {
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
-    DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
