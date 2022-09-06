@@ -15,7 +15,6 @@ import { ProfilePicture } from '../ProfilePicture'
 import { annotationsModel } from '~/models/annotationsModel'
 import { Chart } from 'chart.js'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
-import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { Popup } from '../Popup/Popup'
 
 /** User-facing format for annotation groups. */
@@ -49,15 +48,11 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
 
 export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: AnnotationsOverlayProps): JSX.Element {
     const { activeBadgeRef } = useValues(annotationsOverlayLogic)
-    const { closePopover } = useActions(annotationsOverlayLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
     const overlayRef = useRef<HTMLDivElement | null>(null)
-    const popupRef = useRef<HTMLDivElement | null>(null)
     const modalContentRef = useRef<HTMLDivElement | null>(null)
     const modalOverlayRef = useRef<HTMLDivElement | null>(null)
-
-    useOutsideClickHandler([overlayRef, popupRef, modalContentRef, modalOverlayRef], () => closePopover())
 
     const tickPointIndices: number[] = chart.scales.x.ticks.map(({ value }) => value)
     const tickDates: dayjs.Dayjs[] = tickPointIndices.map((dateIndex) => dayjs(dates[dateIndex]))
@@ -80,7 +75,7 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: An
             {tickDates?.map((date, index) => (
                 <AnnotationsBadge key={date.toISOString()} index={index} date={date} />
             ))}
-            {activeBadgeRef && <AnnotationsPopover ref={popupRef} />}
+            {activeBadgeRef && <AnnotationsPopover overlayRefs={[overlayRef, modalContentRef, modalOverlayRef]} />}
             <AnnotationModal
                 contentRef={(el) => (modalContentRef.current = el)}
                 overlayRef={(el) => (modalOverlayRef.current = el)}
@@ -147,7 +142,11 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
     )
 })
 
-const AnnotationsPopover = React.forwardRef<HTMLDivElement>(function AnnotationsPopoverRaw(_, ref): JSX.Element {
+function AnnotationsPopover({
+    overlayRefs,
+}: {
+    overlayRefs: React.MutableRefObject<HTMLDivElement | null>[]
+}): JSX.Element {
     const { popoverAnnotations, activeDate, intervalUnit, isDateLocked, insightId, activeBadgeRef, isPopoverShown } =
         useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
@@ -155,11 +154,12 @@ const AnnotationsPopover = React.forwardRef<HTMLDivElement>(function Annotations
 
     return (
         <Popup
-            ref={ref}
+            additionalRefs={overlayRefs}
             className="AnnotationsPopover"
             placement="top"
             referenceElement={activeBadgeRef.current}
             visible={isPopoverShown}
+            onClickOutside={closePopover}
             overlay={
                 <LemonModal
                     inline
@@ -192,7 +192,7 @@ const AnnotationsPopover = React.forwardRef<HTMLDivElement>(function Annotations
             }
         />
     )
-})
+}
 
 function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Element {
     const { insightId } = useValues(annotationsOverlayLogic)
