@@ -11,7 +11,7 @@ export function createdAtColumn<T extends { created_at?: string | null }>(): Lem
         dataIndex: 'created_at',
         render: function RenderCreatedAt(created_at) {
             return created_at ? (
-                <div style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                <div className="whitespace-nowrap text-right">
                     <TZLabel time={created_at} />
                 </div>
             ) : (
