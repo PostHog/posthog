@@ -59,9 +59,6 @@ class TestStatusReport(factory_status_report(_create_event, _create_person, crea
 
         multiple_ids_report = report["multiple_ids_per_person"]
 
-        expected_result = {
-            "total_persons_with_more_than_2_ids": 2,
-            "max_distinct_ids_for_one_person": 5,
-        }
+        expected_result = {"total_persons_with_more_than_2_ids": 2, "max_distinct_ids_for_one_person": 5}
 
         self.assertEqual(multiple_ids_report, expected_result)

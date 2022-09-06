@@ -14,7 +14,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
     class TestFunnelBreakdownGroup(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result = FunnelPerson(person_filter, self.team).get_actors()
+            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
 
             return [val["id"] for val in serialized_result]
 
@@ -70,7 +70,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                             "event": "sign up",
                             "timestamp": datetime(2020, 1, 2, 14),
                             "properties": {"$group_0": "org:6", "$browser": "Safari"},
-                        },
+                        }
                     ],
                 },
                 self.team,
@@ -175,7 +175,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                             "event": "buy",
                             "timestamp": datetime(2020, 1, 2, 18),
                             "properties": {"$group_0": "org:6", "$browser": "Safari"},
-                        },
+                        }
                     ],
                 },
                 self.team,
@@ -281,7 +281,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                             "event": "buy",
                             "timestamp": datetime(2020, 1, 2, 18),
                             "properties": {"$group_0": "org:6", "$browser": "Safari"},
-                        },
+                        }
                     ],
                 },
                 self.team,

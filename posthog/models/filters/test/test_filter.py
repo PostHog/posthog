@@ -13,7 +13,7 @@ from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 
 class TestFilter(BaseTest):
     def test_old_style_properties(self):
-        filter = Filter(data={"properties": {"$browser__is_not": "IE7", "$OS": "Mac",}})
+        filter = Filter(data={"properties": {"$browser__is_not": "IE7", "$OS": "Mac"}})
         self.assertEqual(cast(Property, filter.property_groups.values[0]).key, "$browser")
         self.assertEqual(cast(Property, filter.property_groups.values[0]).operator, "is_not")
         self.assertEqual(cast(Property, filter.property_groups.values[0]).value, "IE7")
@@ -31,6 +31,7 @@ class TestFilter(BaseTest):
                 "interval": "",
                 "actions": [],
                 "date_from": "2020-01-01T20:00:00Z",
+                "search": "query",
             }
         )
         self.assertCountEqual(
@@ -44,6 +45,7 @@ class TestFilter(BaseTest):
                 "interval",
                 "smoothing_intervals",
                 "breakdown_attribution_type",
+                "search",
             ],
         )
 
@@ -59,7 +61,7 @@ class TestFilter(BaseTest):
 
         self.assertEqual(
             filter.properties_to_dict(),
-            {"properties": {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"},],},},
+            {"properties": {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]}},
         )
         self.assertTrue(filter.is_simplified)
 
@@ -77,7 +79,7 @@ class TestFilter(BaseTest):
                                 {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
                             ],
                         },
-                        {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}],},
+                        {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]},
                     ],
                 }
             },
@@ -96,7 +98,7 @@ class TestFilter(BaseTest):
                                 {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
                             ],
                         },
-                        {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}],},
+                        {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]},
                     ],
                 }
             },
@@ -355,7 +357,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"properties": {"$some_prop": 1}}], name="cohort1")
         cohort1.people.add(person1)
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
 
         with self.assertNumQueries(3):
             matched_person = (
@@ -379,7 +381,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
         self, date_from: datetime.datetime, date_to: Optional[datetime.datetime] = None
     ) -> Filter:
         data = {
-            "properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1,}],
+            "properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}],
             "date_from": date_from,
         }
         if date_to:

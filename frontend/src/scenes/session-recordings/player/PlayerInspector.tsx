@@ -117,7 +117,6 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                                         disableIcon
                                         disablePopover
                                         ellipsis={true}
-                                        style={{ maxWidth: 150 }}
                                     />
                                 </div>
                             )

@@ -11,6 +11,7 @@ from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.encoding import smart_str
 from django.utils.timezone import now
+from loginas.utils import is_impersonated_session
 from rest_framework import renderers, request, serializers, status, viewsets
 from rest_framework.decorators import action, renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -30,7 +31,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
-from posthog.models.plugin import PluginSourceFile, update_validated_data_from_url
+from posthog.models.plugin import PluginSourceFile, update_validated_data_from_url, validate_plugin_job_payload
 from posthog.permissions import (
     OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
@@ -399,7 +400,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     ) -> Response:
         return Response(
             {
-                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
+                "results": ActivityLogSerializer(activity_page.results, many=True).data,
                 "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
                 if activity_page.has_next
                 else None,
@@ -567,7 +568,8 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not can_configure_plugins(self.team.organization_id):
             raise ValidationError("Plugin configuration is not available for the current organization!")
 
-        plugin_config_id = self.get_object().id
+        plugin_config = self.get_object()
+        plugin_config_id = plugin_config.id
         job = request.data.get("job", {})
 
         if "type" not in job:
@@ -577,6 +579,13 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         job_type = job.get("type")
         job_payload = job.get("payload", {})
         job_op = job.get("operation", "start")
+
+        validate_plugin_job_payload(
+            plugin_config.plugin,
+            job_type,
+            job_payload,
+            is_staff=request.user.is_staff or is_impersonated_session(request),
+        )
 
         payload_json = json.dumps(
             {

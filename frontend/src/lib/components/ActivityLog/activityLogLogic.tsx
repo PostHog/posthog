@@ -22,13 +22,13 @@ export const activityLogLogic = kea<activityLogLogicType>({
     },
     loaders: ({ values, props }) => ({
         nextPage: [
-            { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
+            { results: [], total_count: 0 } as CountedPaginatedResponse<ActivityLogItem>,
             {
                 fetchNextPage: async () => await api.activity.list(props, values.page),
             },
         ],
         previousPage: [
-            { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
+            { results: [], total_count: 0 } as CountedPaginatedResponse<ActivityLogItem>,
             {
                 fetchPreviousPage: async () => await api.activity.list(props, values.page - 1),
             },

@@ -123,7 +123,7 @@ def _get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
         FROM system.query_log
         WHERE
             query NOT LIKE '%%query_log%%'
-            AND query LIKE '/* request:%%'
+            AND (query LIKE '/* user_id:%%' OR query LIKE '/* request:%%')
             AND query NOT LIKE '%%INSERT%%'
             AND type = 'QueryFinish'
             AND query_start_time > now() - toIntervalHour(%(since)s)
@@ -183,10 +183,7 @@ def materialize_properties_task(
     else:
         logger.info("Found no columns to materialize.")
 
-    properties: Dict[TableWithProperties, List[Tuple[PropertyName, TableColumn]]] = {
-        "events": [],
-        "person": [],
-    }
+    properties: Dict[TableWithProperties, List[Tuple[PropertyName, TableColumn]]] = {"events": [], "person": []}
     for table, table_column, property_name, cost in result[:maximum]:
         logger.info(f"Materializing column. table={table}, property_name={property_name}, cost={cost}")
 

@@ -37,14 +37,13 @@ class SimplifyFilterMixin:
         result: Any = self.with_data({"is_simplified": True})  # type: ignore
 
         if getattr(result, "filter_test_accounts", False):
-
             new_group = {"type": "AND", "values": team.test_account_filters}
             prop_group = (
                 {"type": "AND", "values": [new_group, result.property_groups.to_dict()]}
                 if result.property_groups.to_dict()
                 else new_group
             )
-            result = result.with_data({"properties": prop_group, "filter_test_accounts": False,})
+            result = result.with_data({"properties": prop_group, "filter_test_accounts": False})
 
         updated_entities = {}
         if hasattr(result, "entities_to_dict"):
@@ -131,7 +130,7 @@ class SimplifyFilterMixin:
     def _group_set_property(self, group_type_index: GroupTypeIndex) -> "Property":
         from posthog.models.property import Property
 
-        return Property(key=f"$group_{group_type_index}", value="", operator="is_not",)
+        return Property(key=f"$group_{group_type_index}", value="", operator="is_not")
 
     @property
     def is_simplified(self) -> bool:

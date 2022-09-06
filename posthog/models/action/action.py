@@ -12,9 +12,7 @@ from posthog.redis import get_client
 
 class Action(models.Model):
     class Meta:
-        indexes = [
-            models.Index(fields=["team_id", "-updated_at"]),
-        ]
+        indexes = [models.Index(fields=["team_id", "-updated_at"])]
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)

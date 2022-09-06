@@ -66,7 +66,7 @@ class TestEventDefinitionAPI(APIBaseTest):
             self.assertEqual(response_item["volume_30_day"], item["volume_30_day"], item)
             self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"], item)
             self.assertEqual(
-                response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day, item,
+                response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day, item
             )
 
             self.assertAlmostEqual(
@@ -98,7 +98,7 @@ class TestEventDefinitionAPI(APIBaseTest):
 
             self.assertEqual(response.json()["count"], 306)
             self.assertEqual(
-                len(response.json()["results"]), 100 if i < 2 else 6,
+                len(response.json()["results"]), 100 if i < 2 else 6
             )  # Each page has 100 except the last one
             self.assertEqual(response.json()["results"][0]["name"], f"z_event_{event_checkpoints[i]}")
 

@@ -29,6 +29,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.AddConstraint(
-            model_name="specialmigration", constraint=models.UniqueConstraint(fields=("name",), name="unique name"),
+            model_name="specialmigration",
+            constraint=models.UniqueConstraint(fields=("name",), name="unique name"),
         ),
     ]

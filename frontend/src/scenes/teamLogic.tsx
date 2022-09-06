@@ -118,6 +118,7 @@ export const teamLogic = kea<teamLogicType>([
                 return currentTeam?.correlation_config || {}
             },
         ],
+        timezone: [(selectors) => [selectors.currentTeam], (currentTeam): string => currentTeam?.timezone || 'UTC'],
     }),
     listeners(({ actions, values }) => ({
         deleteTeam: async ({ team }) => {

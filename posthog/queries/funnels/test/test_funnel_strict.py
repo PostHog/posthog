@@ -148,7 +148,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
         person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        _, serialized_result = ClickhouseFunnelStrictActors(person_filter, self.team).get_actors()
+        _, serialized_result, _ = ClickhouseFunnelStrictActors(person_filter, self.team).get_actors()
 
         return [val["id"] for val in serialized_result]
 
@@ -240,12 +240,10 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            self._get_actor_ids_at_step(filter, 2), [person3_stopped_after_insight_view.uuid, person7.uuid,],
+            self._get_actor_ids_at_step(filter, 2), [person3_stopped_after_insight_view.uuid, person7.uuid]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filter, 3), [person7.uuid],
-        )
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 3), [person7.uuid])
 
         with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"):
             result = funnel.run()
@@ -379,12 +377,10 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         self.assertCountEqual(
             self._get_actor_ids_at_step(filter, 3),
-            [person4.uuid, person5.uuid, person6.uuid, person7.uuid, person8.uuid,],
+            [person4.uuid, person5.uuid, person6.uuid, person7.uuid, person8.uuid],
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filter, 4), [person8.uuid,],
-        )
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 4), [person8.uuid])
 
     def test_basic_strict_funnel_conversion_times(self):
         filter = Filter(
@@ -466,6 +462,4 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
             [person2_stopped_after_one_pageview.uuid, person3_stopped_after_insight_view.uuid],
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filter, 3), [person3_stopped_after_insight_view.uuid],
-        )
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 3), [person3_stopped_after_insight_view.uuid])

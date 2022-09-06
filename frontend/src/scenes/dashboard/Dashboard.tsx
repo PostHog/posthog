@@ -116,7 +116,6 @@ function DashboardScene(): JSX.Element {
                                 <div className="flex items-center" style={{ height: '2rem' }}>
                                     <TZIndicator style={{ marginRight: '0.5rem' }} />
                                     <DateFilter
-                                        defaultValue="Custom"
                                         showCustom
                                         dateFrom={dashboardFilters?.date_from ?? undefined}
                                         dateTo={dashboardFilters?.date_to ?? undefined}

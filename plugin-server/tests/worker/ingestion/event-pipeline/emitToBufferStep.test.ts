@@ -60,10 +60,14 @@ describe('emitToBufferStep()', () => {
 
         const response = await emitToBufferStep(runner, pluginEvent, () => true)
 
-        expect(runner.hub.jobQueueManager.enqueue).toHaveBeenCalledWith(JobName.BUFFER_JOB, {
-            eventPayload: pluginEvent,
-            timestamp: unixNow + 60000, // runner.hub.BUFFER_CONVERSION_SECONDS * 1000
-        })
+        expect(runner.hub.jobQueueManager.enqueue).toHaveBeenCalledWith(
+            JobName.BUFFER_JOB,
+            {
+                eventPayload: pluginEvent,
+                timestamp: unixNow + 60000, // runner.hub.BUFFER_CONVERSION_SECONDS * 1000
+            },
+            { key: 'team_id', tag: '2' }
+        )
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
     })

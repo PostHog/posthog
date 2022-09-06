@@ -54,14 +54,14 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
             timestamp=timestamp,
             session_id=session_id,
             window_id=window_id,
-            snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot,},
+            snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot},
         )
 
     def _get_people_at_path(self, filter, path_start=None, path_end=None, funnel_filter=None, path_dropoff=None):
         person_filter = filter.with_data(
             {"path_start_key": path_start, "path_end_key": path_end, "path_dropoff_key": path_dropoff}
         )
-        _, serialized_actors = PathsActors(person_filter, self.team, funnel_filter).get_actors()
+        _, serialized_actors, _ = PathsActors(person_filter, self.team, funnel_filter).get_actors()
         return [row["id"] for row in serialized_actors]
 
     def test_step_limit(self):
@@ -444,7 +444,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                     "value": 10,
                     "average_conversion_time": 160000,
                 },
-                {"source": "3_step two", "target": "4_step three", "value": 5, "average_conversion_time": ONE_MINUTE,},
+                {"source": "3_step two", "target": "4_step three", "value": 5, "average_conversion_time": ONE_MINUTE},
             ],
         )
 
@@ -707,21 +707,15 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
         }
         path_filter = PathFilter(data=data)
         response = Paths(team=self.team, filter=path_filter).run()
-        self.assertEqual(
-            response, correct_response,
-        )
+        self.assertEqual(response, correct_response)
 
-        self.team.path_cleaning_filters = [
-            {"alias": "?<param>", "regex": "\\?(.*)"},
-        ]
+        self.team.path_cleaning_filters = [{"alias": "?<param>", "regex": "\\?(.*)"}]
         self.team.save()
 
         data.update({"local_path_cleaning_filters": [{"alias": "/<id>", "regex": "/\\d+(/|\\?)?"}]})
         path_filter = PathFilter(data=data)
         response = Paths(team=self.team, filter=path_filter).run()
-        self.assertEqual(
-            response, correct_response,
-        )
+        self.assertEqual(response, correct_response)
 
         # overriding team filters
         data.update(
@@ -735,9 +729,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
         )
         path_filter = PathFilter(data=data)
         response = Paths(team=self.team, filter=path_filter).run()
-        self.assertEqual(
-            response, correct_response,
-        )
+        self.assertEqual(response, correct_response)
 
     def test_path_by_funnel_after_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
@@ -1425,7 +1417,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "date_to": "2021-05-07 00:00:00",
             }
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -1448,7 +1440,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "date_to": "2021-05-07 00:00:00",
             }
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -1519,9 +1511,9 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
         # P3 for custom event
         _create_person(team_id=self.team.pk, distinct_ids=["p3"])
         p3 = [
-            _create_event(distinct_id="p3", event="/custom1", team=self.team, timestamp="2012-01-01 03:21:34",),
-            _create_event(distinct_id="p3", event="/custom2", team=self.team, timestamp="2012-01-01 03:22:34",),
-            _create_event(distinct_id="p3", event="/custom3", team=self.team, timestamp="2012-01-01 03:24:34",),
+            _create_event(distinct_id="p3", event="/custom1", team=self.team, timestamp="2012-01-01 03:21:34"),
+            _create_event(distinct_id="p3", event="/custom2", team=self.team, timestamp="2012-01-01 03:22:34"),
+            _create_event(distinct_id="p3", event="/custom3", team=self.team, timestamp="2012-01-01 03:24:34"),
         ]
 
         _ = [*p1, *p2, *p3]
@@ -1564,15 +1556,13 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
 
         self.assertEqual(
             response,
-            [{"source": "1_/custom1", "target": "2_/custom2", "value": 1, "average_conversion_time": ONE_MINUTE},],
+            [{"source": "1_/custom1", "target": "2_/custom2", "value": 1, "average_conversion_time": ONE_MINUTE}],
         )
 
         filter = filter.with_data({"include_event_types": [], "include_custom_events": ["/custom3", "blah"]})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
-        self.assertEqual(
-            response, [],
-        )
+        self.assertEqual(response, [])
 
         filter = filter.with_data(
             {"include_event_types": ["$pageview", "$screen", "custom_event"], "include_custom_events": []}
@@ -1702,7 +1692,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
-            response, [{"source": "1_/1", "target": "2_/3", "value": 3, "average_conversion_time": 3 * ONE_MINUTE},],
+            response, [{"source": "1_/1", "target": "2_/3", "value": 3, "average_conversion_time": 3 * ONE_MINUTE}]
         )
 
         filter = filter.with_data({"path_groupings": ["/xxx/invalid/*"]})
@@ -1757,9 +1747,9 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
             team=self.team,
             timestamp="2012-01-01 03:28:34",
         ),
-        _create_event(distinct_id="p1", event="/custom1", team=self.team, timestamp="2012-01-01 03:29:34",),
-        _create_event(distinct_id="p1", event="/custom2", team=self.team, timestamp="2012-01-01 03:30:34",),
-        _create_event(distinct_id="p1", event="/custom3", team=self.team, timestamp="2012-01-01 03:32:34",),
+        _create_event(distinct_id="p1", event="/custom1", team=self.team, timestamp="2012-01-01 03:29:34"),
+        _create_event(distinct_id="p1", event="/custom2", team=self.team, timestamp="2012-01-01 03:30:34"),
+        _create_event(distinct_id="p1", event="/custom3", team=self.team, timestamp="2012-01-01 03:32:34"),
 
         filter = PathFilter(data={"step_limit": 10, "date_from": "2012-01-01"})  # include everything, exclude nothing
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -2070,7 +2060,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
             },
             team=self.team,
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
         self.assertEqual(
             response, [{"source": "1_/5", "target": "2_/about", "value": 2, "average_conversion_time": 60000.0}]
         )
@@ -2078,7 +2068,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
 
         # test aggregation for long paths
         filter = filter.with_data({"start_point": "/2", "step_limit": 4})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -2122,7 +2112,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
         self.assertEqual(should_query_list(filter), (True, True))
 
         filter = filter.with_data(
-            {"include_event_types": [], "include_custom_events": [], "exclude_events": ["$pageview"],}
+            {"include_event_types": [], "include_custom_events": [], "exclude_events": ["$pageview"]}
         )
         self.assertEqual(should_query_list(filter), (False, True))
 
@@ -2544,7 +2534,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "edge_limit": "6",
             }
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -2988,7 +2978,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertCountEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
         matched_recordings = [actor["matched_recordings"] for actor in serialized_actors]
 
@@ -3001,7 +2991,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                             "uuid": UUID("41111111-1111-1111-1111-111111111111"),
                             "timestamp": timezone.now() + timedelta(minutes=32),
                             "window_id": "w3",
-                        },
+                        }
                     ],
                 },
                 {
@@ -3011,7 +3001,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                             "uuid": UUID("21111111-1111-1111-1111-111111111111"),
                             "timestamp": timezone.now() + timedelta(minutes=1),
                             "window_id": "w1",
-                        },
+                        }
                     ],
                 },
             ],
@@ -3050,11 +3040,9 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
-        self.assertEqual(
-            [[]], [actor["matched_recordings"] for actor in serialized_actors],
-        )
+        self.assertEqual([[]], [actor["matched_recordings"] for actor in serialized_actors])
 
     @snapshot_clickhouse_queries
     @freeze_time("2012-01-01T03:21:34.000Z")
@@ -3099,7 +3087,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
         self.assertEqual(
             [
@@ -3111,9 +3099,9 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                                 "uuid": UUID("21111111-1111-1111-1111-111111111111"),
                                 "timestamp": timezone.now() + timedelta(minutes=1),
                                 "window_id": "w1",
-                            },
+                            }
                         ],
-                    },
+                    }
                 ]
             ],
             [actor["matched_recordings"] for actor in serialized_actors],
@@ -3161,11 +3149,9 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertEqual([], [actor["id"] for actor in serialized_actors])
-        self.assertEqual(
-            [], [actor["matched_recordings"] for actor in serialized_actors],
-        )
+        self.assertEqual([], [actor["matched_recordings"] for actor in serialized_actors])
 
         # Matching events for dropoff
         filter = PathFilter(
@@ -3177,7 +3163,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
         self.assertEqual(
             [
@@ -3189,9 +3175,9 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                                 "uuid": UUID("31111111-1111-1111-1111-111111111111"),
                                 "timestamp": timezone.now() + timedelta(minutes=2),
                                 "window_id": "w1",
-                            },
+                            }
                         ],
-                    },
+                    }
                 ]
             ],
             [actor["matched_recordings"] for actor in serialized_actors],

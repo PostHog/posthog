@@ -71,7 +71,7 @@ export const insight: InsightModel = {
                         date_to: '2022-06-24T00:00:00Z',
                         entity_order: null,
                     },
-                    url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-24T00%3A00%3A00%2B00%3A00&date_to=2022-06-24T00%3A00%3A00%2B00%3A00',
+                    url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-24T00%3A00%3A00%2B00%3A00&date_to=2022-06-24T00%3A00%3A00%2B00%3A00',
                 },
                 {
                     filter: {
@@ -82,7 +82,7 @@ export const insight: InsightModel = {
                         date_to: '2022-06-25T00:00:00Z',
                         entity_order: null,
                     },
-                    url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-25T00%3A00%3A00%2B00%3A00&date_to=2022-06-25T00%3A00%3A00%2B00%3A00',
+                    url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-25T00%3A00%3A00%2B00%3A00&date_to=2022-06-25T00%3A00%3A00%2B00%3A00',
                 },
                 {
                     filter: {
@@ -93,7 +93,7 @@ export const insight: InsightModel = {
                         date_to: '2022-06-26T00:00:00Z',
                         entity_order: null,
                     },
-                    url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-26T00%3A00%3A00%2B00%3A00&date_to=2022-06-26T00%3A00%3A00%2B00%3A00',
+                    url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-26T00%3A00%3A00%2B00%3A00&date_to=2022-06-26T00%3A00%3A00%2B00%3A00',
                 },
                 {
                     filter: {
@@ -104,7 +104,7 @@ export const insight: InsightModel = {
                         date_to: '2022-06-27T00:00:00Z',
                         entity_order: null,
                     },
-                    url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-27T00%3A00%3A00%2B00%3A00&date_to=2022-06-27T00%3A00%3A00%2B00%3A00',
+                    url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-27T00%3A00%3A00%2B00%3A00&date_to=2022-06-27T00%3A00%3A00%2B00%3A00',
                 },
                 {
                     filter: {
@@ -115,7 +115,7 @@ export const insight: InsightModel = {
                         date_to: '2022-06-28T00:00:00Z',
                         entity_order: null,
                     },
-                    url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-28T00%3A00%3A00%2B00%3A00&date_to=2022-06-28T00%3A00%3A00%2B00%3A00',
+                    url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-28T00%3A00%3A00%2B00%3A00&date_to=2022-06-28T00%3A00%3A00%2B00%3A00',
                 },
                 {
                     filter: {
@@ -126,7 +126,7 @@ export const insight: InsightModel = {
                         date_to: '2022-06-29T00:00:00Z',
                         entity_order: null,
                     },
-                    url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-29T00%3A00%3A00%2B00%3A00&date_to=2022-06-29T00%3A00%3A00%2B00%3A00',
+                    url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-29T00%3A00%3A00%2B00%3A00&date_to=2022-06-29T00%3A00%3A00%2B00%3A00',
                 },
                 {
                     filter: {
@@ -137,7 +137,7 @@ export const insight: InsightModel = {
                         date_to: '2022-06-30T00:00:00Z',
                         entity_order: null,
                     },
-                    url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-30T00%3A00%3A00%2B00%3A00&date_to=2022-06-30T00%3A00%3A00%2B00%3A00',
+                    url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-30T00%3A00%3A00%2B00%3A00&date_to=2022-06-30T00%3A00%3A00%2B00%3A00',
                 },
                 {
                     filter: {
@@ -148,7 +148,7 @@ export const insight: InsightModel = {
                         date_to: '2022-07-01T00:00:00Z',
                         entity_order: null,
                     },
-                    url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-07-01T00%3A00%3A00%2B00%3A00&date_to=2022-07-01T00%3A00%3A00%2B00%3A00',
+                    url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-07-01T00%3A00%3A00%2B00%3A00&date_to=2022-07-01T00%3A00%3A00%2B00%3A00',
                 },
             ],
             filter: {
@@ -264,7 +264,7 @@ export const dashboard: DashboardType = {
                                 date_to: '2022-06-24T00:00:00Z',
                                 entity_order: null,
                             },
-                            url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-24T00%3A00%3A00%2B00%3A00&date_to=2022-06-24T00%3A00%3A00%2B00%3A00',
+                            url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-24T00%3A00%3A00%2B00%3A00&date_to=2022-06-24T00%3A00%3A00%2B00%3A00',
                         },
                         {
                             filter: {
@@ -275,7 +275,7 @@ export const dashboard: DashboardType = {
                                 date_to: '2022-06-25T00:00:00Z',
                                 entity_order: null,
                             },
-                            url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-25T00%3A00%3A00%2B00%3A00&date_to=2022-06-25T00%3A00%3A00%2B00%3A00',
+                            url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-25T00%3A00%3A00%2B00%3A00&date_to=2022-06-25T00%3A00%3A00%2B00%3A00',
                         },
                         {
                             filter: {
@@ -286,7 +286,7 @@ export const dashboard: DashboardType = {
                                 date_to: '2022-06-26T00:00:00Z',
                                 entity_order: null,
                             },
-                            url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-26T00%3A00%3A00%2B00%3A00&date_to=2022-06-26T00%3A00%3A00%2B00%3A00',
+                            url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-26T00%3A00%3A00%2B00%3A00&date_to=2022-06-26T00%3A00%3A00%2B00%3A00',
                         },
                         {
                             filter: {
@@ -297,7 +297,7 @@ export const dashboard: DashboardType = {
                                 date_to: '2022-06-27T00:00:00Z',
                                 entity_order: null,
                             },
-                            url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-27T00%3A00%3A00%2B00%3A00&date_to=2022-06-27T00%3A00%3A00%2B00%3A00',
+                            url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-27T00%3A00%3A00%2B00%3A00&date_to=2022-06-27T00%3A00%3A00%2B00%3A00',
                         },
                         {
                             filter: {
@@ -308,7 +308,7 @@ export const dashboard: DashboardType = {
                                 date_to: '2022-06-28T00:00:00Z',
                                 entity_order: null,
                             },
-                            url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-28T00%3A00%3A00%2B00%3A00&date_to=2022-06-28T00%3A00%3A00%2B00%3A00',
+                            url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-28T00%3A00%3A00%2B00%3A00&date_to=2022-06-28T00%3A00%3A00%2B00%3A00',
                         },
                         {
                             filter: {
@@ -319,7 +319,7 @@ export const dashboard: DashboardType = {
                                 date_to: '2022-06-29T00:00:00Z',
                                 entity_order: null,
                             },
-                            url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-29T00%3A00%3A00%2B00%3A00&date_to=2022-06-29T00%3A00%3A00%2B00%3A00',
+                            url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-29T00%3A00%3A00%2B00%3A00&date_to=2022-06-29T00%3A00%3A00%2B00%3A00',
                         },
                         {
                             filter: {
@@ -330,7 +330,7 @@ export const dashboard: DashboardType = {
                                 date_to: '2022-06-30T00:00:00Z',
                                 entity_order: null,
                             },
-                            url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-30T00%3A00%3A00%2B00%3A00&date_to=2022-06-30T00%3A00%3A00%2B00%3A00',
+                            url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-06-30T00%3A00%3A00%2B00%3A00&date_to=2022-06-30T00%3A00%3A00%2B00%3A00',
                         },
                         {
                             filter: {
@@ -341,7 +341,7 @@ export const dashboard: DashboardType = {
                                 date_to: '2022-07-01T00:00:00Z',
                                 entity_order: null,
                             },
-                            url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-07-01T00%3A00%3A00%2B00%3A00&date_to=2022-07-01T00%3A00%3A00%2B00%3A00',
+                            url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=dau&date_from=2022-07-01T00%3A00%3A00%2B00%3A00&date_to=2022-07-01T00%3A00%3A00%2B00%3A00',
                         },
                     ],
                     filter: {
@@ -451,7 +451,7 @@ export const dashboard: DashboardType = {
                                 date_to: '2022-06-19T00:00:00Z',
                                 entity_order: null,
                             },
-                            url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22weekly_active%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=week&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=weekly_active&date_from=2022-06-19T00%3A00%3A00%2B00%3A00&date_to=2022-06-19T00%3A00%3A00%2B00%3A00',
+                            url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22weekly_active%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=week&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=weekly_active&date_from=2022-06-19T00%3A00%3A00%2B00%3A00&date_to=2022-06-19T00%3A00%3A00%2B00%3A00',
                         },
                         {
                             filter: {
@@ -462,7 +462,7 @@ export const dashboard: DashboardType = {
                                 date_to: '2022-06-26T00:00:00Z',
                                 entity_order: null,
                             },
-                            url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22weekly_active%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=week&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=weekly_active&date_from=2022-06-26T00%3A00%3A00%2B00%3A00&date_to=2022-06-26T00%3A00%3A00%2B00%3A00',
+                            url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22weekly_active%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=week&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=weekly_active&date_from=2022-06-26T00%3A00%3A00%2B00%3A00&date_to=2022-06-26T00%3A00%3A00%2B00%3A00',
                         },
                         {
                             filter: {
@@ -473,7 +473,7 @@ export const dashboard: DashboardType = {
                                 date_to: '2022-06-29T00:00:00Z',
                                 entity_order: null,
                             },
-                            url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22weekly_active%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=week&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=weekly_active&date_from=2022-06-29T00%3A00%3A00%2B00%3A00&date_to=2022-06-29T00%3A00%3A00%2B00%3A00',
+                            url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22weekly_active%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=week&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=weekly_active&date_from=2022-06-29T00%3A00%3A00%2B00%3A00&date_to=2022-06-29T00%3A00%3A00%2B00%3A00',
                         },
                         {
                             filter: {
@@ -484,7 +484,7 @@ export const dashboard: DashboardType = {
                                 date_to: '2022-07-01T00:00:00Z',
                                 entity_order: null,
                             },
-                            url: 'api/projects/1/actions/people/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22weekly_active%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=week&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=weekly_active&date_from=2022-07-01T00%3A00%3A00%2B00%3A00&date_to=2022-07-01T00%3A00%3A00%2B00%3A00',
+                            url: 'api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22weekly_active%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=week&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=weekly_active&date_from=2022-07-01T00%3A00%3A00%2B00%3A00&date_to=2022-07-01T00%3A00%3A00%2B00%3A00',
                         },
                     ],
                     filter: {
@@ -623,7 +623,7 @@ export const dashboard: DashboardType = {
                             breakdown_value: '',
                             breakdown_type: 'event',
                         },
-                        url: 'api/projects/1/actions/people/?breakdown=%24referring_domain&breakdown_attribution_type=first_touch&breakdown_type=event&date_from=-14d&display=ActionsBarValue&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&breakdown_value=',
+                        url: 'api/projects/1/persons/trends/?breakdown=%24referring_domain&breakdown_attribution_type=first_touch&breakdown_type=event&date_from=-14d&display=ActionsBarValue&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&breakdown_value=',
                     },
                     breakdown_value: '',
                 },
@@ -679,7 +679,7 @@ export const dashboard: DashboardType = {
                             breakdown_value: 'localhost:8000',
                             breakdown_type: 'event',
                         },
-                        url: 'api/projects/1/actions/people/?breakdown=%24referring_domain&breakdown_attribution_type=first_touch&breakdown_type=event&date_from=-14d&display=ActionsBarValue&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&breakdown_value=localhost%3A8000',
+                        url: 'api/projects/1/persons/trends/?breakdown=%24referring_domain&breakdown_attribution_type=first_touch&breakdown_type=event&date_from=-14d&display=ActionsBarValue&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&breakdown_value=localhost%3A8000',
                     },
                     breakdown_value: 'localhost:8000',
                 },

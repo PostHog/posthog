@@ -66,4 +66,4 @@ def generate_exception_response(
     from posthog.internal_metrics import incr
 
     incr(f"posthog_cloud_raw_endpoint_exception", tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr})
-    return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code,)
+    return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)
