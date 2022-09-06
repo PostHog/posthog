@@ -17,6 +17,7 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { Chart } from 'chart.js'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+import { teamLogic } from 'scenes/teamLogic'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -33,6 +34,7 @@ export const annotationScopeToLabel: Record<AnnotationScope, string> = {
 }
 
 export interface AnnotationsOverlayProps {
+    dates: string[]
     chart: Chart
     chartWidth: number
     chartHeight: number
@@ -48,9 +50,15 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
     '--annotations-overlay-active-badge-top'?: `${string}px`
 }
 
-export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: AnnotationsOverlayProps): JSX.Element {
+export function AnnotationsOverlay({
+    chart,
+    chartWidth,
+    chartHeight,
+    dates: _dates,
+}: AnnotationsOverlayProps): JSX.Element {
     const { isPopoverShown, activeBadgeCoordinates } = useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
+    const { timezone } = useValues(teamLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
     const overlayRef = useRef<HTMLDivElement>(null)
@@ -59,9 +67,7 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: Annotatio
 
     useOutsideClickHandler([overlayRef, modalContentRef, modalOverlayRef], () => closePopover())
 
-    const dates: dayjs.Dayjs[] = chart.scales.x.ticks.map(({ label }) => {
-        return dayjs(label as string)
-    })
+    const dates = _dates.map((label) => dayjs(label).tz(timezone))
 
     return (
         <div
