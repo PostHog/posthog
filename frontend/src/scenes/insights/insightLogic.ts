@@ -512,6 +512,7 @@ export const insightLogic = kea<insightLogicType>({
                 ),
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
+        insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
             (s) => [s.insight],
             (insight) =>
@@ -531,7 +532,7 @@ export const insightLogic = kea<insightLogicType>({
                 !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
                 !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})),
         ],
-        isViewedOnDashboard: [
+        isInDashboardContext: [
             () => [router.selectors.location],
             ({ pathname }) =>
                 pathname.startsWith('/dashboard') ||
@@ -694,7 +695,7 @@ export const insightLogic = kea<insightLogicType>({
         },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
             await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
-            if (!values.isViewedOnDashboard) {
+            if (!values.isInDashboardContext) {
                 const { fromDashboard } = router.values.hashParams
                 const changedKeysObj: Record<string, any> | undefined =
                     previousFilters && extractObjectDiffKeys(previousFilters, filters)

@@ -78,7 +78,7 @@ Object {
           },
         ],
         "test_account_filters_default_checked": false,
-        "timezone": "Europe/Brussels",
+        "timezone": "UTC",
         "updated_at": "2022-03-17T16:09:21.566253Z",
         "uuid": "TEAM_UUID",
       },
