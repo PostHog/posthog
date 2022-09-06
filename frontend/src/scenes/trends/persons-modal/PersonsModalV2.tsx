@@ -21,7 +21,6 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Skeleton, Tabs } from 'antd'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
 
 export interface PersonsModalProps {
@@ -119,13 +118,7 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                         {actors && actors.length > 0 ? (
                             <>
                                 {actors.map((x) => (
-                                    <ActorRow
-                                        key={x.id}
-                                        actor={x}
-                                        onOpenRecording={(id) =>
-                                            openSessionPlayer(id, RecordingWatchedSource.PersonModal)
-                                        }
-                                    />
+                                    <ActorRow key={x.id} actor={x} onOpenRecording={(id) => openSessionPlayer(id)} />
                                 ))}
                             </>
                         ) : actorsResponseLoading ? (

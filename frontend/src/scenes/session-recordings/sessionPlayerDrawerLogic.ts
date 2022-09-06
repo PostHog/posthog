@@ -1,7 +1,6 @@
 import { actions, kea, path, reducers } from 'kea'
 import { SessionRecordingId } from '~/types'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import type { sessionPlayerDrawerLogicType } from './sessionPlayerDrawerLogicType'
 
 interface HashParams {
@@ -11,9 +10,8 @@ interface HashParams {
 export const sessionPlayerDrawerLogic = kea<sessionPlayerDrawerLogicType>([
     path(['scenes', 'session-recordings', 'sessionPlayerDrawerLogic']),
     actions({
-        openSessionPlayer: (sessionRecordingId: SessionRecordingId | null, source: RecordingWatchedSource) => ({
+        openSessionPlayer: (sessionRecordingId: SessionRecordingId | null) => ({
             sessionRecordingId,
-            source,
         }),
         closeSessionPlayer: true,
     }),
@@ -61,7 +59,7 @@ export const sessionPlayerDrawerLogic = kea<sessionPlayerDrawerLogicType>([
             if (sessionPlayerDrawerLogic.isMounted()) {
                 const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
                 if (nulledSessionRecordingId !== values.activeSessionRecordingId) {
-                    actions.openSessionPlayer(nulledSessionRecordingId, RecordingWatchedSource.Direct)
+                    actions.openSessionPlayer(nulledSessionRecordingId)
                 }
             }
         }
