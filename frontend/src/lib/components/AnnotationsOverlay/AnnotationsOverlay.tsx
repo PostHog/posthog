@@ -33,6 +33,7 @@ export const annotationScopeToLabel: Record<AnnotationScope, string> = {
 }
 
 export interface AnnotationsOverlayProps {
+    dates: string[]
     chart: Chart
     chartWidth: number
     chartHeight: number
@@ -46,7 +47,7 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
     '--annotations-overlay-tick-interval': `${string}px`
 }
 
-export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: AnnotationsOverlayProps): JSX.Element {
+export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: AnnotationsOverlayProps): JSX.Element {
     const { activeBadgeRef } = useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
@@ -58,9 +59,8 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: Annotatio
 
     useOutsideClickHandler([overlayRef, popupRef, modalContentRef, modalOverlayRef], () => closePopover())
 
-    const dates: dayjs.Dayjs[] = chart.scales.x.ticks.map(({ label }) => {
-        return dayjs(label as string)
-    })
+    const tickPointIndices: number[] = chart.scales.x.ticks.map(({ value }) => value)
+    const tickDates: dayjs.Dayjs[] = tickPointIndices.map((dateIndex) => dayjs(dates[dateIndex]))
 
     return (
         <div
@@ -77,7 +77,7 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight }: Annotatio
             }
             ref={overlayRef}
         >
-            {dates?.map((date, index) => (
+            {tickDates?.map((date, index) => (
                 <AnnotationsBadge key={date.toISOString()} index={index} date={date} />
             ))}
             {activeBadgeRef && <AnnotationsPopover ref={popupRef} />}
