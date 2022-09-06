@@ -422,7 +422,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(
             data={
                 "date_from": "2021-05-02",
-                "date_to": "2021-05-03",
+                "date_to": "2021-05-02",
                 "events": [
                     {
                         "id": "$pageview",
@@ -481,7 +481,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(
             data={
                 "date_from": "2021-05-02",
-                "date_to": "2021-05-03",
+                "date_to": "2021-05-02",
                 "events": [
                     {
                         "id": "$pageview",
@@ -555,7 +555,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(
             data={
                 "date_from": "2021-05-02",
-                "date_to": "2021-05-03",
+                "date_to": "2021-05-02",
                 "events": [
                     {
                         "id": "$pageview",

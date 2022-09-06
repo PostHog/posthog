@@ -198,12 +198,12 @@
      WHERE $session_id != ''
        AND team_id = 2
        AND timestamp >= toDateTime('2021-05-02 00:00:00') - INTERVAL 24 HOUR
-       AND timestamp <= toDateTime('2021-05-03 23:59:59') + INTERVAL 24 HOUR
+       AND timestamp <= toDateTime('2021-05-02 23:59:59') + INTERVAL 24 HOUR
      GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
   WHERE team_id = 2
     AND event = '$pageview'
     AND timestamp >= toDateTime('2021-05-02 00:00:00')
-    AND timestamp <= toDateTime('2021-05-03 23:59:59')
+    AND timestamp <= toDateTime('2021-05-02 23:59:59')
     AND (sessions.session_duration > 90.0
          AND sessions.session_duration < 150.0)
   '
@@ -222,12 +222,12 @@
      WHERE $session_id != ''
        AND team_id = 2
        AND timestamp >= toDateTime('2021-05-02 00:00:00') - INTERVAL 24 HOUR
-       AND timestamp <= toDateTime('2021-05-03 23:59:59') + INTERVAL 24 HOUR
+       AND timestamp <= toDateTime('2021-05-02 23:59:59') + INTERVAL 24 HOUR
      GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
   WHERE team_id = 2
     AND event = '$pageview'
     AND timestamp >= toDateTime('2021-05-02 00:00:00')
-    AND timestamp <= toDateTime('2021-05-03 23:59:59')
+    AND timestamp <= toDateTime('2021-05-02 23:59:59')
     AND (sessions.session_duration > 90.0)
   '
 ---
@@ -366,12 +366,12 @@
      WHERE $session_id != ''
        AND team_id = 2
        AND timestamp >= toDateTime('2021-05-02 00:00:00') - INTERVAL 24 HOUR
-       AND timestamp <= toDateTime('2021-05-03 23:59:59') + INTERVAL 24 HOUR
+       AND timestamp <= toDateTime('2021-05-02 23:59:59') + INTERVAL 24 HOUR
      GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
   WHERE team_id = 2
     AND event = '$pageview'
     AND timestamp >= toDateTime('2021-05-02 00:00:00')
-    AND timestamp <= toDateTime('2021-05-03 23:59:59')
+    AND timestamp <= toDateTime('2021-05-02 23:59:59')
     AND (sessions.session_duration > 30.0)
   '
 ---
