@@ -5,6 +5,7 @@ import { AnnotationScope, InsightModel, IntervalType } from '~/types'
 import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
+import React from 'react'
 
 export interface InsightAnnotationsLogicProps {
     dashboardItemId: InsightModel['short_id'] | 'new'
@@ -39,7 +40,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     }),
     actions({
         createAnnotation: (annotationData: AnnotationDataWithoutInsight) => ({ annotationData }),
-        activateDate: (date: Dayjs, badgeCoordinates: [number, number]) => ({ date, badgeCoordinates }),
+        activateDate: (date: Dayjs, badgeRef: React.MutableRefObject<HTMLDivElement>) => ({ date, badgeRef }),
         deactivateDate: true,
         lockDate: true,
         unlockDate: true,
@@ -60,10 +61,10 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 activateDate: (_, { date }) => date,
             },
         ],
-        activeBadgeCoordinates: [
-            null as [number, number] | null,
+        activeBadgeRef: [
+            null as React.MutableRefObject<HTMLDivElement> | null,
             {
-                activateDate: (_, { badgeCoordinates }) => badgeCoordinates,
+                activateDate: (_, { badgeRef }) => badgeRef,
             },
         ],
         isDateLocked: [
