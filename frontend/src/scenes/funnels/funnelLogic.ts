@@ -111,7 +111,7 @@ export const funnelLogic = kea<funnelLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'isViewedOnDashboard', 'hiddenLegendKeys'],
+            ['filters', 'insight', 'insightLoading', 'isInDashboardContext', 'hiddenLegendKeys'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -1252,7 +1252,7 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setFilters({ new_entity: values.filters.new_entity }, false, true)
         },
         openPersonsModalForStep: ({ step, stepIndex, converted }) => {
-            if (values.isViewedOnDashboard) {
+            if (values.isInDashboardContext) {
                 return
             }
 
@@ -1284,7 +1284,7 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
-            if (values.isViewedOnDashboard) {
+            if (values.isInDashboardContext) {
                 return
             }
             // Version of openPersonsModalForStep that accurately handles breakdown series
@@ -1316,7 +1316,7 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
-            if (values.isViewedOnDashboard) {
+            if (values.isInDashboardContext) {
                 return
             }
 

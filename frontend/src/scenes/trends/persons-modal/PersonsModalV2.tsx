@@ -108,7 +108,7 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                                 {actorsResponse?.next ? 'More than ' : ''}
                                 <b>
                                     {actors.length || 'No'} unique{' '}
-                                    {actors.length === 1 ? actorLabel.singular : actorLabel.plural}
+                                    {pluralize(actors.length, actorLabel.singular, actorLabel.plural, false)}
                                 </b>
                             </span>
                         )}
