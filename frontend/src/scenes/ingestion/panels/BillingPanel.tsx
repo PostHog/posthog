@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
@@ -13,15 +13,9 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { Plan } from 'scenes/billing/Plan'
 
 export function BillingPanel(): JSX.Element {
-    const { completeOnboarding, setCurrentIndex } = useActions(ingestionLogic)
+    const { completeOnboarding } = useActions(ingestionLogic)
     const { reportIngestionContinueWithoutBilling } = useActions(eventUsageLogic)
     const { billing } = useValues(billingLogic)
-
-    useEffect(() => {
-        if (billing?.plan) {
-            setCurrentIndex(4)
-        }
-    }, [billing])
 
     return (
         <CardContainer>

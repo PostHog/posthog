@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import { useInterval } from 'lib/hooks/useInterval'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
@@ -15,7 +15,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { setAddBilling, completeOnboarding, setCurrentIndex } = useActions(ingestionLogic)
+    const { setAddBilling, completeOnboarding } = useActions(ingestionLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -26,12 +26,6 @@ export function VerificationPanel(): JSX.Element {
             loadCurrentTeam()
         }
     }, 2000)
-
-    useEffect(() => {
-        if (!shouldShowBilling) {
-            setCurrentIndex(3)
-        }
-    }, [currentTeam?.ingested_event])
 
     return (
         <CardContainer>

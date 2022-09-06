@@ -4,7 +4,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { BOOKMARKLET } from '../constants'
-import { ingestionLogic } from '../ingestionLogic'
+import { ingestionLogic, INGESTION_STEPS } from '../ingestionLogic'
 import './Panels.scss'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 
@@ -70,18 +70,18 @@ export function PanelFooter(): JSX.Element {
 }
 
 export function PanelHeader(): JSX.Element | null {
-    const { isSmallScreen, previousStepName, index } = useValues(ingestionLogic)
+    const { isSmallScreen, previousStep, currentStep } = useValues(ingestionLogic)
     const { onBack } = useActions(ingestionLogic)
 
     // no back buttons on the first screen
-    if (index === 0) {
+    if (currentStep === INGESTION_STEPS.START) {
         return null
     }
 
     return (
         <div className="flex items-center" data-attr="wizard-step-counter">
             <LemonButton type="tertiary" status="primary" onClick={onBack} icon={<ArrowLeftOutlined />}>
-                {isSmallScreen ? '' : previousStepName}
+                {isSmallScreen ? '' : previousStep}
             </LemonButton>
         </div>
     )

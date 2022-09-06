@@ -21,16 +21,24 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { windowValues } from 'kea-window-values'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { subscriptions } from 'kea-subscriptions'
+import { BillingType, TeamType } from '~/types'
 
-export const STEPS = ['Get started', 'Connect your product', 'Listen for events', 'Done!']
+export enum INGESTION_STEPS {
+    START = 'Get started',
+    CONNECT_PRODUCT = 'Connect your product',
+    VERIFY = 'Listen for events',
+    BILLING = 'Add payment method',
+    DONE = 'Done!',
+}
 
-export const STEPS_WITH_BILLING = [
-    'Get started',
-    'Connect your product',
-    'Listen for events',
-    'Add payment method',
-    'Done!',
-]
+export enum INGESTION_STEPS_WITHOUT_BILLING {
+    START = 'Get started',
+    CONNECT_PRODUCT = 'Connect your product',
+    VERIFY = 'Listen for events',
+    DONE = 'Done!',
+}
 
 export const ingestionLogic = kea<ingestionLogicType>([
     path(['scenes', 'ingestion', 'ingestionLogic']),
@@ -54,9 +62,10 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setThirdPartySource: (sourceIndex: number) => ({ sourceIndex }),
         openThirdPartyPluginModal: (plugin: PluginTypeWithConfig) => ({ plugin }),
         completeOnboarding: true,
-        setCurrentIndex: (currentIndex: number) => ({ currentIndex }),
-        sidebarStepClick: (index: number) => ({ index }),
+        setCurrentStep: (currentStep: string) => ({ currentStep }),
+        sidebarStepClick: (step: string) => ({ step }),
         onBack: true,
+        setSidebarSteps: (steps: string[]) => ({ steps }),
     }),
     windowValues({
         isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
@@ -121,49 +130,34 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 openThirdPartyPluginModal: (_, { plugin }) => plugin,
             },
         ],
-        currentIndex: [
-            0,
+        sidebarSteps: [
+            Object.values(INGESTION_STEPS_WITHOUT_BILLING) as string[],
             {
-                setCurrentIndex: (_, { currentIndex }) => currentIndex,
-                setPlatform: (state, { platform }) => (platform ? 1 : Math.max(state - 1, 0)),
-                setFramework: (state, { framework }) => (framework ? 1 : Math.max(state - 1, 0)),
-                setVerify: () => 2,
-                setAddBilling: () => 3,
-                setState: (_, { platform, framework, verify, addBilling }) => {
-                    if (addBilling) {
-                        return 3
-                    }
-                    if (verify) {
-                        return 2
-                    }
-                    if (platform || framework) {
-                        return 1
-                    }
-                    return 0
-                },
+                setSidebarSteps: (_, { steps }) => steps,
             },
         ],
     }),
     selectors(() => ({
-        index: [
+        currentStep: [
             (s) => [s.platform, s.framework, s.verify, s.addBilling],
             (platform, framework, verify, addBilling) => {
                 if (addBilling) {
-                    return 3
+                    return INGESTION_STEPS.BILLING
                 }
                 if (verify) {
-                    return 2
+                    return INGESTION_STEPS.VERIFY
                 }
-                if (platform === WEB || platform === BOOKMARKLET || platform === THIRD_PARTY) {
-                    return 1
+                if (platform || framework) {
+                    return INGESTION_STEPS.CONNECT_PRODUCT
                 }
-                return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
+                return INGESTION_STEPS.START
             },
         ],
-        previousStepName: [
-            (s) => [s.index],
-            (index) => {
-                return STEPS[index > 0 ? index - 1 : 0]
+        previousStep: [
+            (s) => [s.currentStep],
+            (currentStep) => {
+                const currentStepIndex = Object.values(INGESTION_STEPS).indexOf(currentStep)
+                return Object.values(INGESTION_STEPS)[currentStepIndex - 1]
             },
         ],
         frameworkString: [
@@ -195,8 +189,13 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setFramework: () => getUrl(values),
         setVerify: () => getUrl(values),
         setAddBilling: () => getUrl(values),
+        setState: () => getUrl(values),
         updateCurrentTeamSuccess: () => {
-            if (router.values.location.pathname == '/ingestion/verify') {
+            const isBillingPage = router.values.location.pathname == '/ingestion/billing'
+            const isVerifyPage =
+                !values.featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING] &&
+                router.values.location.pathname == '/ingestion/verify'
+            if (isBillingPage || isVerifyPage) {
                 return urls.events()
             }
         },
@@ -282,23 +281,23 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setFramework: ({ framework }) => {
             eventUsageLogic.actions.reportIngestionSelectFrameworkType(framework)
         },
-        sidebarStepClick: ({ index }) => {
-            switch (index) {
-                case 0:
+        sidebarStepClick: ({ step }) => {
+            switch (step) {
+                case INGESTION_STEPS.START:
                     actions.setPlatform(null)
                     return
-                case 1:
+                case INGESTION_STEPS.CONNECT_PRODUCT:
                     if (values.platform) {
                         actions.setVerify(false)
                         actions.setPlatform(values.platform)
                     }
                     return
-                case 2:
+                case INGESTION_STEPS.VERIFY:
                     if (values.platform) {
                         actions.setVerify(true)
                     }
                     return
-                case 3:
+                case INGESTION_STEPS.BILLING:
                     if (values.platform) {
                         actions.setAddBilling(true)
                     }
@@ -308,18 +307,40 @@ export const ingestionLogic = kea<ingestionLogicType>([
             }
         },
         onBack: () => {
-            switch (values.index) {
-                case 3:
+            switch (values.currentStep) {
+                case INGESTION_STEPS.BILLING:
                     actions.setState(values.platform, values.framework, true, false)
                     return
-                case 2:
+                case INGESTION_STEPS.VERIFY:
                     actions.setState(values.platform, null, false, false)
                     return
-                case 1:
+                case INGESTION_STEPS.CONNECT_PRODUCT:
                     actions.setState(null, null, false, false)
                     return
                 default:
                     return
+            }
+        },
+    })),
+    subscriptions(({ actions, values }) => ({
+        featureFlags: (featureFlags) => {
+            const steps = featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING]
+                ? INGESTION_STEPS
+                : INGESTION_STEPS_WITHOUT_BILLING
+            actions.setSidebarSteps(Object.values(steps))
+        },
+        billing: (billing: BillingType) => {
+            if (billing?.plan && values.addBilling) {
+                actions.setCurrentStep(INGESTION_STEPS.DONE)
+            }
+        },
+        currentTeam: (currentTeam: TeamType) => {
+            if (
+                currentTeam?.ingested_event &&
+                values.verify &&
+                !values.featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING]
+            ) {
+                actions.setCurrentStep(INGESTION_STEPS.DONE)
             }
         },
     })),
