@@ -1,14 +1,14 @@
-import { LemonTable } from "@posthog/lemon-ui";
-import Link from "antd/lib/typography/Link";
-import { useValues } from "kea";
-import { LemonTableColumns, LemonTableColumn } from "lib/components/LemonTable";
-import { createdByColumn } from "lib/components/LemonTable/columnUtils";
-import { normalizeColumnTitle } from "lib/components/Table/utils";
-import stringWithWBR from "lib/utils/stringWithWBR";
-import React from "react";
-import { urls } from "scenes/urls";
-import { FeatureFlagType } from "~/types";
-import { relatedFeatureFlagsLogic } from "./relatedFeatureFlagsLogic";
+import { LemonTable } from '@posthog/lemon-ui'
+import Link from 'antd/lib/typography/Link'
+import { useValues } from 'kea'
+import { LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable'
+import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { normalizeColumnTitle } from 'lib/components/Table/utils'
+import stringWithWBR from 'lib/utils/stringWithWBR'
+import React from 'react'
+import { urls } from 'scenes/urls'
+import { FeatureFlagType } from '~/types'
+import { relatedFeatureFlagsLogic } from './relatedFeatureFlagsLogic'
 
 export interface RelatedFeatureFlagType extends FeatureFlagType {
     value: boolean | string
@@ -52,7 +52,7 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
             width: 100,
             render: function Render(_, featureFlag) {
                 return <div>value</div>
-            }
+            },
         },
         {
             title: 'Status',
@@ -60,9 +60,7 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => Number(a.active) - Number(b.active),
             width: 100,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
-                return (
-                    <span className="font-normal">{featureFlag.active ? 'Enabled' : 'Disabled'}</span>
-                )
+                return <span className="font-normal">{featureFlag.active ? 'Enabled' : 'Disabled'}</span>
             },
         },
         {
@@ -70,10 +68,13 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
             width: 200,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 // TODO : determine type
-                return featureFlag ? "Release toggle" : "Multiple variants"
+                return featureFlag ? 'Release toggle' : 'Multiple variants'
             },
         },
-        createdByColumn<RelatedFeatureFlagType>() as LemonTableColumn<RelatedFeatureFlagType, keyof RelatedFeatureFlagType | undefined>,
+        createdByColumn<RelatedFeatureFlagType>() as LemonTableColumn<
+            RelatedFeatureFlagType,
+            keyof RelatedFeatureFlagType | undefined
+        >,
     ]
     return (
         <>

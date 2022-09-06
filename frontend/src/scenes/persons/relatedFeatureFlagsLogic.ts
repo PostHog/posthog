@@ -1,12 +1,19 @@
-import { actions, connect, events, kea, key, path, props } from "kea";
-import { loaders } from "kea-loaders";
-import { router, urlToAction } from "kea-router";
-import api from "lib/api";
-import { toParams } from "lib/utils";
-import { teamLogic } from "scenes/teamLogic";
+import { actions, connect, events, kea, key, path, props } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { toParams } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 export interface RelatedFeatureFlagType {
+    [flag: string]: EvaluationReason
+}
 
+interface EvaluationReason {
+    value: boolean
+    evaluation: {
+        reason: string
+        condition_index: number
+    }
 }
 
 export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogic>([
@@ -15,31 +22,27 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogic>([
     actions({
         loadRelatedFeatureFlags: true,
     }),
-    props({} as {
-        distinctId: string
-    }),
+    props(
+        {} as {
+            distinctId: string
+        }
+    ),
     key((props) => `${props.distinctId}`),
     loaders(({ values }) => ({
         relatedFeatureFlags: [
-            [] as RelatedFeatureFlagType[],
+            {} as RelatedFeatureFlagType,
             {
                 loadRelatedFeatureFlags: async () => {
                     const response = await api.get(
                         `api/projects/${values.currentTeamId}/feature_flags/evaluation_reasons?${toParams({
-                            distinct_id: props.distinctId
+                            distinct_id: props.distinctId,
                         })}`
                     )
-                    return response.results
-                }
-            }
-        ]
+                    return response
+                },
+            },
+        ],
     })),
-    // urlToAction(({ actions }) => ({
-    //     '/persons/:id': () => {
-    //         actions.loadRelatedFeatureFlags
-    //     },
-
-    // })),
     events(({ actions }) => ({
         afterMount: actions.loadRelatedFeatureFlags,
     })),
