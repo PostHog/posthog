@@ -68,8 +68,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         event = {"id": "pageview", "name": "pageview", "type": "events", "order": 0}
         filter = Filter(
             data={
-                "date_from": "2021-01-21T00:00:00Z",
-                "date_to": "2021-01-22T00:00:00Z",
+                "date_from": "2021-01-21",
+                "date_to": "2021-01-22",
                 "events": [event],
                 "include_recordings": "true",
             }
@@ -103,9 +103,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="pageview", distinct_id="u1", team=self.team, timestamp=timezone.now())
 
         event = {"id": "pageview", "name": "pageview", "type": "events", "order": 0}
-        filter = Filter(
-            data={"date_from": "2021-01-21T00:00:00Z", "date_to": "2021-01-22T00:00:00Z", "events": [event]}
-        )
+        filter = Filter(data={"date_from": "2021-01-21", "date_to": "2021-01-21", "events": [event]})
         entity = Entity(event)
         _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
 
@@ -140,8 +138,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             data={
-                "date_from": "2021-01-21T00:00:00Z",
-                "date_to": "2021-01-22T00:00:00Z",
+                "date_from": "2021-01-21",
+                "date_to": "2021-01-21",
                 "events": [event],
                 "include_recordings": "true",
             }
