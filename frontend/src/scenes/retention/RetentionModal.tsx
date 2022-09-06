@@ -72,7 +72,7 @@ export function RetentionModal({
                     <span>No {aggregationTargetLabel.plural} during this period.</span>
                 ) : (
                     <>
-                        <table className="RetentionTable">
+                        <table className="RetentionTable RetentionTable--non-interactive">
                             <tbody>
                                 <tr>
                                     <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>

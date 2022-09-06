@@ -41,6 +41,7 @@
     tr {
         border-left: 5px solid transparent;
         transition: border-color 200ms linear;
+
         &:not(:first-of-type) {
             cursor: pointer;
 
@@ -72,6 +73,21 @@
             background-color: var(--white);
             border: 1px solid var(--retention-table-color);
             opacity: 0.75;
+        }
+    }
+
+    &.RetentionTable--non-interactive {
+        tr {
+            &:hover {
+                border-left-color: transparent;
+            }
+        }
+
+        .RetentionTable__Tab {
+            cursor: initial;
+            &:hover {
+                transform: none;
+            }
         }
     }
 }
