@@ -1255,8 +1255,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 return
             }
 
-            const funnelStep = converted ? step.order : -step.order - 1
-
             openPersonsModal({
                 url: converted ? step.converted_people_url : step.dropped_people_url,
                 title: funnelTitle({
