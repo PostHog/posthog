@@ -6,7 +6,7 @@ import { loadPostHogJS } from '~/loadPostHogJS'
 import { initKea } from '~/initKea'
 import { Exporter } from '~/exporter/Exporter'
 import { ExportedData } from '~/exporter/types'
-import { ErrorBoundary } from '@sentry/react'
+import { ErrorBoundary } from '../layout/ErrorBoundary'
 
 // Disable tracking for all exports and embeds.
 // This is explicitly set as to not track our customers' customers data.
