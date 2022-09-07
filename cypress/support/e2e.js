@@ -2,6 +2,7 @@ import 'givens/setup'
 import './commands'
 import 'cypress-axe'
 import { decideResponse } from 'cypress/fixtures/api/decide'
+import 'cypress-html-validate/commands'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires

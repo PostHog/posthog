@@ -6,7 +6,6 @@ import fs from 'fs'
 import path from 'path'
 import { createEntry } from './webpack.config'
 import htmlvalidate from 'cypress-html-validate/plugin'
-import 'cypress-html-validate/commands'
 
 const downloadDirectory = path.join(__dirname, '..', 'downloads')
 
