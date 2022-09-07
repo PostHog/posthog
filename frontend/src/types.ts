@@ -2046,3 +2046,8 @@ export interface SessionRecordingPlayerProps {
     playerKey: string
     includeMeta?: boolean
 }
+
+export enum FeatureFlagReleaseType {
+    ReleaseToggle = 'Release toggle',
+    Variants = 'Multiple variants',
+}

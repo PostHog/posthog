@@ -208,12 +208,14 @@ export function Person(): JSX.Element | null {
                         <RelatedGroups id={person.uuid} groupTypeIndex={null} />
                     </TabPane>
                 )}
-                <TabPane
-                    tab={<span data-attr="persons-related-flags-tab">Feature flags</span>}
-                    key={PersonsTabType.FEATURE_FLAGS}
-                >
-                    <RelatedFeatureFlags id={person.uuid} />
-                </TabPane>
+                {person.uuid && (
+                    <TabPane
+                        tab={<span data-attr="persons-related-flags-tab">Feature flags</span>}
+                        key={PersonsTabType.FEATURE_FLAGS}
+                    >
+                        <RelatedFeatureFlags distinctId={person.uuid} />
+                    </TabPane>
+                )}
 
                 <TabPane tab="History" key="history">
                     <ActivityLog

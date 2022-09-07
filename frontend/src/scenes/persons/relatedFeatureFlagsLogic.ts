@@ -1,85 +1,69 @@
-import { actions, connect, events, kea, key, path, props } from 'kea'
+import { actions, connect, events, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { FeatureFlagType } from '~/types'
 
 import type { relatedFeatureFlagsLogicType } from './relatedFeatureFlagsLogicType'
-
-export interface RelatedFeatureFlagType {
-    [flag: string]: EvaluationReason
+export interface RelatedFeatureFlag extends FeatureFlagType {
+    value: boolean
+    evaluation: FeatureFlagEvaluationType
 }
 
-interface EvaluationReason {
-    value: boolean
-    evaluation: {
-        reason: string
-        condition_index: number
+export interface FeatureFlagEvaluationType {
+    reason: string
+    condition_index?: number
+}
+
+interface RelatedFeatureFlagResponse {
+    [key: string]: {
+        value: boolean
+        evaluation: FeatureFlagEvaluationType
     }
 }
 
 export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     path(['scenes', 'persons', 'relatedFeatureFlagsLogic']),
-    connect({ values: [teamLogic, ['currentTeamId']] }),
-    // actions({
-    //     loadRelatedFeatureFlags: true,
-    // }),
+    connect({ values: [teamLogic, ['currentTeamId'], featureFlagsLogic, ['featureFlags']] }),
     props(
         {} as {
             distinctId: string
         }
     ),
     key((props) => `${props.distinctId}`),
-    loaders(({ values }) => ({
+    actions({
+        loadRelatedFeatureFlags: true,
+    }),
+    loaders(({ values, props }) => ({
         relatedFeatureFlags: [
-            [] as RelatedFeatureFlagType[],
+            null as RelatedFeatureFlagResponse | null,
             {
                 loadRelatedFeatureFlags: async () => {
-                    // const response = await api.get(
-                    //     `api/projects/${values.currentTeamId}/feature_flags/evaluation_reasons?${toParams({
-                    //         distinct_id: props.distinctId,
-                    //     })}`
-                    // )
-                    // return response || {}
-                    const response = {
-                        'alpha-feature': {
-                            value: 'first-variant',
-                            evaluation: {
-                                reason: 'condition_match',
-                                condition_index: 0,
-                            },
-                        },
-                        'beta-feature': {
-                            value: true,
-                            evaluation: {
-                                reason: 'condition_match',
-                                condition_index: 0,
-                            },
-                        },
-                        'group-feature': {
-                            value: false,
-                            evaluation: {
-                                reason: 'no_group_type',
-                                condition_index: null,
-                            },
-                        },
-                        'inactive-flag': {
-                            value: false,
-                            evaluation: {
-                                reason: 'disabled',
-                                condition_index: null,
-                            },
-                        },
-                    }
-                    debugger
-                    return Object.entries(response).map(([key, values]) => ({ [key]: values }))
-
-                    // return
+                    const response = await api.get(
+                        `api/projects/${values.currentTeamId}/feature_flags/evaluation_reasons?${toParams({
+                            distinct_id: props.distinctId,
+                        })}`
+                    )
+                    return response
                 },
             },
         ],
     })),
-    // events(({ actions }) => ({
-    //     afterMount: actions.loadRelatedFeatureFlags,
-    // })),
+    selectors(() => ({
+        mappedRelatedFeatureFlags: [
+            (selectors) => [selectors.relatedFeatureFlags, selectors.featureFlags],
+            (relatedFlags, featureFlags): RelatedFeatureFlag[] => {
+                if (relatedFlags && featureFlags) {
+                    const res = featureFlags.map((flag) => ({ ...relatedFlags[flag.key], ...flag }))
+                    return res
+                }
+                return []
+            },
+        ],
+    })),
+    events(({ actions }) => ({
+        afterMount: actions.loadRelatedFeatureFlags,
+    })),
 ])

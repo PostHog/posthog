@@ -1,40 +1,48 @@
-import { LemonTable } from '@posthog/lemon-ui'
-import Link from 'antd/lib/typography/Link'
+import { LemonTable, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { LemonTableColumns } from 'lib/components/LemonTable'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import React from 'react'
 import { urls } from 'scenes/urls'
-import { FeatureFlagType } from '~/types'
-import { relatedFeatureFlagsLogic } from './relatedFeatureFlagsLogic'
-
-export interface RelatedFeatureFlagType extends FeatureFlagType {
-    value: boolean | string
-    evaluation: FeatureFlagEvaluationType
-}
-
-interface FeatureFlagEvaluationType {
-    reason: string
-    condition_index?: number
-}
+import { FeatureFlagReleaseType } from '~/types'
+import { relatedFeatureFlagsLogic, RelatedFeatureFlag } from './relatedFeatureFlagsLogic'
 
 interface Props {
     distinctId: string
 }
 
-export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
-    const { relatedFeatureFlags } = useValues(relatedFeatureFlagsLogic({ distinctId }))
+enum FeatureFlagMatchReason {
+    ConditionMatch = 'condition_match',
+    NoConditionMatch = 'no_condition_match',
+    OutOfRolloutBound = 'out_of_rollout_bound',
+    NoGroupType = 'no_group_type',
+    Disabled = 'disabled',
+}
 
-    const columns: LemonTableColumns<RelatedFeatureFlagType> = [
+const featureFlagMatchMapping = {
+    [FeatureFlagMatchReason.ConditionMatch]: 'Matches',
+    [FeatureFlagMatchReason.NoConditionMatch]: "Doesn't match any conditions",
+    [FeatureFlagMatchReason.OutOfRolloutBound]: 'Out of rollout bound',
+    [FeatureFlagMatchReason.NoGroupType]: 'Missing group type',
+    [FeatureFlagMatchReason.Disabled]: 'Disabled',
+}
+
+export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
+    const { mappedRelatedFeatureFlags, relatedFeatureFlagsLoading } = useValues(
+        relatedFeatureFlagsLogic({ distinctId })
+    )
+
+    const columns: LemonTableColumns<RelatedFeatureFlag> = [
         {
             title: normalizeColumnTitle('Key'),
             dataIndex: 'key',
             className: 'ph-no-capture',
             sticky: true,
             width: '40%',
-            sorter: (a: RelatedFeatureFlagType, b: RelatedFeatureFlagType) => (a.key || '').localeCompare(b.key || ''),
-            render: function Render(_, featureFlag: RelatedFeatureFlagType) {
+            sorter: (a: RelatedFeatureFlag, b: RelatedFeatureFlag) => (a.key || '').localeCompare(b.key || ''),
+            render: function Render(_, featureFlag: RelatedFeatureFlag) {
                 return (
                     <>
                         <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined} className="row-name">
@@ -48,40 +56,41 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
         {
             title: 'Type',
             width: 100,
-            render: function Render(_, featureFlag: RelatedFeatureFlagType) {
-                // TODO : determine type
-                return featureFlag ? 'Release toggle' : 'Multiple variants'
+            render: function Render(_, featureFlag: RelatedFeatureFlag) {
+                return featureFlag.filters.multivariate
+                    ? FeatureFlagReleaseType.Variants
+                    : FeatureFlagReleaseType.ReleaseToggle
             },
         },
         {
             title: 'Value',
             dataIndex: 'value',
             width: 100,
-            render: function Render(_, featureFlag: RelatedFeatureFlagType) {
-                return <div>{featureFlag.value}</div>
+            render: function Render(_, featureFlag: RelatedFeatureFlag) {
+                return <div>{capitalizeFirstLetter(featureFlag.value.toString())}</div>
             },
         },
         {
-            title: 'Evaluation Reason',
+            title: 'Match evaluation',
             dataIndex: 'evaluation',
             width: 150,
-            render: function Render(_, featureFlag: RelatedFeatureFlagType) {
-                return <div>{featureFlag.evaluation.reason}</div>
+            render: function Render(_, featureFlag: RelatedFeatureFlag) {
+                return <div>{featureFlagMatchMapping[featureFlag.evaluation.reason] || '--'}</div>
             },
         },
         {
             title: 'Status',
             dataIndex: 'active',
-            sorter: (a: RelatedFeatureFlagType, b: RelatedFeatureFlagType) => Number(a.active) - Number(b.active),
+            sorter: (a: RelatedFeatureFlag, b: RelatedFeatureFlag) => Number(a.active) - Number(b.active),
             width: 100,
-            render: function RenderActive(_, featureFlag: RelatedFeatureFlagType) {
+            render: function RenderActive(_, featureFlag: RelatedFeatureFlag) {
                 return <span className="font-normal">{featureFlag.active ? 'Enabled' : 'Disabled'}</span>
             },
         },
     ]
     return (
         <>
-            <LemonTable columns={columns} dataSource={relatedFeatureFlags} />
+            <LemonTable columns={columns} loading={relatedFeatureFlagsLoading} dataSource={mappedRelatedFeatureFlags} />
         </>
     )
 }
