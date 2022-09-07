@@ -15,6 +15,16 @@ export type LinkProps = Pick<
     preventClick?: boolean
 }
 
+// Some URLs we want to enforce a full reload such as billing which is redirected by Django
+const FORCE_PAGE_LOAD = ['/billing/']
+
+const shouldForcePageLoad = (input: any): boolean => {
+    if (!input || typeof input !== 'string') {
+        return false
+    }
+    return !!FORCE_PAGE_LOAD.find((x) => input.startsWith(x))
+}
+
 /**
  * Link
  *
@@ -29,7 +39,7 @@ export function Link({ to, target, forceReload, preventClick = false, ...props }
             return
         }
 
-        if (!target && !isExternalLink(to) && !forceReload) {
+        if (!target && to && !isExternalLink(to) && !forceReload && !shouldForcePageLoad(to)) {
             event.preventDefault()
             if (to && to !== '#' && !preventClick) {
                 if (Array.isArray(to)) {

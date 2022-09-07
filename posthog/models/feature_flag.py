@@ -1,5 +1,6 @@
 import hashlib
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.core.cache import cache
@@ -27,9 +28,19 @@ from .person import Person, PersonDistinctId
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
 
+class FeatureFlagMatchReason(str, Enum):
+    CONDITION_MATCH = "condition_match"
+    NO_CONDITION_MATCH = "no_condition_match"
+    OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
+    NO_GROUP_TYPE = "no_group_type"
+
+
 @dataclass(frozen=True)
 class FeatureFlagMatch:
+    match: bool = False
     variant: Optional[str] = None
+    reason: FeatureFlagMatchReason = FeatureFlagMatchReason.NO_CONDITION_MATCH
+    condition_index: Optional[int] = None
 
 
 class FeatureFlag(models.Model):
@@ -178,30 +189,44 @@ class FeatureFlagMatcher:
         self.hash_key_overrides = hash_key_overrides
         self.property_value_overrides = property_value_overrides
 
-    def get_match(self, feature_flag: FeatureFlag) -> Optional[FeatureFlagMatch]:
+    def get_match(self, feature_flag: FeatureFlag) -> FeatureFlagMatch:
         # If aggregating flag by groups and relevant group type is not passed - flag is off!
         if self.hashed_identifier(feature_flag) is None:
-            return None
+            return FeatureFlagMatch(match=False, reason=FeatureFlagMatchReason.NO_GROUP_TYPE)
 
-        is_match = any(
-            self.is_condition_match(feature_flag, condition, index)
-            for index, condition in enumerate(feature_flag.conditions)
-        )
-        if is_match:
-            return FeatureFlagMatch(variant=self.get_matching_variant(feature_flag))
-        else:
-            return None
+        last_seen_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
+        last_index = 0
+        for index, condition in enumerate(feature_flag.conditions):
+            is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, index)
+            if is_match:
+                return FeatureFlagMatch(
+                    match=True,
+                    variant=self.get_matching_variant(feature_flag),
+                    reason=evaluation_reason,
+                    condition_index=index,
+                )
 
-    def get_matches(self) -> Dict[str, Union[str, bool]]:
+            last_seen_evaluation_reason = evaluation_reason
+            last_index = index
+
+        return FeatureFlagMatch(match=False, reason=last_seen_evaluation_reason, condition_index=last_index)
+
+    def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
         flags_enabled = {}
+        flag_evaluation_reasons = {}
         for feature_flag in self.feature_flags:
             try:
-                match = self.get_match(feature_flag)
-                if match:
-                    flags_enabled[feature_flag.key] = match.variant or True
+                flag_match = self.get_match(feature_flag)
+                if flag_match.match:
+                    flags_enabled[feature_flag.key] = flag_match.variant or True
+
+                flag_evaluation_reasons[feature_flag.key] = {
+                    "reason": flag_match.reason,
+                    "condition_index": flag_match.condition_index,
+                }
             except Exception as err:
                 capture_exception(err)
-        return flags_enabled
+        return flags_enabled, flag_evaluation_reasons
 
     def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:
         for variant in self.variant_lookup_table(feature_flag):
@@ -212,7 +237,9 @@ class FeatureFlagMatcher:
                 return variant["key"]
         return None
 
-    def is_condition_match(self, feature_flag: FeatureFlag, condition: Dict, condition_index: int):
+    def is_condition_match(
+        self, feature_flag: FeatureFlag, condition: Dict, condition_index: int
+    ) -> Tuple[bool, FeatureFlagMatchReason]:
         rollout_percentage = condition.get("rollout_percentage")
         if len(condition.get("properties", [])) > 0:
             properties = Filter(data=condition).property_groups.flat
@@ -227,14 +254,14 @@ class FeatureFlagMatcher:
                 condition_match = self._condition_matches(feature_flag, condition_index)
 
             if not condition_match:
-                return False
+                return False, FeatureFlagMatchReason.NO_CONDITION_MATCH
             elif rollout_percentage is None:
-                return True
+                return True, FeatureFlagMatchReason.CONDITION_MATCH
 
         if rollout_percentage is not None and self.get_hash(feature_flag) > (rollout_percentage / 100):
-            return False
+            return False, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND
 
-        return True
+        return True, FeatureFlagMatchReason.CONDITION_MATCH
 
     def _condition_matches(self, feature_flag: FeatureFlag, condition_index: int) -> bool:
         return self.query_conditions.get(f"flag_{feature_flag.pk}_condition_{condition_index}", False)
@@ -378,7 +405,7 @@ def _get_active_feature_flags(
     person_id: Optional[int] = None,
     groups: Dict[GroupTypeName, str] = {},
     property_value_overrides: Dict[str, str] = {},
-) -> Dict[str, Union[bool, str]]:
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
     cache = FlagsMatcherCache(team_id)
 
     if person_id is not None:
@@ -391,7 +418,7 @@ def _get_active_feature_flags(
             feature_flags, distinct_id, groups, cache, overrides, property_value_overrides
         ).get_matches()
 
-    return {}
+    return {}, {}
 
 
 # Return feature flags
@@ -401,7 +428,7 @@ def get_active_feature_flags(
     groups: Dict[GroupTypeName, str] = {},
     hash_key_override: Optional[str] = None,
     property_value_overrides: Dict[str, str] = {},
-) -> Dict[str, Union[bool, str]]:
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
 
     all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
