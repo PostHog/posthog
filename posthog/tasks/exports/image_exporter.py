@@ -47,7 +47,10 @@ def get_driver() -> webdriver.Chrome:
         return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
 
     return webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM, log_level=logging.ERROR).install()),
+        # NOTE: This version should be kept in sync with Dockerfile
+        service=Service(
+            ChromeDriverManager(version="93", chrome_type=ChromeType.CHROMIUM, log_level=logging.ERROR).install()
+        ),
         options=options,
     )
 
