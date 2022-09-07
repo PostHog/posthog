@@ -1,6 +1,5 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Button, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import {
     ActionFilter as ActionFilterType,
@@ -11,17 +10,14 @@ import {
     PropertyFilterValue,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { DownOutlined } from '@ant-design/icons'
 import { entityFilterLogic } from '../entityFilterLogic'
 import { getEventNamesForAction } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './ActionFilterRow.scss'
-import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { apiValueToMathType, mathsLogic, mathTypeToApiValues } from 'scenes/trends/mathsLogic'
-import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
@@ -29,7 +25,8 @@ import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/c
 
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -179,52 +176,43 @@ export function ActionFilterRow({
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
     const filterElement = (
-        <Popup
-            overlay={
-                <TaxonomicFilter
-                    groupType={
-                        filter.type === EntityTypes.NEW_ENTITY
-                            ? TaxonomicFilterGroupType.Events
-                            : (filter.type as TaxonomicFilterGroupType)
-                    }
-                    value={
-                        filter.type === 'actions' && typeof value === 'string' ? parseInt(value) : value || undefined
-                    }
-                    onChange={(taxonomicGroup, changedValue, item) => {
-                        updateFilter({
-                            type: taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type) || undefined,
-                            id: `${changedValue}`,
-                            name: item?.name,
-                            index,
-                        })
-                    }}
-                    onClose={() => selectFilter(null)}
-                    taxonomicGroupTypes={actionsTaxonomicGroupTypes}
-                />
-            }
-            visible={dropDownCondition}
-            onClickOutside={() => selectFilter(null)}
+        <LemonButtonWithPopup
+            className="LemonButton--full-width"
+            popup={{
+                overlay: (
+                    <TaxonomicFilter
+                        groupType={
+                            filter.type === EntityTypes.NEW_ENTITY
+                                ? TaxonomicFilterGroupType.Events
+                                : (filter.type as TaxonomicFilterGroupType)
+                        }
+                        value={
+                            filter.type === 'actions' && typeof value === 'string'
+                                ? parseInt(value)
+                                : value || undefined
+                        }
+                        onChange={(taxonomicGroup, changedValue, item) => {
+                            updateFilter({
+                                type: taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type) || undefined,
+                                id: `${changedValue}`,
+                                name: item?.name,
+                                index,
+                            })
+                        }}
+                        onClose={() => selectFilter(null)}
+                        taxonomicGroupTypes={actionsTaxonomicGroupTypes}
+                    />
+                ),
+            }}
+            type="secondary"
+            status="stealth"
+            onClick={onClick}
+            disabled={disabled}
         >
-            <Button
-                data-attr={'trend-element-subject-' + index}
-                onClick={onClick}
-                block
-                disabled={disabled || readOnly}
-                style={{
-                    maxWidth: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    borderColor: selectedFilter && selectedFilter.index === index ? 'var(--primary-light)' : '',
-                    borderWidth: selectedFilter && selectedFilter.index === index ? '1.5px' : '1px',
-                }}
-            >
-                <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                    <EntityFilterInfo filter={filter} />
-                </span>
-                <DownOutlined style={{ fontSize: 10 }} />
-            </Button>
-        </Popup>
+            <span className="text-overflow" style={{ maxWidth: '100%' }}>
+                <EntityFilterInfo filter={filter} />
+            </span>
+        </LemonButtonWithPopup>
     )
 
     const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ filter, index, onClose }) : customRowSuffix
@@ -407,8 +395,8 @@ interface MathSelectorProps {
     style?: React.CSSProperties
 }
 
-const NUMERICAL_REQUIREMENT_NOTICE =
-    'This can only be used on properties that have at least one number type occurence in your events.'
+// const NUMERICAL_REQUIREMENT_NOTICE =
+//     'This can only be used on properties that have at least one number type occurence in your events.'
 
 function MathSelector({
     math,
@@ -416,14 +404,13 @@ function MathSelector({
     mathAvailability,
     index,
     onMathSelect,
-    style,
 }: MathSelectorProps): JSX.Element {
-    const { mathDefinitions, eventMathEntries, propertyMathEntries } = useValues(mathsLogic)
+    const { mathDefinitions, selectFormattedOptions } = useValues(mathsLogic)
 
-    let relevantEventMathEntries = eventMathEntries
-    if (mathAvailability === MathAvailability.ActorsOnly) {
-        relevantEventMathEntries = relevantEventMathEntries.filter(([, definition]) => definition.actor)
-    }
+    // let relevantEventMathEntries = eventMathEntries
+    // if (mathAvailability === MathAvailability.ActorsOnly) {
+    //     relevantEventMathEntries = relevantEventMathEntries.filter(([, definition]) => definition.actor)
+    // }
 
     let mathType = apiValueToMathType(math, mathGroupTypeIndex)
     if (mathAvailability === MathAvailability.ActorsOnly && !mathDefinitions[mathType]?.actor) {
@@ -433,78 +420,13 @@ function MathSelector({
     }
 
     return (
-        <Select
-            style={{ width: 150, ...style }}
+        <LemonSelect
             value={mathType}
+            options={selectFormattedOptions}
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
             dropdownMatchSelectWidth={false}
-            dropdownStyle={{ maxWidth: 320 }}
-            listHeight={280}
-        >
-            <Select.OptGroup key="event aggregates" label="Event aggregation">
-                {relevantEventMathEntries.map(([key, { name, description, onProperty }]) => {
-                    return (
-                        <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`}>
-                            <Tooltip
-                                title={
-                                    onProperty ? (
-                                        <>
-                                            {description}
-                                            <br />
-                                            {NUMERICAL_REQUIREMENT_NOTICE}
-                                        </>
-                                    ) : (
-                                        description
-                                    )
-                                }
-                                placement="right"
-                            >
-                                <div
-                                    style={{
-                                        height: '100%',
-                                        width: '100%',
-                                        paddingRight: 8,
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                    }}
-                                >
-                                    {name}
-                                </div>
-                            </Tooltip>
-                        </Select.Option>
-                    )
-                })}
-                {/* :KLUDGE: Select only allows Select.Option as children, so render groups option directly rather than as a child */}
-                {GroupsIntroductionOption({ value: '' })}
-            </Select.OptGroup>
-            {mathAvailability !== MathAvailability.ActorsOnly && (
-                <Select.OptGroup key="property aggregates" label="Property aggregation">
-                    {propertyMathEntries.map(([key, { name, description, onProperty }]) => {
-                        return (
-                            <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`}>
-                                <Tooltip
-                                    title={
-                                        onProperty ? (
-                                            <>
-                                                {description}
-                                                <br />
-                                                {NUMERICAL_REQUIREMENT_NOTICE}
-                                            </>
-                                        ) : (
-                                            description
-                                        )
-                                    }
-                                    placement="right"
-                                >
-                                    <div style={{ height: '100%', width: '100%' }}>{name}</div>
-                                </Tooltip>
-                            </Select.Option>
-                        )
-                    })}
-                </Select.OptGroup>
-            )}
-        </Select>
+        />
     )
 }
 
