@@ -80,7 +80,17 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
             dataIndex: 'evaluation',
             width: 150,
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
-                return <div>{featureFlagMatchMapping[featureFlag.evaluation.reason] || '--'}</div>
+                const matchesSet = featureFlag.evaluation.reason === FeatureFlagMatchReason.ConditionMatch
+                return (
+                    <div>
+                        {featureFlagMatchMapping[featureFlag.evaluation.reason] || '--'}
+                        {matchesSet && (
+                            <span className="simple-tag ml-2" style={{ background: 'var(--primary-highlight)' }}>
+                                Set {(featureFlag.evaluation.condition_index ?? 0) + 1}
+                            </span>
+                        )}
+                    </div>
+                )
             },
         },
         {
