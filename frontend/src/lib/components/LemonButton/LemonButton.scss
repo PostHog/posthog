@@ -117,7 +117,7 @@
             }
         }
 
-        .LemonIcon {
+        > .LemonIcon {
             color: var(--muted-alt);
         }
 
@@ -154,7 +154,7 @@
                 }
             }
 
-            .LemonIcon {
+            > .LemonIcon {
                 color: var(--#{$status});
             }
 
@@ -162,7 +162,7 @@
             &.LemonButton--primary {
                 color: var(--white);
                 background: var(--#{$status});
-                .LemonIcon {
+                > .LemonIcon {
                     color: var(--white);
                 }
 
@@ -170,14 +170,14 @@
                 &.LemonButton--active {
                     color: var(--white);
                     background: var(--#{$status}-light, var(--#{$status}));
-                    .LemonIcon {
+                    > .LemonIcon {
                         color: var(--white);
                     }
                 }
                 &:not(:disabled):active {
                     background: var(--#{$status}-dark, var(--#{$status}));
                     color: var(--white);
-                    .LemonIcon {
+                    > .LemonIcon {
                         color: var(--white);
                     }
                 }

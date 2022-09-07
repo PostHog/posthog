@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { DownloadOutlined } from '@ant-design/icons'
 import { ActorType, ExporterFormat } from '~/types'
 import { personsModalLogic } from './personsModalV2Logic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -8,9 +7,9 @@ import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/
 import './PersonsModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import { IconArrowDropDown, IconPlay, IconSave, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { IconArrowDropDown, IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/components/Spinner/Spinner'
@@ -22,6 +21,7 @@ import { Skeleton, Tabs } from 'antd'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { urls } from 'scenes/urls'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
@@ -145,7 +145,6 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                 <LemonModal.Footer>
                     <LemonButton
                         onClick={() => setIsCohortModalOpen(true)}
-                        icon={<IconSave />}
                         type="secondary"
                         data-attr="person-modal-save-as-cohort"
                         disabled={!actors.length}
@@ -153,7 +152,6 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                         Save as cohort
                     </LemonButton>
                     <LemonButton
-                        icon={<DownloadOutlined />}
                         type="secondary"
                         onClick={() => {
                             triggerExport({
@@ -265,21 +263,34 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                             )}
                         </Tabs.TabPane>
                         <Tabs.TabPane tab="Recordings" key="recordings">
-                            <div className="p-2 space-y-2">
-                                {matchedRecordings?.length ? (
-                                    matchedRecordings.map((recording, i) => (
-                                        <LemonButton
-                                            key={recording.session_id}
-                                            onClick={() => onOpenRecording(recording.session_id)}
-                                            icon={<IconPlay />}
-                                            type="secondary"
-                                        >
-                                            View recording {i + 1}
-                                        </LemonButton>
-                                    ))
-                                ) : (
-                                    <div className="text-center m-2">There are no recordings.</div>
-                                )}
+                            <div className="p-2 space-y-2 font-medium mt-1">
+                                <div className="flex justify-between items-center px-2">
+                                    <span>{pluralize(matchedRecordings.length, 'matched recording')}</span>
+                                    {/* <Link to={urls.person(actor.distinct_ids[0])}>View all</Link> */}
+                                </div>
+                                <ul className="space-y-px">
+                                    {matchedRecordings?.length
+                                        ? matchedRecordings.map((recording, i) => (
+                                              <>
+                                                  <LemonDivider className="my-0" />
+                                                  <li key={i}>
+                                                      <LemonButton
+                                                          key={i}
+                                                          fullWidth
+                                                          onClick={() => {
+                                                              onOpenRecording(recording.session_id)
+                                                          }}
+                                                      >
+                                                          <div className="flex flex-1 justify-between gap-2 items-center">
+                                                              <span>View recording {i + 1}</span>
+                                                              <IconPlayCircle className="text-sm text-muted" />
+                                                          </div>
+                                                      </LemonButton>
+                                                  </li>
+                                              </>
+                                          ))
+                                        : null}
+                                </ul>
                             </div>
                         </Tabs.TabPane>
                     </Tabs>

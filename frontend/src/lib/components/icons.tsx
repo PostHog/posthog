@@ -1159,18 +1159,6 @@ export function IconEdit(props: SvgIconProps): JSX.Element {
     )
 }
 
-/** Material Design Save icon. */
-export function IconSave(props: SvgIconProps): JSX.Element {
-    return (
-        <SvgIcon version="1.1" viewBox="0 0 24 24" {...props}>
-            <path
-                d="m17 3h-12c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-12zm2 16h-14v-14h11.17l2.83 2.83zm-7-7c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3zm-6-6h9v4h-9z"
-                fill="currentColor"
-            />
-        </SvgIcon>
-    )
-}
-
 /** Material Design Lock icon. */
 export function IconLock(props: SvgIconProps): JSX.Element {
     return (

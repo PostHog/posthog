@@ -12,7 +12,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
-import { IconPersonFilled, IconSave } from 'lib/components/icons'
+import { IconPersonFilled } from 'lib/components/icons'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { getSeriesColor } from 'lib/colors'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -157,7 +157,6 @@ export function PersonsModal({
                             {isSaveAsCohortAvailable && (
                                 <LemonButton
                                     onClick={onSaveCohort}
-                                    icon={<IconSave />}
                                     type="secondary"
                                     data-attr="person-modal-save-as-cohort"
                                 >
