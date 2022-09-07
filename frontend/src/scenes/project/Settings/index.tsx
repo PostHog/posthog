@@ -195,16 +195,18 @@ export function ProjectSettings(): JSX.Element {
                     So, if you apply a cohort, it means you will only match users in that cohort.
                 </p>
                 <strong>Example filters</strong>
-                <ul>
-                    <li>
-                        "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all events
-                        from your company's team members.
-                    </li>
-                    <li>
-                        "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude all events from
-                        local development environments.
-                    </li>
-                </ul>
+                <p>
+                    <ul>
+                        <li>
+                            "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all
+                            events from your company's team members.
+                        </li>
+                        <li>
+                            "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude all events
+                            from local development environments.
+                        </li>
+                    </ul>
+                </p>
                 <TestAccountFiltersConfig />
                 <LemonDivider className="my-6" />
                 <CorrelationConfig />

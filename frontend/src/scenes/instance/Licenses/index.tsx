@@ -66,7 +66,7 @@ function ConfirmCancelModal({
                 </>
             }
         >
-            <ul className="m-0 pl-3">
+            <ul className="pl-3 list-disc">
                 {!hasAnotherValidLicense ? (
                     <li>
                         You will <strong>IMMEDIATELY</strong> lose access to all premium features such as{' '}
@@ -81,7 +81,7 @@ function ConfirmCancelModal({
                 {willDeleteProjects && (
                     <li>
                         We will <strong className="text-danger">DELETE</strong> the following projects:
-                        <ul>
+                        <ul className="pl-6 list-disc mb-2">
                             {nonDemoProjects.map((team: TeamType) => (
                                 <li key={team.id}>
                                     <strong>{team.name}</strong>

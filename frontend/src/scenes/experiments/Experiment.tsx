@@ -40,6 +40,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { router } from 'kea-router'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonTextArea } from '@posthog/lemon-ui'
+import { NotFound } from 'lib/components/NotFound'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -153,6 +154,14 @@ export function Experiment(): JSX.Element {
         { background: '#8DA9E74D', color: '#35416B' },
     ]
 
+    if (experimentDataLoading) {
+        return <Skeleton active />
+    }
+
+    if (!experimentData && experimentId !== 'new') {
+        return <NotFound object="experiment" />
+    }
+
     return (
         <>
             {experimentId === 'new' || editingExistingExperiment ? (
@@ -162,12 +171,16 @@ export function Experiment(): JSX.Element {
                         justify="space-between"
                         style={{ borderBottom: '1px solid var(--border)', marginBottom: '1rem', paddingBottom: 8 }}
                     >
-                        <PageHeader title={'New experiment'} />
+                        <PageHeader title={editingExistingExperiment ? 'Edit experiment' : 'New experiment'} />
                         <Row>
                             <LemonButton
                                 type="secondary"
                                 className="mr-2"
-                                onClick={() => router.actions.push(urls.experiments())}
+                                onClick={
+                                    experimentData
+                                        ? () => router.actions.push(urls.experiment(experimentData.id))
+                                        : () => router.actions.push(urls.experiments())
+                                }
                             >
                                 Cancel
                             </LemonButton>
@@ -578,7 +591,7 @@ export function Experiment(): JSX.Element {
                         </LemonButton>
                     </Form>
                 </>
-            ) : !experimentDataLoading && experimentData ? (
+            ) : experimentData ? (
                 <div className="view-experiment">
                     <Row className="draft-header">
                         <Row justify="space-between" align="middle" className="w-full pb-4">
