@@ -47,7 +47,11 @@ function OverViewTab(): JSX.Element {
                         <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined} className="row-name">
                             {stringWithWBR(featureFlag.key, 17)}
                         </Link>
-                        {featureFlag.name && <span className="row-description">{featureFlag.name}</span>}
+                        {featureFlag.name && (
+                            <span className="row-description" style={{ maxWidth: '24rem' }}>
+                                {featureFlag.name}
+                            </span>
+                        )}
                     </>
                 )
             },
