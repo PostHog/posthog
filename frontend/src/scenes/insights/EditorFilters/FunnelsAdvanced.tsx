@@ -19,7 +19,7 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
             <PureField
                 label="Step order"
                 info={
-                    <ul className="pl-4">
+                    <ul className="list-disc pl-4">
                         <li>
                             <b>Sequential</b> - Step B must happen after Step A, but any number events can happen
                             between A and B.

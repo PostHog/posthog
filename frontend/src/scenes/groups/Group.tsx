@@ -15,6 +15,7 @@ import { Group as IGroup, PersonsTabType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { NotFound } from 'lib/components/NotFound'
 
 const { TabPane } = Tabs
 
@@ -51,7 +52,7 @@ export function Group(): JSX.Element {
     const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex } = useValues(groupLogic)
 
     if (!groupData) {
-        return groupDataLoading ? <SpinnerOverlay /> : <PageHeader title="Group not found" />
+        return groupDataLoading ? <SpinnerOverlay /> : <NotFound object="group" />
     }
 
     return (

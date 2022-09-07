@@ -193,7 +193,7 @@ function AnnotationsPopover({
                     width="var(--annotations-popover-width)"
                 >
                     {popoverAnnotations.length > 0 ? (
-                        <ul className="flex flex-col gap-1 w-full overflow-y-auto m-0 p-0">
+                        <ul className="flex flex-col gap-1 w-full overflow-y-auto">
                             {popoverAnnotations.map((annotation) => (
                                 <AnnotationCard key={annotation.id} annotation={annotation} />
                             ))}
