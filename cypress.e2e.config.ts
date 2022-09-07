@@ -5,6 +5,8 @@ import pixelmatch from 'pixelmatch'
 import fs from 'fs'
 import path from 'path'
 import { createEntry } from './webpack.config'
+import htmlvalidate from 'cypress-html-validate/plugin'
+import 'cypress-html-validate/commands'
 
 const downloadDirectory = path.join(__dirname, '..', 'downloads')
 
@@ -38,6 +40,8 @@ export default defineConfig({
                 webpackOptions: createEntry('cypress'),
                 watchOptions: {},
             }
+
+            htmlvalidate.install(on)
 
             // @ts-expect-error -- ignore errors in options type
             on('file:preprocessor', webpackPreprocessor(options))
