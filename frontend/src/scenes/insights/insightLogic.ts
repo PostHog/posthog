@@ -198,7 +198,10 @@ export const insightLogic = kea<insightLogicType>({
                     }
                     callback?.(updatedInsight)
 
-                    dashboardsModel.actions.updateDashboardInsight(updatedInsight)
+                    const removedDashboards = (values.insight.dashboards || []).filter(
+                        (d) => !updatedInsight.dashboards?.includes(d)
+                    )
+                    dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
