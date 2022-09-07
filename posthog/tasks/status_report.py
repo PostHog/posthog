@@ -147,7 +147,7 @@ def capture_event(name: str, report: Dict[str, Any], dry_run: bool) -> None:
         for user in User.objects.all():
             posthoganalytics.capture(user.distinct_id, f"user {name}", {**report, "scope": "user"})
     else:
-        print(name, json.dumps(report))  # noqa: T001
+        print(name, json.dumps(report))  # noqa: T201
 
 
 def fetch_instance_params(report: Dict[str, Any]) -> dict:
