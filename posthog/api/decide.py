@@ -169,6 +169,9 @@ def get_decide(request: HttpRequest):
                 hash_key_override=data.get("$anon_distinct_id"),
                 property_value_overrides=property_overrides,
             )
+            feature_flags = {}
+            # import time
+            # time.sleep(10)
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):

@@ -12,5 +12,9 @@ declare global {
         ESBUILD_LOAD_CHUNKS: (name) => void
         ESBUILD_LOADED_CHUNKS: Set<string>
         POSTHOG_EXPORTED_DATA: ExportedData
+        BOOTSTRAP?: {
+            distinctID: string
+            featureFlags: Record<string, boolean | string>
+        }
     }
 }

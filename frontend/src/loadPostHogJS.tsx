@@ -28,6 +28,7 @@ export function loadPostHogJS(): void {
                 persistence: 'localStorage+cookie',
                 _capture_performance: true,
                 enable_recording_console_log: true,
+                bootstrap: !!window.BOOTSTRAP ? window.BOOTSTRAP : {},
             })
         )
         // Make sure we have access to the object in window for debugging

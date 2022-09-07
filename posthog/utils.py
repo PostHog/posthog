@@ -29,6 +29,7 @@ from typing import (
 from urllib.parse import urljoin, urlparse
 
 import lzstring
+import posthoganalytics
 import pytz
 import structlog
 from celery.schedules import crontab
@@ -300,6 +301,9 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         "anonymous": not request.user or not request.user.is_authenticated,
     }
 
+    posthog_bootstrap: Dict[str, Any] = {}
+    posthog_distinct_id: Optional[str] = None
+
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.team import TeamSerializer
@@ -318,6 +322,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         if request.user.pk:
             user_serialized = UserSerializer(request.user, context={"request": request}, many=False)
             posthog_app_context["current_user"] = user_serialized.data
+            posthog_distinct_id = user_serialized.data.get("distinct_id")
             team = cast(User, request.user).team
             if team:
                 team_serialized = TeamSerializer(team, context={"request": request}, many=False)
@@ -325,6 +330,15 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
                 posthog_app_context["frontend_apps"] = get_frontend_apps(team.pk)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
+
+    if not posthog_distinct_id:
+        posthog_distinct_id = str(uuid.uuid4())
+
+    feature_flags = posthoganalytics.get_all_flags(posthog_distinct_id, only_evaluate_locally=True)
+    posthog_bootstrap["distinctID"] = posthog_distinct_id
+    posthog_bootstrap["featureFlags"] = feature_flags
+
+    context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
     html = template.render(context, request=request)
     return HttpResponse(html)
