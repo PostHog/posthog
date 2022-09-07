@@ -162,7 +162,7 @@ def get_decide(request: HttpRequest):
                 get_geoip_properties(get_ip_address(request)) if team.geoip_property_overrides_enabled else {}
             )
 
-            feature_flags = get_active_feature_flags(
+            feature_flags, _ = get_active_feature_flags(
                 team.pk,
                 data["distinct_id"],
                 data.get("groups", {}),
