@@ -176,6 +176,29 @@ describe('dashboardLogic', () => {
         initKeaTests()
     })
 
+    describe('moving between dashboards', () => {
+        beforeEach(() => {
+            logic = dashboardLogic({ id: 9 })
+            logic.mount()
+        })
+
+        it('only replaces the source dashboard with the target', async () => {
+            const startingDashboard = dashboards['9']
+            const expectedDashboard = dashboardResult(9, [])
+
+            const insights = startingDashboard.items
+            const sourceInsight = insights[0]
+
+            await expectLogic(logic, () => {
+                insightsModel.actions.moveToDashboard(sourceInsight, 9, 8, 'targetDashboard')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    allItems: expectedDashboard,
+                })
+        })
+    })
+
     describe('when there is no props id', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: undefined })
