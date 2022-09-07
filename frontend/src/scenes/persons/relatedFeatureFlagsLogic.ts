@@ -6,7 +6,6 @@ import { toParams } from 'lib/utils'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { FeatureFlagReleaseType, FeatureFlagType } from '~/types'
-import { FeatureFlagMatchReason } from './RelatedFeatureFlags'
 
 import type { relatedFeatureFlagsLogicType } from './relatedFeatureFlagsLogicType'
 export interface RelatedFeatureFlag extends FeatureFlagType {
@@ -27,9 +26,9 @@ export interface RelatedFeatureFlagResponse {
 }
 
 export interface RelatedFlagsFilters {
-    type: FeatureFlagReleaseType
+    type: string
     active: string
-    reason: FeatureFlagMatchReason
+    reason: string
 }
 
 export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
