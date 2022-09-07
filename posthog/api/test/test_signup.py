@@ -938,6 +938,13 @@ class TestInviteSignupAPI(APIBaseTest):
                 "org_current_invite_count": 0,
                 "org_current_project_count": 1,
                 "org_current_members_count": 1,
+                "$set": {
+                    "organization_id": str(new_org.id),
+                    "user_number_of_org_membership": 2,
+                    "org_current_invite_count": 0,
+                    "org_current_project_count": 1,
+                    "org_current_members_count": 1,
+                },
             },
             groups={"instance": ANY, "organization": str(new_org.id)},
         )
