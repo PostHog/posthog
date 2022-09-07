@@ -283,7 +283,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                                                       >
                                                           <div className="flex flex-1 justify-between gap-2 items-center">
                                                               <span>View recording {i + 1}</span>
-                                                              <IconPlayCircle className="text-sm text-muted" />
+                                                              <IconPlayCircle className="text-xl text-muted" />
                                                           </div>
                                                       </LemonButton>
                                                   </li>
