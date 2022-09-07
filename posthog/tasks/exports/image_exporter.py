@@ -48,8 +48,11 @@ def get_driver() -> webdriver.Chrome:
 
     return webdriver.Chrome(
         # NOTE: This version should be kept in sync with Dockerfile
+        # Taken from https://chromedriver.storage.googleapis.com/LATEST_RELEASE_93
         service=Service(
-            ChromeDriverManager(version="93", chrome_type=ChromeType.CHROMIUM, log_level=logging.ERROR).install()
+            ChromeDriverManager(
+                version="93.0.4577.63", chrome_type=ChromeType.CHROMIUM, log_level=logging.ERROR
+            ).install()
         ),
         options=options,
     )
