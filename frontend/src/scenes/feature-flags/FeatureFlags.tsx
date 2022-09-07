@@ -56,7 +56,7 @@ function OverViewTab(): JSX.Element {
         createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         {
             title: 'Release conditions',
-            width: 200,
+            width: 100,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return groupFilters(featureFlag.filters.groups)
             },
@@ -267,7 +267,7 @@ export function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | stri
                     {rollout_percentage != null && (
                         <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>
                     )}
-                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, flexDirection: 'row' }} />
+                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, flexDirection: 'column' }} />
                 </div>
             )
         } else if (rollout_percentage !== null) {
