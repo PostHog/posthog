@@ -1,8 +1,7 @@
 import { LemonTable } from '@posthog/lemon-ui'
 import Link from 'antd/lib/typography/Link'
 import { useValues } from 'kea'
-import { LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable'
-import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { LemonTableColumns } from 'lib/components/LemonTable'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import React from 'react'
@@ -34,8 +33,8 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
             className: 'ph-no-capture',
             sticky: true,
             width: '40%',
-            sorter: (a: FeatureFlagType, b: FeatureFlagType) => (a.key || '').localeCompare(b.key || ''),
-            render: function Render(_, featureFlag: FeatureFlagType) {
+            sorter: (a: RelatedFeatureFlagType, b: RelatedFeatureFlagType) => (a.key || '').localeCompare(b.key || ''),
+            render: function Render(_, featureFlag: RelatedFeatureFlagType) {
                 return (
                     <>
                         <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined} className="row-name">
@@ -47,34 +46,38 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
             },
         },
         {
+            title: 'Type',
+            width: 100,
+            render: function Render(_, featureFlag: RelatedFeatureFlagType) {
+                // TODO : determine type
+                return featureFlag ? 'Release toggle' : 'Multiple variants'
+            },
+        },
+        {
             title: 'Value',
             dataIndex: 'value',
             width: 100,
-            render: function Render(_, featureFlag) {
-                return <div>value</div>
+            render: function Render(_, featureFlag: RelatedFeatureFlagType) {
+                return <div>{featureFlag.value}</div>
+            },
+        },
+        {
+            title: 'Evaluation Reason',
+            dataIndex: 'evaluation',
+            width: 150,
+            render: function Render(_, featureFlag: RelatedFeatureFlagType) {
+                return <div>{featureFlag.evaluation.reason}</div>
             },
         },
         {
             title: 'Status',
             dataIndex: 'active',
-            sorter: (a: FeatureFlagType, b: FeatureFlagType) => Number(a.active) - Number(b.active),
+            sorter: (a: RelatedFeatureFlagType, b: RelatedFeatureFlagType) => Number(a.active) - Number(b.active),
             width: 100,
-            render: function RenderActive(_, featureFlag: FeatureFlagType) {
+            render: function RenderActive(_, featureFlag: RelatedFeatureFlagType) {
                 return <span className="font-normal">{featureFlag.active ? 'Enabled' : 'Disabled'}</span>
             },
         },
-        {
-            title: 'Type',
-            width: 200,
-            render: function Render(_, featureFlag: FeatureFlagType) {
-                // TODO : determine type
-                return featureFlag ? 'Release toggle' : 'Multiple variants'
-            },
-        },
-        createdByColumn<RelatedFeatureFlagType>() as LemonTableColumn<
-            RelatedFeatureFlagType,
-            keyof RelatedFeatureFlagType | undefined
-        >,
     ]
     return (
         <>
