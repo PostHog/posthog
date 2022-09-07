@@ -755,40 +755,6 @@ describe('insightLogic', () => {
         await expectLogic(dashboardsModel).toDispatchActions(['updateDashboardInsight'])
     })
 
-    test.skip('updateInsight can add and remove a dashboard', async () => {
-        savedInsightsLogic.mount()
-        logic = insightLogic({
-            dashboardItemId: Insight43,
-        })
-        logic.mount()
-
-        logic.actions.updateInsight({ ...partialInsight43, dashboards: [8, 9] })
-        await expectLogic(logic).toDispatchActions(['updateInsightSuccess']).toFinishAllListeners()
-        // const expectedResponseWithAddedDashboards = patchResponseFor(
-        //     { ...partialInsight43, dashboards: [8, 9] },
-        //     '43',
-        //     partialInsight43.filters
-        // )
-        // // is not matching despite the action having been dispatched
-        // await expectLogic(logic).toDispatchActions([
-        //     dashboardsModel.actionCreators.updateDashboardInsight(expectedResponseWithAddedDashboards as InsightModel),
-        // ])
-
-        logic.actions.updateInsight({ ...partialInsight43, dashboards: [9] })
-        // expectedResponseWithAddedDashboards = patchResponseFor(
-        //     { ...partialInsight43, dashboards: [9] },
-        //     '43',
-        //     partialInsight43.filters
-        // )
-        await expectLogic(logic).toDispatchActions(['updateInsightSuccess']).toFinishAllListeners()
-        // is not matching because values.insight hasn't updated
-        // await expectLogic(dashboardsModel).toDispatchActions([
-        //     dashboardsModel.actionCreators.updateDashboardInsight(expectedResponseWithAddedDashboards as InsightModel, [
-        //         8,
-        //     ]),
-        // ])
-    })
-
     test('save as new insight', async () => {
         const url = combineUrl('/insights/42', { insight: InsightType.FUNNELS }).url
         router.actions.push(url)
