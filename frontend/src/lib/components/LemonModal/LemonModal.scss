@@ -69,6 +69,10 @@
     .LemonModal__content {
         padding: 1rem 1.5rem;
         overflow-y: auto;
+
+        &.LemonModal__content--embedded {
+            padding: 0;
+        }
     }
 }
 
