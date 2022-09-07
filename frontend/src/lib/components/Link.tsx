@@ -10,6 +10,16 @@ export interface LinkProps extends React.HTMLProps<HTMLAnchorElement> {
     tag?: string | React.FunctionComponentElement<any>
 }
 
+// Some URLs we want to enforce a full reload such as billing which is redirected by Django
+const FORCE_PAGE_LOAD = ['/billing/']
+
+const shouldForcePageLoad = (input: any): boolean => {
+    if (!input || typeof input !== 'string') {
+        return false
+    }
+    return !!FORCE_PAGE_LOAD.find((x) => input.startsWith(x))
+}
+
 export function Link({ to, href, preventClick = false, tag = 'a', ...props }: LinkProps): JSX.Element {
     const onClick = (event: React.MouseEvent<HTMLAnchorElement>): void => {
         if (event.metaKey || event.ctrlKey) {
@@ -17,7 +27,7 @@ export function Link({ to, href, preventClick = false, tag = 'a', ...props }: Li
             return
         }
 
-        if (!props.target && !isExternalLink(to)) {
+        if (!props.target && to && !isExternalLink(to) && !shouldForcePageLoad(to)) {
             event.preventDefault()
             if (to && to !== '#' && !preventClick) {
                 if (Array.isArray(to)) {

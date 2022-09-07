@@ -7,7 +7,6 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import { PropertyOperator } from '~/types'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { useMocks } from '~/mocks/jest'
 import { sessionRecordingDataLogic } from './player/sessionRecordingDataLogic'
 
@@ -92,9 +91,7 @@ describe('sessionRecordingsTableLogic', () => {
                 expectLogic(logic).toMatchValues({ activeSessionRecordingId: null })
             })
             it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
-                expectLogic(logic, () =>
-                    logic.actions.openSessionPlayer('abc', RecordingWatchedSource.RecordingsList)
-                ).toMatchValues({
+                expectLogic(logic, () => logic.actions.openSessionPlayer('abc')).toMatchValues({
                     activeSessionRecordingId: 'abc',
                 })
                 expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
@@ -232,7 +229,7 @@ describe('sessionRecordingsTableLogic', () => {
                 })
 
                 expectLogic(logic, () => {
-                    logic.actions.openSessionPlayer('abc', RecordingWatchedSource.Direct)
+                    logic.actions.openSessionPlayer('abc')
                 }).toMatchValues({
                     sessionRecordings: [
                         {
@@ -301,10 +298,7 @@ describe('sessionRecordingsTableLogic', () => {
             logic.mount()
         })
         it('mounts and loads the recording when a recording is opened', () => {
-            expectLogic(
-                logic,
-                async () => await logic.actions.openSessionPlayer('abcd', RecordingWatchedSource.RecordingsList)
-            )
+            expectLogic(logic, async () => await logic.actions.openSessionPlayer('abcd'))
                 .toMount(sessionRecordingDataLogic({ sessionRecordingId: 'abcd' }))
                 .toDispatchActions(['loadEntireRecording'])
         })

@@ -547,7 +547,12 @@ export function LineGraph_({
                         insightNumericId: insight.id || 'new',
                     }}
                 >
-                    <AnnotationsOverlay chart={myLineChart} chartWidth={chartWidth} chartHeight={chartHeight} />
+                    <AnnotationsOverlay
+                        chart={myLineChart}
+                        dates={datasets[0]?.days || []}
+                        chartWidth={chartWidth}
+                        chartHeight={chartHeight}
+                    />
                 </BindLogic>
             )}
         </div>
