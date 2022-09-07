@@ -1,5 +1,5 @@
-import { LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { LemonTableColumns } from 'lib/components/LemonTable'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -13,7 +13,7 @@ interface Props {
     distinctId: string
 }
 
-enum FeatureFlagMatchReason {
+export enum FeatureFlagMatchReason {
     ConditionMatch = 'condition_match',
     NoConditionMatch = 'no_condition_match',
     OutOfRolloutBound = 'out_of_rollout_bound',
@@ -30,9 +30,10 @@ const featureFlagMatchMapping = {
 }
 
 export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
-    const { mappedRelatedFeatureFlags, relatedFeatureFlagsLoading } = useValues(
+    const { filteredMappedFlags, relatedFeatureFlagsLoading, searchTerm, filters } = useValues(
         relatedFeatureFlagsLogic({ distinctId })
     )
+    const { setSearchTerm, setFilters } = useActions(relatedFeatureFlagsLogic({ distinctId }))
 
     const columns: LemonTableColumns<RelatedFeatureFlag> = [
         {
@@ -94,7 +95,94 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
     ]
     return (
         <>
-            <LemonTable columns={columns} loading={relatedFeatureFlagsLoading} dataSource={mappedRelatedFeatureFlags} />
+            <div className="flex justify-between mb-4">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for feature flags"
+                    onChange={setSearchTerm}
+                    value={searchTerm}
+                />
+                <div className="flex items-center gap-2">
+                    <span>
+                        <b>Type</b>
+                    </span>
+                    <LemonSelect
+                        options={[
+                            { label: 'All', value: 'all' },
+                            {
+                                label: FeatureFlagReleaseType.ReleaseToggle,
+                                value: FeatureFlagReleaseType.ReleaseToggle,
+                            },
+                            { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
+                        ]}
+                        onChange={(type) => {
+                            if (type) {
+                                if (type === 'all') {
+                                    if (filters) {
+                                        const { type, ...restFilters } = filters
+                                        setFilters(restFilters, true)
+                                    }
+                                } else {
+                                    setFilters({ type })
+                                }
+                            }
+                        }}
+                        value="all"
+                        dropdownMaxContentWidth
+                    />
+                    <span>
+                        <b>Match Evaluation</b>
+                    </span>
+                    <LemonSelect
+                        options={[
+                            { label: 'All', value: 'all' },
+                            ...Object.values(FeatureFlagMatchReason).map((value) => ({
+                                label: featureFlagMatchMapping[value],
+                                value: value,
+                            })),
+                        ]}
+                        onChange={(reason) => {
+                            if (reason) {
+                                if (reason === 'all') {
+                                    if (filters) {
+                                        const { reason, ...restFilters } = filters
+                                        setFilters(restFilters, true)
+                                    }
+                                } else {
+                                    setFilters({ reason })
+                                }
+                            }
+                        }}
+                        value="all"
+                        dropdownMaxContentWidth
+                    />
+                    <span>
+                        <b>Status</b>
+                    </span>
+                    <LemonSelect
+                        onChange={(status) => {
+                            if (status) {
+                                if (status === 'all') {
+                                    if (filters) {
+                                        const { active, ...restFilters } = filters
+                                        setFilters(restFilters, true)
+                                    }
+                                } else {
+                                    setFilters({ active: status })
+                                }
+                            }
+                        }}
+                        options={[
+                            { label: 'All', value: 'all' },
+                            { label: 'Enabled', value: 'true' },
+                            { label: 'Disabled', value: 'false' },
+                        ]}
+                        value="all"
+                        dropdownMaxContentWidth
+                    />
+                </div>
+            </div>
+            <LemonTable columns={columns} loading={relatedFeatureFlagsLoading} dataSource={filteredMappedFlags} />
         </>
     )
 }
