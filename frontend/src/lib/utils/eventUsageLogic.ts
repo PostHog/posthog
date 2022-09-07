@@ -454,7 +454,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportInsightOpenedFromRecentInsightList: true,
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
-        reportTeamHasIngestedEvents: true,
         reportIngestionSelectPlatformType: (platform: PlatformType) => ({ platform }),
         reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
@@ -1070,9 +1069,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportPersonOpenedFromNewlySeenPersonsList: () => {
             posthog.capture('person opened from newly seen persons list')
-        },
-        reportTeamHasIngestedEvents: () => {
-            posthog.capture('team has ingested events')
         },
         reportIngestionSelectPlatformType: ({ platform }) => {
             posthog.capture('ingestion select platform type', {
