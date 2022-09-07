@@ -165,9 +165,8 @@ type CustomOptionsType = {
 
 export function OperatorSelect({ operator, operators, onChange, ...props }: OperatorSelectProps): JSX.Element {
     const operatorOptions = operators.map((op) => ({
-        label: allOperatorsMapping[op || PropertyOperator.Exact],
+        label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
         value: op || PropertyOperator.Exact,
-        element: <span className="operator-value-option" />,
     }))
     return (
         <LemonSelect
