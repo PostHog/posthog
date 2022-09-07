@@ -143,28 +143,33 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                     </div>
                 </div>
                 <LemonModal.Footer>
+                    <div className="flex-1">
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                triggerExport({
+                                    export_format: ExporterFormat.CSV,
+                                    export_context: {
+                                        path: originalUrl,
+                                    },
+                                })
+                            }}
+                            data-attr="person-modal-download-csv"
+                            disabled={!actors.length}
+                        >
+                            Download CSV
+                        </LemonButton>
+                    </div>
+                    <LemonButton type="secondary" onClick={closeModal}>
+                        Close
+                    </LemonButton>
                     <LemonButton
                         onClick={() => setIsCohortModalOpen(true)}
-                        type="secondary"
+                        type="primary"
                         data-attr="person-modal-save-as-cohort"
                         disabled={!actors.length}
                     >
                         Save as cohort
-                    </LemonButton>
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => {
-                            triggerExport({
-                                export_format: ExporterFormat.CSV,
-                                export_context: {
-                                    path: originalUrl,
-                                },
-                            })
-                        }}
-                        data-attr="person-modal-download-csv"
-                        disabled={!actors.length}
-                    >
-                        Download CSV
                     </LemonButton>
                 </LemonModal.Footer>
             </LemonModal>
