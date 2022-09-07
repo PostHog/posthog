@@ -283,6 +283,9 @@ export const preflightLogic = kea<preflightLogicType>([
             const appContext = getAppContext()
             const preflight = appContext?.preflight
             if (preflight) {
+                preflight.available_social_auth_providers = {
+                    github: true,
+                }
                 actions.loadPreflightSuccess(preflight)
             } else if (!values.preflight) {
                 actions.loadPreflight()

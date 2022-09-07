@@ -36,7 +36,8 @@ export function BillingLocked(): JSX.Element | null {
                     type="primary"
                     center={true}
                     fullWidth
-                    href={billing?.subscription_url}
+                    to={billing?.subscription_url}
+                    toForceReload
                 >
                     Continue to verify card
                 </LemonButton>

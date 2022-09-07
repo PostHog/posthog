@@ -107,7 +107,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                         title="No recording selected"
                         description="Please select a recording from the list on the left"
                         buttonText="Learn more about recordings"
-                        buttonHref="https://posthog.com/docs/user-guides/recordings"
+                        buttonTo="https://posthog.com/docs/user-guides/recordings"
                     />
                 )}
             </div>

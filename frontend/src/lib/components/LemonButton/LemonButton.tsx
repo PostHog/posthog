@@ -21,11 +21,11 @@ export interface LemonButtonPropsBase
     active?: boolean
     /** URL to link to. */
     to?: string
+    /** force the "to" link to reload the page */
+    toForceReload?: boolean
     /** If set clicking this button will open the page in a new tab. */
     targetBlank?: boolean
     /** External URL to link to. */
-    // TODO: Get rid of this
-    href?: string
     className?: string
 
     icon?: React.ReactElement | null
@@ -56,8 +56,6 @@ function LemonButtonInternal(
         children,
         active = false,
         className,
-        to,
-        href,
         disabled,
         loading,
         type = 'tertiary',
@@ -70,7 +68,9 @@ function LemonButtonInternal(
         tooltip,
         htmlType = 'button',
         noPadding,
+        to,
         targetBlank,
+        toForceReload,
         ...buttonProps
     }: LemonButtonProps,
     ref: React.Ref<HTMLElement>
@@ -79,7 +79,7 @@ function LemonButtonInternal(
         icon = <Spinner monocolor />
     }
 
-    const ButtonComponent = to || href ? Link : 'button'
+    const ButtonComponent = to ? Link : 'button'
 
     if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
         buttonProps['aria-label'] = tooltip
@@ -107,6 +107,7 @@ function LemonButtonInternal(
             disabled={disabled || loading}
             to={to}
             target={targetBlank ? '_blank' : undefined}
+            forceReload={toForceReload}
             {...buttonProps}
         >
             {icon}

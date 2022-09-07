@@ -8,7 +8,10 @@ export type LinkProps = Pick<
     React.HTMLProps<HTMLAnchorElement>,
     'target' | 'className' | 'onClick' | 'children' | 'title'
 > & {
+    /** The location to go to. This can be a kea-location or a "href"-like string */
     to?: string | [string, RoutePart?, RoutePart?]
+    /** If true, in-app navigation will not be used and the link will navigate with a page load */
+    forceReload?: boolean
     preventClick?: boolean
 }
 
@@ -19,14 +22,14 @@ export type LinkProps = Pick<
  * as well deciding when a given "to" link should be opened as a standard navigation (i.e. a standard href)
  * or whether to be routed internally via kea-router
  */
-export function Link({ to, target, preventClick = false, ...props }: LinkProps): JSX.Element {
+export function Link({ to, target, forceReload, preventClick = false, ...props }: LinkProps): JSX.Element {
     const onClick = (event: React.MouseEvent<HTMLAnchorElement>): void => {
         if (event.metaKey || event.ctrlKey) {
             event.stopPropagation()
             return
         }
 
-        if (!target && !isExternalLink(to)) {
+        if (!target && !isExternalLink(to) && !forceReload) {
             event.preventDefault()
             if (to && to !== '#' && !preventClick) {
                 if (Array.isArray(to)) {
