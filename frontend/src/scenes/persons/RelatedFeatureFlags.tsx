@@ -1,4 +1,4 @@
-import { LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { LemonTableColumns } from 'lib/components/LemonTable'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
@@ -43,10 +43,14 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
             width: '40%',
             sorter: (a: RelatedFeatureFlag, b: RelatedFeatureFlag) => (a.key || '').localeCompare(b.key || ''),
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
+                const isExperiment = (featureFlag.experiment_set || []).length > 0
                 return (
                     <>
                         <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined} className="row-name">
                             {stringWithWBR(featureFlag.key, 17)}
+                            <LemonTag type={isExperiment ? 'purple' : 'default'} className="ml-2">
+                                {isExperiment ? 'Experiment' : 'Feature flag'}
+                            </LemonTag>
                         </Link>
                         {featureFlag.name && <span className="row-description">{featureFlag.name}</span>}
                     </>
