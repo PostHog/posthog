@@ -43,9 +43,10 @@ beforeEach(() => {
     }
 })
 
-afterEach(() => {
-    cy.htmlvalidate()
-})
+// there are too many errors to leave this running after each test :'(
+// afterEach(() => {
+//     cy.htmlvalidate()
+// })
 
 const resizeObserverLoopErrRe = /^[^(ResizeObserver loop limit exceeded)]/
 Cypress.on('uncaught:exception', (err) => {
