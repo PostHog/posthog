@@ -25,6 +25,22 @@ body strong {
     font-weight: 600;
 }
 
+// Disable default styling for ul...
+ul {
+    margin-bottom: 0;
+    list-style: none;
+    padding-left: 0;
+}
+
+// ... unless in a <p> element
+p {
+    ul {
+        margin-bottom: 1rem;
+        list-style: initial;
+        padding-left: 1.5rem;
+    }
+}
+
 // This may look odd but sets up our utility classes
 * {
     border-style: solid;
@@ -204,12 +220,6 @@ input::-ms-clear {
 
 .Toastify__progress-bar {
     height: var(--radius);
-}
-
-// Table styles
-
-.table-bordered td {
-    border: 1px solid var(--border);
 }
 
 // Card styles
@@ -594,13 +604,13 @@ body {
     }
 
     h5 {
-        font-size: 11px;
+        font-size: 0.6875rem;
         font-weight: 600;
         color: var(--muted-alt);
         text-transform: uppercase;
         letter-spacing: 0.5px;
         margin-bottom: 0.25rem;
-        line-height: 2;
+        line-height: 1.5rem;
     }
 
     .ant-layout {

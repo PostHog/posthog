@@ -24,7 +24,6 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import api from 'lib/api'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 
@@ -275,10 +274,7 @@ export function PersonsModal({
                                                                 <MultiRecordingButton
                                                                     sessionRecordings={actor.matched_recordings}
                                                                     onOpenRecording={(sessionRecording) => {
-                                                                        openSessionPlayer(
-                                                                            sessionRecording.session_id,
-                                                                            RecordingWatchedSource.PersonModal
-                                                                        )
+                                                                        openSessionPlayer(sessionRecording.session_id)
                                                                     }}
                                                                 />
                                                             )

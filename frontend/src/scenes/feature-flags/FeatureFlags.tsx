@@ -13,7 +13,6 @@ import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
@@ -21,7 +20,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -30,8 +29,9 @@ export const scene: SceneExport = {
 
 function OverViewTab(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
-    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
+    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } =
+        useValues(featureFlagsLogic)
+    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(featureFlagsLogic)
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -55,7 +55,7 @@ function OverViewTab(): JSX.Element {
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         {
-            title: 'Rollout',
+            title: 'Release conditions',
             width: 200,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return groupFilters(featureFlag.filters.groups)
@@ -68,14 +68,13 @@ function OverViewTab(): JSX.Element {
             width: 100,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 return (
-                    <LemonSwitch
-                        id={`feature-flag-${featureFlag.id}-switch`}
-                        checked={featureFlag.active}
-                        onChange={(active) =>
-                            featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
-                        }
-                        label={<span className="font-normal">{featureFlag.active ? 'Enabled' : 'Disabled'}</span>}
-                    />
+                    <>
+                        {featureFlag.active ? (
+                            <LemonTag type="success">Enabled</LemonTag>
+                        ) : (
+                            <LemonTag type="default">Disabled</LemonTag>
+                        )}
+                    </>
                 )
             },
         },
@@ -93,7 +92,22 @@ function OverViewTab(): JSX.Element {
                                     }}
                                     fullWidth
                                 >
-                                    Copy key
+                                    Copy feature flag key
+                                </LemonButton>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => {
+                                        featureFlag.id
+                                            ? updateFeatureFlag({
+                                                  id: featureFlag.id,
+                                                  payload: { active: !featureFlag.active },
+                                              })
+                                            : null
+                                    }}
+                                    id={`feature-flag-${featureFlag.id}-switch`}
+                                    fullWidth
+                                >
+                                    {featureFlag.active ? 'Disable' : 'Enable'} feature flag
                                 </LemonButton>
                                 {featureFlag.id && (
                                     <LemonButton status="stealth" to={urls.featureFlag(featureFlag.id)} fullWidth>
@@ -139,13 +153,58 @@ function OverViewTab(): JSX.Element {
     return (
         <>
             <div>
-                <div className="mb-4">
+                <div className="flex justify-between mb-4">
                     <LemonInput
                         type="search"
                         placeholder="Search for feature flags"
                         onChange={setSearchTerm}
                         value={searchTerm}
                     />
+                    <div className="flex items-center gap-2">
+                        <span>
+                            <b>Status</b>
+                        </span>
+                        <LemonSelect
+                            onChange={(status) => {
+                                if (status) {
+                                    if (status === 'all') {
+                                        if (filters) {
+                                            const { active, ...restFilters } = filters
+                                            setFeatureFlagsFilters(restFilters, true)
+                                        }
+                                    } else {
+                                        setFeatureFlagsFilters({ active: status })
+                                    }
+                                }
+                            }}
+                            options={[
+                                { label: 'All', value: 'all' },
+                                { label: 'Enabled', value: 'true' },
+                                { label: 'Disabled', value: 'false' },
+                            ]}
+                            value="all"
+                            dropdownMaxContentWidth
+                        />
+                        <span className="ml-1">
+                            <b>Created by</b>
+                        </span>
+                        <LemonSelect
+                            onChange={(user) => {
+                                if (user) {
+                                    if (user === 'any') {
+                                        if (filters) {
+                                            const { created_by, ...restFilters } = filters
+                                            setFeatureFlagsFilters(restFilters, true)
+                                        }
+                                    } else {
+                                        setFeatureFlagsFilters({ created_by: user })
+                                    }
+                                }
+                            }}
+                            options={uniqueCreators}
+                            value="any"
+                        />
+                    </div>
                 </div>
             </div>
             <LemonTable
@@ -153,7 +212,6 @@ function OverViewTab(): JSX.Element {
                 columns={columns}
                 rowKey="key"
                 loading={featureFlagsLoading}
-                defaultSorting={{ columnKey: 'key', order: 1 }}
                 pagination={{ pageSize: 100 }}
                 nouns={['feature flag', 'feature flags']}
                 data-attr="feature-flag-table"
@@ -198,22 +256,20 @@ export function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | stri
         groups.some((group) => !group.properties?.length && [null, undefined, 100].includes(group.rollout_percentage))
     ) {
         // There's some group without filters that has 100% rollout
-        return 'All users'
+        return '100% of all users'
     }
+
     if (groups.length === 1) {
         const { properties, rollout_percentage = null } = groups[0]
-        if (properties?.length > 0 && rollout_percentage != null) {
+        if (properties?.length > 0) {
             return (
                 <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-                    <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>
-                    <PropertyFiltersDisplay
-                        filters={properties}
-                        style={{ margin: 0, width: '100%', flexDirection: 'row' }}
-                    />
+                    {rollout_percentage != null && (
+                        <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>
+                    )}
+                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, flexDirection: 'row' }} />
                 </div>
             )
-        } else if (properties?.length > 0) {
-            return <PropertyFiltersDisplay filters={properties} style={{ margin: 0, flexDirection: 'row' }} />
         } else if (rollout_percentage !== null) {
             return `${rollout_percentage}% of all users`
         } else {
@@ -221,5 +277,5 @@ export function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | stri
             return 'All users'
         }
     }
-    return `${groups.length} groups`
+    return 'Multiple groups'
 }

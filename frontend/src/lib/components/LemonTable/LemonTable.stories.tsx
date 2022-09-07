@@ -170,8 +170,14 @@ WithExpandableRows.args = {
 export const Small = BasicTemplate.bind({})
 Small.args = { size: 'small' }
 
+export const XSmall = BasicTemplate.bind({})
+XSmall.args = { size: 'xs' }
+
 export const Embedded = BasicTemplate.bind({})
 Embedded.args = { embedded: true }
+
+export const Borderless = BasicTemplate.bind({})
+Borderless.args = { bordered: false }
 
 export const Loading = BasicTemplate.bind({})
 Loading.args = { loading: true }

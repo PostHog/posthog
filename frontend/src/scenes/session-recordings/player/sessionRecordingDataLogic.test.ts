@@ -5,7 +5,7 @@ import {
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import recordingEventsJson from '../__mocks__/recording_events.json'
@@ -55,7 +55,6 @@ describe('sessionRecordingDataLogic', () => {
                 filters: {},
                 chunkPaginationIndex: 0,
                 sessionEventsDataLoading: false,
-                source: RecordingWatchedSource.Unknown,
             })
         })
     })
@@ -146,8 +145,8 @@ describe('sessionRecordingDataLogic', () => {
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents'])
                 .toMatchValues({
                     eventsApiParams: {
-                        after: '2021-12-09T19:35:59Z',
-                        before: '2021-12-09T20:23:24Z',
+                        after: '2021-12-09T19:35:59+00:00',
+                        before: '2021-12-09T20:23:24+00:00',
                         person_id: 1,
                         orderBy: ['timestamp'],
                     },
@@ -208,6 +207,7 @@ describe('sessionRecordingDataLogic', () => {
         it('server error mid-fetch', async () => {
             const firstNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
             silenceKeaLoadersErrors()
+            jest.spyOn(api, 'get')
             api.get.mockClear()
             api.get
                 .mockImplementationOnce(async (url: string) => {
@@ -238,6 +238,7 @@ describe('sessionRecordingDataLogic', () => {
             expect(api.get).toBeCalledTimes(3)
         })
         it('makes the events searchable', async () => {
+            jest.spyOn(api, 'get')
             api.get.mockClear()
             api.get
                 .mockImplementationOnce(async (url: string) => {
@@ -300,7 +301,8 @@ describe('sessionRecordingDataLogic', () => {
 
         it('fetch all chunks of recording', async () => {
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-            await expectLogic(logic).toMount([eventUsageLogic])
+            await expectLogic(logic).toMount([eventUsageLogic]).toFinishAllListeners()
+            jest.spyOn(api, 'get')
             api.get.mockClear()
 
             const snapshotUrl = createSnapshotEndpoint(1)
@@ -324,14 +326,17 @@ describe('sessionRecordingDataLogic', () => {
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
                     sessionPlayerData: {
-                        bufferedTo: null,
-                        metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
+                        person: recordingMetaJson.person,
+                        metadata: parseMetadataResponse(recordingMetaJson.session_recording),
+                        bufferedTo: {
+                            time: 44579,
+                            windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                        },
                         snapshotsByWindowId: {
                             '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snapsWindow1,
                             '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841': snapsWindow2,
                         },
                         next: firstNext,
-                        person: null,
                     },
                 })
                 .toDispatchActions([
@@ -340,8 +345,12 @@ describe('sessionRecordingDataLogic', () => {
                 ])
                 .toMatchValues({
                     sessionPlayerData: {
-                        bufferedTo: null,
-                        metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
+                        person: recordingMetaJson.person,
+                        metadata: parseMetadataResponse(recordingMetaJson.session_recording),
+                        bufferedTo: {
+                            time: 44579,
+                            windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                        },
                         snapshotsByWindowId: {
                             '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': [
                                 ...snapsWindow1,
@@ -353,16 +362,18 @@ describe('sessionRecordingDataLogic', () => {
                             ],
                         },
                         next: undefined,
-                        person: null,
                     },
                 })
-
+                .toFinishAllListeners()
             expect(api.get).toBeCalledTimes(2)
         })
         it('server error mid-way through recording', async () => {
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-            await expectLogic(logic).toMount([eventUsageLogic])
+            await expectLogic(logic).toMount([eventUsageLogic]).toFinishAllListeners()
+            jest.spyOn(api, 'get')
+
             api.get.mockClear()
+            expect(api.get).toBeCalledTimes(0)
 
             const snapshotUrl = createSnapshotEndpoint(1)
             const firstNext = `${snapshotUrl}/?offset=200&limit=200`
@@ -377,26 +388,30 @@ describe('sessionRecordingDataLogic', () => {
                     throw new Error('Error in second request')
                 })
 
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots()
+            await expectLogic(logic, async () => {
+                await logic.actions.loadRecordingSnapshots()
             })
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
                     sessionPlayerData: {
-                        bufferedTo: null,
-                        metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
+                        person: recordingMetaJson.person,
+                        metadata: parseMetadataResponse(recordingMetaJson.session_recording),
+                        bufferedTo: {
+                            time: 44579,
+                            windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                        },
                         snapshotsByWindowId: {
                             '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snapsWindow1,
                             '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841': snapsWindow2,
                         },
                         next: firstNext,
-                        person: null,
                     },
                 })
                 .toDispatchActions([
                     logic.actionCreators.loadRecordingSnapshots(firstNext),
                     'loadRecordingSnapshotsFailure',
                 ])
+                .toFinishAllListeners()
             resumeKeaLoadersErrors()
             expect(api.get).toBeCalledTimes(2)
         })

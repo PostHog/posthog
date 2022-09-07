@@ -26,6 +26,7 @@ await buildInParallel(
     [
         {
             name: 'PostHog App',
+            globalName: 'posthogApp',
             entryPoints: ['src/index.tsx'],
             splitting: true,
             format: 'esm',
@@ -34,6 +35,7 @@ await buildInParallel(
         },
         {
             name: 'Exporter',
+            globalName: 'posthogExporter',
             entryPoints: ['src/exporter/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
@@ -41,6 +43,7 @@ await buildInParallel(
         },
         {
             name: 'Toolbar',
+            globalName: 'posthogToolbar',
             entryPoints: ['src/toolbar/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),

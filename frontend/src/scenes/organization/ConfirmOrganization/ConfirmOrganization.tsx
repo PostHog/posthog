@@ -1,5 +1,4 @@
 import React from 'react'
-import './ConfirmOrganization.scss'
 import { SceneExport } from 'scenes/sceneTypes'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -24,38 +23,33 @@ export function ConfirmOrganization(): JSX.Element {
 
     return (
         <BridgePage view="org-creation-confirmation">
-            <p className="ConfirmOrganization__title text-center">Create a new organization</p>
-            <div className="ConfirmOrganization__help-box">
-                <div style={{ flex: 1 }}>
-                    <p>
-                        <strong>
-                            Trying to join an existing organization?{' '}
-                            {!showNewOrgWarning && (
-                                <a
-                                    onClick={() => {
-                                        setShowNewOrgWarning(true)
-                                    }}
-                                >
-                                    Read more
-                                </a>
-                            )}
-                        </strong>
+            <h2>Create a new organization</h2>
+            <div className="flex-1">
+                <p className="text-center">
+                    <strong>
+                        Trying to join an existing organization? <br />
+                        {!showNewOrgWarning && (
+                            <a
+                                onClick={() => {
+                                    setShowNewOrgWarning(true)
+                                }}
+                            >
+                                Read more
+                            </a>
+                        )}
+                    </strong>
+                </p>
+                <AnimatedCollapsible collapsed={!showNewOrgWarning}>
+                    <p className="py-2">
+                        If you're trying to join an existing organization, you should not create a new one. Some reasons
+                        that you may accidentally end up here are:
+                        <ul>
+                            <li>You're logging in with the wrong email address</li>
+                            <li>Your PostHog account is at a different URL</li>
+                            <li>You need an invitation from a colleague</li>
+                        </ul>
                     </p>
-                    <AnimatedCollapsible collapsed={!showNewOrgWarning}>
-                        <div>
-                            <div style={{ height: '0.5rem' }} />
-                            <p>
-                                If you're trying to join an existing organization, you should not create a new one. Some
-                                reasons that you may accidentally end up here are:
-                                <ul style={{ paddingInlineStart: '1rem', marginBottom: 0, marginBlockEnd: 0 }}>
-                                    <li>You're logging in with the wrong email address</li>
-                                    <li>Your PostHog account is at a different URL</li>
-                                    <li>You need an invitation from a colleague</li>
-                                </ul>
-                            </p>
-                        </div>
-                    </AnimatedCollapsible>
-                </div>
+                </AnimatedCollapsible>
             </div>
 
             <Form
@@ -84,7 +78,6 @@ export function ConfirmOrganization(): JSX.Element {
                     htmlType="submit"
                     fullWidth
                     center
-                    size="large"
                     type="primary"
                     loading={isConfirmOrganizationSubmitting}
                 >
@@ -92,10 +85,8 @@ export function ConfirmOrganization(): JSX.Element {
                 </LemonButton>
 
                 <LemonButton
-                    className="mt-4"
                     fullWidth
                     center
-                    size="large"
                     type="secondary"
                     disabled={isConfirmOrganizationSubmitting}
                     to={urls.signup()}
