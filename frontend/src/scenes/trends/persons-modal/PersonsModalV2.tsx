@@ -41,10 +41,20 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
         url: originalUrl,
     })
 
-    const { actors, actorsResponseLoading, actorsResponse, searchTerm, actorLabel, isCohortModalOpen, isModalOpen } =
-        useValues(logic)
+    const {
+        actors,
+        actorsResponseLoading,
+        actorsResponse,
+        searchTerm,
+        actorLabel,
+        isCohortModalOpen,
+        isModalOpen,
+        missingActorsCount,
+    } = useValues(logic)
     const { loadActors, setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal } = useActions(logic)
     const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
+
+    const totalActorsCount = missingActorsCount + actors.length
 
     return (
         <>
@@ -60,13 +70,11 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                     <h3>{typeof title === 'function' ? title(capitalizeFirstLetter(actorLabel.plural)) : title}</h3>
                 </LemonModal.Header>
                 <div className="px-6 py-2">
-                    {actorsResponse && !!actorsResponse.missing_persons && (
+                    {actorsResponse && !!missingActorsCount && (
                         <AlertMessage type="info" className="mb-2">
-                            {actorsResponse.missing_persons}{' '}
-                            {actorsResponse.missing_persons > 1
-                                ? `${actorLabel.plural} are`
-                                : `${actorLabel.singular} is`}{' '}
-                            not shown because they've been lost.{' '}
+                            {missingActorsCount}{' '}
+                            {missingActorsCount > 1 ? `${actorLabel.plural} are` : `${actorLabel.singular} is`} not
+                            shown because they've been lost.{' '}
                             <a href="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
                                 Read more here for when this can happen
                             </a>
@@ -105,8 +113,8 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                             <span>
                                 {actorsResponse?.next ? 'More than ' : ''}
                                 <b>
-                                    {actors.length || 'No'} unique{' '}
-                                    {pluralize(actors.length, actorLabel.singular, actorLabel.plural, false)}
+                                    {totalActorsCount || 'No'} unique{' '}
+                                    {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
                                 </b>
                             </span>
                         )}
