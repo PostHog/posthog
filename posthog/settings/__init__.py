@@ -134,4 +134,4 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403
 
 # Lastly, cloud settings override and modify all
-from posthog.settings.cloud import *  # noqa: F401
+from posthog.settings.cloud import *  # noqa: F401, E402
