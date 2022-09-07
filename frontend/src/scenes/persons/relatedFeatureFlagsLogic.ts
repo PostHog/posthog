@@ -10,7 +10,7 @@ import { FeatureFlagMatchReason } from './RelatedFeatureFlags'
 
 import type { relatedFeatureFlagsLogicType } from './relatedFeatureFlagsLogicType'
 export interface RelatedFeatureFlag extends FeatureFlagType {
-    value: boolean
+    value: boolean | string
     evaluation: FeatureFlagEvaluationType
 }
 
@@ -19,16 +19,16 @@ export interface FeatureFlagEvaluationType {
     condition_index?: number
 }
 
-interface RelatedFeatureFlagResponse {
+export interface RelatedFeatureFlagResponse {
     [key: string]: {
-        value: boolean
+        value: boolean | string
         evaluation: FeatureFlagEvaluationType
     }
 }
 
-interface RelatedFlagsFilters {
-    type: FeatureFlagEvaluationType
-    active: boolean
+export interface RelatedFlagsFilters {
+    type: FeatureFlagReleaseType
+    active: string
     reason: FeatureFlagMatchReason
 }
 
@@ -85,8 +85,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             (selectors) => [selectors.relatedFeatureFlags, selectors.featureFlags],
             (relatedFlags, featureFlags): RelatedFeatureFlag[] => {
                 if (relatedFlags && featureFlags) {
-                    const res = featureFlags.map((flag) => ({ ...relatedFlags[flag.key], ...flag }))
-                    return res
+                    return featureFlags.map((flag) => ({ ...relatedFlags[flag.key], ...flag }))
                 }
                 return []
             },
