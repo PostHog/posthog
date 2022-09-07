@@ -10,7 +10,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         flags: Dict[str, str] = {}
-        with open("frontend/src/lib/constants.tsx") as f:
+        with open("frontend/src/lib/constants.tsx", "r", encoding="utf_8") as f:
             lines = f.readlines()
             parsing_flags = False
             for line in lines:
