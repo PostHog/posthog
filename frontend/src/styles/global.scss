@@ -25,20 +25,11 @@ body strong {
     font-weight: 600;
 }
 
-// Disable default styling for ul...
+// Disable default styling for ul
 ul {
     margin-bottom: 0;
     list-style: none;
     padding-left: 0;
-}
-
-// ... unless in a <p> element
-p {
-    ul {
-        margin-bottom: 1rem;
-        list-style: initial;
-        padding-left: 1.5rem;
-    }
 }
 
 // This may look odd but sets up our utility classes

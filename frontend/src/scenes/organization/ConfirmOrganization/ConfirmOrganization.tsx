@@ -40,15 +40,17 @@ export function ConfirmOrganization(): JSX.Element {
                     </strong>
                 </p>
                 <AnimatedCollapsible collapsed={!showNewOrgWarning}>
-                    <p className="py-2">
-                        If you're trying to join an existing organization, you should not create a new one. Some reasons
-                        that you may accidentally end up here are:
-                        <ul>
+                    <div className="py-2">
+                        <p>
+                            If you're trying to join an existing organization, you should not create a new one. Some
+                            reasons that you may accidentally end up here are:
+                        </p>
+                        <ul className="list-disc pl-4">
                             <li>You're logging in with the wrong email address</li>
                             <li>Your PostHog account is at a different URL</li>
                             <li>You need an invitation from a colleague</li>
                         </ul>
-                    </p>
+                    </div>
                 </AnimatedCollapsible>
             </div>
 
