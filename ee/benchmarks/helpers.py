@@ -10,13 +10,13 @@ os.environ["POSTHOG_DB_NAME"] = "posthog_test"
 os.environ["DJANGO_SETTINGS_MODULE"] = "posthog.settings"
 sys.path.append(dirname(dirname(dirname(__file__))))
 
-import django
+import django  # noqa: E402
 
 django.setup()
 
-from ee.clickhouse.materialized_columns.columns import get_materialized_columns
-from posthog import client
-from posthog.models.utils import UUIDT
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns  # noqa: E402
+from posthog import client  # noqa: E402
+from posthog.models.utils import UUIDT  # noqa: E402
 
 get_column = lambda rows, index: [row[index] for row in rows]
 

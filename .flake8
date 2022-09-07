@@ -30,7 +30,6 @@ ignore=
     E203, # whitespace before ‘:’. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
     E231, # missing whitespace after ‘,’, ‘;’, or ‘:’. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
     E302, # expected 2 blank lines, found 0. -- Do not enable. we've disabled all formatting-related errors as 'black' takes care of them for us
-    E402, # module level import not at top of file
     E501, # line too long. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
     E722, # do not use bare except, specify exception instead
     E731, # do not assign a lambda expression, use a def

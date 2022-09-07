@@ -24,6 +24,7 @@ import { EventDefinitionProperties } from 'scenes/data-management/events/EventDe
 import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 import { EventsTable } from 'scenes/events'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { NotFound } from 'lib/components/NotFound'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -35,16 +36,29 @@ export const scene: SceneExport = {
 
 export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const logic = definitionLogic(props)
-    const { definition, definitionLoading, singular, mode, isEvent, backDetailUrl, hasTaxonomyFeatures } =
-        useValues(logic)
+    const {
+        definition,
+        definitionLoading,
+        definitionMissing,
+        singular,
+        mode,
+        isEvent,
+        backDetailUrl,
+        hasTaxonomyFeatures,
+    } = useValues(logic)
     const { setPageMode } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
 
+    if (definitionLoading) {
+        return <SpinnerOverlay />
+    }
+
+    if (definitionMissing) {
+        return <NotFound object="event" />
+    }
     return (
         <div className={clsx('definition-page', `definition-${mode}-page`)}>
-            {definitionLoading ? (
-                <SpinnerOverlay />
-            ) : mode === DefinitionPageMode.Edit ? (
+            {mode === DefinitionPageMode.Edit ? (
                 <DefinitionEdit {...props} definition={definition} />
             ) : (
                 <>

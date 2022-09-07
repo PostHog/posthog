@@ -4,7 +4,6 @@ import { colonDelimitedDuration } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
 import { getRecordingListLimit, sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import './SessionRecordingPlaylist.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
@@ -59,7 +58,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                         onClick: (e) => {
                             // Lets the link to the person open the person's page and not the session recording
                             if (!(e.target as HTMLElement).closest('a')) {
-                                openSessionPlayer(sessionRecording.id, RecordingWatchedSource.RecordingsList)
+                                openSessionPlayer(sessionRecording.id)
                             }
                         },
                     })}

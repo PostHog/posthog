@@ -16,7 +16,7 @@ import {
     SessionRecordingMeta,
     SessionRecordingUsageType,
 } from '~/types'
-import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventWithTime } from 'rrweb/typings/types'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
@@ -139,7 +139,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     }),
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
-        setSource: (source: RecordingWatchedSource) => ({ source }),
         reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({
             recordingData,
             loadTime,
@@ -149,7 +148,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
     }),
-    reducers({
+    reducers(({ cache }) => ({
         filters: [
             {} as Partial<RecordingEventsFilters>,
             {
@@ -176,15 +175,36 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
-        source: [
-            RecordingWatchedSource.Unknown as RecordingWatchedSource,
+        loadMetaTimeMs: [
+            null as number | null,
             {
-                setSource: (_, { source }) => source,
+                loadRecordingMetaSuccess: () => (cache.loadStartTime ? performance.now() - cache.loadStartTime : null),
             },
         ],
-    }),
+        loadFirstSnapshotTimeMs: [
+            null as number | null,
+            {
+                loadRecordingSnapshotsSuccess: (prevLoadFirstSnapshotTimeMs) => {
+                    return cache.loadStartTime && prevLoadFirstSnapshotTimeMs === null
+                        ? performance.now() - cache.loadStartTime
+                        : null
+                },
+            },
+        ],
+        loadAllSnapshotsTimeMs: [
+            null as number | null,
+            {
+                loadRecordingSnapshotsSuccess: (_, actionData) => {
+                    return cache.loadStartTime && actionData?.payload && !actionData.payload.nextUrl
+                        ? performance.now() - cache.loadStartTime
+                        : null
+                },
+            },
+        ],
+    })),
     listeners(({ values, actions, cache }) => ({
         loadEntireRecording: () => {
+            cache.loadStartTime = performance.now()
             actions.loadRecordingMeta()
             actions.loadRecordingSnapshots()
         },
@@ -202,7 +222,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             else {
                 eventUsageLogic.actions.reportRecording(
                     values.sessionPlayerData,
-                    values.source,
                     performance.now() - cache.startTime,
                     SessionRecordingUsageType.LOADED,
                     0
@@ -229,21 +248,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
         reportUsage: async ({ recordingData, loadTime }, breakpoint) => {
             await breakpoint()
-            eventUsageLogic.actions.reportRecording(
-                recordingData,
-                values.source,
-                loadTime,
-                SessionRecordingUsageType.VIEWED,
-                0
-            )
+            eventUsageLogic.actions.reportRecording(recordingData, loadTime, SessionRecordingUsageType.VIEWED, 0)
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportRecording(
-                recordingData,
-                values.source,
-                loadTime,
-                SessionRecordingUsageType.ANALYZED,
-                10
-            )
+            eventUsageLogic.actions.reportRecording(recordingData, loadTime, SessionRecordingUsageType.ANALYZED, 10)
         },
     })),
     loaders(({ values, props }) => ({
