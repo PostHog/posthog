@@ -30,7 +30,7 @@ interface HashParams {
 }
 
 const TABLE_LIMIT = 50
-const PLAYLIST_LIMIT = 20
+export const PLAYLIST_LIMIT = 20
 
 export const getRecordingListLimit = (isPlaylist?: boolean): number => (isPlaylist ? PLAYLIST_LIMIT : TABLE_LIMIT)
 
