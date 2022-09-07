@@ -1,6 +1,5 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { initKeaTests } from '~/test/init'
 import { sessionPlayerDrawerLogic } from './sessionPlayerDrawerLogic'
 
@@ -17,9 +16,7 @@ describe('sessionPlayerDrawerLogic', () => {
             expectLogic(logic).toMatchValues({ activeSessionRecordingId: null })
         })
         it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
-            expectLogic(logic, () =>
-                logic.actions.openSessionPlayer('abc', RecordingWatchedSource.RecordingsList)
-            ).toMatchValues({
+            expectLogic(logic, () => logic.actions.openSessionPlayer('abc')).toMatchValues({
                 activeSessionRecordingId: 'abc',
             })
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
