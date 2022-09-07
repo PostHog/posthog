@@ -21,7 +21,10 @@ export interface LemonButtonPropsBase
     active?: boolean
     /** URL to link to. */
     to?: string
+    /** If set clicking this button will open the page in a new tab. */
+    targetBlank?: boolean
     /** External URL to link to. */
+    // TODO: Get rid of this
     href?: string
     className?: string
 
@@ -67,6 +70,7 @@ function LemonButtonInternal(
         tooltip,
         htmlType = 'button',
         noPadding,
+        targetBlank,
         ...buttonProps
     }: LemonButtonProps,
     ref: React.Ref<HTMLElement>
@@ -102,9 +106,7 @@ function LemonButtonInternal(
             )}
             disabled={disabled || loading}
             to={to}
-            href={href}
-            target={href ? '_blank' : undefined}
-            rel={href ? 'noopener noreferrer' : undefined}
+            target={targetBlank ? '_blank' : undefined}
             {...buttonProps}
         >
             {icon}

@@ -82,7 +82,7 @@ Customised.args = {
         <>
             This action cannot be undone. If you opt to delete the organization and its corresponding events, the events
             will not be immediately removed. Instead these events will be deleted on a set schedule during non-peak
-            usage times. <Link href="https://posthog.com">Learn more</Link>
+            usage times. <Link to="https://posthog.com">Learn more</Link>
         </>
     ),
     primaryButton: {

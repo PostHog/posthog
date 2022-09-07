@@ -37,13 +37,9 @@ function HelperLinks(): JSX.Element {
         <div className="font-bold text-center">
             <Link to="/">App Home</Link>
             <span className="mx-2">|</span>
-            <Link href={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`} rel="noopener">
-                PostHog Website
-            </Link>
+            <Link to={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`}>PostHog Website</Link>
             <span className="mx-2">|</span>
-            <Link href={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`} rel="noopener">
-                Contact Us
-            </Link>
+            <Link to={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`}>Contact Us</Link>
         </div>
     )
 }

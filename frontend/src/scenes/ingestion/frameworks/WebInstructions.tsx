@@ -63,7 +63,6 @@ export function WebInstructions(): JSX.Element {
                 <Link
                     to="https://posthog.com/product-features/event-autocapture?utm_medium=in-product&utm_campaign=ingestion-web"
                     target="_blank"
-                    rel="noopener"
                 >
                     Learn more
                 </Link>
@@ -84,7 +83,6 @@ export function WebInstructions(): JSX.Element {
                 <Link
                     to="https://posthog.com/docs/integrations/js-integration/?utm_medium=in-product&utm_campaign=ingestion-web"
                     target="_blank"
-                    rel="noopener"
                 >
                     Learn more
                 </Link>
@@ -94,7 +92,7 @@ export function WebInstructions(): JSX.Element {
             <JSInstallSnippet />
             <h3>
                 Configure &amp; initialize (see more{' '}
-                <Link to="https://posthog.com/docs/integrations/js-integration#config" target="_blank" rel="noopener">
+                <Link to="https://posthog.com/docs/integrations/js-integration#config" target="_blank">
                     configuration options
                 </Link>
                 )
