@@ -729,7 +729,7 @@
 }
 
 @each $list_style_type in $list_style_types {
-    .list-#{list_style_type} {
+    .list-#{$list_style_type} {
         list-style-type: #{$list_style_type};
     }
 }
