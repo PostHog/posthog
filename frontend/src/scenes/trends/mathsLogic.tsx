@@ -478,7 +478,7 @@ export const mathsLogic = kea<mathsLogicType>({
                 if (hasGroupAccess) {
                     mathOptions[0].options.push(GROUP_INTRODUCTION_OPTION)
                 } else {
-                    mathOptions[0].options.concat(groupsMathFormattedSelectDefinitions)
+                    mathOptions[0].options.push(...groupsMathFormattedSelectDefinitions)
                 }
 
                 return mathOptions
