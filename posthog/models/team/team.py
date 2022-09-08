@@ -204,10 +204,10 @@ class Team(UUIDClassicModel):
 
     @property
     def actor_on_events_querying_enabled(self) -> bool:
-        # on PostHog Cloud, use the feature flag
         if self.actor_on_events_querying_setting_enabled:
             return True
 
+        # on PostHog Cloud, use the feature flag
         if settings.MULTI_TENANCY:
             return posthoganalytics.feature_enabled(
                 "person-on-events-enabled",
