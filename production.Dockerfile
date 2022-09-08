@@ -7,7 +7,7 @@
 #
 # Build the frontend artifacts
 #
-FROM node:16.15-alpine3.16 AS frontend
+FROM node:18.8-alpine3.16 AS frontend
 
 WORKDIR /code
 
@@ -24,7 +24,7 @@ RUN yarn build
 # Build the plugin-server artifacts. Note that we still need to install the
 # runtime deps in the main image
 #
-FROM node:16.15-alpine3.16 AS plugin-server
+FROM node:18.8-alpine3.16 AS plugin-server
 
 WORKDIR /code/plugin-server
 
