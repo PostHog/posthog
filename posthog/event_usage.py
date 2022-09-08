@@ -46,7 +46,10 @@ def report_user_signed_up(
 
     props = {**props, "$set": {**props, **user.get_analytics_metadata()}}
     posthoganalytics.capture(
-        user.distinct_id, "user signed up", properties=props, groups=groups(user.organization, user.team),
+        user.distinct_id,
+        "user signed up",
+        properties=props,
+        groups=groups(user.organization, user.team)
     )
 
 
