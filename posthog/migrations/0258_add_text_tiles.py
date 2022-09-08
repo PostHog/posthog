@@ -11,6 +11,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # no op field alteration - added because model now has related_name
         migrations.AlterField(
             model_name="dashboardtile",
             name="dashboard",
@@ -18,6 +19,7 @@ class Migration(migrations.Migration):
                 on_delete=django.db.models.deletion.CASCADE, related_name="insight_tiles", to="posthog.dashboard"
             ),
         ),
+        # no op field alteration - added because model now has related_name
         migrations.AlterField(
             model_name="dashboardtile",
             name="insight",
@@ -41,6 +43,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.AddIndex(
-            model_name="dashboardtexttile", index=models.Index(fields=["dashboard"], name="query_by_dashboard_idx"),
+            model_name="dashboardtexttile",
+            index=models.Index(fields=["dashboard"], name="query_by_dashboard_idx"),
         ),
     ]
