@@ -242,10 +242,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 : humanFriendlyNumber(_definition.query_usage_30_day)
                         }
                     />
-                    <DefinitionPopup.Card
-                        title="Property Type"
-                        value={<DefinitionPopup.Type propertyType={_definition.property_type} />}
-                    />
+                    <DefinitionPopup.Card title="Property Type" value={_definition.property_type ?? '-'} />
                 </DefinitionPopup.Grid>
                 <DefinitionPopup.HorizontalLine />
                 <DefinitionPopup.Grid cols={2}>
