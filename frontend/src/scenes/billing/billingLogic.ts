@@ -13,6 +13,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { windowValues } from 'kea-window-values'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { urlToAction } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -31,6 +34,8 @@ export const billingLogic = kea<billingLogicType>([
     actions({
         registerInstrumentationProps: true,
         toggleUsageTiers: true,
+        setBillingSuccessRedirect: (url: string) => ({ url }),
+        setPlans: (plans: PlanInterface[]) => ({ plans }),
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
@@ -40,6 +45,12 @@ export const billingLogic = kea<billingLogicType>([
             false as boolean,
             {
                 toggleUsageTiers: (state) => !state,
+            },
+        ],
+        billingSuccessRedirect: [
+            urls.projectHomepage() as string,
+            {
+                setBillingSuccessRedirect: (_, { url }) => url,
             },
         ],
     }),
@@ -54,6 +65,8 @@ export const billingLogic = kea<billingLogicType>([
                     const response = await api.get('api/billing/')
                     if (!response?.plan) {
                         actions.loadPlans()
+                    } else {
+                        actions.setPlans([response.plan])
                     }
                     if (
                         response.current_usage > FREE_PLAN_MAX_EVENTS &&
@@ -82,6 +95,7 @@ export const billingLogic = kea<billingLogicType>([
                     const response = await api.get('api/plans?self_serve=1')
                     return response.results
                 },
+                setPlans: ({ plans }) => plans,
             },
         ],
         billingSubscription: [
@@ -214,6 +228,20 @@ export const billingLogic = kea<billingLogicType>([
                             : undefined,
                 })
             }
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        '/ingestion/billing': (_, { reason }) => {
+            if (reason === 'cancelled') {
+                eventUsageLogic.actions.reportIngestionBillingCancelled()
+            }
+        },
+        '/organization/billing/subscribed': (_, { referer }) => {
+            let successRedirect = urls.projectHomepage()
+            if (referer === 'ingestion') {
+                successRedirect = urls.events()
+            }
+            actions.setBillingSuccessRedirect(successRedirect)
         },
     })),
 ])

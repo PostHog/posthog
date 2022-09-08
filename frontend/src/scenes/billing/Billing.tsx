@@ -47,7 +47,11 @@ export function Billing(): JSX.Element {
                         <CurrentUsage />
                     </div>
                     <div className="w-1/3">
-                        {billing?.plan ? <Plan plan={billing.plan} currentPlan /> : <BillingEnrollment />}
+                        {billing?.plan && !billing?.should_setup_billing ? (
+                            <Plan plan={billing.plan} currentPlan />
+                        ) : (
+                            <BillingEnrollment />
+                        )}
                     </div>
                 </div>
             )}
