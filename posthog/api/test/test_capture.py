@@ -1072,6 +1072,8 @@ class TestCapture(BaseTest):
         self.assertEqual(kafka_produce.call_count, 1)
         self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
         data_sent_to_kafka = json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])
+
+        # Decompress the data sent to kafka to compare it to the original data
         decompressed_data = gzip.decompress(
             base64.b64decode(data_sent_to_kafka["properties"]["$snapshot_data"]["data"])
         ).decode("utf-16", "surrogatepass")
@@ -1108,10 +1110,9 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_large_recording_data_is_split_into_multiple_messages(self, kafka_produce) -> None:
-        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
-            data = [
-                random.choice(string.ascii_letters) for _ in range(700 * 1024)
-            ]  # 512 * 1024 is the max size of a single message and random letter shouldn't be compressible, so this should be 2 messages
-            self._send_session_recording_event(event_data=data)
-            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
-            self.assertGreater(topic_counter[KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC], 1)
+        data = [
+            random.choice(string.ascii_letters) for _ in range(700 * 1024)
+        ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
+        self._send_session_recording_event(event_data=data)
+        topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+        self.assertGreater(topic_counter[KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC], 1)
