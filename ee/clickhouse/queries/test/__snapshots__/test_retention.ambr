@@ -723,15 +723,8 @@
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                e.event AS event,
-               pdi.person_id as target
+               e.person_id as target
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = '$some_event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00')
@@ -739,7 +732,7 @@
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.event AS event,
-                        pdi.person_id as target,
+                        e.person_id as target,
                         [
                           dateDiff(
                               'Day',
@@ -748,13 +741,6 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND ((event = 'sign up'))
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00')
@@ -795,15 +781,8 @@
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                e.event AS event,
-               pdi.person_id as target
+               e.person_id as target
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00')
@@ -811,7 +790,7 @@
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.event AS event,
-                        pdi.person_id as target,
+                        e.person_id as target,
                         [
                           dateDiff(
                               'Day',
@@ -820,13 +799,6 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00')
@@ -867,15 +839,8 @@
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'US/Pacific')) AS event_date,
                e.event AS event,
-               pdi.person_id as target
+               e.person_id as target
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 07:00:00')
@@ -883,7 +848,7 @@
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp, 'US/Pacific')) AS event_date,
                         e.event AS event,
-                        pdi.person_id as target,
+                        e.person_id as target,
                         [
                           dateDiff(
                               'Day',
@@ -892,13 +857,6 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 07:00:00')

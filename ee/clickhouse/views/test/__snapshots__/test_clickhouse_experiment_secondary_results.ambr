@@ -139,17 +139,10 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
+                              e.person_id as aggregation_target,
                               e."properties" as "properties",
-                              pdi.person_id as person_id
+                              e.person_id as person_id
                        FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$pageleave_funnel', '$pageview_funnel']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')

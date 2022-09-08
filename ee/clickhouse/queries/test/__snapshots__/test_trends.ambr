@@ -6,24 +6,10 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND ((event = '$pageview'
-             AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
-                  AND pdi.person_id IN
+             AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', ''))
+                  AND e.person_id IN
                     (SELECT id
                      FROM person
                      WHERE team_id = 2
@@ -86,29 +72,15 @@
                  GROUP BY timestamp) d
               CROSS JOIN
                 (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp,
-                        pdi.person_id AS person_id,
+                        e.person_id AS person_id,
                         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-                 INNER JOIN
-                   (SELECT id,
-                           argMax(properties, version) as person_props
-                    FROM person
-                    WHERE team_id = 2
-                    GROUP BY id
-                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
                    AND timestamp >= '2019-12-25 00:00:00'
                    AND timestamp <= toDateTime('2020-01-12 23:59:59')
                    AND ((event = '$pageview'
-                         AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
-                              AND pdi.person_id IN
+                         AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', ''))
+                              AND e.person_id IN
                                 (SELECT id
                                  FROM person
                                  WHERE team_id = 2
@@ -1152,31 +1124,14 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
+                  e.person_id as person_id,
+                  e."person_properties" as "person_properties"
            FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id
-              FROM person
-              WHERE team_id = 2
-                AND id IN
-                  (SELECT id
-                   FROM person
-                   WHERE team_id = 2
-                     AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))) )
-              GROUP BY id
-              HAVING max(is_deleted) = 0
-              AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'watched movie'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+             AND timestamp <= toDateTime('2020-01-04 23:59:59')
+             AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', ''))) )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1200,31 +1155,14 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
+                  e.person_id as person_id,
+                  e."person_properties" as "person_properties"
            FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id
-              FROM person
-              WHERE team_id = 2
-                AND id IN
-                  (SELECT id
-                   FROM person
-                   WHERE team_id = 2
-                     AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))) )
-              GROUP BY id
-              HAVING max(is_deleted) = 0
-              AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'watched movie'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+             AND timestamp <= toDateTime('2020-01-04 23:59:59')
+             AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', ''))) )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1248,7 +1186,8 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e."properties" as "properties"
+                  e."properties" as "properties",
+                  e.person_id as person_id
            FROM events e
            WHERE team_id = 2
              AND event = 'watched movie'
@@ -1278,31 +1217,14 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
+                  e.person_id as person_id,
+                  e."mat_pp_name" as "mat_pp_name"
            FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id
-              FROM person
-              WHERE team_id = 2
-                AND id IN
-                  (SELECT id
-                   FROM person
-                   WHERE team_id = 2
-                     AND (has(['person1'], person."pmat_name")) )
-              GROUP BY id
-              HAVING max(is_deleted) = 0
-              AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'watched movie'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+             AND timestamp <= toDateTime('2020-01-04 23:59:59')
+             AND (has(['person1'], "mat_pp_name")) )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1326,7 +1248,8 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e."mat_name" as "mat_name"
+                  e."mat_name" as "mat_name",
+                  e.person_id as person_id
            FROM events e
            WHERE team_id = 2
              AND event = 'watched movie'
@@ -1356,31 +1279,14 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
+                  e.person_id as person_id,
+                  e."mat_pp_name" as "mat_pp_name"
            FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id
-              FROM person
-              WHERE team_id = 2
-                AND id IN
-                  (SELECT id
-                   FROM person
-                   WHERE team_id = 2
-                     AND (has(['person1'], person."pmat_name")) )
-              GROUP BY id
-              HAVING max(is_deleted) = 0
-              AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'watched movie'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+             AND timestamp <= toDateTime('2020-01-04 23:59:59')
+             AND (has(['person1'], "mat_pp_name")) )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1403,7 +1309,8 @@
         UNION ALL SELECT count(*) as data,
                          toStartOfWeek(toDateTime(timestamp), 0, 'US/Pacific') as date
         FROM
-          (SELECT e.timestamp as timestamp
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
@@ -1431,7 +1338,8 @@
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
         FROM
-          (SELECT e.timestamp as timestamp
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
@@ -1460,15 +1368,8 @@
                          toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
+                  e.person_id as person_id
            FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = 'sign up'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-22 08:00:00')), 'US/Pacific'), 'UTC')
@@ -1509,15 +1410,8 @@
                      person_id
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as person_id
+                        e.person_id as person_id
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND event = 'sign up'
                    AND timestamp >= '2019-12-22 00:00:00'
@@ -1555,7 +1449,8 @@
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
         FROM
-          (SELECT e.timestamp as timestamp
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
@@ -1611,17 +1506,10 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
+           UNION ALL SELECT count(DISTINCT person_id) as total,
                             toStartOfDay(timestamp, 'US/Pacific') as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') as breakdown_value
            FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-29 08:00:00')), 'US/Pacific'), 'UTC')
@@ -1654,7 +1542,8 @@
         UNION ALL SELECT count(*) as data,
                          toStartOfHour(toDateTime(timestamp), 'US/Pacific') as date
         FROM
-          (SELECT e.timestamp as timestamp
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
@@ -1682,7 +1571,8 @@
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
         FROM
-          (SELECT e.timestamp as timestamp
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
@@ -1711,15 +1601,8 @@
                          toStartOfHour(toDateTime(timestamp), 'US/Pacific') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
+                  e.person_id as person_id
            FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = 'sign up'
              AND timestamp >= toTimezone(toDateTime(toStartOfHour(toDateTime('2020-01-05 08:00:00')), 'US/Pacific'), 'UTC')
@@ -1735,17 +1618,10 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id,
+            e.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-05 15:00:00')
@@ -1772,7 +1648,8 @@
         UNION ALL SELECT count(*) as data,
                          toStartOfHour(toDateTime(timestamp), 'US/Pacific') as date
         FROM
-          (SELECT e.timestamp as timestamp
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
@@ -1788,37 +1665,17 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(person_properties, 'email'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(person.properties, '$os'), '^"|"$', ''))
-                     OR has(['safari'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))) )
-        GROUP BY id
-        HAVING max(is_deleted) = 0
-        AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
-              OR has(['safari'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', ''))))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-07-01 00:00:00')
-       AND ((NOT (replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')
-             OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
+       AND ((NOT (replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')
+             OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))
+            AND (has(['android'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$os'), '^"|"$', ''))
+                 OR has(['safari'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$browser'), '^"|"$', ''))))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1854,37 +1711,17 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(timestamp, 'UTC') as day_start,
-                            replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') as breakdown_value
+                            replaceRegexpAll(JSONExtractRaw(person_properties, 'email'), '^"|"$', '') as breakdown_value
            FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id,
-                     argMax(properties, version) as person_props
-              FROM person
-              WHERE team_id = 2
-                AND id IN
-                  (SELECT id
-                   FROM person
-                   WHERE team_id = 2
-                     AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(person.properties, '$os'), '^"|"$', ''))
-                           OR has(['safari'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))) )
-              GROUP BY id
-              HAVING max(is_deleted) = 0
-              AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
-                    OR has(['safari'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', ''))))) person ON person.id = pdi.person_id
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND ((NOT (replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')
-                   OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
+             AND ((NOT (replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')
+                   OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))
+                  AND (has(['android'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$os'), '^"|"$', ''))
+                       OR has(['safari'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$browser'), '^"|"$', ''))))
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-07-01 00:00:00')
-             AND replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') in (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'])
+             AND replaceRegexpAll(JSONExtractRaw(person_properties, 'email'), '^"|"$', '') in (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -1900,38 +1737,17 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(person_properties, 'email'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(person.properties, '$os'), '^"|"$', ''))
-                      AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))))
-                    AND (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) )
-        GROUP BY id
-        HAVING max(is_deleted) = 0
-        AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
-               AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', ''))))
-             AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-07-01 00:00:00')
-       AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
+       AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$os'), '^"|"$', ''))
+              AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$browser'), '^"|"$', ''))))
+            AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))
+                 AND replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1967,38 +1783,17 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(timestamp, 'UTC') as day_start,
-                            replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') as breakdown_value
+                            replaceRegexpAll(JSONExtractRaw(person_properties, 'email'), '^"|"$', '') as breakdown_value
            FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id,
-                     argMax(properties, version) as person_props
-              FROM person
-              WHERE team_id = 2
-                AND id IN
-                  (SELECT id
-                   FROM person
-                   WHERE team_id = 2
-                     AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(person.properties, '$os'), '^"|"$', ''))
-                            AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))))
-                          AND (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) )
-              GROUP BY id
-              HAVING max(is_deleted) = 0
-              AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
-                     AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', ''))))
-                   AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) person ON person.id = pdi.person_id
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
+             AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$os'), '^"|"$', ''))
+                    AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$browser'), '^"|"$', ''))))
+                  AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))
+                       AND replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-07-01 00:00:00')
-             AND replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') in (['test2@posthog.com'])
+             AND replaceRegexpAll(JSONExtractRaw(person_properties, 'email'), '^"|"$', '') in (['test2@posthog.com'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -2139,7 +1934,8 @@
        (SELECT e.timestamp as timestamp,
                e."properties" as "properties",
                sessions.session_duration as session_duration,
-               sessions.$session_id as $session_id
+               sessions.$session_id as $session_id,
+               e.person_id as person_id
         FROM events e
         INNER JOIN
           (SELECT $session_id,
@@ -2167,7 +1963,8 @@
        (SELECT e.timestamp as timestamp,
                e."properties" as "properties",
                sessions.session_duration as session_duration,
-               sessions.$session_id as $session_id
+               sessions.$session_id as $session_id,
+               e.person_id as person_id
         FROM events e
         INNER JOIN
           (SELECT $session_id,
@@ -2207,7 +2004,8 @@
              (SELECT e.timestamp as timestamp,
                      e."properties" as "properties",
                      sessions.session_duration as session_duration,
-                     sessions.$session_id as $session_id
+                     sessions.$session_id as $session_id,
+                     e.person_id as person_id
               FROM events e
               INNER JOIN
                 (SELECT $session_id,
@@ -2250,7 +2048,8 @@
              (SELECT e.timestamp as timestamp,
                      e."properties" as "properties",
                      sessions.session_duration as session_duration,
-                     sessions.$session_id as $session_id
+                     sessions.$session_id as $session_id,
+                     e.person_id as person_id
               FROM events e
               INNER JOIN
                 (SELECT $session_id,
