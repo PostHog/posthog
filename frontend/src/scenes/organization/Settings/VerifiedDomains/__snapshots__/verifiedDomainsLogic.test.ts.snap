@@ -23,6 +23,7 @@ Object {
     "teams": Array [
       Object {
         "access_control": true,
+        "actor_on_events_querying_setting_enabled": false,
         "anonymize_ips": false,
         "api_token": "default-team-api-token",
         "app_urls": Array [
