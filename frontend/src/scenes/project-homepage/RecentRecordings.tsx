@@ -43,7 +43,7 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
                 </div>
 
                 <span>{humanFriendlyDuration(recording.recording_duration)}</span>
-                <IconPlayCircle className="text-lg ml-2" />
+                <IconPlayCircle className="text-2xl ml-2" />
             </div>
         </LemonButton>
     )
@@ -68,7 +68,7 @@ export function RecentRecordings(): JSX.Element {
                               title: 'There are no recordings for this project',
                               description: 'Make sure you have the javascript snippet setup in your website.',
                               buttonText: 'Learn more',
-                              buttonHref: 'https://posthog.com/docs/user-guides/recordings',
+                              buttonTo: 'https://posthog.com/docs/user-guides/recordings',
                           }
                         : {
                               title: 'Recordings are not enabled for this project',

@@ -44,7 +44,7 @@ def report_user_signed_up(
         for k, v in org_analytics_metadata.items():
             props[f"org__{k}"] = v
 
-    props = {**props, "$set": props}
+    props = {**props, "$set": {**props, **user.get_analytics_metadata()}}
     posthoganalytics.capture(
         user.distinct_id,
         "user signed up",
@@ -70,6 +70,7 @@ def report_user_joined_organization(organization: Organization, current_user: Us
             "org_current_invite_count": organization.active_invites.count(),
             "org_current_project_count": organization.teams.count(),
             "org_current_members_count": organization.memberships.count(),
+            "$set": current_user.get_analytics_metadata(),
         },
         groups=groups(organization),
     )
