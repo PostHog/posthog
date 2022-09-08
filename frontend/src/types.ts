@@ -979,7 +979,7 @@ export enum AnnotationScope {
     Organization = 'organization',
 }
 
-export interface AnnotationType {
+export interface RawAnnotationType {
     id: number
     scope: AnnotationScope
     content: string
@@ -992,6 +992,10 @@ export interface AnnotationType {
     insight_name?: InsightModel['name'] | null
     deleted?: boolean
     creation_type?: string
+}
+
+export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+    date_marker: dayjs.Dayjs
 }
 
 export enum ChartDisplayType {
@@ -1568,7 +1572,7 @@ export interface PropertyDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null
+    volume_30_day?: number | null // TODO: Deprecated, replace or remove
     query_usage_30_day?: number | null
     updated_at?: string
     updated_by?: UserBasicType | null

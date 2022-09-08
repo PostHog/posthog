@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import './Login.scss'
 import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
@@ -77,6 +77,15 @@ export function Login(): JSX.Element {
         useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
+    const passwordInputRef = useRef<HTMLInputElement>(null)
+    const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
+
+    useEffect(() => {
+        if (!isPasswordHidden) {
+            passwordInputRef.current?.focus()
+        }
+    }, [isPasswordHidden])
+
     return (
         <BridgePage view="login" noHedgehog>
             <div className="space-y-2">
@@ -99,19 +108,14 @@ export function Login(): JSX.Element {
                             onBlur={() => precheck({ email: login.email })}
                             onPressEnter={() => {
                                 precheck({ email: login.email })
-                                document.getElementById('password')?.focus()
                             }}
                         />
                     </Field>
-                    <div
-                        className={clsx(
-                            'PasswordWrapper',
-                            (precheckResponse.status === 'pending' || precheckResponse.sso_enforcement) && 'hidden'
-                        )}
-                    >
+                    <div className={clsx('PasswordWrapper', isPasswordHidden && 'hidden')}>
                         <Field name="password" label="Password">
                             <LemonInput
                                 type="password"
+                                ref={passwordInputRef}
                                 className="ph-ignore-input"
                                 data-attr="password"
                                 placeholder="••••••••••"

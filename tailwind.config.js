@@ -203,7 +203,7 @@ module.exports = {
         // 'textDecorationThickness', // The text-decoration-thickness utilities like decoration-4
         // 'textIndent', // The text-indent utilities like indent-28
         // 'textOpacity', // The text-opacity utilities like text-opacity-50
-        // 'textOverflow', // The text-overflow utilities like overflow-ellipsis
+        'textOverflow', // The text-overflow utilities like overflow-ellipsis
         // 'textTransform', // The text-transform utilities like lowercase
         // 'textUnderlineOffset', // The text-underline-offset utilities like underline-offset-2
         // 'touchAction', // The touch-action utilities like touch-pan-right

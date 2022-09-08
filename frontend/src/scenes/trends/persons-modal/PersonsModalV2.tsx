@@ -21,7 +21,6 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Skeleton, Tabs } from 'antd'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
 
 export interface PersonsModalProps {
@@ -107,8 +106,8 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                             <span>
                                 {actorsResponse?.next ? 'More than ' : ''}
                                 <b>
-                                    {actorsResponse?.total_count} unique{' '}
-                                    {actorsResponse?.total_count === 1 ? actorLabel.singular : actorLabel.plural}
+                                    {actors.length || 'No'} unique{' '}
+                                    {pluralize(actors.length, actorLabel.singular, actorLabel.plural, false)}
                                 </b>
                             </span>
                         )}
@@ -119,13 +118,7 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                         {actors && actors.length > 0 ? (
                             <>
                                 {actors.map((x) => (
-                                    <ActorRow
-                                        key={x.id}
-                                        actor={x}
-                                        onOpenRecording={(id) =>
-                                            openSessionPlayer(id, RecordingWatchedSource.PersonModal)
-                                        }
-                                    />
+                                    <ActorRow key={x.id} actor={x} onOpenRecording={(id) => openSessionPlayer(id)} />
                                 ))}
                             </>
                         ) : actorsResponseLoading ? (
@@ -155,7 +148,7 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                         icon={<IconSave />}
                         type="secondary"
                         data-attr="person-modal-save-as-cohort"
-                        disabled={actorsResponse?.total_count === 0}
+                        disabled={!actors.length}
                     >
                         Save as cohort
                     </LemonButton>
@@ -171,7 +164,7 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                             })
                         }}
                         data-attr="person-modal-download-csv"
-                        disabled={actorsResponse?.total_count === 0}
+                        disabled={!actors.length}
                     >
                         Download CSV
                     </LemonButton>
@@ -268,7 +261,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                             {Object.keys(actor.properties).length ? (
                                 <PropertiesTable properties={actor.properties} />
                             ) : (
-                                <p>There are no properties.</p>
+                                <p className="text-center m-4">There are no properties.</p>
                             )}
                         </Tabs.TabPane>
                         <Tabs.TabPane tab="Recordings" key="recordings">
@@ -285,7 +278,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                                         </LemonButton>
                                     ))
                                 ) : (
-                                    <div className="text-center m-2">No recordings</div>
+                                    <div className="text-center m-2">There are no recordings.</div>
                                 )}
                             </div>
                         </Tabs.TabPane>

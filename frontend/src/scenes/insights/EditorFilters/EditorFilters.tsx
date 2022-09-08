@@ -206,7 +206,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           tooltip: (
                               <div>
                                   Attribution type determines which property value to use for the entire funnel.
-                                  <ul style={{ paddingLeft: '1.2rem' }}>
+                                  <ul className="list-disc pl-4">
                                       <li>First step: the first property value seen from all steps is chosen.</li>
                                       <li>Last step: last property value seen from all steps is chosen.</li>
                                       <li>Specific step: the property value seen at that specific step is chosen.</li>

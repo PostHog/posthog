@@ -1,20 +1,17 @@
 import { Col, Row } from 'antd'
-import { useValues, useActions } from 'kea'
+import { useValues } from 'kea'
 import { IconInfo } from 'lib/components/icons'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { CardContainer } from '../CardContainer'
-import { ingestionLogic } from '../ingestionLogic'
 import './Panels.scss'
 
 export function BookmarkletPanel(): JSX.Element {
-    const { index } = useValues(ingestionLogic)
-    const { setPlatform } = useActions(ingestionLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <CardContainer index={index} showFooter={true} onBack={() => setPlatform(null)}>
+        <CardContainer showFooter>
             {currentTeam && (
                 <div style={{ padding: '0px 16px' }}>
                     <h1 className="ingestion-title mb-2">Just exploring?</h1>

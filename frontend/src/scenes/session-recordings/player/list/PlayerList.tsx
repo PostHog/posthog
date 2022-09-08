@@ -3,6 +3,7 @@ import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import {
+    DEFAULT_EXPANDED_ROW_HEIGHT,
     DEFAULT_ROW_HEIGHT,
     listLogic,
     OVERSCANNED_ROW_COUNT,
@@ -17,6 +18,7 @@ import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { ExpandableConfig } from 'lib/components/LemonTable'
 import { ListRowOptions, PlayerListRow } from 'scenes/session-recordings/player/list/PlayerListRow'
+import { getRowExpandedState } from 'scenes/session-recordings/player/playerUtils'
 
 interface RowConfig<T extends Record<string, any>> {
     /** Class to append to each row. */
@@ -46,8 +48,9 @@ export function PlayerList<T extends Record<string, any>>({
 }: PlayerListProps<T>): JSX.Element {
     const listRef = useRef<List>(null)
     const logic = listLogic({ tab, sessionRecordingId, playerKey })
-    const { data, showPositionFinder, isCurrent, isDirectionUp } = useValues(logic)
-    const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick } = useActions(logic)
+    const { data, showPositionFinder, isCurrent, isDirectionUp, expandedRows } = useValues(logic)
+    const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick, expandRow, collapseRow } =
+        useActions(logic)
     const { sessionEventsDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
 
     useEffect(() => {
@@ -135,6 +138,12 @@ export function PlayerList<T extends Record<string, any>>({
                                             typeof row?.options === 'function'
                                                 ? row.options(record, index)
                                                 : row?.options
+                                        const expandedDetermined = getRowExpandedState(
+                                            record,
+                                            index,
+                                            expandable,
+                                            expandedRows.has(index)
+                                        )
 
                                         return (
                                             <PlayerListRow
@@ -146,17 +155,42 @@ export function PlayerList<T extends Record<string, any>>({
                                                 statusDetermined={rowStatusDetermined}
                                                 currentDetermined={rowCurrentDetermined}
                                                 style={style}
-                                                expandable={expandable}
+                                                expandable={
+                                                    expandable
+                                                        ? {
+                                                              ...expandable,
+                                                              onRowExpand: (record, index) => {
+                                                                  expandable?.onRowExpand?.(record, index)
+                                                                  expandRow(index)
+                                                                  listRef?.current?.recomputeRowHeights(index)
+                                                              },
+                                                              onRowCollapse: (_, index) => {
+                                                                  expandable?.onRowCollapse?.(record, index)
+                                                                  collapseRow(index)
+                                                                  listRef?.current?.recomputeRowHeights(index)
+                                                              },
+                                                          }
+                                                        : undefined
+                                                }
                                                 contentDetermined={rowContentDetermined}
                                                 sideContentDetermined={rowSideContentDetermined}
                                                 onClick={(record) => {
                                                     handleRowClick(record.playerPosition)
                                                 }}
                                                 optionsDetermined={optionsDetermined ?? []}
+                                                expandedDetermined={expandedDetermined}
+                                                loading={sessionEventsDataLoading}
                                             />
                                         )
                                     }}
-                                    rowHeight={DEFAULT_ROW_HEIGHT}
+                                    rowHeight={({ index }) => {
+                                        const record = data[index] as T
+                                        if (getRowExpandedState(record, index, expandable, expandedRows.has(index))) {
+                                            return DEFAULT_EXPANDED_ROW_HEIGHT
+                                        }
+
+                                        return DEFAULT_ROW_HEIGHT
+                                    }}
                                 />
                             )
                         }}

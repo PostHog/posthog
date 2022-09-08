@@ -200,7 +200,7 @@ export function ProjectSettings(): JSX.Element {
                     So, if you apply a cohort, it means you will only match users in that cohort.
                 </p>
                 <strong>Example filters</strong>
-                <ul>
+                <ul className="list-disc pl-4 mb-2">
                     <li>
                         "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all events
                         from your company's team members.

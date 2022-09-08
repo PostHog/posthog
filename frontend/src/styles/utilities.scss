@@ -89,6 +89,12 @@
     }
 }
 
+@each $space in $spaces {
+    .leading-#{$space} {
+        line-height: #{$space/4}rem;
+    }
+}
+
 .space-y-px {
     & > * + * {
         margin-top: 1px;
@@ -481,6 +487,25 @@
 .font-black {
     font-weight: 900;
 }
+.italic {
+    font-style: italic;
+}
+.not-italic {
+    font-style: normal;
+}
+
+.break-normal {
+    overflow-wrap: normal;
+    word-break: normal;
+}
+
+.break-words {
+    overflow-wrap: break-word;
+}
+
+.break-all {
+    word-break: break-all;
+}
 
 .whitespace-normal {
     white-space: normal;
@@ -611,6 +636,12 @@
 .overflow-scroll {
     overflow: scroll;
 }
+.overflow-x-scroll {
+    overflow-x: scroll;
+}
+.overflow-y-scroll {
+    overflow-y: scroll;
+}
 .overflow-x-auto {
     overflow-x: auto;
 }
@@ -682,6 +713,18 @@
     pointer-events: auto;
 }
 
+.truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.text-ellipsis {
+    text-overflow: ellipsis;
+}
+.text-clip {
+    text-overflow: clip;
+}
+
 @each $cursor in $cursors {
     .cursor-#{$cursor} {
         cursor: #{$cursor};
@@ -689,7 +732,7 @@
 }
 
 @each $list_style_type in $list_style_types {
-    .list-#{list_style_type} {
+    .list-#{$list_style_type} {
         list-style-type: #{$list_style_type};
     }
 }
