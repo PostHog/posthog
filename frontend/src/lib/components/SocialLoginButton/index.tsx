@@ -38,7 +38,7 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
         <LemonButton
             size="small"
             to={`/login/${provider}/${queryString || ''}${extraParam}`}
-            toForceReload
+            disableClientSideRouting
             icon={SocialLoginIcon(provider)}
         >
             <span>{SSO_PROVIDER_NAMES[provider]}</span>

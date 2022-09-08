@@ -22,7 +22,7 @@ export interface LemonButtonPropsBase
     /** URL to link to. */
     to?: string
     /** force the "to" link to reload the page */
-    toForceReload?: boolean
+    disableClientSideRouting?: boolean
     /** If set clicking this button will open the page in a new tab. */
     targetBlank?: boolean
     /** External URL to link to. */
@@ -70,7 +70,7 @@ function LemonButtonInternal(
         noPadding,
         to,
         targetBlank,
-        toForceReload,
+        disableClientSideRouting,
         ...buttonProps
     }: LemonButtonProps,
     ref: React.Ref<HTMLElement>
@@ -107,7 +107,7 @@ function LemonButtonInternal(
             disabled={disabled || loading}
             to={to}
             target={targetBlank ? '_blank' : undefined}
-            forceReload={toForceReload}
+            disableClientSideRouting={disableClientSideRouting}
             {...buttonProps}
         >
             {icon}

@@ -12,6 +12,8 @@ import { More, MoreProps } from './More'
 import { LemonDivider } from '../LemonDivider'
 import { capitalizeFirstLetter, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
+import { Link } from '@posthog/lemon-ui'
+import { AlertMessage } from '../AlertMessage'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
@@ -211,13 +213,30 @@ export const WithSideAction = (): JSX.Element => {
 
 export const AsLinks = (): JSX.Element => {
     return (
-        <div className="flex gap-2">
-            <LemonButton to="https://posthog.com">External link with "href"</LemonButton>
-            <LemonButton to="https://posthog.com" targetBlank>
-                External link with "href" and "targetBlank"
-            </LemonButton>
+        <div className="space-y-2">
+            <AlertMessage type="info">
+                <b>Reminder</b> - if you just want a link, use the{' '}
+                <Link to={'/?path=/docs/lemon-ui-link'} disableClientSideRouting>
+                    Link component
+                </Link>
+            </AlertMessage>
 
+            <p>
+                Buttons can act as links via the <b>to</b> prop. If this is an internal endpoint it will be routed
+                client-side
+            </p>
             <LemonButton to={urls.projectHomepage()}>Internal link with "to"</LemonButton>
+
+            <p>External links will be automatically detected and routed to normally</p>
+            <LemonButton to="https://posthog.com">External link</LemonButton>
+
+            <p>
+                The <code>targetBlank</code> prop will open the link in a new window/tab, setting the appropriate
+                attributed like <code>rel="noopener"</code>
+            </p>
+            <LemonButton to="https://posthog.com" targetBlank>
+                External link with "targetBlank"
+            </LemonButton>
         </div>
     )
 }

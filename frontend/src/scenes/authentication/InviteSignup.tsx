@@ -83,7 +83,11 @@ function ErrorView(): JSX.Element | null {
                             <div>
                                 You need to log in with the email address above, or create your own password.
                                 <div className="mt-4">
-                                    <LemonButton icon={<IconChevronLeft />} to={window.location.pathname} toForceReload>
+                                    <LemonButton
+                                        icon={<IconChevronLeft />}
+                                        to={window.location.pathname}
+                                        disableClientSideRouting
+                                    >
                                         Try again
                                     </LemonButton>
                                 </div>

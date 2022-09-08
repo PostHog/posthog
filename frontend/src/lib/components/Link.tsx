@@ -11,7 +11,7 @@ export type LinkProps = Pick<
     /** The location to go to. This can be a kea-location or a "href"-like string */
     to?: string | [string, RoutePart?, RoutePart?]
     /** If true, in-app navigation will not be used and the link will navigate with a page load */
-    forceReload?: boolean
+    disableClientSideRouting?: boolean
     preventClick?: boolean
 }
 
@@ -32,14 +32,14 @@ const shouldForcePageLoad = (input: any): boolean => {
  * as well deciding when a given "to" link should be opened as a standard navigation (i.e. a standard href)
  * or whether to be routed internally via kea-router
  */
-export function Link({ to, target, forceReload, preventClick = false, ...props }: LinkProps): JSX.Element {
+export function Link({ to, target, disableClientSideRouting, preventClick = false, ...props }: LinkProps): JSX.Element {
     const onClick = (event: React.MouseEvent<HTMLAnchorElement>): void => {
         if (event.metaKey || event.ctrlKey) {
             event.stopPropagation()
             return
         }
 
-        if (!target && to && !isExternalLink(to) && !forceReload && !shouldForcePageLoad(to)) {
+        if (!target && to && !isExternalLink(to) && !disableClientSideRouting && !shouldForcePageLoad(to)) {
             event.preventDefault()
             if (to && to !== '#' && !preventClick) {
                 if (Array.isArray(to)) {
