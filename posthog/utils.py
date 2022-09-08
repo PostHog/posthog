@@ -116,15 +116,11 @@ def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.
         at = timezone.now()
 
     period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(timezone.now().weekday() + 1),
-        datetime.time.max,
-        tzinfo=pytz.UTC,
+        at - datetime.timedelta(timezone.now().weekday() + 1), datetime.time.max, tzinfo=pytz.UTC,
     )  # very end of the previous Sunday
 
     period_start: datetime.datetime = datetime.datetime.combine(
-        period_end - datetime.timedelta(6),
-        datetime.time.min,
-        tzinfo=pytz.UTC,
+        period_end - datetime.timedelta(6), datetime.time.min, tzinfo=pytz.UTC,
     )  # very start of the previous Monday
 
     return (period_start, period_end)
@@ -140,15 +136,11 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
         at = timezone.now()
 
     period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(days=1),
-        datetime.time.max,
-        tzinfo=pytz.UTC,
+        at - datetime.timedelta(days=1), datetime.time.max, tzinfo=pytz.UTC,
     )  # very end of the previous day
 
     period_start: datetime.datetime = datetime.datetime.combine(
-        period_end,
-        datetime.time.min,
-        tzinfo=pytz.UTC,
+        period_end, datetime.time.min, tzinfo=pytz.UTC,
     )  # very start of the previous day
 
     return (period_start, period_end)
@@ -298,7 +290,15 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
+        "week_start": 1,  # Monday
     }
+
+    from posthog.api.geoip import get_geoip_properties  # avoids circular import
+
+    geoip_properties = get_geoip_properties(get_ip_address(request))
+    country_code = geoip_properties.get("$geoip_country_code", None)
+    if country_code:
+        posthog_app_context["week_start"] = get_week_start_for_country_code(country_code)
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
@@ -434,8 +434,7 @@ def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str
 
 
 def get_compare_period_dates(
-    date_from: datetime.datetime,
-    date_to: datetime.datetime,
+    date_from: datetime.datetime, date_to: datetime.datetime,
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     new_date_to = date_from
     diff = date_to - date_from
@@ -759,9 +758,7 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
         license = License.objects.first_valid()
 
     if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
-        settings,
-        "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
-        None,
+        settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None,
     ):
         if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
             output["google-oauth2"] = True
@@ -1015,11 +1012,7 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     try:
         minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
         return crontab(
-            minute=minute,
-            hour=hour,
-            day_of_month=day_of_month,
-            month_of_year=month_of_year,
-            day_of_week=day_of_week,
+            minute=minute, hour=hour, day_of_month=day_of_month, month_of_year=month_of_year, day_of_week=day_of_week,
         )
     except Exception as err:
         capture_exception(err)
@@ -1045,3 +1038,69 @@ def should_read_recordings_from_object_storage(team_id: Optional[int]) -> bool:
 def generate_short_id():
     """Generate securely random 8 characters long alphanumeric ID."""
     return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))
+
+
+def get_week_start_for_country_code(country_code: str) -> int:
+    if country_code in [
+        "AG",
+        "AS",
+        "AU",
+        "BD",
+        "BR",
+        "BS",
+        "BT",
+        "BW",
+        "BZ",
+        "CA",
+        "CN",
+        "CO",
+        "DM",
+        "DO",
+        "ET",
+        "GT",
+        "GU",
+        "HK",
+        "HN",
+        "ID",
+        "IL",
+        "IN",
+        "JM",
+        "JP",
+        "KE",
+        "KH",
+        "KR",
+        "LA",
+        "MH",
+        "MM",
+        "MO",
+        "MT",
+        "MX",
+        "MZ",
+        "NI",
+        "NP",
+        "PA",
+        "PE",
+        "PH",
+        "PK",
+        "PR",
+        "PT",
+        "PY",
+        "SA",
+        "SG",
+        "SV",
+        "TH",
+        "TT",
+        "TW",
+        "UM",
+        "US",
+        "VE",
+        "VI",
+        "WS",
+        "YE",
+        "ZA",
+        "ZW",
+    ]:
+        return 0  # Sunday
+    if country_code in ["AE", "AF", "BH", "DJ", "DZ", "EG", "IQ", "IR", "JO", "KW", "LY", "OM", "QA", "SD", "SY"]:
+        return 6  # Saturday
+    return 1  # Monday
