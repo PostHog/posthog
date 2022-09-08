@@ -177,6 +177,7 @@ export function ActionFilterRow({
         )
     const filterElement = (
         <LemonButtonWithPopup
+            data-attr={'trend-element-subject-' + index}
             className="LemonButton--full-width"
             popup={{
                 overlay: (
@@ -209,7 +210,7 @@ export function ActionFilterRow({
             type="secondary"
             status="stealth"
             onClick={onClick}
-            disabled={disabled}
+            disabled={disabled || readOnly}
         >
             <span className="text-overflow" style={{ maxWidth: '100%' }}>
                 <EntityFilterInfo filter={filter} />
