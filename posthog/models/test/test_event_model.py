@@ -61,7 +61,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                     Element(tag_name="a", href="/a-url", nth_child=1, nth_of_type=0, attr_class=["one-class"]),
                     Element(tag_name="button", nth_child=0, nth_of_type=0),
                     Element(tag_name="div", nth_child=0, nth_of_type=0),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested",),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested"),
                 ],
             )
 
@@ -126,14 +126,14 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 team=self.team,
                 event="$autocapture",
                 distinct_id="whatever",
-                elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0,)],
+                elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0)],
             )
 
             event2_uuid = _create_event(
                 team=self.team,
                 event="$autocapture",
                 distinct_id="whatever2",
-                elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0,)],
+                elements=[Element(tag_name="a", href="/a-url", text="some_text", nth_child=0, nth_of_type=0)],
             )
 
             event3_uuid = _create_event(
@@ -141,9 +141,9 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 event="$autocapture",
                 distinct_id="whatever",
                 elements=[
-                    Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0,),
+                    Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0),
                     # make sure elements don't get double counted if they're part of the same event
-                    Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,),
+                    Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0),
                 ],
             )
 
@@ -152,9 +152,9 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 event="$autocapture",
                 distinct_id="whatever2",
                 elements=[
-                    Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0,),
+                    Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0),
                     # make sure elements don't get double counted if they're part of the same event
-                    Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,),
+                    Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0),
                 ],
             )
 
@@ -163,13 +163,13 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 team=team2,
                 event="$autocapture",
                 distinct_id="whatever2",
-                elements=[Element(tag_name="a", href="/a-url", text="some_other_text", nth_child=0, nth_of_type=0,),],
+                elements=[Element(tag_name="a", href="/a-url", text="some_other_text", nth_child=0, nth_of_type=0)],
             )
             _create_event(
                 team=team2,
                 event="$autocapture",
                 distinct_id="whatever2",
-                elements=[Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0,),],
+                elements=[Element(tag_name="a", href="/a-url-2", text="some_other_text", nth_child=0, nth_of_type=0)],
             )
 
             events = _get_events_for_action(action1)
@@ -198,7 +198,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 event="$autocapture",
                 team=self.team,
                 distinct_id="whatever",
-                elements=[Element(tag_name="span", attr_class=None), Element(tag_name="a", attr_class=None),],
+                elements=[Element(tag_name="span", attr_class=None), Element(tag_name="a", attr_class=None)],
             )
 
             events = _get_events_for_action(action1)
@@ -277,13 +277,11 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
             action3 = Action.objects.create(team=self.team)
             ActionStep.objects.create(
-                event="$autocapture", action=action3, url="https://posthog.com/%/123", url_matching=ActionStep.CONTAINS,
+                event="$autocapture", action=action3, url="https://posthog.com/%/123", url_matching=ActionStep.CONTAINS
             )
 
             action4 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(
-                event="$autocapture", action=action4, url="/123$", url_matching=ActionStep.REGEX,
-            )
+            ActionStep.objects.create(event="$autocapture", action=action4, url="/123$", url_matching=ActionStep.REGEX)
 
             _create_event(team=self.team, distinct_id="whatever", event="$autocapture")
             event2_uuid = _create_event(
@@ -291,7 +289,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 team=self.team,
                 distinct_id="whatever",
                 properties={"$current_url": "https://posthog.com/feedback/123"},
-                elements=[Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0,)],
+                elements=[Element(tag_name="div", text="some_other_text", nth_child=0, nth_of_type=0)],
             )
 
             events = _get_events_for_action(action1)
@@ -354,7 +352,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             _create_event(event="$pageview", distinct_id="person2", team=self.team)
             action = Action.objects.create(name="pageview", team=self.team)
             ActionStep.objects.create(
-                action=action, event="$pageview", properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
+                action=action, event="$pageview", properties=[{"key": "$browser", "value": "Chrome", "type": "person"}]
             )
             events = _get_events_for_action(action)
             self.assertEqual(len(events), 1)
@@ -470,9 +468,7 @@ class TestSelectors(BaseTest):
         self.assertEqual(selector1.parts[0].direct_descendant, False)
         self.assertEqual(selector1.parts[0].unique_order, 0)
 
-        self.assertEqual(
-            selector1.parts[1].data, {"tag_name": "div", "attr_class__contains": ["classone", "classtwo"],}
-        )
+        self.assertEqual(selector1.parts[1].data, {"tag_name": "div", "attr_class__contains": ["classone", "classtwo"]})
         self.assertEqual(selector1.parts[1].direct_descendant, True)
         self.assertEqual(selector1.parts[1].unique_order, 0)
 

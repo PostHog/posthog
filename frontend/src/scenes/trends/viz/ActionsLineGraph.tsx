@@ -4,12 +4,16 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ChartDisplayType, ChartParams, GraphType, InsightType } from '~/types'
-import { personsModalLogic } from '../personsModalLogic'
+import { personsModalLogic } from '../persons-modal/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
+import { openPersonsModal, shouldUsePersonsModalV2 } from '../persons-modal/PersonsModalV2'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { DateDisplay } from 'lib/components/DateDisplay'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
@@ -27,7 +31,6 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
             hiddenLegendKeys={hiddenLegendKeys}
             datasets={indexedResults}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
-            insightNumericId={insight.id}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
             showPersonsModal={showPersonsModal}
@@ -46,7 +49,6 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                     : undefined
             }
             isCompare={!!filters.compare}
-            timezone={insight.timezone}
             isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
@@ -77,13 +79,45 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                               seriesId,
                               pointValue: dataset?.data?.[index] ?? undefined,
                           }
-                          if (dataset.persons_urls?.[index].url) {
-                              loadPeopleFromUrl({
-                                  ...params,
-                                  url: dataset.persons_urls[index].url,
-                              })
+
+                          const urls = urlsForDatasets(crossDataset, index)
+                          const selectedUrl = urls[crossDataset?.findIndex((x) => x.id === dataset.id) || 0]?.value
+
+                          if (shouldUsePersonsModalV2()) {
+                              if (urls?.length) {
+                                  const title =
+                                      filters.shown_as === 'Stickiness' ? (
+                                          <>
+                                              <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day{' '}
+                                              {day}
+                                          </>
+                                      ) : (
+                                          (label: string) => (
+                                              <>
+                                                  {label} on{' '}
+                                                  <DateDisplay
+                                                      interval={filters.interval || 'day'}
+                                                      date={day?.toString() || ''}
+                                                  />
+                                              </>
+                                          )
+                                      )
+
+                                  openPersonsModal({
+                                      urls,
+                                      urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
+                                      title,
+                                  })
+                              }
                           } else {
-                              loadPeople(params)
+                              if (urls?.length) {
+                                  loadPeopleFromUrl({
+                                      ...params,
+                                      url: selectedUrl,
+                                  })
+                              } else {
+                                  loadPeople(params)
+                              }
                           }
                       }
             }

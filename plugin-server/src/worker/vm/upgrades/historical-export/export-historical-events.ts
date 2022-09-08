@@ -10,10 +10,10 @@ import {
     PluginTask,
     PluginTaskType,
 } from '../../../../types'
+import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
 import {
-    ExportEventsJobPayload,
+    ExportHistoricalEventsJobPayload,
     ExportHistoricalEventsUpgrade,
-    fetchEventsForInterval,
     fetchTimestampBoundariesForTeam,
 } from '../utils/utils'
 
@@ -50,14 +50,6 @@ export function addHistoricalEventsExportCapability(
     const oldRunEveryMinute = tasks.schedule.runEveryMinute?.exec
 
     methods.setupPlugin = async () => {
-        // Fetch the max and min timestamps for a team's events
-        const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id)
-
-        // make sure we set these boundaries at setupPlugin, because from here on out
-        // the new events will already be exported via exportEvents, and we don't want
-        // the historical export to duplicate them
-        meta.global.timestampBoundariesForTeam = timestampBoundaries
-
         await meta.utils.cursor.init(BATCH_ID_CURSOR_KEY)
 
         const storedTimestampCursor = await meta.storage.get(TIMESTAMP_CURSOR_KEY, null)
@@ -107,14 +99,14 @@ export function addHistoricalEventsExportCapability(
     tasks.job['exportHistoricalEvents'] = {
         name: 'exportHistoricalEvents',
         type: PluginTaskType.Job,
-        exec: (payload) => meta.global.exportHistoricalEvents(payload as ExportEventsJobPayload),
+        exec: (payload) => meta.global.exportHistoricalEvents(payload as ExportHistoricalEventsJobPayload),
     }
 
     tasks.job[INTERFACE_JOB_NAME] = {
         name: INTERFACE_JOB_NAME,
         type: PluginTaskType.Job,
         // TODO: Accept timestamp as payload
-        exec: async (payload: ExportEventsJobPayload) => {
+        exec: async (payload: ExportHistoricalEventsJobPayload) => {
             // only let one export run at a time
             const exportAlreadyRunning = await meta.storage.get(EXPORT_RUNNING_KEY, false)
             if (exportAlreadyRunning) {
@@ -141,7 +133,7 @@ export function addHistoricalEventsExportCapability(
         },
     } as unknown as PluginTask // :KLUDGE: Work around typing limitations
 
-    meta.global.exportHistoricalEvents = async (payload: ExportEventsJobPayload): Promise<void> => {
+    meta.global.exportHistoricalEvents = async (payload: ExportHistoricalEventsJobPayload): Promise<void> => {
         if (payload.retriesPerformedSoFar >= 15) {
             // create some log error here
             return
@@ -261,10 +253,13 @@ export function addHistoricalEventsExportCapability(
     // initTimestampsAndCursor decides what timestamp boundaries to use before
     // the export starts. if a payload is passed with boundaries, we use that,
     // but if no payload is specified, we use the boundaries determined at setupPlugin
-    meta.global.initTimestampsAndCursor = async (payload?: ExportEventsJobPayload) => {
+    meta.global.initTimestampsAndCursor = async (payload?: ExportHistoricalEventsJobPayload) => {
         // initTimestampsAndCursor will only run on **one** thread, because of our guard against
         // multiple exports. as a result, we need to set the boundaries on postgres, and
         // only set them in global when the job runs, so all threads have global state in sync
+
+        // Fetch the max and min timestamps for a team's events
+        const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id, '_timestamp')
 
         if (payload && payload.dateFrom) {
             try {
@@ -277,13 +272,13 @@ export function addHistoricalEventsExportCapability(
             }
         } else {
             // no timestamp override specified via the payload, default to the first event ever ingested
-            if (!meta.global.timestampBoundariesForTeam.min) {
+            if (!timestampBoundaries) {
                 throw new Error(
                     `Unable to determine the lower timestamp bound for the export automatically. Please specify a 'dateFrom' value.`
                 )
             }
 
-            const dateFrom = meta.global.timestampBoundariesForTeam.min.getTime()
+            const dateFrom = timestampBoundaries.min.getTime()
             await meta.utils.cursor.init(TIMESTAMP_CURSOR_KEY, dateFrom - EVENTS_TIME_INTERVAL)
             await meta.storage.set(MIN_UNIX_TIMESTAMP_KEY, dateFrom)
         }
@@ -297,12 +292,12 @@ export function addHistoricalEventsExportCapability(
             }
         } else {
             // no timestamp override specified via the payload, default to the last event before the plugin was enabled
-            if (!meta.global.timestampBoundariesForTeam.max) {
+            if (!timestampBoundaries) {
                 throw new Error(
                     `Unable to determine the upper timestamp bound for the export automatically. Please specify a 'dateTo' value.`
                 )
             }
-            await meta.storage.set(MAX_UNIX_TIMESTAMP_KEY, meta.global.timestampBoundariesForTeam.max.getTime())
+            await meta.storage.set(MAX_UNIX_TIMESTAMP_KEY, timestampBoundaries.max.getTime())
         }
     }
 

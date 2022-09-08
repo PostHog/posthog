@@ -62,11 +62,9 @@ class ActivityLog(UUIDModel):
             models.CheckConstraint(
                 check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
                 name="must_have_team_or_organization_id",
-            ),
+            )
         ]
-        indexes = [
-            models.Index(fields=["team_id", "scope", "item_id"]),
-        ]
+        indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
 
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)
@@ -179,16 +177,16 @@ def changes_between(
                 field = "tags"  # or the UI needs to be coupled to this internal backend naming
 
             if left is None and right is not None:
-                changes.append(Change(type=model_type, field=field, action="created", after=right,))
+                changes.append(Change(type=model_type, field=field, action="created", after=right))
             elif right is None and left is not None:
-                changes.append(Change(type=model_type, field=field, action="deleted", before=left,))
+                changes.append(Change(type=model_type, field=field, action="deleted", before=left))
             elif left != right:
-                changes.append(Change(type=model_type, field=field, action="changed", before=left, after=right,))
+                changes.append(Change(type=model_type, field=field, action="changed", before=left, after=right))
 
     return changes
 
 
-def dict_changes_between(model_type: ActivityScope, previous: Dict[Any, Any], new: Dict[Any, Any],) -> List[Change]:
+def dict_changes_between(model_type: ActivityScope, previous: Dict[Any, Any], new: Dict[Any, Any]) -> List[Change]:
     """
     Identifies changes between two dictionaries by comparing fields
     """
@@ -207,12 +205,12 @@ def dict_changes_between(model_type: ActivityScope, previous: Dict[Any, Any], ne
         new_value = new.get(field, None)
 
         if previous_value is None and new_value is not None:
-            changes.append(Change(type=model_type, field=field, action="created", after=new_value,))
+            changes.append(Change(type=model_type, field=field, action="created", after=new_value))
         elif new_value is None and previous_value is not None:
-            changes.append(Change(type=model_type, field=field, action="deleted", before=previous_value,))
+            changes.append(Change(type=model_type, field=field, action="deleted", before=previous_value))
         elif previous_value != new_value:
             changes.append(
-                Change(type=model_type, field=field, action="changed", before=previous_value, after=new_value,)
+                Change(type=model_type, field=field, action="changed", before=previous_value, after=new_value)
             )
 
     return changes
@@ -268,7 +266,7 @@ class ActivityPage:
     results: List[ActivityLog]
 
 
-def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: int = 1,) -> ActivityPage:
+def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: int = 1) -> ActivityPage:
     paginator = Paginator(activity_query, limit)
     activity_page = paginator.page(page)
 
@@ -282,7 +280,7 @@ def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: in
 
 
 def load_activity(
-    scope: ActivityScope, team_id: int, item_id: Optional[int] = None, limit: int = 10, page: int = 1,
+    scope: ActivityScope, team_id: int, item_id: Optional[int] = None, limit: int = 10, page: int = 1
 ) -> ActivityPage:
     # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
 

@@ -109,7 +109,7 @@ export const Dimensions = (): JSX.Element => {
             </p>
 
             <div className="space-y-2">
-                {[8, 16, 20, 'full', 'screen'].map((x) => (
+                {[8, 10, 20, 'full', 'screen'].map((x) => (
                     <div key={x} className={`border rounded-lg p-2 w-${x}`}>
                         w-{x}
                     </div>
@@ -154,6 +154,105 @@ export const TextWeight = (): JSX.Element => {
             <p className="font-bold">font-bold</p>
             <p className="font-extrabold">font-extrabold</p>
             <p className="font-black">font-black</p>
+        </>
+    )
+}
+
+export const Widths = (): JSX.Element => {
+    return (
+        <div className="flex flex-col space-y-2">
+            <div className="w-1/5 border rounded text-center">w-1/5</div>
+            <div className="w-1/3 border rounded text-center">w-1/3</div>
+            <div className="w-2/5 border rounded text-center">w-2/5</div>
+            <div className="w-1/2 border rounded text-center">w-1/2</div>
+            <div className="w-3/5 border rounded text-center">w-3/5</div>
+            <div className="w-2/3 border rounded text-center">w-2/3</div>
+            <div className="w-4/5 border rounded text-center">w-4/5</div>
+            <div className="w-full border rounded text-center">w-full</div>
+        </div>
+    )
+}
+export const Heights = (): JSX.Element => {
+    return (
+        <div className="flex flex-row space-x-2" style={{ height: '100px' }}>
+            <div className="h-1/5 border rounded text-center">h-1/5</div>
+            <div className="h-1/3 border rounded text-center">h-1/3</div>
+            <div className="h-2/5 border rounded text-center">h-2/5</div>
+            <div className="h-1/2 border rounded text-center">h-1/2</div>
+            <div className="h-3/5 border rounded text-center">h-3/5</div>
+            <div className="h-2/3 border rounded text-center">h-2/3</div>
+            <div className="h-4/5 border rounded text-center">h-4/5</div>
+            <div className="h-full border rounded text-center">h-full</div>
+        </div>
+    )
+}
+
+export const AbsolutePositioning = (): JSX.Element => {
+    return (
+        <>
+            <p>You can easily position elements absolutely using these classes:</p>
+            <div className="text-xs flex flex-col space-y-4">
+                <div className="flex space-x-8">
+                    <div className="w-20">
+                        <div className="relative border h-20 w-20">
+                            <div className="absolute border border-primary left-0 top-0 h-10 w-10" />
+                        </div>
+                        left-0 top-0
+                    </div>
+                    <div className="w-20">
+                        <div className="relative border h-20 w-20">
+                            <div className="absolute border border-primary inset-x-0 top-0 h-10 w-10" />
+                        </div>
+                        inset-x-0 top-0
+                    </div>
+                    <div className="w-20">
+                        <div className="relative border h-20 w-20">
+                            <div className="absolute border border-primary top-0 right-0 h-10 w-10" />
+                        </div>
+                        top-0 right-0
+                    </div>
+                </div>
+                <div className="flex space-x-8">
+                    <div className="w-20">
+                        <div className="relative border h-20 w-20">
+                            <div className="absolute border border-primary inset-y-0 left-0 h-10 w-10" />
+                        </div>
+                        inset-y-0 left-0
+                    </div>
+                    <div className="w-20">
+                        <div className="relative border h-20 w-20">
+                            <div className="absolute border border-primary inset-0" />
+                        </div>
+                        inset-0
+                    </div>
+                    <div className="w-20">
+                        <div className="relative border h-20 w-20">
+                            <div className="absolute border border-primary inset-y-0 right-0 h-10 w-10" />
+                        </div>
+                        inset-y-0 right-0
+                    </div>
+                </div>
+                <div className="flex space-x-8">
+                    <div className="w-20">
+                        <div className="relative border h-20 w-20">
+                            <div className="absolute border border-primary bottom-0 left-0 h-10 w-10" />
+                        </div>
+                        bottom-0 left-0
+                    </div>
+                    <div className="w-20">
+                        <div className="relative border h-20 w-20">
+                            <div className="absolute border border-primary inset-x-0 bottom-0 h-10 w-10" />
+                        </div>
+                        inset-x-0 bottom-0
+                    </div>
+                    <div className="w-20">
+                        <div className="relative border h-20 w-20">
+                            <div className="absolute border border-primary bottom-0 right-0 h-10 w-10" />
+                        </div>
+                        bottom-0 right-0
+                    </div>
+                </div>
+            </div>
         </>
     )
 }

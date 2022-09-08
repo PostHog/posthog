@@ -79,7 +79,8 @@ DISPLAY_TYPES = Literal[
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
-    "PathsViz", "FunnelViz",
+    "PathsViz",
+    "FunnelViz",
 ]
 
 
@@ -105,6 +106,7 @@ INTERVAL = "interval"
 SMOOTHING_INTERVALS = "smoothing_intervals"
 DISPLAY = "display"
 SHOWN_AS = "shown_as"
+CLIENT_QUERY_ID = "client_query_id"
 FILTER_TEST_ACCOUNTS = "filter_test_accounts"
 BREAKDOWN_TYPE = "breakdown_type"
 BREAKDOWN_VALUE = "breakdown_value"
@@ -260,5 +262,7 @@ CSV_EXPORT_LIMIT = 10000
 class CombinedEventType(str, Enum):
     # Mimics CombinedEventType in frontend/src/types.ts
     ALL = "all"
-    EVENT = "event"
     ACTION_EVENT = "action_event"
+    EVENT = "event"
+    EVENT_POSTHOG = "event_posthog"
+    EVENT_CUSTOM = "event_custom"

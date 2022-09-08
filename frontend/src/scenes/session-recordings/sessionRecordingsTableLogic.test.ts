@@ -7,8 +7,8 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import { PropertyOperator } from '~/types'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { useMocks } from '~/mocks/jest'
+import { sessionRecordingDataLogic } from './player/sessionRecordingDataLogic'
 
 describe('sessionRecordingsTableLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsTableLogic.build>
@@ -88,17 +88,17 @@ describe('sessionRecordingsTableLogic', () => {
 
         describe('sessionRecordingId', () => {
             it('starts as null', () => {
-                expectLogic(logic).toMatchValues({ sessionRecordingId: null })
+                expectLogic(logic).toMatchValues({ activeSessionRecordingId: null })
             })
             it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
-                expectLogic(logic, () =>
-                    logic.actions.openSessionPlayer('abc', RecordingWatchedSource.RecordingsList)
-                ).toMatchValues({
-                    sessionRecordingId: 'abc',
+                expectLogic(logic, () => logic.actions.openSessionPlayer('abc')).toMatchValues({
+                    activeSessionRecordingId: 'abc',
                 })
                 expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
-                expectLogic(logic, () => logic.actions.closeSessionPlayer()).toMatchValues({ sessionRecordingId: null })
+                expectLogic(logic, () => logic.actions.closeSessionPlayer()).toMatchValues({
+                    activeSessionRecordingId: null,
+                })
                 expect(router.values.hashParams).not.toHaveProperty('sessionRecordingId')
             })
 
@@ -108,7 +108,7 @@ describe('sessionRecordingsTableLogic', () => {
 
                 await expectLogic(logic)
                     .toDispatchActions(['openSessionPlayer'])
-                    .toMatchValues({ sessionRecordingId: 'recording1212' })
+                    .toMatchValues({ activeSessionRecordingId: 'recording1212' })
             })
         })
 
@@ -229,7 +229,7 @@ describe('sessionRecordingsTableLogic', () => {
                 })
 
                 expectLogic(logic, () => {
-                    logic.actions.openSessionPlayer('abc', RecordingWatchedSource.Direct)
+                    logic.actions.openSessionPlayer('abc')
                 }).toMatchValues({
                     sessionRecordings: [
                         {
@@ -292,6 +292,17 @@ describe('sessionRecordingsTableLogic', () => {
                 })
         })
     })
+    describe('playlist mode', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsTableLogic({ isPlaylist: true })
+            logic.mount()
+        })
+        it('mounts and loads the recording when a recording is opened', () => {
+            expectLogic(logic, async () => await logic.actions.openSessionPlayer('abcd'))
+                .toMount(sessionRecordingDataLogic({ sessionRecordingId: 'abcd' }))
+                .toDispatchActions(['loadEntireRecording'])
+        })
+    })
     describe('person specific logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsTableLogic({ personUUID: 'cool_user_99' })
@@ -310,7 +321,7 @@ describe('sessionRecordingsTableLogic', () => {
 
             await expectLogic(logic)
                 .toDispatchActions(['openSessionPlayer'])
-                .toMatchValues({ sessionRecordingId: 'recording1212' })
+                .toMatchValues({ activeSessionRecordingId: 'recording1212' })
         })
     })
 })

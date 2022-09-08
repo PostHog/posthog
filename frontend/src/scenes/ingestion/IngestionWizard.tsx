@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react'
 import './IngestionWizard.scss'
-import '../authentication/bridgePagesShared.scss'
 
 import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'
 import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
@@ -13,12 +12,15 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BookmarkletPanel } from './panels/BookmarkletPanel'
 import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
+import { BillingPanel } from './panels/BillingPanel'
 import { Sidebar } from './Sidebar'
 import { InviteModal } from 'scenes/organization/Settings/InviteModal'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { PanelHeader } from './panels/PanelComponents'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -26,7 +28,7 @@ export const scene: SceneExport = {
 }
 
 export function IngestionWizard(): JSX.Element {
-    const { platform, framework, verify } = useValues(ingestionLogic)
+    const { platform, framework, verify, addBilling } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
     useEffect(() => {
@@ -34,6 +36,14 @@ export function IngestionWizard(): JSX.Element {
             reportIngestionLandingSeen()
         }
     }, [platform])
+
+    if (addBilling) {
+        return (
+            <IngestionContainer>
+                <BillingPanel />
+            </IngestionContainer>
+        )
+    }
 
     if (!platform && !verify) {
         return (
@@ -103,12 +113,10 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
             <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
             <div className="flex h-full">
                 {!isSmallScreen && <Sidebar />}
-                <div className="bridge-page IngestionContainer">
-                    <div className="mb-4">
-                        <FriendlyLogo style={{ fontSize: '1.125rem' }} />
-                    </div>
+                {/* <div className="IngestionContainer" */}
+                <BridgePage view="ingestion" noHedgehog noLogo fixedWidth={false} header={<PanelHeader />}>
                     {children}
-                </div>
+                </BridgePage>
             </div>
         </div>
     )

@@ -5,10 +5,13 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ActionFilter, ChartParams, GraphType } from '~/types'
-import { personsModalLogic } from '../personsModalLogic'
+import { personsModalLogic } from '../persons-modal/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { openPersonsModal, shouldUsePersonsModalV2 } from '../persons-modal/PersonsModalV2'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 
 type DataSet = any
 
@@ -78,7 +81,6 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             labelGroupType={labelGroupType}
             datasets={data}
             labels={data[0].labels}
-            insightNumericId={insight.id}
             hiddenLegendKeys={hiddenLegendKeys}
             showPersonsModal={showPersonsModal}
             aggregationAxisFormat={insight.filters?.aggregation_axis_format}
@@ -86,7 +88,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                 !showPersonsModal || insight.filters?.formula
                     ? undefined
                     : (point) => {
-                          const { value: pointValue, index, points, seriesId } = point
+                          const { value: pointValue, index, points, seriesId, crossDataset } = point
 
                           const dataset = points.referencePoint.dataset
 
@@ -107,13 +109,26 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                               pointValue,
                               seriesId,
                           }
-                          if (dataset.persons_urls?.[index].url) {
-                              loadPeopleFromUrl({
-                                  ...params,
-                                  url: dataset.persons_urls?.[index].url,
-                              })
+                          const urls = urlsForDatasets(crossDataset, index)
+                          const selectedUrl = urls[index]?.value
+
+                          if (shouldUsePersonsModalV2()) {
+                              if (selectedUrl) {
+                                  openPersonsModal({
+                                      urlsIndex: index,
+                                      urls,
+                                      title: <PropertyKeyInfo value={label || ''} disablePopover />,
+                                  })
+                              }
                           } else {
-                              loadPeople(params)
+                              if (selectedUrl) {
+                                  loadPeopleFromUrl({
+                                      ...params,
+                                      url: selectedUrl,
+                                  })
+                              } else {
+                                  loadPeople(params)
+                              }
                           }
                       }
             }

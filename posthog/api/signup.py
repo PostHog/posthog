@@ -32,6 +32,7 @@ class SignupSerializer(serializers.Serializer):
     password: serializers.Field = serializers.CharField(allow_null=True, required=True)
     organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
+    referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
 
     # Slightly hacky: self vars for internal use
     is_social_signup: bool
@@ -63,6 +64,7 @@ class SignupSerializer(serializers.Serializer):
         is_instance_first_user: bool = not User.objects.exists()
 
         organization_name = validated_data.pop("organization_name", validated_data["first_name"])
+        referral_source = validated_data.pop("referral_source", "")
 
         try:
             self._organization, self._team, self._user = User.objects.bootstrap(
@@ -78,9 +80,7 @@ class SignupSerializer(serializers.Serializer):
 
         user = self._user
 
-        login(
-            self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
-        )
+        login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
 
         report_user_signed_up(
             user,
@@ -90,6 +90,7 @@ class SignupSerializer(serializers.Serializer):
             backend_processor="OrganizationSignupSerializer",
             user_analytics_metadata=user.get_analytics_metadata(),
             org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
+            referral_source=referral_source,
         )
 
         return user
@@ -109,9 +110,7 @@ class SignupSerializer(serializers.Serializer):
                 email, first_name, organization_name, is_staff=is_staff
             )
 
-        login(
-            self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",
-        )
+        login(self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend")
         return self._user
 
     def create_team(self, organization: Organization, user: User) -> Team:
@@ -191,9 +190,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 raise serializers.ValidationError(str(e))
 
         if is_new_user:
-            login(
-                self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
-            )
+            login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
 
             report_user_signed_up(
                 user,
@@ -203,6 +200,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 backend_processor="OrganizationInviteSignupSerializer",
                 user_analytics_metadata=user.get_analytics_metadata(),
                 org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
+                referral_source="signed up from invite link",
             )
 
         else:
@@ -265,7 +263,7 @@ class SocialSignupSerializer(serializers.Serializer):
 
         if not request.session.get("backend"):
             raise serializers.ValidationError(
-                "Inactive social login session. Go to /login and log in before continuing.",
+                "Inactive social login session. Go to /login and log in before continuing."
             )
 
         email = request.session.get("email")
@@ -273,16 +271,14 @@ class SocialSignupSerializer(serializers.Serializer):
         first_name = validated_data["first_name"]
 
         serializer = SignupSerializer(
-            data={"organization_name": organization_name, "first_name": first_name, "email": email, "password": None,},
+            data={"organization_name": organization_name, "first_name": first_name, "email": email, "password": None},
             context={"request": request},
         )
         serializer.is_social_signup = True
 
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        logger.info(
-            f"social_create_user_signup", full_name_len=len(first_name), email_len=len(email), user=user.id,
-        )
+        logger.info(f"social_create_user_signup", full_name_len=len(first_name), email_len=len(email), user=user.id)
 
         return {"continue_url": reverse("social:complete", args=[request.session["backend"]])}
 
@@ -317,7 +313,7 @@ class CompanyNameForm(forms.Form):
 def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email: str, full_name: str) -> User:
     try:
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
-            "organization",
+            "organization"
         ).get(id=invite_id)
     except (OrganizationInvite.DoesNotExist, ValidationError):
         try:
@@ -441,11 +437,9 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
                 "email": email or "",
             }
             query_params_string = urlencode(query_params)
-            logger.info(
-                "social_create_user_confirm_organization", full_name_len=len(full_name), email_len=len(email),
-            )
+            logger.info("social_create_user_confirm_organization", full_name_len=len(full_name), email_len=len(email))
 
-            return redirect(f"/organization/confirm-creation?{query_params_string}",)
+            return redirect(f"/organization/confirm-creation?{query_params_string}")
 
     report_user_signed_up(
         user,
@@ -456,6 +450,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
         social_provider=backend.name,
         user_analytics_metadata=user.get_analytics_metadata(),
         org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
+        referral_source="social signup - no info",
     )
 
     return {"is_new": True, "user": user}

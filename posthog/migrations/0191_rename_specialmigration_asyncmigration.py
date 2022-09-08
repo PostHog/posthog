@@ -10,5 +10,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RenameModel(old_name="SpecialMigration", new_name="AsyncMigration",),
+        migrations.RenameModel(
+            old_name="SpecialMigration",
+            new_name="AsyncMigration",
+        ),
     ]

@@ -11,6 +11,9 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AlterField(
-            model_name="pluginconfig", name="order", field=models.IntegerField(default=0), preserve_default=False,
+            model_name="pluginconfig",
+            name="order",
+            field=models.IntegerField(default=0),
+            preserve_default=False,
         ),
     ]

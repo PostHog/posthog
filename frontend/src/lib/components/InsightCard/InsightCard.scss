@@ -36,11 +36,9 @@
     min-height: 0;
     width: 100%;
     overflow: auto;
-    .graph-container {
+    .LineGraph,
+    .AnnotationsOverlay {
         padding: 1rem;
-        .annotations-root {
-            margin: 1rem;
-        }
     }
     .insight-empty-state {
         padding-top: 0;
@@ -212,7 +210,7 @@
     margin-top: 0.25rem;
     padding: 0.5rem;
     border-radius: var(--radius);
-    background: var(--bg-side);
+    background: var(--side);
     .LemonRow {
         padding-left: 0;
         padding-right: 0;
@@ -292,14 +290,6 @@
     }
     &.SeriesDisplay__raw-name--event::before {
         content: 'E';
-    }
-    .property-key-info {
-        line-height: 1rem;
-    }
-    .property-key-info-logo {
-        height: 1rem;
-        width: 1rem;
-        margin-right: 0.25rem;
     }
 }
 

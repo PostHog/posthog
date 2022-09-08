@@ -1,8 +1,7 @@
 import { actions, afterMount, kea, key, props, path, selectors, reducers, connect } from 'kea'
-import { AvailableFeature, Breadcrumb, Definition, EventDefinition, PropertyDefinition } from '~/types'
+import { AvailableFeature, Breadcrumb, Definition, PropertyDefinition } from '~/types'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -37,6 +36,7 @@ export const definitionLogic = kea<definitionLogicType>([
     actions({
         setDefinition: (definition: Partial<Definition>, options: SetDefinitionProps = {}) => ({ definition, options }),
         loadDefinition: (id: Definition['id']) => ({ id }),
+        setDefinitionMissing: true,
         setPageMode: (mode: DefinitionPageMode) => ({ mode }),
     }),
     connect(() => ({
@@ -49,8 +49,14 @@ export const definitionLogic = kea<definitionLogicType>([
                 setPageMode: (_, { mode }) => mode,
             },
         ],
+        definitionMissing: [
+            false,
+            {
+                setDefinitionMissing: () => true,
+            },
+        ],
     })),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         definition: [
             createNewDefinition(values.isEvent),
             {
@@ -64,9 +70,6 @@ export const definitionLogic = kea<definitionLogicType>([
                             definition = await api.eventDefinitions.get({
                                 eventDefinitionId: id,
                             })
-                            eventDefinitionsModel
-                                .findMounted()
-                                ?.actions.updateEventDefinition(definition as EventDefinition)
                         } else {
                             // Event Property Definition
                             definition = await api.propertyDefinitions.get({
@@ -76,6 +79,7 @@ export const definitionLogic = kea<definitionLogicType>([
                         }
                         breakpoint()
                     } catch (response: any) {
+                        actions.setDefinitionMissing()
                         throw response
                     }
 

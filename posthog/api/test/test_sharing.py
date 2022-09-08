@@ -16,10 +16,7 @@ class TestSharing(APIBaseTest):
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
 
-    insight_filter_dict = {
-        "events": [{"id": "$pageview"}],
-        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-    }
+    insight_filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
 
     @classmethod
     def setUpTestData(cls):
@@ -38,11 +35,7 @@ class TestSharing(APIBaseTest):
         assert SharingConfiguration.objects.count() == 1
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data == {
-            "access_token": data["access_token"],
-            "created_at": "2022-01-01T00:00:00Z",
-            "enabled": False,
-        }
+        assert data == {"access_token": data["access_token"], "created_at": "2022-01-01T00:00:00Z", "enabled": False}
 
         assert len(data["access_token"]) > 0
 
@@ -104,7 +97,7 @@ class TestSharing(APIBaseTest):
 
     def test_should_not_get_deleted_item(self):
         dashboard = Dashboard.objects.create(
-            team=self.team, name="example dashboard", created_by=self.user, share_token="my_test_token", is_shared=True,
+            team=self.team, name="example dashboard", created_by=self.user, share_token="my_test_token", is_shared=True
         )
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing", {"enabled": True}

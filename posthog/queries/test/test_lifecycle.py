@@ -1,7 +1,6 @@
 import json
 
 from freezegun import freeze_time
-from rest_framework.test import APIRequestFactory
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models import Filter
@@ -21,12 +20,10 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                             team_id=self.team.pk,
                             distinct_ids=[id],
                             properties={"name": id, **({"email": "test@posthog.com"} if id == "p1" else {})},
-                        ),
+                        )
                     )
                 for timestamp in timestamps:
-                    event_factory(
-                        team=self.team, event="$pageview", distinct_id=id, timestamp=timestamp,
-                    )
+                    event_factory(team=self.team, event="$pageview", distinct_id=id, timestamp=timestamp)
             return person_result
 
         def test_lifecycle_trend(self):
@@ -121,22 +118,14 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
             person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
-            event_factory(
-                team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z",
-            )
-            event_factory(
-                team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z",
-            )
+            event_factory(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z")
+            event_factory(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z")
 
             person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
-            event_factory(
-                team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z",
-            )
+            event_factory(team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z")
 
             person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
-            event_factory(
-                team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z",
-            )
+            event_factory(team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z")
 
             result = trends().run(
                 Filter(
@@ -195,23 +184,13 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             with freeze_time("2020-01-12T12:00:00Z"):
                 person_factory(team_id=self.team.pk, distinct_ids=["p1", "another_p1"], properties={"name": "p1"})
 
-            event_factory(
-                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-12T12:00:00Z",
-            )
-            event_factory(
-                team=self.team, event="$pageview", distinct_id="another_p1", timestamp="2020-01-14T12:00:00Z",
-            )
-            event_factory(
-                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-15T12:00:00Z",
-            )
+            event_factory(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-12T12:00:00Z")
+            event_factory(team=self.team, event="$pageview", distinct_id="another_p1", timestamp="2020-01-14T12:00:00Z")
+            event_factory(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-15T12:00:00Z")
 
-            event_factory(
-                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-17T12:00:00Z",
-            )
+            event_factory(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-17T12:00:00Z")
 
-            event_factory(
-                team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-19T12:00:00Z",
-            )
+            event_factory(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-19T12:00:00Z")
 
             result = trends().run(
                 Filter(
@@ -257,8 +236,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
             p1 = people[0]
-            request_factory = APIRequestFactory()
-            request = request_factory.get("/person/lifecycle")
 
             result = trends().get_people(
                 Filter(
@@ -272,7 +249,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "returning",
-                request,
             )
 
             self.assertEqual(len(result), 1)
@@ -290,7 +266,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
-                request,
             )
 
             self.assertEqual(len(dormant_result), 2)
@@ -307,7 +282,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-14T00:00:00Z"),
                 "dormant",
-                request,
             )
 
             self.assertEqual(len(dormant_result), 1)
@@ -318,7 +292,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     person_id = "person{}".format(i)
                     person_factory(team_id=self.team.pk, distinct_ids=[person_id])
                     event_factory(
-                        team=self.team, event="$pageview", distinct_id=person_id, timestamp="2020-01-15T12:00:00Z",
+                        team=self.team, event="$pageview", distinct_id=person_id, timestamp="2020-01-15T12:00:00Z"
                     )
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result = self.client.get(
@@ -486,7 +460,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                             "2020-09-19T12:00:00Z",
                         ],
                     ),
-                    ("p2", ["2019-12-09T12:00:00Z", "2020-02-12T12:00:00Z",]),
+                    ("p2", ["2019-12-09T12:00:00Z", "2020-02-12T12:00:00Z"]),
                     ("p3", ["2020-02-12T12:00:00Z"]),
                     ("p4", ["2020-05-15T12:00:00Z"]),
                 ]
@@ -559,9 +533,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ],
             )
 
-            request_factory = APIRequestFactory()
-            request = request_factory.get("/person/lifecycle")
-
             trends().get_people(
                 Filter(
                     data={
@@ -576,7 +547,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
-                request,
             )
 
         def assertLifecycleResults(self, results, expected):

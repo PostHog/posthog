@@ -154,7 +154,7 @@ class TrendsBreakdown:
             _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_cohort_params()
         else:
             _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_prop_params(
-                "count(*)" if self.entity.math == "dau" else aggregate_operation, math_params,
+                "count(*)" if self.entity.math == "dau" else aggregate_operation, math_params
             )
 
         if len(_params["values"]) == 0:
@@ -162,11 +162,7 @@ class TrendsBreakdown:
             # a "real" SELECT for this, we only include the below dummy SELECT.
             # It's a drop-in replacement for a "real" one, simply always returning 0 rows.
             # See https://github.com/PostHog/posthog/pull/5674 for context.
-            return (
-                "SELECT [now()] AS date, [0] AS data, '' AS breakdown_value LIMIT 0",
-                {},
-                lambda _: [],
-            )
+            return ("SELECT [now()] AS date, [0] AS data, '' AS breakdown_value LIMIT 0", {}, lambda _: [])
 
         person_join_condition, person_join_params = self._person_join_condition()
         groups_join_condition, groups_join_params = self._groups_join_condition()
@@ -267,11 +263,9 @@ class TrendsBreakdown:
                 )
 
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
-                interval=interval_annotation, num_intervals=num_intervals, inner_sql=inner_sql,
+                interval=interval_annotation, num_intervals=num_intervals, inner_sql=inner_sql
             )
-            self.params.update(
-                {"seconds_in_interval": seconds_in_interval, "num_intervals": num_intervals,}
-            )
+            self.params.update({"seconds_in_interval": seconds_in_interval, "num_intervals": num_intervals})
 
             return breakdown_query, self.params, self._parse_trend_result(self.filter, self.entity)
 
@@ -324,14 +318,13 @@ class TrendsBreakdown:
 
         elif self.using_person_on_events:
             if self.filter.breakdown_type == "person":
-                # person props are not materialised on events yet, so don't allow denormalisation
                 breakdown_value, _ = get_property_string_expr(
-                    "events", breakdown, "%(key)s", "person_properties", allow_denormalized_props=False
+                    "events", breakdown, "%(key)s", "person_properties", materialised_table_column="person_properties"
                 )
             elif self.filter.breakdown_type == "group":
                 properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
                 breakdown_value, _ = get_property_string_expr(
-                    "events", breakdown, "%(key)s", properties_field, allow_denormalized_props=False
+                    "events", breakdown, "%(key)s", properties_field, materialised_table_column=properties_field
                 )
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
@@ -340,7 +333,9 @@ class TrendsBreakdown:
                 breakdown_value, _ = get_property_string_expr("person", breakdown, "%(key)s", "person_props")
             elif self.filter.breakdown_type == "group":
                 properties_field = f"group_properties_{self.filter.breakdown_group_type_index}"
-                breakdown_value, _ = get_property_string_expr("groups", breakdown, "%(key)s", properties_field)
+                breakdown_value, _ = get_property_string_expr(
+                    "groups", breakdown, "%(key)s", properties_field, materialised_table_column="group_properties"
+                )
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
@@ -402,7 +397,7 @@ class TrendsBreakdown:
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
-                        "url": f"api/projects/{self.team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                        "url": f"api/projects/{self.team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
                     },
                     **result_descriptors,
                     **additional_values,
@@ -459,7 +454,7 @@ class TrendsBreakdown:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
                 }
             )
         return persons_url
@@ -469,9 +464,7 @@ class TrendsBreakdown:
             breakdown_value, filter.breakdown_type, filter.breakdown, breakdown_value
         )
         label = "{} - {}".format(entity.name, extra_label)
-        additional_values = {
-            "label": label,
-        }
+        additional_values = {"label": label}
         if filter.breakdown_type == "cohort":
             additional_values["breakdown_value"] = "all" if breakdown_value == ALL_USERS_COHORT_ID else breakdown_value
         else:

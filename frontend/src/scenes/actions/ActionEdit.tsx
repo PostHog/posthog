@@ -118,7 +118,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                                 ? 'edit'
                                                 : undefined /* When creating a new action, maintain edit mode */
                                         }
-                                        autoFocus={!!id}
                                         data-attr="action-description"
                                         className="action-description"
                                         compactButtons
@@ -186,7 +185,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         const identifier = String(JSON.stringify(step))
                                         return (
                                             <ActionStep
-                                                key={identifier}
+                                                key={index}
                                                 identifier={identifier}
                                                 index={index}
                                                 step={step}

@@ -1,18 +1,19 @@
 /*
 Scene to request a password reset email.
 */
-import { Col, Row, Form, Input, Button, Skeleton, Divider } from 'antd'
-import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import React from 'react'
-import { WelcomeLogo } from './WelcomeLogo'
-import { ExclamationCircleFilled, CheckCircleOutlined } from '@ant-design/icons'
-import './PasswordReset.scss'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { passwordResetLogic } from './passwordResetLogic'
 import { router } from 'kea-router'
 import { SceneExport } from 'scenes/sceneTypes'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { Form } from 'kea-forms'
+import { Field } from 'lib/forms/Field'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { IconCheckCircleOutline } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: PasswordReset,
@@ -21,35 +22,26 @@ export const scene: SceneExport = {
 
 export function PasswordReset(): JSX.Element {
     const { preflight, preflightLoading } = useValues(preflightLogic)
-    const { resetResponse } = useValues(passwordResetLogic)
+    const { requestPasswordResetSucceeded } = useValues(passwordResetLogic)
 
     return (
-        <div className="bridge-page password-reset">
-            <Row>
-                <Col span={24} className="auth-main-content">
-                    <WelcomeLogo view="login" />
-                    <div className="inner">
-                        {resetResponse?.success && (
-                            <div className="text-center">
-                                <CheckCircleOutlined style={{ color: 'var(--success)', fontSize: '4em' }} />
-                            </div>
-                        )}
-                        <h2 className="subtitle" style={{ justifyContent: 'center' }}>
-                            Reset password
-                        </h2>
-                        {preflightLoading ? (
-                            <Skeleton active paragraph={{ rows: 4 }} />
-                        ) : !preflight?.email_service_available ? (
-                            <EmailUnavailable />
-                        ) : resetResponse?.success ? (
-                            <ResetSuccess />
-                        ) : (
-                            <ResetForm />
-                        )}
-                    </div>
-                </Col>
-            </Row>
-        </div>
+        <BridgePage view="password-reset">
+            {requestPasswordResetSucceeded && (
+                <div className="text-center">
+                    <IconCheckCircleOutline className="text-5xl text-success" />
+                </div>
+            )}
+            <h2>Reset password</h2>
+            {preflightLoading ? (
+                <Spinner />
+            ) : !preflight?.email_service_available ? (
+                <EmailUnavailable />
+            ) : requestPasswordResetSucceeded ? (
+                <ResetSuccess />
+            ) : (
+                <ResetForm />
+            )}
+        </BridgePage>
     )
 }
 
@@ -60,19 +52,21 @@ function EmailUnavailable(): JSX.Element {
                 Self-serve password reset is unavailable. Please <b>contact your instance administrator</b> to reset
                 your password.
             </div>
-            <Divider />
+            <LemonDivider className="my-6" />
             <div className="mt-4">
                 If you're an administrator:
-                <ul>
-                    <li>
-                        Password reset is unavailable because email service is not configured.{' '}
-                        <a href="https://posthog.com/docs/self-host/configure/email?utm_medium=in-product&utm_campaign=password-reset">
-                            Read the docs
-                        </a>{' '}
-                        on how to set this up.
-                    </li>
-                    <li>To reset the password manually, run the following command in your instance.</li>
-                </ul>
+                <p>
+                    <ul>
+                        <li>
+                            Password reset is unavailable because email service is not configured.{' '}
+                            <a href="https://posthog.com/docs/self-host/configure/email?utm_medium=in-product&utm_campaign=password-reset">
+                                Read the docs
+                            </a>{' '}
+                            on how to set this up.
+                        </li>
+                        <li>To reset the password manually, run the following command in your instance.</li>
+                    </ul>
+                </p>
                 <CodeSnippet language={Language.Bash} wrap>
                     {'python manage.py changepassword [account email]'}
                 </CodeSnippet>
@@ -82,78 +76,49 @@ function EmailUnavailable(): JSX.Element {
 }
 
 function ResetForm(): JSX.Element {
-    const { resetResponseLoading, resetResponse } = useValues(passwordResetLogic)
-    const { reset } = useActions(passwordResetLogic)
-    const [form] = Form.useForm()
+    const { isRequestPasswordResetSubmitting } = useValues(passwordResetLogic)
 
     return (
-        <>
-            <div className="text-center mb-4">
+        <Form logic={passwordResetLogic} formKey={'requestPasswordReset'} className="space-y-4" enableFormOnSubmit>
+            <div className="text-center">
                 Enter your email address. If an account exists, you’ll receive an email with a password reset link soon.
             </div>
-            {!resetResponseLoading && resetResponse?.errorCode && (
-                <InlineMessage style={{ marginBottom: 16 }} type="danger">
-                    {resetResponse.errorDetail || 'Could not complete your password reset request. Please try again.'}
-                </InlineMessage>
-            )}
-            <Form
-                layout="vertical"
-                form={form}
-                onFinish={(values) => reset({ email: values.email })}
-                requiredMark={false}
-                noValidate
+            <Field name="email" label="Email">
+                <LemonInput
+                    className="ph-ignore-input"
+                    autoFocus
+                    data-attr="reset-email"
+                    placeholder="email@yourcompany.com"
+                    type="email"
+                    disabled={isRequestPasswordResetSubmitting}
+                />
+            </Field>
+            <LemonButton
+                fullWidth
+                type="primary"
+                center
+                htmlType="submit"
+                data-attr="password-reset"
+                loading={isRequestPasswordResetSubmitting}
             >
-                <Form.Item
-                    name="email"
-                    label="Email"
-                    rules={[
-                        {
-                            required: true,
-                            message: (
-                                <>
-                                    <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Please enter your email to
-                                    continue
-                                </>
-                            ),
-                        },
-                    ]}
-                >
-                    <Input
-                        className="ph-ignore-input"
-                        autoFocus
-                        data-attr="reset-email"
-                        placeholder="email@yourcompany.com"
-                        type="email"
-                        disabled={resetResponseLoading}
-                    />
-                </Form.Item>
-                <Form.Item>
-                    <Button
-                        className="btn-bridge"
-                        htmlType="submit"
-                        data-attr="password-reset"
-                        loading={resetResponseLoading}
-                        block
-                    >
-                        Continue
-                    </Button>
-                </Form.Item>
-            </Form>
-        </>
+                Continue
+            </LemonButton>
+        </Form>
     )
 }
 
 function ResetSuccess(): JSX.Element {
-    const { resetResponse } = useValues(passwordResetLogic)
+    const { requestPasswordReset } = useValues(passwordResetLogic)
     const { push } = useActions(router)
+
     return (
         <div className="text-center">
-            Request received successfully! If the email <b>{resetResponse?.email || 'you typed'}</b> exists, you’ll
-            receive an email with a reset link soon.
+            Request received successfully! If the email <b>{requestPasswordReset?.email || 'you typed'}</b> exists,
+            you’ll receive an email with a reset link soon.
             <div className="mt-4">
-                <Button className="btn-bridge" data-attr="back-to-login" block onClick={() => push('/login')}>
+                <LemonButton type="primary" data-attr="back-to-login" center fullWidth onClick={() => push('/login')}>
                     Back to login
-                </Button>
+                </LemonButton>
             </div>
         </div>
     )

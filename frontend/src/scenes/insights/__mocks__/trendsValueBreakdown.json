@@ -77,7 +77,7 @@
                     "breakdown_value": "100",
                     "breakdown_type": "event"
                 },
-                "url": "api/projects/1/actions/people/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A35%3A53.341575%2B00%3A00&display=ActionsBarValue&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=100"
+                "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A35%3A53.341575%2B00%3A00&display=ActionsBarValue&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=100"
             },
             "breakdown_value": "100"
         },
@@ -125,7 +125,7 @@
                     "breakdown_value": "92",
                     "breakdown_type": "event"
                 },
-                "url": "api/projects/1/actions/people/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A35%3A53.341575%2B00%3A00&display=ActionsBarValue&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=92"
+                "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A35%3A53.341575%2B00%3A00&display=ActionsBarValue&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=92"
             },
             "breakdown_value": "92"
         },
@@ -173,7 +173,7 @@
                     "breakdown_value": "98",
                     "breakdown_type": "event"
                 },
-                "url": "api/projects/1/actions/people/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A35%3A53.341575%2B00%3A00&display=ActionsBarValue&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=98"
+                "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A35%3A53.341575%2B00%3A00&display=ActionsBarValue&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=98"
             },
             "breakdown_value": "98"
         }

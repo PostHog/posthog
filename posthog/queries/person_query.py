@@ -73,7 +73,10 @@ class PersonQuery:
             f", argMax({column_name}, version) as {alias}" for column_name, alias in self._get_fields()
         )
 
-        person_filters, params = self._get_person_filters(prepend=prepend)
+        grouped_person_filters, grouped_person_params = self._get_grouped_person_filters(
+            prepend=f"grouped_filters_{prepend}"
+        )
+        person_filters, person_params = self._get_person_filters(prepend=prepend)
         cohort_query, cohort_params = self._get_cohort_query()
         if paginate:
             limit_offset, limit_params = self._get_limit_offset()
@@ -88,16 +91,34 @@ class PersonQuery:
             f"""
             SELECT {fields}
             FROM person
+            WHERE team_id = %(team_id)s
+            AND id IN (
+                SELECT id FROM person
+                {cohort_query}
+                WHERE team_id = %(team_id)s
+                {person_filters}
+            )
+            GROUP BY id
+            HAVING max(is_deleted) = 0
+            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
+            {"ORDER BY max(created_at) DESC, id" if paginate else ""}
+            {limit_offset}
+        """
+            if person_filters
+            else f"""
+            SELECT {fields}
+            FROM person
             {cohort_query}
             WHERE team_id = %(team_id)s
             GROUP BY id
             HAVING max(is_deleted) = 0
-            {person_filters} {search_clause} {distinct_id_clause} {email_clause}
+            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
             {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
         """,
             {
-                **params,
+                **person_params,
+                **grouped_person_params,
                 **cohort_params,
                 **limit_params,
                 **search_params,
@@ -138,7 +159,7 @@ class PersonQuery:
 
         return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in sorted(columns)]
 
-    def _get_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
+    def _get_grouped_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
         return parse_prop_grouped_clauses(
             self._team_id,
             self._inner_person_properties,
@@ -146,6 +167,17 @@ class PersonQuery:
             group_properties_joined=False,
             person_properties_mode=PersonPropertiesMode.DIRECT,
             prepend=prepend,
+        )
+
+    def _get_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
+        return parse_prop_grouped_clauses(
+            self._team_id,
+            self._inner_person_properties,
+            has_person_id_joined=False,
+            group_properties_joined=False,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_PERSONS,
+            prepend=prepend,
+            table_name="person",
         )
 
     def _get_cohort_query(self) -> Tuple[str, Dict]:

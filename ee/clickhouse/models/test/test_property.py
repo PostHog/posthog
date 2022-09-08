@@ -23,7 +23,14 @@ from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_optimizer import PropertyOptimizer
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    cleanup_materialized_columns,
+    snapshot_clickhouse_queries,
+)
 
 
 class TestPropFormat(ClickhouseTestMixin, BaseTest):
@@ -44,33 +51,27 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 
         _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
 
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"},
-        )
+        _create_event(event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"})
 
-        filter = Filter(data={"properties": [{"key": "email", "value": "test@posthog.com", "type": "person"}],})
+        filter = Filter(data={"properties": [{"key": "email", "value": "test@posthog.com", "type": "person"}]})
         self.assertEqual(len(self._run_query(filter)), 1)
 
     def test_prop_event(self):
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"attr": "some_other_val"},
-        )
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"attr": "some_other_val"})
 
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"attr": "some_val"},
-        )
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"attr": "some_val"})
 
-        filter_exact = Filter(data={"properties": [{"key": "attr", "value": "some_val"}],})
+        filter_exact = Filter(data={"properties": [{"key": "attr", "value": "some_val"}]})
         self.assertEqual(len(self._run_query(filter_exact)), 1)
 
-        filter_regex = Filter(data={"properties": [{"key": "attr", "value": "some_.+_val", "operator": "regex"}],})
+        filter_regex = Filter(data={"properties": [{"key": "attr", "value": "some_.+_val", "operator": "regex"}]})
         self.assertEqual(len(self._run_query(filter_regex)), 1)
 
-        filter_icontains = Filter(data={"properties": [{"key": "attr", "value": "Some_Val", "operator": "icontains"}],})
+        filter_icontains = Filter(data={"properties": [{"key": "attr", "value": "Some_Val", "operator": "icontains"}]})
         self.assertEqual(len(self._run_query(filter_icontains)), 1)
 
         filter_not_icontains = Filter(
-            data={"properties": [{"key": "attr", "value": "other", "operator": "not_icontains"}],}
+            data={"properties": [{"key": "attr", "value": "other", "operator": "not_icontains"}]}
         )
         self.assertEqual(len(self._run_query(filter_not_icontains)), 1)
 
@@ -81,10 +82,10 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             distinct_id="whatever",
             properties={"attr": "some_other_val"},
             elements=[
-                Element(tag_name="a", href="/a-url", attr_class=["small"], text="bla bla", nth_child=1, nth_of_type=0,),
+                Element(tag_name="a", href="/a-url", attr_class=["small"], text="bla bla", nth_child=1, nth_of_type=0),
                 Element(tag_name="button", attr_class=["btn", "btn-primary"], nth_child=0, nth_of_type=0),
                 Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="label", nth_child=0, nth_of_type=0, attr_id="nested",),
+                Element(tag_name="label", nth_child=0, nth_of_type=0, attr_id="nested"),
             ],
         )
         _create_event(
@@ -104,7 +105,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 ),
                 Element(tag_name="button", attr_class=["btn", "btn-secondary"], nth_child=0, nth_of_type=0),
                 Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="img", nth_child=0, nth_of_type=0, attr_id="nested",),
+                Element(tag_name="img", nth_child=0, nth_of_type=0, attr_id="nested"),
             ],
         )
         _create_event(
@@ -112,7 +113,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             team=self.team,
             distinct_id="whatever",
             elements=[
-                Element(tag_name="a", href="/789", nth_child=0, nth_of_type=0,),
+                Element(tag_name="a", href="/789", nth_child=0, nth_of_type=0),
                 Element(tag_name="button", attr_class=["btn", "btn-tertiary"], nth_child=0, nth_of_type=0),
             ],
         )
@@ -158,12 +159,12 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(self._run_query(filter)), 2)
 
         filter_selector_exact_empty = Filter(
-            data={"properties": [{"key": "selector", "value": [], "operator": "exact", "type": "element",}]}
+            data={"properties": [{"key": "selector", "value": [], "operator": "exact", "type": "element"}]}
         )
         self.assertEqual(len(self._run_query(filter_selector_exact_empty)), 0)
 
         filter_selector_is_not_empty = Filter(
-            data={"properties": [{"key": "selector", "value": [], "operator": "is_not", "type": "element",}]}
+            data={"properties": [{"key": "selector", "value": [], "operator": "is_not", "type": "element"}]}
         )
         self.assertEqual(len(self._run_query(filter_selector_is_not_empty)), 3)
 
@@ -274,7 +275,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             team=self.team,
             distinct_id="whatever",
             elements=[
-                Element(tag_name="a", href="/789", nth_child=0, nth_of_type=0,),
+                Element(tag_name="a", href="/789", nth_child=0, nth_of_type=0),
                 Element(tag_name="button", attr_class=["btn space", "btn-tertiary"], nth_child=0, nth_of_type=0),
             ],
         )
@@ -287,77 +288,57 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(self._run_query(filter)), 1)
 
     def test_prop_ints_saved_as_strings(self):
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "0"},
-        )
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "2"},
-        )
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 2},
-        )
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "string"},
-        )
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": "2"}],})
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "0"})
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "2"})
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 2})
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "string"})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "2"}]})
         self.assertEqual(len(self._run_query(filter)), 2)
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": 2}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 2}]})
         self.assertEqual(len(self._run_query(filter)), 2)
 
         # value passed as string
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": "1", "operator": "gt"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "1", "operator": "gt"}]})
         self.assertEqual(len(self._run_query(filter)), 2)
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": "3", "operator": "lt"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "3", "operator": "lt"}]})
         self.assertEqual(len(self._run_query(filter)), 3)
 
         # value passed as int
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "gt"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "gt"}]})
         self.assertEqual(len(self._run_query(filter)), 2)
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": 3, "operator": "lt"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 3, "operator": "lt"}]})
         self.assertEqual(len(self._run_query(filter)), 3)
 
     def test_prop_decimals(self):
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 1.4},
-        )
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 1.3},
-        )
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 2},
-        )
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 2.5},
-        )
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 1.4})
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 1.3})
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 2})
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 2.5})
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1.5}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1.5}]})
         self.assertEqual(len(self._run_query(filter)), 0)
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1.2, "operator": "gt"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1.2, "operator": "gt"}]})
         self.assertEqual(len(self._run_query(filter)), 4)
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": "1.2", "operator": "gt"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "1.2", "operator": "gt"}]})
         self.assertEqual(len(self._run_query(filter)), 4)
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": 2.3, "operator": "lt"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 2.3, "operator": "lt"}]})
         self.assertEqual(len(self._run_query(filter)), 3)
 
     @snapshot_clickhouse_queries
     def test_parse_groups(self):
 
         _create_event(
-            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr_1": "val_1", "attr_2": "val_2"},
+            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr_1": "val_1", "attr_2": "val_2"}
         )
 
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr_1": "val_2"},
-        )
+        _create_event(event="$pageview", team=self.team, distinct_id="some_id", properties={"attr_1": "val_2"})
 
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr_1": "val_3"},
-        )
+        _create_event(event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr_1": "val_3"})
 
         filter = Filter(
             data={
@@ -368,7 +349,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                             "type": "AND",
                             "values": [{"key": "attr_1", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
                         },
-                        {"type": "OR", "values": [{"key": "attr_1", "value": "val_2"}],},
+                        {"type": "OR", "values": [{"key": "attr_1", "value": "val_2"}]},
                     ],
                 }
             }
@@ -387,7 +368,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                             "type": "AND",
                             "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
                         },
-                        {"type": "XOR", "values": [{"key": "attr", "value": "val_2"}],},
+                        {"type": "XOR", "values": [{"key": "attr", "value": "val_2"}]},
                     ],
                 }
             }
@@ -404,16 +385,12 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             distinct_ids=["some_other_random_id"], team_id=self.team.pk, properties={"email": "X@posthog.com"}
         )
 
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "val_1"},
-        )
+        _create_event(event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "val_1"})
+
+        _create_event(event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "val_3"})
 
         _create_event(
-            event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "val_3"},
-        )
-
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="some_other_random_id", properties={"attr": "val_3"},
+            event="$pageview", team=self.team, distinct_id="some_other_random_id", properties={"attr": "val_3"}
         )
 
         filter = Filter(
@@ -421,8 +398,8 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 "properties": {
                     "type": "OR",
                     "values": [
-                        {"type": "OR", "values": [{"key": "email", "type": "person", "value": "1@posthog.com"}],},
-                        {"type": "OR", "values": [{"key": "email", "type": "person", "value": "2@posthog.com"}],},
+                        {"type": "OR", "values": [{"key": "email", "type": "person", "value": "1@posthog.com"}]},
+                        {"type": "OR", "values": [{"key": "email", "type": "person", "value": "2@posthog.com"}]},
                     ],
                 }
             }
@@ -459,32 +436,30 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
     def test_prop_event_denormalized(self):
         _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "some_other_val"},
+            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "some_other_val"}
         )
 
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "some_val"},
-        )
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "some_val"})
 
         materialize("events", "test_prop")
         materialize("events", "something_else")
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val"}]})
         self.assertEqual(len(self._run_query(filter)), 1)
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_not"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_not"}]})
         self.assertEqual(len(self._run_query(filter)), 1)
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_set"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_set"}]})
         self.assertEqual(len(self._run_query(filter)), 2)
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_not_set"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_not_set"}]})
         self.assertEqual(len(self._run_query(filter)), 0)
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": "_other_", "operator": "icontains"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "_other_", "operator": "icontains"}]})
         self.assertEqual(len(self._run_query(filter)), 1)
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": "_other_", "operator": "not_icontains"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "_other_", "operator": "not_icontains"}]})
         self.assertEqual(len(self._run_query(filter)), 1)
 
     def test_prop_person_denormalized(self):
@@ -494,12 +469,12 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         materialize("person", "email")
 
         filter = Filter(
-            data={"properties": [{"key": "email", "type": "person", "value": "posthog", "operator": "icontains"}],}
+            data={"properties": [{"key": "email", "type": "person", "value": "posthog", "operator": "icontains"}]}
         )
         self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 1)
 
         filter = Filter(
-            data={"properties": [{"key": "email", "type": "person", "value": "posthog", "operator": "not_icontains"}],}
+            data={"properties": [{"key": "email", "type": "person", "value": "posthog", "operator": "not_icontains"}]}
         )
         self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 0)
 
@@ -544,24 +519,20 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 3)
 
     def test_prop_event_denormalized_ints(self):
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 0},
-        )
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 0})
 
-        _create_event(
-            event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 2},
-        )
+        _create_event(event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 2})
 
         materialize("events", "test_prop")
         materialize("events", "something_else")
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "gt"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "gt"}]})
         self.assertEqual(len(self._run_query(filter)), 1)
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "lt"}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "lt"}]})
         self.assertEqual(len(self._run_query(filter)), 1)
 
-        filter = Filter(data={"properties": [{"key": "test_prop", "value": 0}],})
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 0}]})
         self.assertEqual(len(self._run_query(filter)), 1)
 
     def test_get_property_string_expr(self):
@@ -586,6 +557,33 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(string_expr, ('e."mat_some_mat_prop"', True))
 
+        materialize("events", "some_mat_prop2", table_column="person_properties")
+        materialize("events", "some_mat_prop3", table_column="group2_properties")
+        string_expr = get_property_string_expr(
+            "events", "some_mat_prop2", "x", "properties", materialised_table_column="person_properties"
+        )
+        self.assertEqual(string_expr, ('"mat_pp_some_mat_prop2"', True))
+
+        string_expr = get_property_string_expr(
+            "events",
+            "some_mat_prop3",
+            "x",
+            "properties",
+            table_alias="e",
+            materialised_table_column="group2_properties",
+        )
+        self.assertEqual(string_expr, ('e."mat_gp2_some_mat_prop3"', True))
+
+        string_expr = get_property_string_expr(
+            "events",
+            "some_mat_prop3",
+            "'x'",
+            "gp_props_alias",
+            table_alias="e",
+            materialised_table_column="group1_properties",
+        )
+        self.assertEqual(string_expr, ("replaceRegexpAll(JSONExtractRaw(e.gp_props_alias, 'x'), '^\"|\"$', '')", False))
+
 
 @pytest.mark.django_db
 def test_parse_prop_clauses_defaults(snapshot):
@@ -594,7 +592,7 @@ def test_parse_prop_clauses_defaults(snapshot):
             "properties": [
                 {"key": "event_prop", "value": "value"},
                 {"key": "email", "type": "person", "value": "posthog", "operator": "icontains"},
-            ],
+            ]
         }
     )
 
@@ -626,7 +624,7 @@ def test_parse_prop_clauses_defaults(snapshot):
 @pytest.mark.django_db
 def test_parse_prop_clauses_funnel_step_element_prepend_regression(snapshot):
     filter = Filter(
-        data={"properties": [{"key": "text", "type": "element", "value": "Insights1", "operator": "exact"},]}
+        data={"properties": [{"key": "text", "type": "element", "value": "Insights1", "operator": "exact"}]}
     )
 
     assert (
@@ -640,7 +638,7 @@ def test_parse_prop_clauses_funnel_step_element_prepend_regression(snapshot):
 @pytest.mark.django_db
 def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
     filter = Filter(
-        data={"properties": {"type": "OR", "values": [{"key": "email", "type": "person", "value": "1@posthog.com"}],}}
+        data={"properties": {"type": "OR", "values": [{"key": "email", "type": "person", "value": "1@posthog.com"}]}}
     )
     assert (
         parse_prop_grouped_clauses(
@@ -681,6 +679,7 @@ TEST_BREAKDOWN_PROCESSING = [
 @pytest.mark.django_db
 @pytest.mark.parametrize("breakdown, table, query_alias, column, expected", TEST_BREAKDOWN_PROCESSING)
 def test_breakdown_query_expression(
+    clean_up_materialised_columns,
     breakdown: Union[str, List[str]],
     table: TableWithProperties,
     query_alias: Literal["prop", "value"],
@@ -692,20 +691,99 @@ def test_breakdown_query_expression(
     assert actual == expected
 
 
+TEST_BREAKDOWN_PROCESSING_MATERIALIZED = [
+    (
+        ["$browser"],
+        "events",
+        "value",
+        "properties",
+        "person_properties",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '')) AS value",
+        'array("mat_pp_$browser") AS value',
+    ),
+    (
+        ["$browser", "$browser_version"],
+        "events",
+        "prop",
+        "properties",
+        "group2_properties",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop",
+        """array("mat_gp2_$browser",replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop""",
+    ),
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "breakdown, table, query_alias, column, materialise_column, expected_with, expected_without",
+    TEST_BREAKDOWN_PROCESSING_MATERIALIZED,
+)
+def test_breakdown_query_expression_materialised(
+    clean_up_materialised_columns,
+    breakdown: Union[str, List[str]],
+    table: TableWithProperties,
+    query_alias: Literal["prop", "value"],
+    column: str,
+    materialise_column: str,
+    expected_with: str,
+    expected_without: str,
+):
+    materialize(table, breakdown[0], table_column="properties")
+    actual = get_single_or_multi_property_string_expr(
+        breakdown, table, query_alias, column, materialised_table_column=materialise_column
+    )
+
+    assert actual == expected_with
+
+    materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore
+    actual = get_single_or_multi_property_string_expr(
+        breakdown, table, query_alias, column, materialised_table_column=materialise_column
+    )
+
+    assert actual == expected_without
+
+
 @pytest.fixture
 def test_events(db, team) -> List[UUID]:
     return [
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"email": "test@posthog.com"},),
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"email": "mongo@example.com"},),
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": "some_val"},),
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": "50"},),
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": 5},),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"email": "test@posthog.com"},
+            group2_properties={"email": "test@posthog.com"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"email": "mongo@example.com"},
+            group2_properties={"email": "mongo@example.com"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"attr": "some_val"},
+            group2_properties={"attr": "some_val"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"attr": "50"},
+            group2_properties={"attr": "50"},
+        ),
+        _create_event(
+            event="$pageview", team=team, distinct_id="whatever", properties={"attr": 5}, group2_properties={"attr": 5}
+        ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             # unix timestamp in seconds
             properties={"unix_timestamp": int(datetime(2021, 4, 1, 18).timestamp())},
+            group2_properties={"unix_timestamp": int(datetime(2021, 4, 1, 18).timestamp())},
         ),
         _create_event(
             event="$pageview",
@@ -713,69 +791,86 @@ def test_events(db, team) -> List[UUID]:
             distinct_id="whatever",
             # unix timestamp in seconds
             properties={"unix_timestamp": int(datetime(2021, 4, 1, 19).timestamp())},
+            group2_properties={"unix_timestamp": int(datetime(2021, 4, 1, 19).timestamp())},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"long_date": f"{datetime(2021, 4, 1, 18):%Y-%m-%d %H:%M:%S%z}"},
+            group2_properties={"long_date": f"{datetime(2021, 4, 1, 18):%Y-%m-%d %H:%M:%S%z}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"long_date": f"{datetime(2021, 4, 1, 19):%Y-%m-%d %H:%M:%S%z}"},
+            group2_properties={"long_date": f"{datetime(2021, 4, 1, 19):%Y-%m-%d %H:%M:%S%z}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"short_date": f"{datetime(2021, 4, 4):%Y-%m-%d}"},
+            group2_properties={"short_date": f"{datetime(2021, 4, 4):%Y-%m-%d}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"short_date": f"{datetime(2021, 4, 6):%Y-%m-%d}"},
+            group2_properties={"short_date": f"{datetime(2021, 4, 6):%Y-%m-%d}"},
         ),
         # unix timestamp in seconds with fractions of a second
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"sdk_$time": 1639427152.339},),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"sdk_$time": 1639427152.339},
+            group2_properties={"sdk_$time": 1639427152.339},
+        ),
         # unix timestamp in milliseconds
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"unix_timestamp_milliseconds": 1641977394339},
+            group2_properties={"unix_timestamp_milliseconds": 1641977394339},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"rfc_822_time": "Wed, 02 Oct 2002 15:00:00 +0200"},
+            group2_properties={"rfc_822_time": "Wed, 02 Oct 2002 15:00:00 +0200"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"iso_8601_$time": f"{datetime(2021, 4, 1, 19):%Y-%m-%dT%H:%M:%S%Z}"},
+            group2_properties={"iso_8601_$time": f"{datetime(2021, 4, 1, 19):%Y-%m-%dT%H:%M:%S%Z}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"full_date_increasing_$time": f"{datetime(2021, 4, 1, 19):%d-%m-%Y %H:%M:%S}"},
+            group2_properties={"full_date_increasing_$time": f"{datetime(2021, 4, 1, 19):%d-%m-%Y %H:%M:%S}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"with_slashes_$time": f"{datetime(2021, 4, 1, 19):%Y/%m/%d %H:%M:%S}"},
+            group2_properties={"with_slashes_$time": f"{datetime(2021, 4, 1, 19):%Y/%m/%d %H:%M:%S}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"with_slashes_increasing_$time": f"{datetime(2021, 4, 1, 19):%d/%m/%Y %H:%M:%S}"},
+            group2_properties={"with_slashes_increasing_$time": f"{datetime(2021, 4, 1, 19):%d/%m/%Y %H:%M:%S}"},
         ),
         _create_event(
             event="$pageview",
@@ -784,6 +879,7 @@ def test_events(db, team) -> List[UUID]:
             # seven digit unix timestamp in seconds - 7840800
             # Clickhouse cannot parse this. It isn't matched in tests from TEST_PROPERTIES
             properties={"unix_timestamp": int(datetime(1970, 4, 1, 18).timestamp())},
+            group2_properties={"unix_timestamp": int(datetime(1970, 4, 1, 18).timestamp())},
         ),
         _create_event(
             event="$pageview",
@@ -791,6 +887,7 @@ def test_events(db, team) -> List[UUID]:
             distinct_id="whatever",
             # nine digit unix timestamp in seconds - 323460000
             properties={"unix_timestamp": int(datetime(1980, 4, 1, 18).timestamp())},
+            group2_properties={"unix_timestamp": int(datetime(1980, 4, 1, 18).timestamp())},
         ),
         _create_event(
             # matched by exact date test
@@ -798,6 +895,7 @@ def test_events(db, team) -> List[UUID]:
             team=team,
             distinct_id="whatever",
             properties={"date_only": f"{datetime(2021, 4, 1):%d/%m/%Y}"},
+            group2_properties={"date_only": f"{datetime(2021, 4, 1):%d/%m/%Y}"},
         ),
         _create_event(
             # should not be matched by exact date test
@@ -805,6 +903,7 @@ def test_events(db, team) -> List[UUID]:
             team=team,
             distinct_id="whatever",
             properties={"date_only": f"{datetime(2021, 4, 1, 11):%d/%m/%Y}"},
+            group2_properties={"date_only": f"{datetime(2021, 4, 1, 11):%d/%m/%Y}"},
         ),
         _create_event(
             # not matched by exact date test
@@ -812,18 +911,23 @@ def test_events(db, team) -> List[UUID]:
             team=team,
             distinct_id="whatever",
             properties={"date_only": f"{datetime(2021, 4, 2):%d/%m/%Y}"},
+            group2_properties={"date_only": f"{datetime(2021, 4, 2):%d/%m/%Y}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"date_only_matched_against_date_and_time": f"{datetime(2021, 3, 31, 18):%d/%m/%Y %H:%M:%S}"},
+            group2_properties={
+                "date_only_matched_against_date_and_time": f"{datetime(2021, 3, 31, 18):%d/%m/%Y %H:%M:%S}"
+            },
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"date_only_matched_against_date_and_time": int(datetime(2021, 3, 31, 14).timestamp())},
+            group2_properties={"date_only_matched_against_date_and_time": int(datetime(2021, 3, 31, 14).timestamp())},
         ),
         _create_event(
             event="$pageview",
@@ -831,6 +935,9 @@ def test_events(db, team) -> List[UUID]:
             distinct_id="whatever",
             # include milliseconds, to prove they're ignored in the query
             properties={
+                "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 18, 12, 12, 12):%d/%m/%Y %H:%M:%S.%f}"
+            },
+            group2_properties={
                 "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 18, 12, 12, 12):%d/%m/%Y %H:%M:%S.%f}"
             },
         ),
@@ -842,8 +949,19 @@ def test_events(db, team) -> List[UUID]:
             properties={
                 "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 23, 59, 59, 12):%d/%m/%Y %H:%M:%S.%f}"
             },
+            group2_properties={
+                "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 23, 59, 59, 12):%d/%m/%Y %H:%M:%S.%f}"
+            },
         ),
     ]
+
+
+@pytest.fixture
+def clean_up_materialised_columns():
+    yield
+
+    # after test cleanup
+    cleanup_materialized_columns()
 
 
 TEST_PROPERTIES = [
@@ -904,104 +1022,102 @@ TEST_PROPERTIES = [
     pytest.param(Property(key="short_date", operator="is_date_before", value="2021-04-07"), [9, 10]),
     pytest.param(Property(key="short_date", operator="is_date_after", value="2021-04-03"), [9, 10]),
     pytest.param(
-        Property(key="sdk_$time", operator="is_date_before", value="2021-12-25",),
+        Property(key="sdk_$time", operator="is_date_before", value="2021-12-25"),
         [11],
         id="matching a unix timestamp in seconds with fractional seconds after the decimal point",
     ),
     pytest.param(
-        Property(key="unix_timestamp_milliseconds", operator="is_date_after", value="2022-01-11",),
+        Property(key="unix_timestamp_milliseconds", operator="is_date_after", value="2022-01-11"),
         [12],
         id="matching unix timestamp in milliseconds after a given date (which ClickHouse doesn't support)",
     ),
     pytest.param(
-        Property(key="unix_timestamp_milliseconds", operator="is_date_before", value="2022-01-13",),
+        Property(key="unix_timestamp_milliseconds", operator="is_date_before", value="2022-01-13"),
         [12],
         id="matching unix timestamp in milliseconds before a given date (which ClickHouse doesn't support)",
     ),
     pytest.param(
-        Property(key="rfc_822_time", operator="is_date_before", value="2002-10-02 17:01:00",),
+        Property(key="rfc_822_time", operator="is_date_before", value="2002-10-02 17:01:00"),
         [13],
         id="matching rfc 822 format date with timeszone offset before a given date",
     ),
     pytest.param(
-        Property(key="rfc_822_time", operator="is_date_after", value="2002-10-02 14:59:00",),
+        Property(key="rfc_822_time", operator="is_date_after", value="2002-10-02 14:59:00"),
         [],
         id="matching rfc 822 format date takes into account timeszone offset after a given date",
     ),
     pytest.param(
-        Property(key="rfc_822_time", operator="is_date_after", value="2002-10-02 12:59:00",),
+        Property(key="rfc_822_time", operator="is_date_after", value="2002-10-02 12:59:00"),
         [13],
         id="matching rfc 822 format date after a given date",
     ),
     pytest.param(
-        Property(key="iso_8601_$time", operator="is_date_before", value="2021-04-01 20:00:00",),
+        Property(key="iso_8601_$time", operator="is_date_before", value="2021-04-01 20:00:00"),
         [14],
         id="matching ISO 8601 format date before a given date",
     ),
     pytest.param(
-        Property(key="iso_8601_$time", operator="is_date_after", value="2021-04-01 18:00:00",),
+        Property(key="iso_8601_$time", operator="is_date_after", value="2021-04-01 18:00:00"),
         [14],
         id="matching ISO 8601 format date after a given date",
     ),
     pytest.param(
-        Property(key="full_date_increasing_$time", operator="is_date_before", value="2021-04-01 20:00:00",),
+        Property(key="full_date_increasing_$time", operator="is_date_before", value="2021-04-01 20:00:00"),
         [15],
         id="matching full format date with date parts n increasing order before a given date",
     ),
     pytest.param(
-        Property(key="full_date_increasing_$time", operator="is_date_after", value="2021-04-01 18:00:00",),
+        Property(key="full_date_increasing_$time", operator="is_date_after", value="2021-04-01 18:00:00"),
         [15],
         id="matching full format date with date parts in increasing order after a given date",
     ),
     pytest.param(
-        Property(key="with_slashes_$time", operator="is_date_before", value="2021-04-01 20:00:00",),
+        Property(key="with_slashes_$time", operator="is_date_before", value="2021-04-01 20:00:00"),
         [16],
         id="matching full format date with date parts separated by slashes before a given date",
     ),
     pytest.param(
-        Property(key="with_slashes_$time", operator="is_date_after", value="2021-04-01 18:00:00",),
+        Property(key="with_slashes_$time", operator="is_date_after", value="2021-04-01 18:00:00"),
         [16],
         id="matching full format date with date parts separated by slashes after a given date",
     ),
     pytest.param(
-        Property(key="with_slashes_increasing_$time", operator="is_date_before", value="2021-04-01 20:00:00",),
+        Property(key="with_slashes_increasing_$time", operator="is_date_before", value="2021-04-01 20:00:00"),
         [17],
         id="matching full format date with date parts increasing in size and separated by slashes before a given date",
     ),
     pytest.param(
-        Property(key="with_slashes_increasing_$time", operator="is_date_after", value="2021-04-01 18:00:00",),
+        Property(key="with_slashes_increasing_$time", operator="is_date_after", value="2021-04-01 18:00:00"),
         [17],
         id="matching full format date with date parts increasing in size and separated by slashes after a given date",
     ),
     pytest.param(
-        Property(key="date_only", operator="is_date_exact", value="2021-04-01",),
-        [20, 21],
-        id="can match dates exactly",
+        Property(key="date_only", operator="is_date_exact", value="2021-04-01"), [20, 21], id="can match dates exactly"
     ),
     pytest.param(
-        Property(key="date_only_matched_against_date_and_time", operator="is_date_exact", value="2021-03-31",),
+        Property(key="date_only_matched_against_date_and_time", operator="is_date_exact", value="2021-03-31"),
         [23, 24],
         id="can match dates exactly against datetimes and unix timestamps",
     ),
     pytest.param(
         Property(
-            key="date_exact_including_seconds_and_milliseconds", operator="is_date_exact", value="2021-03-31 18:12:12",
+            key="date_exact_including_seconds_and_milliseconds", operator="is_date_exact", value="2021-03-31 18:12:12"
         ),
         [25],
         id="can match date times exactly against datetimes with milliseconds",
     ),
     pytest.param(
-        Property(key="date_exact_including_seconds_and_milliseconds", operator="is_date_after", value="2021-03-31",),
+        Property(key="date_exact_including_seconds_and_milliseconds", operator="is_date_after", value="2021-03-31"),
         [],
         id="can match date only filter after against datetime with milliseconds",
     ),
     pytest.param(
-        Property(key="date_only", operator="is_date_after", value="2021-04-01",),
+        Property(key="date_only", operator="is_date_after", value="2021-04-01"),
         [22],
         id="can match after date only values",
     ),
     pytest.param(
-        Property(key="date_only", operator="is_date_before", value="2021-04-02",),
+        Property(key="date_only", operator="is_date_before", value="2021-04-02"),
         [20, 21],
         id="can match before date only values",
     ),
@@ -1010,7 +1126,7 @@ TEST_PROPERTIES = [
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
-def test_prop_filter_json_extract(test_events, property, expected_event_indexes, team):
+def test_prop_filter_json_extract(test_events, clean_up_materialised_columns, property, expected_event_indexes, team):
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False)
     uuids = list(
         sorted(
@@ -1030,14 +1146,46 @@ def test_prop_filter_json_extract(test_events, property, expected_event_indexes,
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
-def test_prop_filter_json_extract_materialized(test_events, property, expected_event_indexes, team):
-    materialize("events", "attr")
-    materialize("events", "email")
+def test_prop_filter_json_extract_materialized(
+    test_events, clean_up_materialised_columns, property, expected_event_indexes, team
+):
     materialize("events", property.key)
 
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
 
     assert "JSONExtract" not in query
+
+    uuids = list(
+        sorted(
+            [
+                str(uuid)
+                for (uuid,) in sync_execute(
+                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
+                )
+            ]
+        )
+    )
+    expected = list(sorted([test_events[index] for index in expected_event_indexes]))
+
+    assert uuids == expected
+
+
+@pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
+@freeze_time("2021-04-01T01:00:00.000Z")
+def test_prop_filter_json_extract_person_on_events_materialized(
+    test_events, clean_up_materialised_columns, property, expected_event_indexes, team
+):
+    # simulates a group property being materialised
+    materialize("events", property.key, table_column="group2_properties")
+
+    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
+    # this query uses the `properties` column, thus the materialized column is different.
+    assert ("JSON" in query) or ("AND 1 = 2" == query)
+
+    query, params = prop_filter_json_extract(
+        property, 0, allow_denormalized_props=True, use_event_column="group2_properties"
+    )
+    assert "JSON" not in query
 
     uuids = list(
         sorted(
@@ -1128,33 +1276,25 @@ def test_combine_group_properties():
 def test_session_property_validation():
     # Property key not valid for type session
     with pytest.raises(ValidationError):
-        filter = Filter(data={"properties": [{"type": "session", "key": "some_prop", "value": 0, "operator": "gt"}],})
-        parse_prop_grouped_clauses(
-            team_id=1, property_group=filter.property_groups,
-        )
+        filter = Filter(data={"properties": [{"type": "session", "key": "some_prop", "value": 0, "operator": "gt"}]})
+        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
 
     # Operator not valid for $session_duration
     with pytest.raises(ValidationError):
         filter = Filter(
-            data={"properties": [{"type": "session", "key": "$session_duration", "value": 0, "operator": "is_set"}],}
+            data={"properties": [{"type": "session", "key": "$session_duration", "value": 0, "operator": "is_set"}]}
         )
-        parse_prop_grouped_clauses(
-            team_id=1, property_group=filter.property_groups,
-        )
+        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
 
     # Value not valid for $session_duration
     with pytest.raises(ValidationError):
         filter = Filter(
-            data={"properties": [{"type": "session", "key": "$session_duration", "value": "hey", "operator": "gt"}],}
+            data={"properties": [{"type": "session", "key": "$session_duration", "value": "hey", "operator": "gt"}]}
         )
-        parse_prop_grouped_clauses(
-            team_id=1, property_group=filter.property_groups,
-        )
+        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
 
     # Valid property values
     filter = Filter(
-        data={"properties": [{"type": "session", "key": "$session_duration", "value": "100", "operator": "gt"}],}
+        data={"properties": [{"type": "session", "key": "$session_duration", "value": "100", "operator": "gt"}]}
     )
-    parse_prop_grouped_clauses(
-        team_id=1, property_group=filter.property_groups,
-    )
+    parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)

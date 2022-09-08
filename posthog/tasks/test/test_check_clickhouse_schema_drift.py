@@ -107,10 +107,7 @@ def test_get_clickhouse_schema_drift() -> None:
 
     # 2 tables missing on 2 nodes
     clickhouse_nodes = [("node1",), ("node2",), ("node3",)]
-    clickhouse_schema = [
-        ("table1", "schema1", "host1"),
-        ("table2", "schema2", "host1"),
-    ]
+    clickhouse_schema = [("table1", "schema1", "host1"), ("table2", "schema2", "host1")]
     diff = get_clickhouse_schema_drift(clickhouse_nodes, clickhouse_schema)
     assert diff == ["table1", "table2"]
 
@@ -131,9 +128,7 @@ def test_check_clickhouse_schema_drift_without_drift(mock_statsd: Mock) -> None:
         ("table2", "schema2", "host2"),
     ]
     check_clickhouse_schema_drift(clickhouse_nodes, clickhouse_schema)
-    assert mock_statsd.call_args_list == [
-        call("clickhouse_schema_drift_table_count", 0),
-    ]
+    assert mock_statsd.call_args_list == [call("clickhouse_schema_drift_table_count", 0)]
 
 
 @patch("statshog.defaults.django.statsd.gauge")

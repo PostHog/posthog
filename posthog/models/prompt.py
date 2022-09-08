@@ -49,10 +49,10 @@ experiment_config = [
                 ],  # buttons, can open external urls or trigger actions
                 "reference": "help-button",  # should match a `data-tooltip` reference to attach to a component
                 "icon": "messages",  # tbd if makes sense to add to the config, displays a different icon in the tooltips
-            },
+            }
         ],
         "rule": {
-            "path": "/*"
+            "path": {"must_match": ["/*"], "exclude": ["/ingestion", "/ingestion/*"]}
         },  # currently two rules enabled: `path` triggers the sequence by pathname, using wildcard matching; `must_be_completed`: allows to run a sequence only if others are completed;
         "type": "one-off",  # can be used to toggle different behaviors in the frontend
     },
@@ -64,7 +64,7 @@ experiment_config = [
                 "type": "tooltip",
                 "text": "This is the home page, where you can see the most recent insights, data and any pinned dashboards. You can also invite as many team members as you like, for free!",
                 "placement": "top-start",
-                "reference": "invite-members-button",
+                "reference": "project-home-invite-team-members",
                 "icon": "home",
             },
             {
@@ -72,7 +72,7 @@ experiment_config = [
                 "type": "tooltip",
                 "text": "If you have multiple products, it’s wise to set them up as separate projects so you don’t muddy the data. You can change projects at any time by clicking here.",
                 "placement": "bottom-start",
-                "reference": "project-button",
+                "reference": "breadcrumb-1",
                 "icon": "home",
             },
             {
@@ -81,10 +81,10 @@ experiment_config = [
                 "text": "Want to track how many events you’ve ingested this month? You can access billing information and manage your subscription here.",
                 "placement": "top-start",
                 "icon": "home",
-                "reference": "profile-button",
+                "reference": "top-menu-toggle",
             },
         ],
-        "rule": {"path": "/home", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/home"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -97,9 +97,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "dashboards-table",
                 "icon": "dashboard",
-            },
+            }
         ],
-        "rule": {"path": "/dashboard", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/dashboard"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -118,11 +118,11 @@ experiment_config = [
                 "type": "tooltip",
                 "text": "Tags are used across PostHog to help you stay organized. As you create more dashboards, titles and tags becomes even more useful.",
                 "placement": "top-start",
-                "reference": "dashboard-tags",
+                "reference": "button-add-tag",
                 "icon": "dashboard",
             },
         ],
-        "rule": {"path": "/dashboard/*", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/dashboard/*"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -134,7 +134,7 @@ experiment_config = [
                 "text": "Insights are how you analyze data. You can select from many insight types, such as funnels or user paths. Find out more about each in User Guides!",
                 "buttons": [{"url": "https://posthog.com/docs/user-guides/insights", "label": "Open User Guides"}],
                 "placement": "top-start",
-                "reference": "insight-view",
+                "reference": "insight-filters",
                 "icon": "insight",
             },
             {
@@ -145,11 +145,11 @@ experiment_config = [
                     {"url": "https://posthog.com/tutorials/filter-internal-users", "label": "Insight Filters tutorial"}
                 ],
                 "placement": "top-start",
-                "reference": "insight-view",
+                "reference": "insight-filters",
                 "icon": "insight",
             },
         ],
-        "rule": {"path": "/insights/*", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/insights/*"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -162,9 +162,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "insight-save-button",
                 "icon": "insight",
-            },
+            }
         ],
-        "rule": {"path": "/insights/new", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/insights/new"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -183,9 +183,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "session-recording-table",
                 "icon": "recordings",
-            },
+            }
         ],
-        "rule": {"path": "/recordings", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/recordings"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -204,11 +204,11 @@ experiment_config = [
                 "type": "tooltip",
                 "text": "User recordings can be quite long, so by default we’ll skip periods of inactivity. You can also speed up recordings, or skip to particular events using this timeline.",
                 "placement": "top-start",
-                "reference": "recording-player",
+                "reference": "rrweb-controller",
                 "icon": "recordings",
             },
         ],
-        "rule": {"path": "/recordings?*", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/recordings?*"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -221,9 +221,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "feature-flag-table",
                 "icon": "feature-flags",
-            },
+            }
         ],
-        "rule": {"path": "/feature_flags", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/feature_flags"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -232,21 +232,21 @@ experiment_config = [
             {
                 "step": 0,
                 "type": "tooltip",
-                "text": "Once you’ve created a flag as per the integration instructions, you can set release conditions to define who the flag is released to.",
-                "placement": "top-start",
-                "reference": "feature-flag-release-conditions",
-                "icon": "feature-flags",
-            },
-            {
-                "step": 1,
-                "type": "tooltip",
                 "text": "Once you’ve created a flag, don’t forget to save it. New flags will default to enabled, so if you don’t want to release yet then be sure to disable it for now.",
                 "placement": "top-start",
                 "reference": "feature-flag-enabled-toggle",
                 "icon": "feature-flags",
             },
+            {
+                "step": 1,
+                "type": "tooltip",
+                "text": "Once you’ve created a flag as per the integration instructions, you can set release conditions to define who the flag is released to.",
+                "placement": "top-start",
+                "reference": "feature-flag-release-conditions",
+                "icon": "feature-flags",
+            },
         ],
-        "rule": {"path": "/feature_flags/new", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/feature_flags/new"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -260,11 +260,11 @@ experiment_config = [
                     {"url": "https://posthog.com/docs/user-guides/experimentation", "label": "Open Experiments docs"}
                 ],
                 "placement": "top-start",
-                "reference": "experiments-table",
+                "reference": "experiment-table",
                 "icon": "experiments",
-            },
+            }
         ],
-        "rule": {"path": "/experiments", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/experiments"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -293,7 +293,7 @@ experiment_config = [
                 "icon": "experiments",
             },
         ],
-        "rule": {"path": "/experiments/new", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/experiments/new"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -304,11 +304,11 @@ experiment_config = [
                 "type": "tooltip",
                 "text": "PostHog doesn’t capture performance info on all events, but when it does you can see it here. You can also use Filters to find specific events, if needed.",
                 "placement": "top-start",
-                "reference": "web-performance-table",
+                "reference": "waterfall-events-table",
                 "icon": "web-performance",
-            },
+            }
         ],
-        "rule": {"path": "/web-performance", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/web-performance"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -319,11 +319,11 @@ experiment_config = [
                 "type": "tooltip",
                 "text": "Sometimes it can be helpful to get more context when looking at performance issues. Click here to go straight to a session recording of this event.",
                 "placement": "top-start",
-                "reference": "web-performance-chart",
+                "reference": "session-recordings-button",
                 "icon": "web-performance",
-            },
+            }
         ],
-        "rule": {"path": "/web-performance/*", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/web-performance/**/*"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -347,7 +347,7 @@ experiment_config = [
                 "icon": "live-events",
             },
         ],
-        "rule": {"path": "/events", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/events"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -358,11 +358,11 @@ experiment_config = [
                 "type": "tooltip",
                 "text": "Here you can see every event PostHog has ingested, as well as how often it’s been used for insights in the last 30 days. Click any event to get more information.",
                 "placement": "top-start",
-                "reference": "data-management-table",
+                "reference": "events-definition-table",
                 "icon": "data-management",
-            },
+            }
         ],
-        "rule": {"path": "/data-management/events", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/data-management/events"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -373,11 +373,11 @@ experiment_config = [
                 "type": "tooltip",
                 "text": "You can click ‘Edit’ to add tags or descriptions to events, which makes it easier for other users to build accurate insights.",
                 "placement": "top-start",
-                "reference": "data-management-event-edit-button",
+                "reference": "edit-definition",
                 "icon": "data-management",
-            },
+            }
         ],
-        "rule": {"path": "/data-management/events/*", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/data-management/events/*"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -390,9 +390,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "persons-table",
                 "icon": "persons",
-            },
+            }
         ],
-        "rule": {"path": "/persons", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/persons"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -411,11 +411,11 @@ experiment_config = [
                 "type": "tooltip",
                 "text": "Sometimes you may capture a user’s info twice, or you may need to delete records of an individual. In either situation, PostHog can do that.",
                 "placement": "top-start",
-                "reference": "person-split-merge-button",
+                "reference": "merge-person-button",
                 "icon": "persons",
             },
         ],
-        "rule": {"path": "/person/*", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/person/*"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -428,9 +428,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "cohorts-table",
                 "icon": "cohorts",
-            },
+            }
         ],
-        "rule": {"path": "/cohorts", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/cohorts"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -441,11 +441,11 @@ experiment_config = [
                 "type": "tooltip",
                 "text": "Cohorts can be either dynamic, or static. Dynamic cohorts are great for on-going analysis, as new matching users are automatically added. Static cohorts must be manually updated.",
                 "placement": "top-start",
-                "reference": "cohorts-type",
+                "reference": "cohort-type",
                 "icon": "cohorts",
-            },
+            }
         ],
-        "rule": {"path": "/cohorts/new", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/cohorts/new"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -464,11 +464,11 @@ experiment_config = [
                 "type": "tooltip",
                 "text": "Annotations can be really helpful later down the road, especially for new team members. Getting into the habit of adding annotations will help you get the most out of PostHog.",
                 "placement": "top-start",
-                "reference": "annotations-new-button",
+                "reference": "create-annotation",
                 "icon": "annotations",
             },
         ],
-        "rule": {"path": "/annotations", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/annotations"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -499,7 +499,7 @@ experiment_config = [
                 "icon": "apps",
             },
         ],
-        "rule": {"path": "/project/apps", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/project/apps"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
     {
@@ -512,9 +512,9 @@ experiment_config = [
                 "placement": "top-start",
                 "reference": "toolbar-authorized-toggle",
                 "icon": "apps",
-            },
+            }
         ],
-        "rule": {"path": "/toolbar", "must_be_completed": ["start-flow"]},
+        "rule": {"path": {"must_match": ["/toolbar"]}, "must_be_completed": ["start-flow"]},
         "type": "product-tour",
     },
 ]

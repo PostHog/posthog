@@ -42,9 +42,11 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** How tall should rows be. The default value is `"middle"`. */
-    size?: 'small' | 'middle'
+    size?: 'xs' | 'small' | 'middle'
     /** An embedded table has no border around it and no background. This way it blends better into other components. */
     embedded?: boolean
+    /** Whether inner table borders should be shown. **/
+    bordered?: boolean
     loading?: boolean
     pagination?: PaginationAuto | PaginationManual
     expandable?: ExpandableConfig<T>
@@ -55,7 +57,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /**
      * By default sorting goes: 0. unsorted > 1. ascending > 2. descending > GOTO 0 (loop).
      * With sorting cancellation disabled, GOTO 0 is replaced by GOTO 1. */
-    disableSortingCancellation?: boolean
+    noSortingCancellation?: boolean
     /** Sorting order to start with. */
     defaultSorting?: Sorting | null
     /** Controlled sort order. */
@@ -73,7 +75,6 @@ export interface LemonTableProps<T extends Record<string, any>> {
     className?: string
     style?: React.CSSProperties
     'data-attr'?: string
-    'data-tooltip'?: string
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -87,12 +88,13 @@ export function LemonTable<T extends Record<string, any>>({
     onRow,
     size,
     embedded = false,
+    bordered = true,
     loading,
     pagination,
     expandable,
     showHeader = true,
     uppercaseHeader = true,
-    disableSortingCancellation = false,
+    noSortingCancellation: disableSortingCancellation = false,
     defaultSorting = null,
     sorting,
     onSort,
@@ -103,7 +105,6 @@ export function LemonTable<T extends Record<string, any>>({
     className,
     style,
     'data-attr': dataAttr,
-    'data-tooltip': dataTooltip,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -198,12 +199,12 @@ export function LemonTable<T extends Record<string, any>>({
                 size && size !== 'middle' && `LemonTable--${size}`,
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
+                !bordered && 'LemonTable--borderless',
                 ...scrollableClassNames,
                 className
             )}
             style={style}
             data-attr={dataAttr}
-            data-tooltip={dataTooltip}
         >
             <div className="scrollable__inner" ref={scrollRef}>
                 <div className="LemonTable__content">

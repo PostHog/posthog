@@ -17,6 +17,7 @@ from typing import Dict, List
 # :TRICKY: Imported before anything else to support overloads
 from posthog.settings.overrides import *
 
+from posthog.settings.logs import *
 from posthog.settings.base_variables import *
 
 from posthog.settings.access import *
@@ -28,7 +29,6 @@ from posthog.settings.ee import *
 from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
 from posthog.settings.geoip import *
-from posthog.settings.logs import *
 from posthog.settings.sentry import *
 from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *
@@ -46,10 +46,7 @@ CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 5, t
 # https://posthog.com/docs/self-host/configure/environment-variables
 debug_queries = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
 disable_paid_fs = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_cast=str_to_bool)
-INSTANCE_PREFERENCES = {
-    "debug_queries": debug_queries,
-    "disable_paid_fs": disable_paid_fs,
-}
+INSTANCE_PREFERENCES = {"debug_queries": debug_queries, "disable_paid_fs": disable_paid_fs}
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
@@ -77,8 +74,9 @@ NPM_TOKEN = os.getenv("NPM_TOKEN", None)
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", True, type_cast=str_to_bool)
-EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = get_from_env(
-    "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_SECONDS", 86400, type_cast=int
+EVENT_PROPERTY_USAGE_INTERVAL_CRON = get_from_env(
+    "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_CRON",
+    "0 1 * * *",
 )
 
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
@@ -136,4 +134,4 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403
 
 # Lastly, cloud settings override and modify all
-from posthog.settings.cloud import *  # noqa: F401
+from posthog.settings.cloud import *  # noqa: F401, E402

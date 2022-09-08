@@ -1,6 +1,4 @@
 import { urls } from 'scenes/urls'
-import { combineUrl } from 'kea-router'
-import { InsightType } from '../../frontend/src/types'
 
 describe('Auth', () => {
     beforeEach(() => {
@@ -31,7 +29,7 @@ describe('Auth', () => {
         cy.get('[data-attr=password]').type('wrong password').should('have.value', 'wrong password')
         cy.get('[type=submit]').click()
 
-        cy.get('.inline-message.danger').should('contain', 'Invalid email or password.')
+        cy.get('.AlertMessage').should('contain', 'Invalid email or password.')
     })
 
     it('Redirect to appropriate place after login', () => {
@@ -94,28 +92,28 @@ describe('Password Reset', () => {
 
     it('Shows validation error if passwords do not match', () => {
         cy.visit('/reset/e2e_test_user/e2e_test_token')
-        cy.get('#password').type('12345678')
+        cy.get('[data-attr="password"]').type('12345678')
         cy.get('.ant-progress-bg').should('be.visible')
-        cy.get('#passwordConfirm').type('1234567A')
+        cy.get('[data-attr="password-confirm"]').type('1234567A')
         cy.get('button[type=submit]').click()
-        cy.get('.inline-message.danger').should('contain', 'Password confirmation does not match.')
+        cy.get('.text-danger').should('contain', 'Passwords do not match')
         cy.location('pathname').should('eq', '/reset/e2e_test_user/e2e_test_token') // not going anywhere
     })
 
     it('Shows validation error if password is too short', () => {
         cy.visit('/reset/e2e_test_user/e2e_test_token')
-        cy.get('#password').type('123')
-        cy.get('#passwordConfirm').type('123')
+        cy.get('[data-attr="password"]').type('123')
+        cy.get('[data-attr="password-confirm"]').type('123')
         cy.get('button[type=submit]').click()
-        cy.get('.ant-form-item-explain-error').should('be.visible')
-        cy.get('.ant-form-item-explain-error').should('contain', 'must be at least 8 characters')
+        cy.get('.text-danger').should('be.visible')
+        cy.get('.text-danger').should('contain', 'must be at least 8 characters')
         cy.location('pathname').should('eq', '/reset/e2e_test_user/e2e_test_token') // not going anywhere
     })
 
     it('Can reset password with valid token', () => {
         cy.visit('/reset/e2e_test_user/e2e_test_token')
-        cy.get('#password').type('NEW123456789')
-        cy.get('#passwordConfirm').type('NEW123456789')
+        cy.get('[data-attr="password"]').type('NEW123456789')
+        cy.get('[data-attr="password-confirm"]').type('NEW123456789')
         cy.get('button[type=submit]').click()
         cy.get('.Toastify__toast--success').should('be.visible')
 
