@@ -36,7 +36,6 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { SlackIntegration } from './SlackIntegration'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { ActorOnEventsQuerying } from './ActorOnEventsQuerying'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 export const scene: SceneExport = {
@@ -77,7 +76,6 @@ export function ProjectSettings(): JSX.Element {
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
     const { user, hasAvailableFeature } = useValues(userLogic)
-    const { preflight } = useValues(preflightLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
     useAnchor(location.hash)
@@ -331,8 +329,8 @@ export function ProjectSettings(): JSX.Element {
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
                 <LemonDivider className="my-6" />
-                {preflight?.cloud && <ActorOnEventsQuerying />}
-                {preflight?.cloud && <LemonDivider className="my-6" />}
+                <ActorOnEventsQuerying />
+                <LemonDivider className="my-6" />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />
                 {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (

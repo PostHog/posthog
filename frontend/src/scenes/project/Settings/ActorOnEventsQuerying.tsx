@@ -8,7 +8,7 @@ export function ActorOnEventsQuerying(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <div id="actor-on-events-querying">
+        <div id="querying">
             <h2 className="subtitle">
                 Optimized Querying{' '}
                 <LemonTag type="warning" style={{ marginLeft: 8 }}>

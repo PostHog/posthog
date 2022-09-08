@@ -40,6 +40,8 @@ import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useDebouncedCallback } from 'use-debounce'
+import { AlertMessage } from 'lib/components/AlertMessage'
+import { Link } from '@posthog/lemon-ui'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -71,6 +73,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     useEffect(() => {
         reportInsightViewedForRecentInsights()
@@ -297,6 +300,16 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     </>
                 }
             />
+
+            {currentTeam?.actor_on_events_querying_setting_enabled ? null : (
+                <div className="mb-4">
+                    <AlertMessage type="info">
+                        Queries slow? Enhanced querying using an updated schema can be enabled for this project. To use
+                        this feature, please go to your{' '}
+                        <Link to={`${urls.projectSettings()}#querying`}>project settings</Link> and enable it.
+                    </AlertMessage>
+                </div>
+            )}
 
             {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
 
