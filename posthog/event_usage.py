@@ -49,7 +49,7 @@ def report_user_signed_up(
         user.distinct_id,
         "user signed up",
         properties=props,
-        groups=groups(user.organization, user.team)
+        groups=groups(user.organization, user.team),
     )
 
 
