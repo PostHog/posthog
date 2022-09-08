@@ -70,15 +70,8 @@
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                e.event AS event,
-               pdi.person_id as target
+               e.person_id as target
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
@@ -86,7 +79,7 @@
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
-               pdi.person_id as target,
+               e.person_id as target,
                argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                [
                           dateDiff(
@@ -96,13 +89,6 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
@@ -143,15 +129,8 @@
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                e.event AS event,
-               pdi.person_id as target
+               e.person_id as target
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
@@ -159,7 +138,7 @@
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
-               pdi.person_id as target,
+               e.person_id as target,
                argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                [
                           dateDiff(
@@ -169,13 +148,6 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
@@ -213,35 +185,17 @@
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                e.event AS event,
-               pdi.person_id as target
+               e.person_id as target
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
+          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00')
+          AND (NOT (replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
-               pdi.person_id as target,
+               e.person_id as target,
                argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                [
                           dateDiff(
@@ -251,27 +205,9 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
+          AND (NOT (replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
         GROUP BY target
         HAVING event_date >= toDateTime('2020-01-01 00:00:00')
         AND event_date <= toDateTime('2020-01-03 00:00:00')) SELECT DISTINCT breakdown_values,
@@ -314,35 +250,17 @@
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                e.event AS event,
-               pdi.person_id as target
+               e.person_id as target
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
+          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00')
+          AND (NOT (replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
-               pdi.person_id as target,
+               e.person_id as target,
                argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                [
                           dateDiff(
@@ -352,27 +270,9 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
+          AND (NOT (replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
         GROUP BY target
         HAVING event_date >= toDateTime('2020-01-01 00:00:00')
         AND event_date <= toDateTime('2020-01-03 00:00:00')) SELECT DISTINCT breakdown_values,
@@ -411,35 +311,17 @@
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                e.event AS event,
-               pdi.person_id as target
+               e.person_id as target
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
+          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00')
+          AND (NOT (replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
-               pdi.person_id as target,
+               e.person_id as target,
                argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                [
                           dateDiff(
@@ -449,27 +331,9 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
+          AND (NOT (replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
         GROUP BY target
         HAVING event_date >= toDateTime('2020-01-01 00:00:00')
         AND event_date <= toDateTime('2020-01-03 00:00:00')) SELECT DISTINCT breakdown_values,
