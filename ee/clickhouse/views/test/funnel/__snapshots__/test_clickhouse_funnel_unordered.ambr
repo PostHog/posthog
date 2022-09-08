@@ -43,8 +43,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           e.person_id as person_id
+                           e."$group_0" as "$group_0"
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
@@ -81,8 +80,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           e.person_id as person_id
+                           e."$group_0" as "$group_0"
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
@@ -139,8 +137,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           e.person_id as person_id
+                           e."$group_0" as "$group_0"
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
@@ -178,8 +175,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           e.person_id as person_id
+                           e."$group_0" as "$group_0"
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']

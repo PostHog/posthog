@@ -3,8 +3,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(*) as data
   FROM
-    (SELECT e.timestamp as timestamp,
-            e.person_id as person_id
+    (SELECT e.timestamp as timestamp
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
@@ -18,10 +17,17 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.person_id as person_id,
+            pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
@@ -49,8 +55,15 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.person_id as person_id
+                  pdi.person_id as person_id
            FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
@@ -66,10 +79,17 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.person_id as person_id,
+            pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2012-01-14 00:00:00')
@@ -97,8 +117,7 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e."properties" as "properties",
-                  e.person_id as person_id
+                  e."properties" as "properties"
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
@@ -117,10 +136,17 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
-            e.person_id as person_id,
+            pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2012-01-14 00:00:00')
@@ -148,8 +174,7 @@
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
-          (SELECT e.timestamp as timestamp,
-                  e.person_id as person_id
+          (SELECT e.timestamp as timestamp
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
@@ -166,10 +191,17 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.person_id as person_id,
+            pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
@@ -224,7 +256,7 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT count(DISTINCT person_id) as total,
+           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(timestamp, 'UTC') as day_start,
                             breakdown_value
            FROM
@@ -232,10 +264,17 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT e.person_id as person_id,
+                (SELECT pdi.person_id as person_id,
                         timestamp,
                         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
                  FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
                    AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
@@ -260,10 +299,17 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
-            e.person_id as person_id,
+            pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
@@ -295,8 +341,15 @@
                   min(timestamp) as timestamp
            FROM
              (SELECT e.timestamp as timestamp,
-                     e.person_id as person_id
+                     pdi.person_id as person_id
               FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
@@ -313,10 +366,17 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.person_id as person_id,
+            pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
@@ -397,10 +457,17 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
-            e.person_id as person_id,
+            pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
@@ -419,12 +486,31 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))
+                    AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))
+             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2012-01-01 00:00:00')
        AND timestamp <= toDateTime('2012-01-15 23:59:59')
-       AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
-            AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -474,13 +560,32 @@
                  GROUP BY timestamp) d
               CROSS JOIN
                 (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp,
-                        e.person_id AS person_id,
+                        pdi.person_id AS person_id,
                         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
                  FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 INNER JOIN
+                   (SELECT id
+                    FROM person
+                    WHERE team_id = 2
+                      AND id IN
+                        (SELECT id
+                         FROM person
+                         WHERE team_id = 2
+                           AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))
+                                AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
+                    GROUP BY id
+                    HAVING max(is_deleted) = 0
+                    AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))
+                         AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
-                   AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
-                        AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
                    AND timestamp >= '2011-12-25 00:00:00'
                    AND timestamp <= toDateTime('2012-01-15 23:59:59')
                  GROUP BY timestamp,
@@ -509,18 +614,36 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
-            e.person_id as person_id,
+            pdi.person_id as person_id,
             e.distinct_id as distinct_id,
-            e.team_id as team_id,
-            e."person_properties" as "person_properties"
+            e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', ''))))
+                    AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))
+             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= '2011-12-25 00:00:00'
        AND timestamp <= toDateTime('2012-01-14 23:59:59')
-       AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
-             AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
-            AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))) )
+       AND (((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))) )
   GROUP BY actor_id
   LIMIT 100
   OFFSET 0
@@ -544,8 +667,15 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.person_id as person_id
+                  pdi.person_id as person_id
            FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
@@ -573,8 +703,15 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.person_id as person_id
+                  pdi.person_id as person_id
            FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime('2012-01-14 00:00:00')
@@ -602,8 +739,15 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.person_id as person_id
+                  pdi.person_id as person_id
            FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2011-12-31 00:00:00')), 'UTC'), 'UTC')
@@ -631,8 +775,15 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.person_id as person_id
+                  pdi.person_id as person_id
            FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-02 00:00:00')), 'UTC'), 'UTC')
@@ -660,8 +811,7 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e."$group_0" as "$group_0",
-                  e.person_id as person_id
+                  e."$group_0" as "$group_0"
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
@@ -679,8 +829,7 @@
   SELECT $group_0 AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e."$group_0" as "$group_0",
-            e.person_id as person_id
+            e."$group_0" as "$group_0"
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
@@ -711,8 +860,7 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e."$session_id" as "$session_id",
-                  e.person_id as person_id
+                  e."$session_id" as "$session_id"
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
@@ -730,10 +878,17 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."$session_id" as "$session_id",
-            e.person_id as person_id,
+            pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2020-01-02 00:00:00')

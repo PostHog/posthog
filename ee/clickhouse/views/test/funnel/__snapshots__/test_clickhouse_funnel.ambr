@@ -42,8 +42,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           e.person_id as person_id
+                           e."$group_0" as "$group_0"
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
@@ -99,8 +98,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           e.person_id as person_id
+                           e."$group_0" as "$group_0"
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
@@ -165,8 +163,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           e.person_id as person_id
+                           e."$group_0" as "$group_0"
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
@@ -223,8 +220,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           e.person_id as person_id
+                           e."$group_0" as "$group_0"
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
@@ -288,10 +284,17 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           e.person_id as aggregation_target,
+                           pdi.person_id as aggregation_target,
                            e."$group_0" as "$group_0",
-                           e.person_id as person_id
+                           pdi.person_id as person_id
                     FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 2
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -345,10 +348,17 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           e.person_id as aggregation_target,
+                           pdi.person_id as aggregation_target,
                            e."$group_0" as "$group_0",
-                           e.person_id as person_id
+                           pdi.person_id as person_id
                     FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 2
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -408,15 +418,29 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           e.person_id as aggregation_target,
-                           e.person_id as person_id,
-                           e."group0_properties" as "group0_properties"
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id,
+                           groups_0.group_properties_0 as group_properties_0
                     FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 2
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    INNER JOIN
+                      (SELECT group_key,
+                              argMax(group_properties, _timestamp) AS group_properties_0
+                       FROM groups
+                       WHERE team_id = 2
+                         AND group_type_index = 0
+                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00')
                       AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                      AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))) ) events
+                      AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -465,15 +489,29 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           e.person_id as aggregation_target,
-                           e.person_id as person_id,
-                           e."group0_properties" as "group0_properties"
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id,
+                           groups_0.group_properties_0 as group_properties_0
                     FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 2
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    INNER JOIN
+                      (SELECT group_key,
+                              argMax(group_properties, _timestamp) AS group_properties_0
+                       FROM groups
+                       WHERE team_id = 2
+                         AND group_type_index = 0
+                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00')
                       AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                      AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))) ) events
+                      AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))

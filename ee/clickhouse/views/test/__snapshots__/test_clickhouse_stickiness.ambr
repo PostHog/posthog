@@ -7,6 +7,13 @@
     (SELECT e."$group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-02-15 23:59:59')
@@ -26,6 +33,13 @@
     (SELECT e."$group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-02-15 23:59:59')
@@ -46,6 +60,13 @@
     (SELECT e."$group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-02-15 23:59:59')
@@ -66,6 +87,13 @@
     (SELECT e."$group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-02-15 23:59:59')
@@ -84,14 +112,28 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT e.person_id AS aggregation_target,
+    (SELECT pdi.person_id AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-02-15 23:59:59')
        AND event = 'watched movie'
-       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY aggregation_target)
   WHERE num_intervals <= 8
   GROUP BY num_intervals
@@ -103,14 +145,28 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT e.person_id AS aggregation_target,
+    (SELECT pdi.person_id AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-02-15 23:59:59')
        AND event = 'watched movie'
-       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
@@ -122,14 +178,28 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT e.person_id AS aggregation_target,
+    (SELECT pdi.person_id AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-02-15 23:59:59')
        AND event = 'watched movie'
-       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY aggregation_target)
   WHERE num_intervals = 2
   LIMIT 100
@@ -141,14 +211,28 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT e.person_id AS aggregation_target,
+    (SELECT pdi.person_id AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-02-15 23:59:59')
        AND event = 'watched movie'
-       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY aggregation_target)
   WHERE num_intervals = 3
   LIMIT 100
@@ -161,9 +245,16 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT e.person_id AS aggregation_target,
+    (SELECT pdi.person_id AS aggregation_target,
             countDistinct(toStartOfDay(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND timestamp >= toDateTime('2021-05-01 00:00:00')
        AND timestamp <= toDateTime('2021-05-15 23:59:59')
@@ -180,9 +271,16 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT e.person_id AS aggregation_target,
+    (SELECT pdi.person_id AS aggregation_target,
             countDistinct(toStartOfDay(toDateTime(timestamp, 'US/Pacific'))) as num_intervals
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND timestamp >= toDateTime('2021-05-01 07:00:00')
        AND timestamp <= toDateTime('2021-05-16 06:59:59')
