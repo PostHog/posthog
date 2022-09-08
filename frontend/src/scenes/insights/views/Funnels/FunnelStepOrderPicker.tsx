@@ -2,7 +2,6 @@ import React from 'react'
 import { StepOrderValue } from '~/types'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
 
@@ -39,10 +38,7 @@ export function FunnelStepOrderPicker(): JSX.Element {
             value={filters.funnel_order_type || StepOrderValue.ORDERED}
             onChange={(stepOrder) => stepOrder && setFilters({ funnel_order_type: stepOrder })}
             dropdownMatchSelectWidth={false}
-            dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
-            optionLabelProp="label"
             options={options}
-            style={{ marginRight: 4 }}
         />
     )
 }
