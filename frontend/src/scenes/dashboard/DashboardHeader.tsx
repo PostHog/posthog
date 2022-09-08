@@ -170,6 +170,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 onClick={() => {
                                                                     push(urls.dashboardTextTile(dashboard.id, 'new'))
                                                                 }}
+                                                                data-attr="add-text-tile-to-dashboard"
                                                             >
                                                                 Add text to dashboard
                                                             </LemonButton>

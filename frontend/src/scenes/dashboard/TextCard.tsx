@@ -47,6 +47,7 @@ export function TextTileModal({
                         htmlType="submit"
                         type="primary"
                         onClick={submitTextTile}
+                        data-attr={textTileId === 'new' ? 'save-new-text-tile' : 'edit-text-tile-text'}
                     >
                         Save
                     </LemonButton>
@@ -125,6 +126,7 @@ export function TextCardInternal(
                                                 active={availableColor === (textTile.color || InsightColor.White)}
                                                 status="stealth"
                                                 onClick={() => updateColor(availableColor)}
+                                                data-attr={`set-text-tile-ribbon-color-${availableColor}`}
                                                 icon={
                                                     availableColor !== InsightColor.White ? (
                                                         <Splotch color={availableColor as string as SplotchColor} />
@@ -148,7 +150,12 @@ export function TextCardInternal(
                             )}
                             <LemonDivider />
                             {removeFromDashboard && (
-                                <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
+                                <LemonButton
+                                    status="danger"
+                                    onClick={removeFromDashboard}
+                                    fullWidth
+                                    data-attr="remove-text-tile-from-dashboard"
+                                >
                                     Remove from dashboard
                                 </LemonButton>
                             )}
