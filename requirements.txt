@@ -257,7 +257,7 @@ pyrsistent==0.18.1
     # via jsonschema
 pysocks==1.7.1
     # via urllib3
-python-dateutil==2.8.2
+python-dateutil==2.8.1
     # via
     #   -r requirements.in
     #   botocore
@@ -267,7 +267,7 @@ python-statsd==2.1.0
     # via django-statsd
 python3-openid==3.1.0
     # via social-auth-core
-python3-saml==1.14.0
+python3-saml==1.12.0
     # via -r requirements.in
 pytz==2021.1
     # via

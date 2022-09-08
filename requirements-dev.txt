@@ -191,7 +191,7 @@ pytest-split==0.6.0
     # via -r requirements-dev.in
 pytest-watch==4.2.0
     # via -r requirements-dev.in
-python-dateutil==2.8.2
+python-dateutil==2.8.1
     # via
     #   -c requirements.txt
     #   freezegun
