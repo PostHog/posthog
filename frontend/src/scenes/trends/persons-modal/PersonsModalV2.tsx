@@ -254,11 +254,11 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                     <div className="shrink-0">
                         <LemonButton
                             onClick={onOpenRecordingClick}
-                            sideIcon={matchedRecordings.length > 1 ? <IconArrowDropDown /> : null}
+                            sideIcon={matchedRecordings.length === 1 ? <IconPlayCircle /> : null}
                             type="secondary"
                             size="small"
                         >
-                            View {pluralize(matchedRecordings.length, 'recording', undefined, false)}
+                            {matchedRecordings.length > 1 ? `${matchedRecordings.length} recordings` : 'View recording'}
                         </LemonButton>
                     </div>
                 ) : null}

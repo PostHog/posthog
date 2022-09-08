@@ -1219,11 +1219,21 @@ export function IconRefresh(props: SvgIconProps): JSX.Element {
     )
 }
 
-/** Material Design Play icon. */
 export function IconPlay(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon version="1.1" viewBox="0 0 24 24" {...props}>
-            <path d="m10 8.64 5.27 3.36-5.27 3.36zm-2-3.64v14l11-7z" fill="currentColor" />{' '}
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M6 20L18.4444 12L6 4V20Z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+export function IconPlayCircle(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 20C7.59 20 4 16.41 4 12C4 7.59 7.59 4 12 4C16.41 4 20 7.59 20 12C20 16.41 16.41 20 12 20ZM9.5 16.5L16.5 12L9.5 7.5V16.5Z"
+                fill="currentColor"
+            />
         </SvgIcon>
     )
 }
@@ -1444,17 +1454,6 @@ export function IconFilter(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon width="1em" height="1em" viewBox="0 0 24 24" fill="none" {...props}>
             <path d="M10 18H14V16H10V18ZM3 6V8H21V6H3ZM6 13H18V11H6V13Z" fill="currentColor" />
-        </SvgIcon>
-    )
-}
-
-export function IconPlayCircle(props: SvgIconProps): JSX.Element {
-    return (
-        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 20 20" {...props}>
-            <path
-                d="M9.99988 0C4.47988 0 -0.00012207 4.48 -0.00012207 10C-0.00012207 15.52 4.47988 20 9.99988 20C15.5199 20 19.9999 15.52 19.9999 10C19.9999 4.48 15.5199 0 9.99988 0ZM9.99988 18C5.58988 18 1.99988 14.41 1.99988 10C1.99988 5.59 5.58988 2 9.99988 2C14.4099 2 17.9999 5.59 17.9999 10C17.9999 14.41 14.4099 18 9.99988 18ZM7.49988 14.5L14.4999 10L7.49988 5.5V14.5Z"
-                fill="currentColor"
-            />
         </SvgIcon>
     )
 }

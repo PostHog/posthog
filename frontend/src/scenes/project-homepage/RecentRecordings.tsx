@@ -43,7 +43,7 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
                 </div>
 
                 <span>{humanFriendlyDuration(recording.recording_duration)}</span>
-                <IconPlayCircle className="text-lg ml-2" />
+                <IconPlayCircle className="text-2xl ml-2" />
             </div>
         </LemonButton>
     )
