@@ -169,7 +169,7 @@ USER posthog
 
 ENV CHROME_BIN=/usr/bin/chromium-browser \
     CHROME_PATH=/usr/lib/chromium/ \
-    CHROMEWEBDRIVER=/usr/bin/chromedriver
+    CHROMEDRIVER_BIN=/usr/bin/chromedriver
 
 COPY gunicorn.config.py ./
 

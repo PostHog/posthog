@@ -43,13 +43,11 @@ def get_driver() -> webdriver.Chrome:
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")  # This flag can make things slower but more reliable
 
-    if os.environ.get("CHROMEWEBDRIVER"):
-        # When running in a container we should use the specified version. This is also set on the GH Actions runner
-        # https://github.com/actions/runner-images/blob/main/images/linux/Ubuntu2204-Readme.md#browsers-and-drivers
-        return webdriver.Chrome(os.environ["CHROMEWEBDRIVER"], options=options)
+    if os.environ.get("CHROMEDRIVER_BIN"):
+        return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
 
     return webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM, log_level=logging.ERROR).install()),
+        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE, log_level=logging.ERROR).install()),
         options=options,
     )
 
