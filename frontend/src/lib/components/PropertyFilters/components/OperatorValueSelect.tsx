@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
-import { Col } from 'antd'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
@@ -11,7 +10,6 @@ import {
     isOperatorRegex,
 } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
-import { ColProps } from 'antd/lib/col'
 import { dayjs } from 'lib/dayjs'
 import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
