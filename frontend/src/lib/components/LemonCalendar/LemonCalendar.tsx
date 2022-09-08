@@ -17,6 +17,8 @@ export interface LemonCalendarProps {
     getLemonButtonProps?: (opts: GetLemonButtonPropsOpts) => LemonButtonProps
     /** Number of months */
     months?: number
+    /** Show Sunday first */
+    sundayFirst?: boolean
 }
 
 export interface GetLemonButtonPropsOpts {
@@ -47,9 +49,12 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                     .startOf('month')
                 const endOfMonth = (leftmostMonth ? dayjs(leftmostMonth) : dayjs()).add(month, 'month').endOf('month')
                 const stringMonth = startOfMonth.format('YYYY-MM-DD')
-                // TODO: support the easier US Sunday-first format as well
-                const firstDay = startOfMonth.subtract(startOfMonth.day() === 0 ? 6 : startOfMonth.day() - 1, 'days')
-                const lastDay = endOfMonth.add(endOfMonth.day() === 0 ? 0 : 7 - endOfMonth.day(), 'days')
+                const firstDay = props.sundayFirst
+                    ? startOfMonth.subtract(startOfMonth.day(), 'days')
+                    : startOfMonth.subtract(startOfMonth.day() === 0 ? 6 : startOfMonth.day() - 1, 'days')
+                const lastDay = props.sundayFirst
+                    ? endOfMonth.add(6 - endOfMonth.day(), 'days')
+                    : endOfMonth.add(endOfMonth.day() === 0 ? 0 : 7 - endOfMonth.day(), 'days')
                 const weeks = lastDay.diff(firstDay, 'week') + 1
                 const showLeftMonth = month === 0
                 const showRightMonth = month + 1 === months

@@ -38,3 +38,8 @@ CustomStyles.args = {
         }
     },
 }
+
+export const SundayFirst = BasicTemplate.bind({})
+SundayFirst.args = {
+    sundayFirst: true,
+}
