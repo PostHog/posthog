@@ -233,7 +233,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     @action(methods=["GET"], detail=False)
     def local_evaluation(self, request: request.Request, **kwargs):
 
-        feature_flags = (
+        feature_flags: QuerySet[FeatureFlag] = (
             FeatureFlag.objects.filter(team=self.team, deleted=False)
             .prefetch_related("experiment_set")
             .select_related("created_by")
@@ -243,11 +243,14 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         parsed_flags = []
         for feature_flag in feature_flags:
             filters = feature_flag.get_filters()
-            feature_flag.filters = filters
+            if len(feature_flag.cohort_ids) == 1:
+                feature_flag.filters = {
+                    **filters,
+                    "groups": feature_flag.transform_cohort_filters_for_easy_evaluation(),
+                }
+            else:
+                feature_flag.filters = filters
             parsed_flags.append(feature_flag)
-
-        # TODO: Handle cohorts the same way as feature evaluation would, by simplifying cohort properties to
-        # person properties
 
         return Response(
             {

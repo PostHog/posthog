@@ -12,6 +12,7 @@ from django.db.models.signals import pre_delete
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
+from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
@@ -110,14 +111,111 @@ class FeatureFlag(models.Model):
                 ]
             }
 
+    def transform_cohort_filters_for_easy_evaluation(self):
+        """
+        Expands cohort filters into person property filters when possible.
+        This allows for easy local flag evaluation.
+        """
+        # Expansion depends on number of conditions on the flag.
+        # If flag has only the cohort condition, we get more freedom to maneuver in the cohort expansion.
+        # If flag has multiple conditions, we can only expand the cohort condition if it's a single property group.
+        # Also support only a single cohort expansion. i.e. a flag with multiple cohort conditions will not be expanded.
+        # Few more edge cases are possible here, where expansion is possible, but it doesn't seem
+        # worth it trying to catch all of these.
+
+        if len(self.cohort_ids) != 1:
+            return self.conditions
+
+        cohort_group_rollout = None
+        cohort: Optional[Cohort] = None
+
+        # if feature_flag_conditions_count == 1:
+
+        parsed_conditions = []
+        # assume single condition for now
+        for condition in self.conditions:
+            props = condition.get("properties", [])
+            cohort_group_rollout = condition.get("rollout_percentage")
+            for prop in props:
+                if prop.get("type") == "cohort":
+                    cohort_id = prop.get("value")
+                    if cohort_id:
+                        if len(props) > 1:
+                            # We cannot expand this cohort condition if it's not the only property in its group.
+                            # TODO: It might be ok with single level AND'ed cohort properties. But eh, let it be.
+                            return self.conditions
+                        try:
+                            cohort = Cohort.objects.get(pk=cohort_id)
+                        except Cohort.DoesNotExist:
+                            return self.conditions
+            if not cohort:
+                # ff group without a cohort filter, let it be as is.
+                parsed_conditions.append(condition)
+
+        if not cohort or len(cohort.properties.flat) == 0:
+            return self.conditions
+
+        if not all(property.type == "person" for property in cohort.properties.flat):
+            return self.conditions
+
+        # all person properties, so now if we can express the cohort as feature flag groups, we'll be golden.
+
+        # If there's only one effective property group, we can always express this as feature flag groups.
+        # A single ff group, if cohort properties are AND'ed together.
+        # Multiple ff groups, if cohort properties are OR'ed together.
+        from posthog.models.property.util import clear_excess_levels
+
+        target_properties = clear_excess_levels(cohort.properties)
+
+        if isinstance(target_properties.values[0], Property):
+            if target_properties.type == PropertyOperatorType.AND:
+                parsed_conditions.append(
+                    {
+                        "properties": [prop.to_dict() for prop in target_properties.values],
+                        "rollout_percentage": cohort_group_rollout,
+                    }
+                )
+            else:
+                # cohort OR requires multiple ff group
+                for prop in target_properties.values:
+                    parsed_conditions.append(
+                        {
+                            "properties": [prop.to_dict()],
+                            "rollout_percentage": cohort_group_rollout,
+                        }
+                    )
+        else:
+            # If there's nested property groups, we need to express that as OR of ANDs.
+            # Being a bit dumb here, and not trying to apply De Morgan's law to coerce AND of ORs into OR of ANDs.
+            if target_properties.type == PropertyOperatorType.AND:
+                return self.conditions
+
+            for prop_group in target_properties.values:
+                if (
+                    len(prop_group.values) == 0
+                    or not isinstance(prop_group.values[0], Property)
+                    or prop_group.type == PropertyOperatorType.OR
+                ):
+                    # too nested or invalid, bail out
+                    return self.conditions
+
+                parsed_conditions.append(
+                    {
+                        "properties": [prop.to_dict() for prop in prop_group.values],
+                        "rollout_percentage": cohort_group_rollout,
+                    }
+                )
+
+        return parsed_conditions
+
     @property
     def cohort_ids(self) -> List[int]:
         cohort_ids = []
         for condition in self.conditions:
             props = condition.get("properties", [])
             for prop in props:
-                if prop.get("type", None) == "cohort":
-                    cohort_id = prop.get("value", None)
+                if prop.get("type") == "cohort":
+                    cohort_id = prop.get("value")
                     if cohort_id:
                         cohort_ids.append(cohort_id)
         return cohort_ids

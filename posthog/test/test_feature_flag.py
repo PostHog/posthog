@@ -38,6 +38,58 @@ class TestFeatureFlag(APIBaseTest):
         self.assertNotContains(response, inactive_flag.key)
 
 
+class TestFeatureFlagCohortExpansion(BaseTest):
+    def test_cohort_expansion(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {"properties": [{"key": "email", "value": ["@posthog.com"], "type": "person", "operator": "icontains"}]}
+            ],
+        )
+        cohort.calculate_people()
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
+        )
+        self.assertEqual(flag)
+
+    def test_cohort_property_group(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+        self.assertEqual(cohort)
+
+    def test_multiple_cohorts(self):
+        pass
+
+    def test_cohort_thats_impossible_to_expand(self):
+        pass
+
+    def test_feature_flag_preventing_simple_cohort_expansion(self):
+        pass
+
+    def test_feature_flag_with_additional_conditions_playing_well_with_complex_cohort_expansion(self):
+        pass
+
+
 class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
     maxDiff = None
 
