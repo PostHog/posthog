@@ -20,7 +20,6 @@ from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.permissions import CanCreateOrg
-from posthog.tasks import user_identify
 from posthog.utils import get_can_create_org, mask_email_address
 
 logger = structlog.get_logger(__name__)
@@ -207,9 +206,6 @@ class InviteSignupSerializer(serializers.Serializer):
             report_user_joined_organization(organization=invite.organization, current_user=user)
 
         alias_invite_id(user, str(invite.id))
-
-        # Update user props
-        user_identify.identify_task.delay(user_id=user.id)
 
         return user
 
