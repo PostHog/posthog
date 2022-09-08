@@ -35,8 +35,12 @@ def recently_calculated_teams(now_in_seconds_since_epoch: float) -> Set[int]:
     one_day_ago = now_in_seconds_since_epoch - 86400
     return {
         int(team_id)
-        for team_id, _ in get_client().zrangebyscore(
-            CALCULATED_PROPERTIES_FOR_TEAMS_KEY, min=one_day_ago, max=now_in_seconds_since_epoch, withscores=True
+        for team_id, _ in get_client().zrange(
+            name=CALCULATED_PROPERTIES_FOR_TEAMS_KEY,
+            start=int(one_day_ago),
+            end=int(now_in_seconds_since_epoch),
+            withscores=True,
+            byscore=True,
         )
     }
 
