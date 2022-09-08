@@ -514,7 +514,7 @@ export const mathsLogic = kea<mathsLogicType>({
         ],
         groupsMathFormattedSelectDefinitions: [
             (s) => [s.groupTypes, s.aggregationLabel],
-            (groupTypes, aggregationLabel) =>
+            (groupTypes, aggregationLabel): LemonSelectOption<BaseMathType | PropertyMathType | string>[] =>
                 groupTypes.map((groupType) => ({
                     value: apiValueToMathType('unique_group', groupType.group_type_index),
                     label: (
