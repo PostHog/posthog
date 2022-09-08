@@ -115,6 +115,7 @@ RUN apk --update --no-cache --virtual .build-deps add \
     "libxml2-dev~=2.9" \
     "libxslt-dev~=1.1" \
     "xmlsec-dev~=1.2" \
+    "postgresql13-dev~=13" \
     "libmaxminddb~=1.5" \
     && \
     pip install -r requirements.txt --compile --no-cache-dir \
