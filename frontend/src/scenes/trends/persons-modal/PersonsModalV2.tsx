@@ -278,7 +278,6 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                             <div className="p-2 space-y-2 font-medium mt-1">
                                 <div className="flex justify-between items-center px-2">
                                     <span>{pluralize(matchedRecordings.length, 'matched recording')}</span>
-                                    {/* <Link to={urls.person(actor.distinct_ids[0])}>View all</Link> */}
                                 </div>
                                 <ul className="space-y-px">
                                     {matchedRecordings?.length
