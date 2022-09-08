@@ -96,14 +96,6 @@ export const userLogic = kea<userLogicType>([
                 })
 
                 if (posthog) {
-                    // If user is not anonymous and the distinct id is different from the current one, reset
-                    if (
-                        posthog.get_property('$device_id') !== posthog.get_distinct_id() &&
-                        posthog.get_distinct_id() !== user.distinct_id
-                    ) {
-                        posthog.reset()
-                    }
-
                     posthog.identify(user.distinct_id)
                     posthog.people.set({
                         email: user.anonymize_data ? null : user.email,

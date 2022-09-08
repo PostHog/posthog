@@ -9,7 +9,7 @@ import { personsModalLogic } from '../persons-modal/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { openPersonsModal } from '../persons-modal/PersonsModalV2'
+import { openPersonsModal, shouldUsePersonsModalV2 } from '../persons-modal/PersonsModalV2'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 
@@ -112,19 +112,23 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                           const urls = urlsForDatasets(crossDataset, index)
                           const selectedUrl = urls[index]?.value
 
-                          if (selectedUrl) {
-                              loadPeopleFromUrl({
-                                  ...params,
-                                  url: selectedUrl,
-                              })
-
-                              openPersonsModal({
-                                  urlsIndex: index,
-                                  urls,
-                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
-                              })
+                          if (shouldUsePersonsModalV2()) {
+                              if (selectedUrl) {
+                                  openPersonsModal({
+                                      urlsIndex: index,
+                                      urls,
+                                      title: <PropertyKeyInfo value={label || ''} disablePopover />,
+                                  })
+                              }
                           } else {
-                              loadPeople(params)
+                              if (selectedUrl) {
+                                  loadPeopleFromUrl({
+                                      ...params,
+                                      url: selectedUrl,
+                                  })
+                              } else {
+                                  loadPeople(params)
+                              }
                           }
                       }
             }

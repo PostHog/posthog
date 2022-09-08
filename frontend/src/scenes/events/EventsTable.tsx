@@ -591,6 +591,7 @@ export function EventsTable({
                               },
                               rowExpandable: ({ event, date_break, new_events }) =>
                                   date_break || new_events ? -1 : !!event,
+                              noIndent: true,
                           }
                         : undefined
                 }

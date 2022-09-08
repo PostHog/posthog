@@ -339,9 +339,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             },
         )
 
-        insert_cohort_from_insight_filter(
-            cohort_id, params,
-        )
+        insert_cohort_from_insight_filter(cohort_id, params)
 
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk)

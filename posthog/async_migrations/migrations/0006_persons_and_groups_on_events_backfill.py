@@ -86,7 +86,7 @@ class Migration(AsyncMigrationDefinition):
             SELECT count()
             FROM events
             WHERE person_id = toUUIDOrZero('')
-            """,
+            """
         )[0][0]
 
         return zero_person_id_count > 0
@@ -245,7 +245,7 @@ class Migration(AsyncMigrationDefinition):
                 rollback=None,
                 per_shard=True,
             ),
-            AsyncMigrationOperation(fn=self._wait_for_mutation_done,),
+            AsyncMigrationOperation(fn=self._wait_for_mutation_done),
             AsyncMigrationOperation(fn=self._clear_temporary_tables),
         ]
 
@@ -339,7 +339,7 @@ class Migration(AsyncMigrationDefinition):
             FROM clusterAllReplicas(%(cluster)s, system, 'mutations')
             WHERE not is_done AND command LIKE %(pattern)s
             """,
-            {"cluster": settings.CLICKHOUSE_CLUSTER, "pattern": "%person_properties = dictGetString%",},
+            {"cluster": settings.CLICKHOUSE_CLUSTER, "pattern": "%person_properties = dictGetString%"},
         )[0][0]
 
     def _clear_temporary_tables(self, query_id):

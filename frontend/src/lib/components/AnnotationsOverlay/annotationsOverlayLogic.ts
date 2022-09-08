@@ -1,8 +1,8 @@
-import { dayjs } from 'lib/dayjs'
-import { kea, path, selectors, key, props, connect, listeners, actions } from 'kea'
+import { Dayjs } from 'lib/dayjs'
+import { kea, path, selectors, key, props, connect, listeners, actions, reducers } from 'kea'
 import { groupBy } from 'lib/utils'
 import { AnnotationScope, InsightModel, IntervalType } from '~/types'
-import type { insightAnnotationsLogicType } from './insightAnnotationsLogicType'
+import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
 
@@ -11,23 +11,69 @@ export interface InsightAnnotationsLogicProps {
     insightNumericId: InsightModel['id'] | 'new'
 }
 
-const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
+/** Internal format for annotation groups. */
+const INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT: Record<IntervalType, string> = {
     hour: 'YYYY-MM-DD HH',
     day: 'YYYY-MM-DD',
     week: 'YYYY-MM-DD',
     month: 'YYYY-MM',
 }
 
-export const insightAnnotationsLogic = kea<insightAnnotationsLogicType>([
-    path((key) => ['lib', 'components', 'Annotations', 'insightAnnotationsLogic', key]),
+export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: IntervalType): string {
+    // FIXME: Account for ticks sometimes including more than one group in dense graphs
+    return date.startOf(intervalUnit).format(INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT[intervalUnit])
+}
+
+export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
+    path((key) => ['lib', 'components', 'Annotations', 'annotationsOverlayLogic', key]),
     props({} as InsightAnnotationsLogicProps),
     key(({ insightNumericId }) => insightNumericId),
     connect({
-        values: [insightLogic, ['intervalUnit', 'timezone'], annotationsModel, ['annotations', 'annotationsLoading']],
+        values: [
+            insightLogic,
+            ['intervalUnit', 'timezone', 'insightId'],
+            annotationsModel,
+            ['annotations', 'annotationsLoading'],
+        ],
         actions: [annotationsModel, ['createAnnotationGenerically', 'updateAnnotation', 'deleteAnnotation']],
     }),
     actions({
         createAnnotation: (annotationData: AnnotationDataWithoutInsight) => ({ annotationData }),
+        activateDate: (date: Dayjs, badgeElement: HTMLButtonElement) => ({ date, badgeElement }),
+        deactivateDate: true,
+        lockDate: true,
+        unlockDate: true,
+        closePopover: true,
+    }),
+    reducers({
+        isPopoverShown: [
+            false,
+            {
+                activateDate: () => true,
+                deactivateDate: () => false,
+                closePopover: () => false,
+            },
+        ],
+        activeDate: [
+            null as Dayjs | null,
+            {
+                activateDate: (_, { date }) => date,
+            },
+        ],
+        activeBadgeElement: [
+            null as HTMLButtonElement | null,
+            {
+                activateDate: (_, { badgeElement }) => badgeElement,
+            },
+        ],
+        isDateLocked: [
+            false,
+            {
+                lockDate: () => true,
+                unlockDate: () => false,
+                closePopover: () => false,
+            },
+        ],
     }),
     listeners(({ actions, props }) => ({
         createAnnotation: async ({ annotationData }) => {
@@ -53,14 +99,19 @@ export const insightAnnotationsLogic = kea<insightAnnotationsLogicType>([
         groupedAnnotations: [
             (s) => [s.relevantAnnotations, s.intervalUnit, s.timezone],
             (annotations, intervalUnit, timezone) => {
-                const format = INTERVAL_UNIT_TO_DAYJS_FORMAT[intervalUnit]
                 return groupBy(annotations, (annotation) => {
-                    let datetime = dayjs.utc(annotation['date_marker'])
+                    let datetime = annotation.date_marker.utc()
                     if (timezone !== 'UTC') {
                         datetime = datetime.tz(timezone) // If the target is non-UTC, perform conversion
                     }
-                    return datetime.startOf(intervalUnit).format(format)
+                    return determineAnnotationsDateGroup(datetime, intervalUnit)
                 })
+            },
+        ],
+        popoverAnnotations: [
+            (s) => [s.groupedAnnotations, s.activeDate, s.intervalUnit],
+            (groupedAnnotations, activeDate, intervalUnit) => {
+                return (activeDate && groupedAnnotations[determineAnnotationsDateGroup(activeDate, intervalUnit)]) || []
             },
         ],
     })),

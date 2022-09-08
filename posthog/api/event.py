@@ -85,7 +85,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
             ),
             PropertiesSerializer(required=False),
-        ],
+        ]
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         try:
@@ -126,7 +126,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 )
 
             result = ClickhouseEventSerializer(
-                query_result[0:limit], many=True, context={"people": self._get_people(query_result, team),},
+                query_result[0:limit], many=True, context={"people": self._get_people(query_result, team)}
             ).data
 
             next_url: Optional[str] = None
@@ -154,7 +154,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
         if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
             return response.Response(
-                {"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400
+                {"detail": "Invalid UUID", "code": "invalid", "type": "validation_error"}, status=400
             )
         query_result = query_with_columns(
             SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")}

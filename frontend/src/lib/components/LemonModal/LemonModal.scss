@@ -29,16 +29,14 @@
 
 .LemonModal {
     position: relative;
-    display: inline-block;
     max-width: 80%;
-    min-width: 480px;
+    min-width: 30rem;
     width: min-content;
     margin: 1rem auto;
     border-radius: var(--radius);
     background-color: #fff;
     border: 1px solid var(--border);
-    box-shadow: 0 16px 16px -16px rgba(0, 0, 0, 0.35);
-
+    box-shadow: var(--shadow-elevation);
     transition: opacity var(--modal-transition-time) ease-out, transform var(--modal-transition-time) ease-out;
     display: flex;
     flex-direction: col;
@@ -71,6 +69,10 @@
     .LemonModal__content {
         padding: 1rem 1.5rem;
         overflow-y: auto;
+
+        &.LemonModal__content--embedded {
+            padding: 0;
+        }
     }
 }
 

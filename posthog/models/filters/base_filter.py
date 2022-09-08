@@ -14,11 +14,7 @@ class BaseFilter(BaseParamMixin):
         self, data: Optional[Dict[str, Any]] = None, request: Optional[request.Request] = None, **kwargs
     ) -> None:
         if request:
-            data = {
-                **request.GET.dict(),
-                **request.data,
-                **(data if data else {}),
-            }
+            data = {**request.GET.dict(), **request.data, **(data if data else {})}
         elif not data:
             raise ValueError("You need to define either a data dict or a request")
         self._data = data

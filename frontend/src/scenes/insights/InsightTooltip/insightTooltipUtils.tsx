@@ -69,7 +69,14 @@ export function getTooltipTitle(
     return null
 }
 
-export function getFormattedDate(dayInput?: string | number, interval?: IntervalType): string {
+export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
+    hour: 'DD MMM YYYY HH:00',
+    day: 'DD MMM YYYY',
+    week: 'DD MMM YYYY',
+    month: 'MMMM YYYY',
+}
+
+export function getFormattedDate(dayInput?: string | number, interval: IntervalType = 'day'): string {
     // Number of days
     if (Number.isInteger(dayInput)) {
         return pluralize(dayInput as number, 'day')
@@ -77,8 +84,7 @@ export function getFormattedDate(dayInput?: string | number, interval?: Interval
     const day = dayjs(dayInput)
     // Dayjs formatted day
     if (dayInput !== undefined && day.isValid()) {
-        const formatString = `DD MMM YYYY${interval === 'hour' ? ' HH:00' : ''}`
-        return day.format(formatString)
+        return day.format(INTERVAL_UNIT_TO_DAYJS_FORMAT[interval])
     }
     return String(dayInput)
 }

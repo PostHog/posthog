@@ -41,7 +41,9 @@ class Command(BaseCommand):
             "--check", action="store_true", help="Exits with a non-zero status if required unapplied migrations exist."
         )
         parser.add_argument(
-            "--plan", action="store_true", help="Show the async migrations that will run",
+            "--plan",
+            action="store_true",
+            help="Show the async migrations that will run",
         )
         parser.add_argument(
             "--complete-noop-migrations",

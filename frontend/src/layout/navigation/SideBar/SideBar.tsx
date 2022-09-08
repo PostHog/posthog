@@ -101,7 +101,7 @@ function Pages(): JSX.Element {
                                         <h5>Pinned dashboards</h5>
                                         <LemonDivider />
                                         {pinnedDashboards.length > 0 ? (
-                                            <ul className="m-0 p-0 list-none">
+                                            <ul>
                                                 {pinnedDashboards.map((dashboard) => (
                                                     <PageButton
                                                         key={dashboard.id}
@@ -233,7 +233,8 @@ function Pages(): JSX.Element {
                                                 fullWidth
                                                 key={index}
                                                 onClick={() => setIsToolbarLaunchShown(false)}
-                                                href={launchUrl(appUrl)}
+                                                to={launchUrl(appUrl)}
+                                                targetBlank
                                                 sideIcon={
                                                     <Tooltip title="Launch toolbar">
                                                         <IconOpenInApp />

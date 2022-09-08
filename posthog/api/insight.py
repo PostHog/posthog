@@ -119,7 +119,8 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
     created_by = UserBasicSerializer(read_only=True)
     dashboards = DashboardsField(
-        help_text="A dashboard ID for each of the dashboards that this insight is displayed on.", required=False,
+        help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
+        required=False,
     )
 
     class Meta:
@@ -153,9 +154,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         filters = instance.dashboard_filters(dashboard=dashboard)
 
         if not filters.get("date_from"):
-            filters.update(
-                {"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d",}
-            )
+            filters.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
         representation["filters"] = filters
         return representation
 
@@ -426,7 +425,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
 
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
-            self.request.query_params.get("basic", "0"),
+            self.request.query_params.get("basic", "0")
         ):
             return InsightBasicSerializer
         return super().get_serializer_class()
@@ -659,15 +658,9 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            return {
-                "result": ClickhouseFunnelTrends(team=team, filter=filter).run(),
-                "timezone": team.timezone,
-            }
+            return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run(), "timezone": team.timezone}
         elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            return {
-                "result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(),
-                "timezone": team.timezone,
-            }
+            return {"result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(), "timezone": team.timezone}
         else:
             funnel_order_class = get_funnel_order_class(filter)
             return {"result": funnel_order_class(team=team, filter=filter).run(), "timezone": team.timezone}

@@ -132,13 +132,13 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 existing_tiles = DashboardTile.objects.filter(dashboard=existing_dashboard).select_related("insight")
                 for existing_tile in existing_tiles:
                     new_data = {
-                        **InsightSerializer(existing_tile.insight, context=self.context,).data,
+                        **InsightSerializer(existing_tile.insight, context=self.context).data,
                         "id": None,  # to create a new Insight
                         "last_refresh": now(),
                     }
                     new_data.pop("dashboards", None)
                     new_tags = new_data.pop("tags", None)
-                    insight_serializer = InsightSerializer(data=new_data, context=self.context,)
+                    insight_serializer = InsightSerializer(data=new_data, context=self.context)
                     insight_serializer.is_valid()
                     insight_serializer.save()
                     insight = cast(Insight, insight_serializer.instance)
@@ -147,7 +147,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     self._attempt_set_tags(new_tags, insight, force_create=True)
 
                     DashboardTile.objects.create(
-                        dashboard=dashboard, insight=insight, layouts=existing_tile.layouts, color=existing_tile.color,
+                        dashboard=dashboard, insight=insight, layouts=existing_tile.layouts, color=existing_tile.color
                     )
 
             except Dashboard.DoesNotExist:
@@ -164,7 +164,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     team=team,
                 )
                 DashboardTile.objects.create(
-                    dashboard=dashboard, insight=insight, layouts=item.get("layouts"), color=item.get("color"),
+                    dashboard=dashboard, insight=insight, layouts=item.get("layouts"), color=item.get("color")
                 )
 
         # Manual tag creation since this create method doesn't call super()
@@ -184,7 +184,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return dashboard
 
-    def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any,) -> Dashboard:
+    def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         user = cast(User, self.context["request"].user)
         can_user_restrict = instance.can_user_restrict(user.id)
         if "restriction_level" in validated_data and not can_user_restrict:
@@ -197,7 +197,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if "text_tiles" in validated_data:
             # mypy thinks this doesn't work... but it does ¯\_(ツ)_/¯
             self.fields["text_tiles"].update(  # type: ignore
-                list(instance.text_tiles.all()), validated_data.pop("text_tiles"),
+                list(instance.text_tiles.all()),
+                validated_data.pop("text_tiles"),
             )
 
         instance = super().update(instance, validated_data)
@@ -236,11 +237,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         # used by insight serializer to load insight filters in correct context
         self.context.update({"dashboard": dashboard})
 
-        insights = []
-
         tiles = (
             DashboardTile.objects.filter(dashboard=dashboard)
-            .select_related("insight__created_by", "insight__last_modified_by",)
+            .select_related(
+                "insight__created_by",
+                "insight__last_modified_by",
+            )
             .prefetch_related(
                 "insight__dashboard_tiles__dashboard__created_by",
                 "insight__dashboard_tiles__dashboard__team",
@@ -249,6 +251,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             .order_by("insight__order")
         )
 
+        insights = []
         for tile in tiles:
             if tile.insight:
                 insight = tile.insight

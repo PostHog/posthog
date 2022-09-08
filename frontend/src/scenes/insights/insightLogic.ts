@@ -7,7 +7,6 @@ import type { insightLogicType } from './insightLogicType'
 import {
     ActionType,
     FilterType,
-    DashboardTile,
     InsightLogicProps,
     InsightModel,
     InsightShortId,
@@ -29,7 +28,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { actionsModel } from '~/models/actionsModel'
 import * as Sentry from '@sentry/react'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
@@ -37,7 +35,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 
@@ -201,10 +198,10 @@ export const insightLogic = kea<insightLogicType>({
                     }
                     callback?.(updatedInsight)
 
-                    savedInsightsLogic.findMounted()?.actions.loadInsights()
-                    for (const id of updatedInsight.dashboards ?? []) {
-                        dashboardLogic.findMounted({ id })?.actions.loadDashboardItems()
-                    }
+                    const removedDashboards = (values.insight.dashboards || []).filter(
+                        (d) => !updatedInsight.dashboards?.includes(d)
+                    )
+                    dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
@@ -240,7 +237,7 @@ export const insightLogic = kea<insightLogicType>({
                         updatedInsight[key] = response[key]
                     }
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
-                    dashboardsModel.actions.updateDashboardItem(updatedInsight)
+                    dashboardsModel.actions.updateDashboardInsight(updatedInsight)
                     return updatedInsight
                 },
                 // using values.filters, query for new insight results
@@ -386,16 +383,17 @@ export const insightLogic = kea<insightLogicType>({
                 ...insight,
             }),
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
-            [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item, dashboardIds }) => {
-                if (item.short_id !== state.short_id) {
-                    return state
-                }
-
-                const updateIsForThisDashboard = props.dashboardId && (dashboardIds || []).includes(props.dashboardId)
+            [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
+                // TODO when is this called without changes originating in this logic
+                const targetDashboards = (item.dashboards || []).concat(extraDashboardIds || [])
+                const updateIsForThisDashboard =
+                    item.short_id === state.short_id &&
+                    props.dashboardId &&
+                    targetDashboards.includes(props.dashboardId)
                 if (updateIsForThisDashboard) {
-                    return { ...item }
+                    return { ...state, ...item }
                 } else {
-                    return mergeWithDashboardTile(item, state as DashboardTile)
+                    return state
                 }
             },
         },
@@ -512,6 +510,7 @@ export const insightLogic = kea<insightLogicType>({
                 ),
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
+        insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
             (s) => [s.insight],
             (insight) =>
@@ -531,7 +530,7 @@ export const insightLogic = kea<insightLogicType>({
                 !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
                 !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})),
         ],
-        isViewedOnDashboard: [
+        isInDashboardContext: [
             () => [router.selectors.location],
             ({ pathname }) =>
                 pathname.startsWith('/dashboard') ||
@@ -694,7 +693,7 @@ export const insightLogic = kea<insightLogicType>({
         },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
             await breakpoint(IS_TEST_MODE ? 1 : 500) // Debounce to avoid noisy events from changing filters multiple times
-            if (!values.isViewedOnDashboard) {
+            if (!values.isInDashboardContext) {
                 const { fromDashboard } = router.values.hashParams
                 const changedKeysObj: Record<string, any> | undefined =
                     previousFilters && extractObjectDiffKeys(previousFilters, filters)
@@ -853,8 +852,8 @@ export const insightLogic = kea<insightLogicType>({
                     action: () => router.actions.push(urls.savedInsights()),
                 },
             })
-            savedInsightsLogic.findMounted()?.actions.loadInsights()
-            dashboardsModel.actions.updateDashboardItem(savedInsight)
+
+            dashboardsModel.actions.updateDashboardInsight(savedInsight)
 
             if (redirectToViewMode) {
                 const mountedInsightSceneLogic = insightSceneLogic.findMounted()

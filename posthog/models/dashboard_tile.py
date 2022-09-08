@@ -37,9 +37,7 @@ class DashboardTile(BaseDashboardTile):
     refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     class Meta:
-        indexes = [
-            models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx"),
-        ]
+        indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]
 
     def save(self, *args, **kwargs) -> None:
         has_no_filters_hash = self.filters_hash is None

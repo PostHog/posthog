@@ -53,7 +53,7 @@ class TagsTestCase(TestMigrations):
         )
         Dashboard.objects.bulk_create(
             [
-                Dashboard(name=f"batch_dashboard-{dashboard_number+10}", team=team,)
+                Dashboard(name=f"batch_dashboard-{dashboard_number+10}", team=team)
                 for dashboard_number, team in enumerate(teams)
             ]
         )

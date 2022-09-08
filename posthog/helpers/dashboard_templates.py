@@ -185,9 +185,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
     )
 
 
-DASHBOARD_TEMPLATES: Dict[str, Callable] = {
-    "DEFAULT_APP": _create_default_app_items,
-}
+DASHBOARD_TEMPLATES: Dict[str, Callable] = {"DEFAULT_APP": _create_default_app_items}
 
 
 def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> None:

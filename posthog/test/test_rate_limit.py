@@ -34,9 +34,7 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/insights")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(incr_mock.call_count, 1)
-        incr_mock.assert_called_with(
-            "rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "burst"},
-        )
+        incr_mock.assert_called_with("rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "burst"})
 
     @patch("posthog.rate_limit.PassThroughSustainedRateThrottle.get_rate", return_value="5/hour")
     @patch("posthog.rate_limit.incr")
@@ -53,9 +51,7 @@ class TestUserAPI(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.pk}/insights")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(incr_mock.call_count, 1)
-            incr_mock.assert_called_with(
-                "rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "sustained",},
-            )
+            incr_mock.assert_called_with("rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "sustained"})
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.get_rate", return_value="5/minute")
     @patch("posthog.rate_limit.incr")
@@ -70,19 +66,14 @@ class TestUserAPI(APIBaseTest):
         response = self.client.post(f"/api/login")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(incr_mock.call_count, 1)
-        incr_mock.assert_called_with(
-            "rate_limit_exceeded", tags={"team_id": None, "scope": "burst",},
-        )
+        incr_mock.assert_called_with("rate_limit_exceeded", tags={"team_id": None, "scope": "burst"})
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.get_rate", return_value="5/minute")
     @patch("posthog.rate_limit.incr")
     def test_does_not_rate_limit_capture_endpoints(self, incr_mock, _):
-        data = {
-            "event": "$autocapture",
-            "properties": {"distinct_id": 2, "token": self.team.api_token,},
-        }
+        data = {"event": "$autocapture", "properties": {"distinct_id": 2, "token": self.team.api_token}}
         for _ in range(6):
-            response = self.client.get("/e/?data=%s" % quote(json.dumps(data)), HTTP_ORIGIN="https://localhost",)
+            response = self.client.get("/e/?data=%s" % quote(json.dumps(data)), HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(incr_mock.call_count, 0)
 

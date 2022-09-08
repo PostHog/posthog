@@ -58,12 +58,13 @@ export interface FeatureFlagLogicProps {
 export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
-    key(({ id }) => id ?? 'new'),
+    key(({ id }) => id ?? 'unknown'),
     connect({
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
     }),
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        setFeatureFlagMissing: true,
         addConditionSet: true,
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
         removeConditionSet: (index: number) => ({ index }),
@@ -257,12 +258,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+
+        featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
                 if (props.id && props.id !== 'new') {
-                    return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
+                    try {
+                        return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
+                    } catch (e) {
+                        actions.setFeatureFlagMissing()
+                        throw e
+                    }
                 }
                 return NEW_FLAG
             },

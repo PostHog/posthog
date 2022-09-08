@@ -10,5 +10,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="cohort", name="is_static", field=models.BooleanField(default=False),),
+        migrations.AddField(
+            model_name="cohort",
+            name="is_static",
+            field=models.BooleanField(default=False),
+        ),
     ]
