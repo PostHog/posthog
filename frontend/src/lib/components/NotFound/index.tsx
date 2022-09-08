@@ -24,7 +24,6 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
                         <Link
                             to={`https://posthog.com/support?utm_medium=in-product&utm_campaign=${object}-not-found`}
                             target="_blank"
-                            rel="noopener"
                         >
                             contact support
                         </Link>{' '}

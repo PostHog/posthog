@@ -110,6 +110,10 @@ module.exports = {
                         element: 'Skeleton',
                         message: 'use <LemonSkeleton> instead',
                     },
+                    {
+                        element: 'a',
+                        message: 'use <Link> instead',
+                    },
                 ],
             },
         ],
