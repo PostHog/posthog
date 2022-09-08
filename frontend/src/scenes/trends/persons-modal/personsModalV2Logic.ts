@@ -74,6 +74,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 resetActors: () => [],
             },
         ],
+        missingActorsCount: [
+            0,
+            {
+                loadActorsSuccess: (state, { actorsResponse }) => state + (actorsResponse?.missing_persons || 0),
+                resetActors: () => 0,
+            },
+        ],
         searchTerm: [
             '',
             {
