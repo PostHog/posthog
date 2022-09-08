@@ -21,17 +21,21 @@ export interface MathDefinition {
 function Label({ tooltip, children = null }: { tooltip?: string; children: React.ReactNode }): JSX.Element {
     return (
         <Tooltip title={tooltip} placement="left">
-            <div className="w-full">{children}</div>
+            <div>{children}</div>
         </Tooltip>
     )
 }
 
 const GROUP_INTRODUCTION_OPTION: LemonSelectOption<BaseMathType | PropertyMathType | string> = {
-    value: BaseMathType.WeeklyActive,
-    disabled: true,
+    value: 'group_notice',
+    unclickable: true,
     label: (
         <Label>
-            Unique Groups –{' '}
+            Enter your payment information to use group analytics. {}
+            <Link to="/organization/billing" target="_blank" data-attr="group-analytics-upgrade">
+                Upgrade
+            </Link>{' '}
+            or {}
             <Link
                 to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
                 target="_blank"

@@ -12,6 +12,7 @@ export interface LemonSelectOption<T> {
     icon?: React.ReactElement
     sideIcon?: React.ReactElement
     disabled?: boolean
+    unclickable?: boolean
     tooltip?: string
     'data-attr'?: string
     element?: React.ReactElement // TODO: Unify with `label`
@@ -136,6 +137,7 @@ export function LemonSelect<T>({
                                     status="stealth"
                                     active={option.value === localValue}
                                     disabled={option.disabled}
+                                    unclickable={option.unclickable}
                                     fullWidth
                                     data-attr={option['data-attr']}
                                 >
