@@ -2,15 +2,13 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { getRecordingListLimit, sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
+import { getRecordingListLimit, PLAYLIST_LIMIT, sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import './SessionRecordingPlaylist.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
 
@@ -59,7 +57,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                         onClick: (e) => {
                             // Lets the link to the person open the person's page and not the session recording
                             if (!(e.target as HTMLElement).closest('a')) {
-                                openSessionPlayer(sessionRecording.id, RecordingWatchedSource.RecordingsList)
+                                openSessionPlayer(sessionRecording.id)
                             }
                         },
                     })}
@@ -68,6 +66,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     data-attr="session-recording-table"
                     data-tooltip="session-recording-table"
                     emptyState="No matching recordings found"
+                    loadingSkeletonRows={PLAYLIST_LIMIT}
                 />
                 <div className="SessionRecordingPlaylist__pagination-control">
                     <span>{`${offset + 1} - ${
@@ -99,16 +98,12 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     <div className="border rounded h-full">
                         <SessionRecordingPlayerV3 playerKey="playlist" sessionRecordingId={activeSessionRecordingId} />
                     </div>
-                ) : sessionRecordingsResponseLoading ? (
-                    <div className="SessionRecordingPlaylist__loading">
-                        <Spinner />
-                    </div>
                 ) : (
                     <EmptyMessage
                         title="No recording selected"
                         description="Please select a recording from the list on the left"
                         buttonText="Learn more about recordings"
-                        buttonHref="https://posthog.com/docs/user-guides/recordings"
+                        buttonTo="https://posthog.com/docs/user-guides/recordings"
                     />
                 )}
             </div>

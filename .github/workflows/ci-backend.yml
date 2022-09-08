@@ -94,7 +94,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8.12
+                  python-version: 3.8.14
 
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests
@@ -148,7 +148,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8.12
+                  python-version: 3.8.14
 
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests
@@ -189,7 +189,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.8.12']
+                python-version: ['3.8.14']
                 clickhouse-server-image: ['clickhouse/clickhouse-server:22.3']
                 ee: [true]
                 foss: [false]
@@ -200,7 +200,7 @@ jobs:
                 group: [1, 2, 3, 4, 5]
                 include:
                     # :TRICKY: Run FOSS tests in a separate container
-                    - python-version: '3.8.12'
+                    - python-version: '3.8.14'
                       ee: false
                       foss: true
                       name: 'FOSS'
@@ -209,7 +209,7 @@ jobs:
                       group: 1
                     # :TRICKY: Run person-on-events tests only for one CH instance
                     # But still run in parallel
-                    - python-version: '3.8.12'
+                    - python-version: '3.8.14'
                       ee: true
                       foss: false
                       person-on-events: true
@@ -217,7 +217,7 @@ jobs:
                       clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 1
-                    - python-version: '3.8.12'
+                    - python-version: '3.8.14'
                       ee: true
                       foss: false
                       person-on-events: true
@@ -225,7 +225,7 @@ jobs:
                       clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 2
-                    - python-version: '3.8.12'
+                    - python-version: '3.8.14'
                       ee: true
                       foss: false
                       person-on-events: true
@@ -233,7 +233,7 @@ jobs:
                       clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 3
-                    - python-version: '3.8.12'
+                    - python-version: '3.8.14'
                       ee: true
                       foss: false
                       person-on-events: true
@@ -241,7 +241,7 @@ jobs:
                       clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 4
-                    - python-version: '3.8.12'
+                    - python-version: '3.8.14'
                       ee: true
                       foss: false
                       person-on-events: true
@@ -275,7 +275,7 @@ jobs:
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
               if: ${{ !matrix.person-on-events && github.event.pull_request.head.repo.full_name == github.repository }}
               with:
-                  add: '["ee/clickhouse", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/"]'
+                  add: '["ee", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/"]'
                   message: 'Update snapshots'
 
             - name: Check if any snapshot changes were left uncomitted
@@ -336,7 +336,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8.12
+                  python-version: 3.8.14
 
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests

@@ -67,7 +67,7 @@
             min-height: 1rem;
         }
 
-        > .LemonIcon {
+        .LemonButton__icon {
             font-size: 1.25rem;
         }
     }
@@ -82,7 +82,7 @@
             padding: 0.5rem;
         }
 
-        > .LemonIcon {
+        .LemonButton__icon {
             font-size: 1.75rem;
         }
     }
@@ -100,7 +100,8 @@
         padding: 0;
     }
 
-    .LemonIcon {
+    .LemonButton__icon {
+        display: flex;
         font-size: 1.5rem;
         flex-shrink: 0;
         transition: color 200ms ease;
@@ -126,7 +127,7 @@
             }
         }
 
-        .LemonIcon {
+        .LemonButton__icon {
             color: var(--muted-alt);
         }
 
@@ -163,7 +164,7 @@
                 }
             }
 
-            .LemonIcon {
+            .LemonButton__icon {
                 color: var(--#{$status});
             }
 
@@ -171,7 +172,7 @@
             &.LemonButton--primary {
                 color: var(--white);
                 background: var(--#{$status});
-                .LemonIcon {
+                .LemonButton__icon {
                     color: var(--white);
                 }
 
@@ -179,14 +180,14 @@
                 &.LemonButton--active {
                     color: var(--white);
                     background: var(--#{$status}-light, var(--#{$status}));
-                    .LemonIcon {
+                    .LemonButton__icon {
                         color: var(--white);
                     }
                 }
                 &:not(:disabled):active {
                     background: var(--#{$status}-dark, var(--#{$status}));
                     color: var(--white);
-                    .LemonIcon {
+                    .LemonButton__icon {
                         color: var(--white);
                     }
                 }

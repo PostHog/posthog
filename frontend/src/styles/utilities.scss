@@ -494,6 +494,19 @@
     font-style: normal;
 }
 
+.break-normal {
+    overflow-wrap: normal;
+    word-break: normal;
+}
+
+.break-words {
+    overflow-wrap: break-word;
+}
+
+.break-all {
+    word-break: break-all;
+}
+
 .whitespace-normal {
     white-space: normal;
 }
@@ -604,6 +617,9 @@
 .rounded-3xl {
     border-radius: 1.5rem; /* 24px */
 }
+.rounded-full {
+    border-radius: 9999px;
+}
 
 .overflow-auto {
     overflow: auto;
@@ -619,6 +635,12 @@
 }
 .overflow-scroll {
     overflow: scroll;
+}
+.overflow-x-scroll {
+    overflow-x: scroll;
+}
+.overflow-y-scroll {
+    overflow-y: scroll;
 }
 .overflow-x-auto {
     overflow-x: auto;
@@ -710,7 +732,11 @@
 }
 
 @each $list_style_type in $list_style_types {
-    .list-#{list_style_type} {
+    .list-#{$list_style_type} {
         list-style-type: #{$list_style_type};
     }
+}
+
+.shadow {
+    box-shadow: var(--shadow-elevation);
 }

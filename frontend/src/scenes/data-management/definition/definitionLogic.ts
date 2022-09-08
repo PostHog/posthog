@@ -36,6 +36,7 @@ export const definitionLogic = kea<definitionLogicType>([
     actions({
         setDefinition: (definition: Partial<Definition>, options: SetDefinitionProps = {}) => ({ definition, options }),
         loadDefinition: (id: Definition['id']) => ({ id }),
+        setDefinitionMissing: true,
         setPageMode: (mode: DefinitionPageMode) => ({ mode }),
     }),
     connect(() => ({
@@ -48,8 +49,14 @@ export const definitionLogic = kea<definitionLogicType>([
                 setPageMode: (_, { mode }) => mode,
             },
         ],
+        definitionMissing: [
+            false,
+            {
+                setDefinitionMissing: () => true,
+            },
+        ],
     })),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         definition: [
             createNewDefinition(values.isEvent),
             {
@@ -72,6 +79,7 @@ export const definitionLogic = kea<definitionLogicType>([
                         }
                         breakpoint()
                     } catch (response: any) {
+                        actions.setDefinitionMissing()
                         throw response
                     }
 

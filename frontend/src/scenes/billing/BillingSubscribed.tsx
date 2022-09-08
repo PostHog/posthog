@@ -21,10 +21,7 @@ export function BillingSubscribedTheme({ children }: PropsWithChildren<unknown>)
 
             <LemonDivider dashed className="my-4" />
             <div className="text-center">
-                Have questions?{' '}
-                <Link type="link" onClick={toggleHelp}>
-                    Get help
-                </Link>
+                Have questions? <Link onClick={toggleHelp}>Get help</Link>
             </div>
         </BridgePage>
     )

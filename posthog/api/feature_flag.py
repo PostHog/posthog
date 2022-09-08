@@ -17,7 +17,7 @@ from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
-from posthog.models.feature_flag import FeatureFlagMatcher
+from posthog.models.feature_flag import FeatureFlagMatcher, get_active_feature_flags
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -220,7 +220,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         if not feature_flag_list:
             return Response(flags)
 
-        matches = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
+        matches, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
         for feature_flag in feature_flags:
             flags.append(
                 {
@@ -258,6 +258,40 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
                 },
             }
         )
+
+    @action(methods=["GET"], detail=False)
+    def evaluation_reasons(self, request: request.Request, **kwargs):
+
+        distinct_id = request.query_params.get("distinct_id", None)
+        groups = json.loads(request.query_params.get("groups", "{}"))
+
+        if not distinct_id:
+            raise exceptions.ValidationError(detail="distinct_id is required")
+
+        flags, reasons = get_active_feature_flags(self.team_id, distinct_id, groups)
+
+        flags_with_evaluation_reasons = {}
+
+        for flag_key in reasons:
+            flags_with_evaluation_reasons[flag_key] = {
+                "value": flags.get(flag_key, False),
+                "evaluation": reasons[flag_key],
+            }
+
+        disabled_flags = FeatureFlag.objects.filter(team_id=self.team_id, active=False, deleted=False).values_list(
+            "key", flat=True
+        )
+
+        for flag_key in disabled_flags:
+            flags_with_evaluation_reasons[flag_key] = {
+                "value": False,
+                "evaluation": {
+                    "reason": "disabled",
+                    "condition_index": None,
+                },
+            }
+
+        return Response(flags_with_evaluation_reasons)
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):

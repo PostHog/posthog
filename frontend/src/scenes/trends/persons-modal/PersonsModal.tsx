@@ -12,7 +12,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
-import { IconPersonFilled, IconSave } from 'lib/components/icons'
+import { IconPersonFilled } from 'lib/components/icons'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { getSeriesColor } from 'lib/colors'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -24,7 +24,6 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import api from 'lib/api'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 
@@ -158,7 +157,6 @@ export function PersonsModal({
                             {isSaveAsCohortAvailable && (
                                 <LemonButton
                                     onClick={onSaveCohort}
-                                    icon={<IconSave />}
                                     type="secondary"
                                     data-attr="person-modal-save-as-cohort"
                                 >
@@ -275,10 +273,7 @@ export function PersonsModal({
                                                                 <MultiRecordingButton
                                                                     sessionRecordings={actor.matched_recordings}
                                                                     onOpenRecording={(sessionRecording) => {
-                                                                        openSessionPlayer(
-                                                                            sessionRecording.session_id,
-                                                                            RecordingWatchedSource.PersonModal
-                                                                        )
+                                                                        openSessionPlayer(sessionRecording.session_id)
                                                                     }}
                                                                 />
                                                             )

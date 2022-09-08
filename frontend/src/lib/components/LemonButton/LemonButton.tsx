@@ -21,8 +21,11 @@ export interface LemonButtonPropsBase
     active?: boolean
     /** URL to link to. */
     to?: string
+    /** force the "to" link to reload the page */
+    disableClientSideRouting?: boolean
+    /** If set clicking this button will open the page in a new tab. */
+    targetBlank?: boolean
     /** External URL to link to. */
-    href?: string
     className?: string
 
     icon?: React.ReactElement | null
@@ -54,8 +57,6 @@ function LemonButtonInternal(
         children,
         active = false,
         className,
-        to,
-        href,
         disabled,
         loading,
         type = 'tertiary',
@@ -69,6 +70,9 @@ function LemonButtonInternal(
         htmlType = 'button',
         noPadding,
         unclickable,
+        to,
+        targetBlank,
+        disableClientSideRouting,
         ...buttonProps
     }: LemonButtonProps,
     ref: React.Ref<HTMLElement>
@@ -77,7 +81,7 @@ function LemonButtonInternal(
         icon = <Spinner monocolor />
     }
 
-    const ButtonComponent = to || href ? Link : 'button'
+    const ButtonComponent = to ? Link : 'button'
 
     if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
         buttonProps['aria-label'] = tooltip
@@ -105,14 +109,13 @@ function LemonButtonInternal(
             )}
             disabled={disabled || loading || unclickable}
             to={to}
-            href={href}
-            target={href ? '_blank' : undefined}
-            rel={href ? 'noopener noreferrer' : undefined}
+            target={targetBlank ? '_blank' : undefined}
+            disableClientSideRouting={disableClientSideRouting}
             {...buttonProps}
         >
-            {icon}
+            {icon ? <span className="LemonButton__icon">{icon}</span> : null}
             {children ? <span className="LemonButton__content flex items-center">{children}</span> : null}
-            {sideIcon}
+            {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
         </ButtonComponent>
     )
 

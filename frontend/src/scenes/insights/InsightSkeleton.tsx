@@ -1,24 +1,24 @@
 import React from 'react'
-import { Card, Col, Row, Skeleton } from 'antd'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 export function InsightSkeleton(): JSX.Element {
     return (
         <>
-            <Skeleton active title paragraph={{ rows: 3 }} className="page-title-row page-caption mb-1" />
-            <Skeleton active title={false} paragraph={{ rows: 1 }} />
-            <Card>
-                <Row gutter={16}>
-                    <Col md={18}>
-                        <Skeleton active />
-                    </Col>
-                    <Col md={6} style={{ textAlign: 'center' }}>
-                        <Skeleton active paragraph={{ rows: 0 }} />
-                        <Skeleton active paragraph={{ rows: 0 }} />
-                        <Skeleton active paragraph={{ rows: 0 }} />
-                    </Col>
-                </Row>
-            </Card>
-            <Card style={{ minHeight: 600, marginTop: 16 }} />
+            <div className="my-6 space-y-4">
+                <LemonSkeleton className="w-1/4" />
+                <LemonSkeleton className="w-1/2" repeat={3} />
+                <LemonSkeleton />
+                <div className="border rounded p-6 flex items-center gap-4">
+                    <div className="flex-1 space-y-2">
+                        <LemonSkeleton.Row repeat={3} />
+                    </div>
+
+                    <div className="flex-1 space-y-2">
+                        <LemonSkeleton.Row repeat={3} />
+                    </div>
+                </div>
+                <div className="border rounded p-6" style={{ minHeight: 600 }} />
+            </div>
         </>
     )
 }
