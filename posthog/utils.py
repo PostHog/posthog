@@ -1056,6 +1056,7 @@ def generate_short_id():
 
 
 def get_week_start_for_country_code(country_code: str) -> int:
+    # Data from https://github.com/unicode-cldr/cldr-core/blob/master/supplemental/weekData.json
     if country_code in [
         "AG",
         "AS",
