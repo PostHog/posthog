@@ -56,7 +56,7 @@ deprecated==1.2.13
     # via
     #   -c requirements.txt
     #   redis
-django==3.2.14
+django==3.2.15
     # via
     #   -c requirements.txt
     #   django-stubs

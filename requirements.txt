@@ -82,7 +82,7 @@ deprecated==1.2.13
     # via redis
 dj-database-url==0.5.0
     # via -r requirements.in
-django==3.2.14
+django==3.2.15
     # via
     #   -r requirements.in
     #   django-axes
