@@ -129,7 +129,7 @@ const renderItemContents = ({
     ) : (
         <div className="taxonomic-list-row-contents">
             {listGroupType === TaxonomicFilterGroupType.Elements ? (
-                <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
+                <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover className="w-full" />
             ) : listGroupType === TaxonomicFilterGroupType.PageviewUrls ? (
                 <p className="taxonomic-url-truncate" title={itemName}>
                     {itemName}
