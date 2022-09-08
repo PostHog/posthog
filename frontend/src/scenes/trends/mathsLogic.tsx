@@ -5,7 +5,7 @@ import type { mathsLogicType } from './mathsLogicType'
 import { EVENT_MATH_TYPE, PROPERTY_MATH_TYPE } from 'lib/constants'
 import { BaseMathType, PropertyMathType } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
-import { LemonSelectOption, LemonSelectOptions, Link } from '@posthog/lemon-ui'
+import { LemonSelectOption, LemonSelectOptions, LemonSelectSection, Link } from '@posthog/lemon-ui'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 
 export interface MathDefinition {
@@ -464,10 +464,7 @@ export const mathsLogic = kea<mathsLogicType>({
         ],
         selectFormattedOptions: [
             (s) => [s.groupsAccessStatus, s.groupsMathFormattedSelectDefinitions],
-            (
-                groupsAccessStatus,
-                groupsMathFormattedSelectDefinitions
-            ): LemonSelectOptions<BaseMathType | PropertyMathType | string> => {
+            (groupsAccessStatus, groupsMathFormattedSelectDefinitions): LemonSelectSection<string>[] => {
                 const hasGroupAccess = [
                     GroupsAccessStatus.HasAccess,
                     GroupsAccessStatus.HasGroupTypes,

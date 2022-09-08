@@ -26,7 +26,7 @@ import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/c
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -410,10 +410,19 @@ function MathSelector({
 }: MathSelectorProps): JSX.Element {
     const { mathDefinitions, selectFormattedOptions } = useValues(mathsLogic)
 
-    // let relevantEventMathEntries = eventMathEntries
-    // if (mathAvailability === MathAvailability.ActorsOnly) {
-    //     relevantEventMathEntries = relevantEventMathEntries.filter(([, definition]) => definition.actor)
-    // }
+    let relevantEventMathEntries: LemonSelectSection<string>[] = []
+
+    if (mathAvailability === MathAvailability.ActorsOnly) {
+        selectFormattedOptions.forEach((section) => {
+            const newSection = section
+            newSection.options = section.options.filter((option) => option.value && mathDefinitions[option.value].actor)
+            if (newSection.options.length > 0) {
+                relevantEventMathEntries.push(newSection)
+            }
+        })
+    } else {
+        relevantEventMathEntries = selectFormattedOptions
+    }
 
     let mathType = apiValueToMathType(math, mathGroupTypeIndex)
     if (mathAvailability === MathAvailability.ActorsOnly && !mathDefinitions[mathType]?.actor) {
@@ -425,7 +434,7 @@ function MathSelector({
     return (
         <LemonSelect
             value={mathType}
-            options={selectFormattedOptions}
+            options={relevantEventMathEntries}
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
             dropdownMatchSelectWidth={false}
