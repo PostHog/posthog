@@ -160,17 +160,20 @@ export function DashboardHeader(): JSX.Element | null {
                                                     >
                                                         Edit layout (E)
                                                     </LemonButton>
-                                                    {showTextCards && (
-                                                        <LemonButton
-                                                            status="stealth"
-                                                            fullWidth
-                                                            onClick={() => {
-                                                                push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                                            }}
-                                                        >
-                                                            Add text to dashboard
-                                                        </LemonButton>
-                                                    )}
+                                                    {showTextCards &&
+                                                        hasAvailableFeature(
+                                                            AvailableFeature.DASHBOARD_COLLABORATION
+                                                        ) && (
+                                                            <LemonButton
+                                                                status="stealth"
+                                                                fullWidth
+                                                                onClick={() => {
+                                                                    push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                                }}
+                                                            >
+                                                                Add text to dashboard
+                                                            </LemonButton>
+                                                        )}
                                                 </>
                                             )}
                                             <LemonButton
