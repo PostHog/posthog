@@ -1,15 +1,15 @@
-import { InputNumber, Row, Select } from 'antd'
+import { Row } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import React, { useRef, useState } from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
-import { RefSelectProps } from 'antd/lib/select'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useDebouncedCallback } from 'use-debounce'
 import clsx from 'clsx'
+import { LemonInput, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
@@ -24,12 +24,13 @@ export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: bool
     const { conversionWindow, aggregationTargetLabel, filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>(conversionWindow)
-    const timeUnitRef: React.RefObject<RefSelectProps> | null = useRef(null)
 
-    const options = Object.keys(TIME_INTERVAL_BOUNDS).map((unit) => ({
-        label: pluralize(conversionWindow.funnel_window_interval ?? 7, unit, `${unit}s`, false),
-        value: unit,
-    }))
+    const options: LemonSelectOption<FunnelConversionWindowTimeUnit>[] = Object.keys(TIME_INTERVAL_BOUNDS).map(
+        (unit) => ({
+            label: pluralize(conversionWindow.funnel_window_interval ?? 7, unit, `${unit}s`, false),
+            value: unit as FunnelConversionWindowTimeUnit,
+        })
+    )
     const intervalBounds =
         TIME_INTERVAL_BOUNDS[conversionWindow.funnel_window_interval_unit ?? FunnelConversionWindowTimeUnit.Day]
 
@@ -65,7 +66,8 @@ export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: bool
             </span>
             <Row className="funnel-options-inputs" style={horizontal ? { paddingLeft: 8 } : undefined}>
                 <span className="mr-2">
-                    <InputNumber
+                    <LemonInput
+                        type="number"
                         min={intervalBounds[0]}
                         max={intervalBounds[1]}
                         defaultValue={conversionWindow.funnel_window_interval}
@@ -81,23 +83,17 @@ export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: bool
                         onPressEnter={setConversionWindow}
                     />
                 </span>
-                <Select
-                    ref={timeUnitRef}
-                    defaultValue={conversionWindow.funnel_window_interval_unit}
+                <LemonSelect
                     dropdownMatchSelectWidth={false}
                     value={localConversionWindow.funnel_window_interval_unit}
-                    onChange={(funnel_window_interval_unit: FunnelConversionWindowTimeUnit) => {
-                        setLocalConversionWindow((state) => ({ ...state, funnel_window_interval_unit }))
-                        setConversionWindow()
+                    onChange={(funnel_window_interval_unit: FunnelConversionWindowTimeUnit | null) => {
+                        if (funnel_window_interval_unit) {
+                            setLocalConversionWindow((state) => ({ ...state, funnel_window_interval_unit }))
+                            setConversionWindow()
+                        }
                     }}
-                    onBlur={setConversionWindow}
-                >
-                    {options.map(({ value, label }) => (
-                        <Select.Option value={value} key={value}>
-                            {label}
-                        </Select.Option>
-                    ))}
-                </Select>
+                    options={options}
+                />
             </Row>
         </div>
     )

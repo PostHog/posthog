@@ -37,7 +37,7 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
                 <FunnelStepOrderPicker />
             </PureField>
             <PureField label="Conversion rate calculation">
-                <FunnelStepReferencePicker bordered />
+                <FunnelStepReferencePicker />
             </PureField>
 
             <PureField
