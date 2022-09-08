@@ -8,6 +8,9 @@
     .InsightCard & {
         height: 100%;
     }
+    .ConversionRate & {
+        height: calc(100% - 45px);
+    }
     table {
         --bar-width: 0.5rem; // This should be overriden from React
         --bar-row-height: 18rem;

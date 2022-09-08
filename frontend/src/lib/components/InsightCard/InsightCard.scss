@@ -25,6 +25,21 @@
         font-size: 0.875rem;
     }
 }
+.ConversionRate {
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    .conversion_rate_content {
+        border-bottom: 1px solid var(--border);
+        padding: 10px;
+    }
+    .text-blue {
+        color: var(--primary-light);
+    }
+    .InsightCard & {
+        height: 100%;
+    }
+}
 
 .InsightViz {
     position: absolute;
