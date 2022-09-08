@@ -64,9 +64,8 @@ export function DashboardItems(): JSX.Element {
                 rowHeight={80}
                 margin={[16, 16]}
                 containerPadding={[0, 0]}
-                onLayoutChange={(curr, newLayouts) => {
+                onLayoutChange={(_, newLayouts) => {
                     if (dashboardMode === DashboardMode.Edit) {
-                        console.log(curr, newLayouts)
                         updateLayouts(newLayouts)
                     }
                 }}
