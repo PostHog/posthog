@@ -118,7 +118,7 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
                     </span>
                     <LemonSelect
                         options={[
-                            { label: 'All', value: 'all' },
+                            { label: 'All types', value: 'all' },
                             {
                                 label: FeatureFlagReleaseType.ReleaseToggle,
                                 value: FeatureFlagReleaseType.ReleaseToggle,
@@ -146,10 +146,8 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
                     <LemonSelect
                         options={[
                             { label: 'All', value: 'all' },
-                            ...Object.values(FeatureFlagMatchReason).map((value) => ({
-                                label: featureFlagMatchMapping[value],
-                                value: value,
-                            })),
+                            { label: 'Matched', value: FeatureFlagMatchReason.ConditionMatch },
+                            { label: 'Not matched', value: 'not matched' },
                         ]}
                         onChange={(reason) => {
                             if (reason) {

@@ -6,6 +6,7 @@ import { toParams } from 'lib/utils'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { FeatureFlagReleaseType, FeatureFlagType } from '~/types'
+import { FeatureFlagMatchReason } from './RelatedFeatureFlags'
 
 import type { relatedFeatureFlagsLogicType } from './relatedFeatureFlagsLogicType'
 export interface RelatedFeatureFlag extends FeatureFlagType {
@@ -117,7 +118,11 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                     searchedFlags = searchedFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
                 }
                 if (reason) {
-                    searchedFlags = searchedFlags.filter((flag) => flag.evaluation.reason === reason)
+                    searchedFlags = searchedFlags.filter((flag) =>
+                        reason === 'not matched'
+                            ? flag.evaluation.reason !== FeatureFlagMatchReason.ConditionMatch
+                            : flag.evaluation.reason === FeatureFlagMatchReason.ConditionMatch
+                    )
                 }
                 return searchedFlags
             },

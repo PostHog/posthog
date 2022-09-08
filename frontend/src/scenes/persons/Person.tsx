@@ -213,7 +213,7 @@ export function Person(): JSX.Element | null {
                         tab={<span data-attr="persons-related-flags-tab">Feature flags</span>}
                         key={PersonsTabType.FEATURE_FLAGS}
                     >
-                        <RelatedFeatureFlags distinctId={person.uuid} />
+                        <RelatedFeatureFlags distinctId={person.distinct_ids[0]} />
                     </TabPane>
                 )}
 
