@@ -30,20 +30,26 @@ const GROUP_INTRODUCTION_OPTION: LemonSelectOption<BaseMathType | PropertyMathTy
     value: 'group_notice',
     unclickable: true,
     label: (
-        <Label>
+        <div className="text-sm">
             Enter your payment information to use group analytics. {}
-            <Link to="/organization/billing" target="_blank" data-attr="group-analytics-upgrade">
+            <Link
+                className="font-medium"
+                to="/organization/billing"
+                target="_blank"
+                data-attr="group-analytics-upgrade"
+            >
                 Upgrade
             </Link>{' '}
             or {}
             <Link
+                className="font-medium"
                 to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
                 target="_blank"
                 data-attr="group-analytics-learn-more"
             >
                 Learn more
             </Link>
-        </Label>
+        </div>
     ),
 }
 
