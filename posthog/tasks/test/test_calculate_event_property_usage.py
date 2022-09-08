@@ -92,7 +92,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         with freeze_time("12th December 2006 13:45") as frozen_datetime:
             calculate_event_property_usage()
 
-            # mock will have had two calls, one for team one, one for team two
+            # mock will have had three calls, one for the autocreated team from the test class, one for `team`, and one for `team_two`
             self.assertEqual(
                 patched_calculate_for_team.call_args_list,
                 [call(team_id=self.team.id), call(team_id=team.id), call(team_id=team_two.id)],
@@ -103,7 +103,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
 
             calculate_event_property_usage()  # new team isn't in recency check and will run
 
-            # mock will only have had one call, for team_created_after_first_run
+            # mock will only have had one call, for `team_created_after_first_run`
             self.assertEqual(patched_calculate_for_team.call_args_list, [call(team_id=team_created_after_first_run.id)])
             patched_calculate_for_team.reset_mock()
 
