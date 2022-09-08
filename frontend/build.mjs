@@ -47,6 +47,7 @@ await buildInParallel(
             entryPoints: ['src/toolbar/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
+            banner: { js: 'var define = undefined;' }, // make sure we don't link to any window.define
             ...common,
         },
     ],
