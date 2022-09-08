@@ -1,4 +1,5 @@
 import random
+from datetime import timedelta
 from unittest.mock import MagicMock, call, patch
 
 from freezegun import freeze_time
@@ -88,21 +89,36 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         team = Team.objects.create(organization=org)
         team_two = Team.objects.create(organization=org)
 
-        calculate_event_property_usage()
+        with freeze_time("12th December 2006 13:45") as frozen_datetime:
+            calculate_event_property_usage()
 
-        # mock will have had two calls, one for team one, one for team two
-        self.assertEqual(
-            patched_calculate_for_team.call_args_list,
-            [call(team_id=self.team.id), call(team_id=team.id), call(team_id=team_two.id)],
-        )
-        patched_calculate_for_team.reset_mock()
+            # mock will have had two calls, one for team one, one for team two
+            self.assertEqual(
+                patched_calculate_for_team.call_args_list,
+                [call(team_id=self.team.id), call(team_id=team.id), call(team_id=team_two.id)],
+            )
+            patched_calculate_for_team.reset_mock()
 
-        team_created_after_first_run = Team.objects.create(organization=org)
+            team_created_after_first_run = Team.objects.create(organization=org)
 
-        calculate_event_property_usage()  # new team isn't in recency check and will run
+            calculate_event_property_usage()  # new team isn't in recency check and will run
 
-        # mock will only have had one call, for team_created_after_first_run
-        self.assertEqual(patched_calculate_for_team.call_args_list, [call(team_id=team_created_after_first_run.id)])
+            # mock will only have had one call, for team_created_after_first_run
+            self.assertEqual(patched_calculate_for_team.call_args_list, [call(team_id=team_created_after_first_run.id)])
+            patched_calculate_for_team.reset_mock()
+
+            frozen_datetime.tick(delta=timedelta(days=1, minutes=1))
+
+            calculate_event_property_usage()  # a day has passed all teams will run
+            self.assertEqual(
+                patched_calculate_for_team.call_args_list,
+                [
+                    call(team_id=self.team.id),
+                    call(team_id=team.id),
+                    call(team_id=team_two.id),
+                    call(team_id=team_created_after_first_run.id),
+                ],
+            )
 
     def test_calculate_usage(self) -> None:
         EventDefinition.objects.create(team=self.team, name="$pageview")
