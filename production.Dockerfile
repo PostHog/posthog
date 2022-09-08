@@ -7,7 +7,7 @@
 #
 # Build the frontend artifacts
 #
-FROM node:16.15-alpine3.14 AS frontend
+FROM node:16.15-alpine3.16 AS frontend
 
 WORKDIR /code
 
@@ -24,16 +24,16 @@ RUN yarn build
 # Build the plugin-server artifacts. Note that we still need to install the
 # runtime deps in the main image
 #
-FROM node:16.15-alpine3.14 AS plugin-server
+FROM node:16.15-alpine3.16 AS plugin-server
 
 WORKDIR /code/plugin-server
 
 # Install python, make and gcc as they are needed for the yarn install
 RUN apk --update --no-cache add \
     "make~=4.3" \
-    "g++~=10.3" \
-    "gcc~=10.3" \
-    "python3~=3.9"
+    "g++~=11.2" \
+    "gcc~=11.2" \
+    "python3~=3.10"
 
 # Compile and install Yarn dependencies.
 #
@@ -54,7 +54,7 @@ RUN yarn build
 
 # Build the posthog image, incorporating the Django app along with the frontend,
 # as well as the plugin-server
-FROM python:3.8.12-alpine3.14
+FROM python:3.8.14-alpine3.16
 
 ENV PYTHONUNBUFFERED 1
 
@@ -66,14 +66,14 @@ WORKDIR /code
 # If you temporary need a package to build a Python or npm
 # dependency take a look at the sections below.
 RUN apk --update --no-cache add \
-    "libpq~=13" \
+    "libpq~=14" \
     "libxslt~=1.1" \
-    "nodejs-current~=16" \
-    "chromium~=93" \
-    "chromium-chromedriver~=93" \
+    "nodejs-current~=18" \
+    "chromium~=102" \
+    "chromium-chromedriver~=102" \
     "xmlsec~=1.2"
 
-# Curl the GeoLite2-City database that will be used for IP geolocation within Django 
+# Curl the GeoLite2-City database that will be used for IP geolocation within Django
 #
 # Notes:
 #
@@ -106,16 +106,15 @@ RUN apk --update --no-cache --virtual .geolite-deps add \
 COPY requirements.txt ./
 RUN apk --update --no-cache --virtual .build-deps add \
     "bash~=5.1" \
-    "g++~=10.3" \
-    "gcc~=10.3" \
-    "cargo~=1.52" \
+    "g++~=11.2" \
+    "gcc~=11.2" \
+    "cargo~=1.60" \
     "git~=2" \
     "make~=4.3" \
-    "libffi-dev~=3.3" \
+    "libffi-dev~=3.4" \
     "libxml2-dev~=2.9" \
     "libxslt-dev~=1.1" \
     "xmlsec-dev~=1.2" \
-    "postgresql-dev~=13" \
     "libmaxminddb~=1.5" \
     && \
     pip install -r requirements.txt --compile --no-cache-dir \
@@ -148,7 +147,7 @@ RUN apk --update --no-cache add "yarn~=1"
 
 # NOTE: we need make and g++ for node-gyp
 # NOTE: npm is required for re2
-RUN apk --update --no-cache add "make~=4.3" "g++~=10.3" "npm~=7" --virtual .build-deps \
+RUN apk --update --no-cache add "make~=4.3" "g++~=11.2" "npm~=8" --virtual .build-deps \
     && yarn install --frozen-lockfile --production=true \
     && yarn cache clean \
     && apk del .build-deps
