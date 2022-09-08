@@ -1,9 +1,13 @@
 import random
+from unittest.mock import MagicMock, call, patch
 
 from freezegun import freeze_time
 
 from posthog.models import EventDefinition, EventProperty, Insight, Organization, PropertyDefinition, Team
-from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
+from posthog.tasks.calculate_event_property_usage import (
+    calculate_event_property_usage,
+    calculate_event_property_usage_for_team,
+)
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.test.base import _create_event as create_event
 from posthog.test.base import _create_person as create_person
@@ -77,6 +81,28 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             instance = PropertyDefinition.objects.get(name=item["name"], team=team)
             self.assertEqual(instance.query_usage_30_day, item["query_usage_30_day"], item)
             self.assertEqual(instance.is_numerical, item["is_numerical"], item)
+
+    @patch("posthog.tasks.calculate_event_property_usage.calculate_event_property_usage_for_team")
+    def test_recency_check_makes_subsequent_run_do_nothing(self, patched_calculate_for_team: MagicMock) -> None:
+        org = Organization.objects.create(name="Demo Org")
+        team = Team.objects.create(organization=org)
+        team_two = Team.objects.create(organization=org)
+
+        calculate_event_property_usage()
+
+        # mock will have had two calls, one for team one, one for team two
+        self.assertEqual(
+            patched_calculate_for_team.call_args_list,
+            [call(team_id=self.team.id), call(team_id=team.id), call(team_id=team_two.id)],
+        )
+        patched_calculate_for_team.reset_mock()
+
+        team_created_after_first_run = Team.objects.create(organization=org)
+
+        calculate_event_property_usage()  # new team isn't in recency check and will run
+
+        # mock will only have had one call, for team_created_after_first_run
+        self.assertEqual(patched_calculate_for_team.call_args_list, [call(team_id=team_created_after_first_run.id)])
 
     def test_calculate_usage(self) -> None:
         EventDefinition.objects.create(team=self.team, name="$pageview")
