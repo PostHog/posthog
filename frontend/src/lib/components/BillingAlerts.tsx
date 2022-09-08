@@ -7,7 +7,7 @@ import clsx from 'clsx'
 
 export function BillingAlerts(): JSX.Element | null {
     const { billing } = useValues(billingLogic)
-    const { alertToShow, freePlanPercentage, percentage, strokeColor } = useValues(billingLogic)
+    const { alertToShow, percentage, strokeColor } = useValues(billingLogic)
 
     if (!alertToShow) {
         return null
@@ -20,9 +20,8 @@ export function BillingAlerts(): JSX.Element | null {
         isWarning = true
         message = (
             <p>
-                <b>Warning!</b> You have already used{' '}
-                <b className="text-warning">{freePlanPercentage && freePlanPercentage * 100}%</b> of your 1 million free
-                events this month.{' '}
+                <b>Warning!</b> You have already used <b className="text-warning">{percentage && percentage * 100}%</b>{' '}
+                of your 1 million free events this month.{' '}
                 <Link to="/organization/billing" data-attr="alert_free_usage_near_limit">
                     {billing?.plan?.custom_setup_billing_message ||
                         'To avoid losing data or access to it, upgrade your billing plan now.'}

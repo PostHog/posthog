@@ -759,7 +759,7 @@ export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean
     plan: PlanInterface | null
-    billing_period_ends: string
+    billing_period_ends: string | null
     event_allocation: number | null
     current_usage: number | null
     subscription_url: string
@@ -768,7 +768,7 @@ export interface BillingType {
     should_display_current_bill: boolean
     billing_limit: number | null
     billing_limit_exceeded: boolean | null
-    current_bill_cycle: CurrentBillCycleType
+    current_bill_cycle: CurrentBillCycleType | null
     tiers: BillingTierType[] | null
 }
 

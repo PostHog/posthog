@@ -19,8 +19,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
-export const FREE_PLAN_MAX_EVENTS = 1000000
-export const FREE_PLAN_EVENTS_THRESHOLD = 0.85
 
 export enum BillingAlertType {
     SetupBilling = 'setup_billing',
@@ -69,7 +67,7 @@ export const billingLogic = kea<billingLogicType>([
                         actions.setPlans([response.plan])
                     }
                     if (
-                        response.current_usage > FREE_PLAN_MAX_EVENTS &&
+                        response.current_usage > response.event_allocation &&
                         response.should_setup_billing &&
                         router.values.location.pathname !== '/organization/billing/locked' &&
                         values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
@@ -130,15 +128,6 @@ export const billingLogic = kea<billingLogicType>([
                 return Math.min(Math.round((billing.current_usage / eventAllocation) * 100) / 100, 1)
             },
         ],
-        freePlanPercentage: [
-            (s) => [s.billing],
-            (billing: BillingType) => {
-                if (!billing?.current_usage) {
-                    return null
-                }
-                return Math.min(Math.round((billing.current_usage / FREE_PLAN_MAX_EVENTS) * 100) / 100, 1)
-            },
-        ],
         strokeColor: [
             (selectors) => [selectors.percentage],
             (percentage) => {
@@ -161,11 +150,10 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         alertToShow: [
-            (s) => [s.eventAllocation, s.percentage, s.freePlanPercentage, s.billing, sceneLogic.selectors.scene],
+            (s) => [s.eventAllocation, s.percentage, s.billing, sceneLogic.selectors.scene],
             (
                 eventAllocation: number | null,
                 percentage: number,
-                freePlanPercentage: number,
                 billing: BillingType,
                 scene: Scene
             ): BillingAlertType | undefined => {
@@ -184,6 +172,7 @@ export const billingLogic = kea<billingLogicType>([
                 // Priority 3: Event allowance near threshold
                 if (
                     scene !== Scene.Billing &&
+                    billing?.is_billing_active &&
                     billing?.current_usage &&
                     eventAllocation &&
                     percentage >= ALLOCATION_THRESHOLD_ALERT
@@ -192,11 +181,7 @@ export const billingLogic = kea<billingLogicType>([
                 }
 
                 // Priority 4: Users on free account that are almost reaching free events threshold
-                if (
-                    !billing?.is_billing_active &&
-                    billing?.current_usage &&
-                    freePlanPercentage > FREE_PLAN_EVENTS_THRESHOLD
-                ) {
+                if (!billing?.is_billing_active && billing?.current_usage && percentage > ALLOCATION_THRESHOLD_ALERT) {
                     return BillingAlertType.FreeUsageNearLimit
                 }
             },
