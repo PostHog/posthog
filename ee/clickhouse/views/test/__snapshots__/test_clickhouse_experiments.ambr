@@ -72,10 +72,17 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.person_id as aggregation_target,
+                              pdi.person_id as aggregation_target,
                               e."properties" as "properties",
-                              e.person_id as person_id
+                              pdi.person_id as person_id
                        FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$pageleave', '$pageview']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -164,10 +171,17 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e.person_id as aggregation_target,
+                              pdi.person_id as aggregation_target,
                               e."properties" as "properties",
-                              e.person_id as person_id
+                              pdi.person_id as person_id
                        FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$pageleave', '$pageview']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -295,7 +309,7 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT count(DISTINCT person_id) as total,
+           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(timestamp, 'UTC') as day_start,
                             breakdown_value
            FROM
@@ -303,10 +317,17 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT e.person_id as person_id,
+                (SELECT pdi.person_id as person_id,
                         timestamp,
                         replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
                  FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$feature_flag_called'
                    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
