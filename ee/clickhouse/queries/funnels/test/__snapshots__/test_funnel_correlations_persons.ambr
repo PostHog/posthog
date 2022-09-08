@@ -85,19 +85,12 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
+                              e.person_id as aggregation_target,
                               e.uuid AS uuid,
                               e."$session_id" as "$session_id",
                               e."$window_id" as "$window_id",
-                              pdi.person_id as person_id
+                              e.person_id as person_id
                        FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'insight analyzed']
                          AND timestamp >= toDateTime('2021-01-01 00:00:00')
@@ -117,14 +110,7 @@
   SELECT actors.actor_id AS actor_id ,
          any(actors.matching_events) AS matching_events
   FROM events AS event
-  JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
-  JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
+  JOIN funnel_actors as actors ON event.person_id = actors.actor_id
   WHERE event.timestamp >= date_from
     AND event.timestamp < date_to
     AND event.team_id = 2
@@ -307,19 +293,12 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target,
+                                    e.person_id as aggregation_target,
                                     e.uuid AS uuid,
                                     e."$session_id" as "$session_id",
                                     e."$window_id" as "$window_id",
-                                    pdi.person_id as person_id
+                                    e.person_id as person_id
                              FROM events e
-                             INNER JOIN
-                               (SELECT distinct_id,
-                                       argMax(person_id, version) as person_id
-                                FROM person_distinct_id2
-                                WHERE team_id = 2
-                                GROUP BY distinct_id
-                                HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['$pageview', 'insight analyzed', 'insight updated']
                                AND timestamp >= toDateTime('2021-01-01 00:00:00')
@@ -340,14 +319,7 @@
   SELECT actors.actor_id AS actor_id ,
          any(actors.matching_events) AS matching_events
   FROM events AS event
-  JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
-  JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
+  JOIN funnel_actors as actors ON event.person_id = actors.actor_id
   WHERE event.timestamp >= date_from
     AND event.timestamp < date_to
     AND event.team_id = 2
@@ -459,35 +431,18 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
+                              e.person_id as aggregation_target,
                               e.uuid AS uuid,
                               e."$session_id" as "$session_id",
                               e."$window_id" as "$window_id",
-                              pdi.person_id as person_id
+                              e.person_id as person_id,
+                              e."person_properties" as "person_properties"
                        FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                       INNER JOIN
-                         (SELECT id
-                          FROM person
-                          WHERE team_id = 2
-                            AND id IN
-                              (SELECT id
-                               FROM person
-                               WHERE team_id = 2
-                                 AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
-                          GROUP BY id
-                          HAVING max(is_deleted) = 0
-                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'insight analyzed']
                          AND timestamp >= toDateTime('2021-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
+                         AND timestamp <= toDateTime('2021-01-08 23:59:59')
+                         AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'foo'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -604,34 +559,17 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
+                              e.person_id as aggregation_target,
                               e.uuid AS uuid,
                               e."$session_id" as "$session_id",
                               e."$window_id" as "$window_id",
-                              pdi.person_id as person_id
+                              e.person_id as person_id,
+                              e."person_properties" as "person_properties"
                        FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                       INNER JOIN
-                         (SELECT id
-                          FROM person
-                          WHERE team_id = 2
-                            AND id IN
-                              (SELECT id
-                               FROM person
-                               WHERE team_id = 2
-                                 AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
-                          GROUP BY id
-                          HAVING max(is_deleted) = 0
-                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND timestamp >= toDateTime('2021-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
+                         AND timestamp <= toDateTime('2021-01-08 23:59:59')
+                         AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'foo'), '^"|"$', ''))) ) events
                     WHERE (1=1) ))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
@@ -747,34 +685,17 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
+                              e.person_id as aggregation_target,
                               e.uuid AS uuid,
                               e."$session_id" as "$session_id",
                               e."$window_id" as "$window_id",
-                              pdi.person_id as person_id
+                              e.person_id as person_id,
+                              e."person_properties" as "person_properties"
                        FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                       INNER JOIN
-                         (SELECT id
-                          FROM person
-                          WHERE team_id = 2
-                            AND id IN
-                              (SELECT id
-                               FROM person
-                               WHERE team_id = 2
-                                 AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
-                          GROUP BY id
-                          HAVING max(is_deleted) = 0
-                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND timestamp >= toDateTime('2021-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
+                         AND timestamp <= toDateTime('2021-01-08 23:59:59')
+                         AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'foo'), '^"|"$', ''))) ) events
                     WHERE (1=1) ))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,

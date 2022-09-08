@@ -48,24 +48,10 @@
                                                            ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
                                                           created_at
                  FROM
-                   (SELECT DISTINCT pdi.person_id as person_id,
+                   (SELECT DISTINCT e.person_id as person_id,
                                     dateTrunc('day', toDateTime(events.timestamp, 'UTC')) AS period,
-                                    toDateTime(person.created_at, 'UTC') AS created_at
+                                    toDateTime(person_created_at, 'UTC') AS created_at
                     FROM events AS e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT id,
-                              argMax(created_at, version) as created_at
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
                       AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00'))) - INTERVAL 1 day
@@ -131,24 +117,10 @@
                                                            ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
                                                           created_at
                  FROM
-                   (SELECT DISTINCT pdi.person_id as person_id,
+                   (SELECT DISTINCT e.person_id as person_id,
                                     dateTrunc('month', toDateTime(events.timestamp, 'UTC')) AS period,
-                                    toDateTime(person.created_at, 'UTC') AS created_at
+                                    toDateTime(person_created_at, 'UTC') AS created_at
                     FROM events AS e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT id,
-                              argMax(created_at, version) as created_at
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
                       AND timestamp >= toDateTime(dateTrunc('month', toDateTime('2021-02-04 00:00:00'))) - INTERVAL 1 month
@@ -214,24 +186,10 @@
                                                            ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
                                                           created_at
                  FROM
-                   (SELECT DISTINCT pdi.person_id as person_id,
+                   (SELECT DISTINCT e.person_id as person_id,
                                     dateTrunc('week', toDateTime(events.timestamp, 'UTC')) AS period,
-                                    toDateTime(person.created_at, 'UTC') AS created_at
+                                    toDateTime(person_created_at, 'UTC') AS created_at
                     FROM events AS e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT id,
-                              argMax(created_at, version) as created_at
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
                       AND timestamp >= toDateTime(dateTrunc('week', toDateTime('2021-04-06 00:00:00'))) - INTERVAL 1 week
@@ -297,24 +255,10 @@
                                                            ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
                                                           created_at
                  FROM
-                   (SELECT DISTINCT pdi.person_id as person_id,
+                   (SELECT DISTINCT e.person_id as person_id,
                                     dateTrunc('day', toDateTime(events.timestamp, 'UTC')) AS period,
-                                    toDateTime(person.created_at, 'UTC') AS created_at
+                                    toDateTime(person_created_at, 'UTC') AS created_at
                     FROM events AS e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT id,
-                              argMax(created_at, version) as created_at
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
                       AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-11 00:00:00'))) - INTERVAL 1 day
@@ -380,36 +324,15 @@
                                                            ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
                                                           created_at
                  FROM
-                   (SELECT DISTINCT pdi.person_id as person_id,
+                   (SELECT DISTINCT e.person_id as person_id,
                                     dateTrunc('day', toDateTime(events.timestamp, 'UTC')) AS period,
-                                    toDateTime(person.created_at, 'UTC') AS created_at
+                                    toDateTime(person_created_at, 'UTC') AS created_at
                     FROM events AS e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT id,
-                              argMax(created_at, version) as created_at
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event = '$pageview'
                       AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00'))) - INTERVAL 1 day
                       AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59'))) + INTERVAL 1 day
-                      AND (has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'key'), '^"|"$', ''))) )))
+                      AND (has(['value'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'key'), '^"|"$', ''))) )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))
           AND start_of_period >= dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))
@@ -471,24 +394,10 @@
                                                            ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
                                                           created_at
                  FROM
-                   (SELECT DISTINCT pdi.person_id as person_id,
+                   (SELECT DISTINCT e.person_id as person_id,
                                     dateTrunc('day', toDateTime(events.timestamp, 'UTC')) AS period,
-                                    toDateTime(person.created_at, 'UTC') AS created_at
+                                    toDateTime(person_created_at, 'UTC') AS created_at
                     FROM events AS e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT id,
-                              argMax(created_at, version) as created_at
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
                       AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00'))) - INTERVAL 1 day
@@ -554,24 +463,10 @@
                                                            ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
                                                           created_at
                  FROM
-                   (SELECT DISTINCT pdi.person_id as person_id,
+                   (SELECT DISTINCT e.person_id as person_id,
                                     dateTrunc('day', toDateTime(events.timestamp, 'US/Pacific')) AS period,
-                                    toDateTime(person.created_at, 'US/Pacific') AS created_at
+                                    toDateTime(person_created_at, 'US/Pacific') AS created_at
                     FROM events AS e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT id,
-                              argMax(created_at, version) as created_at
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
                       AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00'))) - INTERVAL 1 day
