@@ -5,6 +5,7 @@ import { range } from 'lib/utils'
 import { LemonButton, LemonButtonProps } from 'lib/components/LemonButton'
 import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
 import clsx from 'clsx'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 export interface LemonCalendarProps {
     /** Fired if a calendar cell is clicked */
@@ -33,7 +34,7 @@ const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
 
 export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
     const months = Math.max(props.months ?? 1, 1)
-    const weekStart = props.weekStart ?? 1
+    const weekStart = props.weekStart ?? getAppContext()?.week_start ?? 1
     const today = dayjs().startOf('day')
     const [leftmostMonth, setLeftmostMonth] = useState(props.leftmostMonth ?? dayjs().format('YYYY-MM-DD'))
     useEffect(() => {
