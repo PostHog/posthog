@@ -70,7 +70,15 @@ class TeamManager(models.Manager):
     def create(self, *args, **kwargs) -> "Team":
         if kwargs.get("organization") is None and kwargs.get("organization_id") is None:
             raise ValueError("Creating organization-less projects is prohibited")
-        return super().create(*args, **kwargs, actor_on_events_querying_setting_enabled=True)
+
+        actor_on_events_querying_setting_enabled = True
+
+        if settings.TEST:
+            actor_on_events_querying_setting_enabled = False
+
+        return super().create(
+            *args, **kwargs, actor_on_events_querying_setting_enabled=actor_on_events_querying_setting_enabled
+        )
 
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
         if not token:
