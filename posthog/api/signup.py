@@ -418,6 +418,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
         )
         if user:
             backend_processor = "domain_whitelist"  # This is actually `jit_provisioning` (name kept for backwards-compatibility purposes)
+            from_invite = True  # jit_provisioning means they're definitely not organization_first_user
 
         if not user:
             logger.info(f"social_create_user_jit_failed", full_name_len=len(full_name), email_len=len(email))
