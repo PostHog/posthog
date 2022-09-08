@@ -4,7 +4,8 @@ from unittest.mock import MagicMock, patch
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
-from posthog.tasks.exports.image_exporter import get_driver
+
+# from posthog.tasks.exports.image_exporter import get_driver
 from posthog.test.base import APIBaseTest
 
 
@@ -38,12 +39,12 @@ class TestExporterTask(APIBaseTest):
         assert self.exported_asset.content is None
         assert self.exported_asset.content_location is not None
 
-    def test_exporter_setsup_selenium(self, mock_uuid: MagicMock) -> None:
-        driver = get_driver()
+    # def test_exporter_setup_selenium(self, mock_uuid: MagicMock) -> None:
+    #     driver = get_driver()
 
-        assert driver is not None
+    #     assert driver is not None
 
-        driver.get("https://example.com")
+    #     driver.get("https://example.com")
 
-        if driver:
-            driver.close()
+    #     if driver:
+    #         driver.close()
