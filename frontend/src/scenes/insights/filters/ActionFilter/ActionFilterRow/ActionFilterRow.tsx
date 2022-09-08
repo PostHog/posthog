@@ -411,8 +411,10 @@ function MathSelector({
 
     if (mathAvailability === MathAvailability.ActorsOnly) {
         selectFormattedOptions.forEach((section) => {
-            const newSection = section
-            newSection.options = section.options.filter((option) => option.value && mathDefinitions[option.value].actor)
+            const newSection = { ...section }
+            newSection.options = section.options.filter(
+                (option) => option.value && mathDefinitions[option.value]?.actor
+            )
             if (newSection.options.length > 0) {
                 relevantEventMathEntries.push(newSection)
             }
