@@ -53,22 +53,9 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id
+                           e.person_id as aggregation_target,
+                           e.person_id as person_id
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT id
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -163,22 +150,9 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id
+                           e.person_id as aggregation_target,
+                           e.person_id as person_id
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT id
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -271,39 +245,19 @@
                                  e.team_id as team_id,
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
+                                 e.person_id as aggregation_target,
                                  e."properties" as "properties",
-                                 pdi.person_id as person_id
+                                 e.person_id as person_id,
+                                 e."person_properties" as "person_properties"
                           FROM events e
-                          INNER JOIN
-                            (SELECT distinct_id,
-                                    argMax(person_id, version) as person_id
-                             FROM person_distinct_id2
-                             WHERE team_id = 2
-                             GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          INNER JOIN
-                            (SELECT id
-                             FROM person
-                             WHERE team_id = 2
-                               AND id IN
-                                 (SELECT id
-                                  FROM person
-                                  WHERE team_id = 2
-                                    AND ((replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'
-                                          AND has(['20'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))
-                                         OR (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                             OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))) )
-                             GROUP BY id
-                             HAVING max(is_deleted) = 0
-                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
-                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
-                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                            AND timestamp <= toDateTime('2020-07-01 00:00:00') ) events
+                            AND timestamp <= toDateTime('2020-07-01 00:00:00')
+                            AND ((replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%.com%'
+                                  AND has(['20'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'age'), '^"|"$', '')))
+                                 OR (replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%.org%'
+                                     OR has(['28'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'age'), '^"|"$', '')))) ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -387,39 +341,19 @@
                                  e.team_id as team_id,
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
+                                 e.person_id as aggregation_target,
                                  e."properties" as "properties",
-                                 pdi.person_id as person_id
+                                 e.person_id as person_id,
+                                 e."person_properties" as "person_properties"
                           FROM events e
-                          INNER JOIN
-                            (SELECT distinct_id,
-                                    argMax(person_id, version) as person_id
-                             FROM person_distinct_id2
-                             WHERE team_id = 2
-                             GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          INNER JOIN
-                            (SELECT id
-                             FROM person
-                             WHERE team_id = 2
-                               AND id IN
-                                 (SELECT id
-                                  FROM person
-                                  WHERE team_id = 2
-                                    AND ((replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'
-                                          AND has(['20'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))
-                                         OR (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                             OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))) )
-                             GROUP BY id
-                             HAVING max(is_deleted) = 0
-                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
-                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
-                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                            AND timestamp <= toDateTime('2020-07-01 00:00:00') ) events
+                            AND timestamp <= toDateTime('2020-07-01 00:00:00')
+                            AND ((replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%.com%'
+                                  AND has(['20'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'age'), '^"|"$', '')))
+                                 OR (replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%.org%'
+                                     OR has(['28'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'age'), '^"|"$', '')))) ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -507,39 +441,19 @@
                                  e.team_id as team_id,
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
+                                 e.person_id as aggregation_target,
                                  e."properties" as "properties",
-                                 pdi.person_id as person_id
+                                 e.person_id as person_id,
+                                 e."person_properties" as "person_properties"
                           FROM events e
-                          INNER JOIN
-                            (SELECT distinct_id,
-                                    argMax(person_id, version) as person_id
-                             FROM person_distinct_id2
-                             WHERE team_id = 2
-                             GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          INNER JOIN
-                            (SELECT id
-                             FROM person
-                             WHERE team_id = 2
-                               AND id IN
-                                 (SELECT id
-                                  FROM person
-                                  WHERE team_id = 2
-                                    AND ((replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'
-                                          AND has(['20'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))
-                                         OR (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                             OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))) )
-                             GROUP BY id
-                             HAVING max(is_deleted) = 0
-                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
-                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
-                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                            AND timestamp <= toDateTime('2020-07-01 00:00:00') ) events
+                            AND timestamp <= toDateTime('2020-07-01 00:00:00')
+                            AND ((replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%.com%'
+                                  AND has(['20'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'age'), '^"|"$', '')))
+                                 OR (replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%.org%'
+                                     OR has(['28'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'age'), '^"|"$', '')))) ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -627,39 +541,19 @@
                                  e.team_id as team_id,
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
+                                 e.person_id as aggregation_target,
                                  e."properties" as "properties",
-                                 pdi.person_id as person_id
+                                 e.person_id as person_id,
+                                 e."person_properties" as "person_properties"
                           FROM events e
-                          INNER JOIN
-                            (SELECT distinct_id,
-                                    argMax(person_id, version) as person_id
-                             FROM person_distinct_id2
-                             WHERE team_id = 2
-                             GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          INNER JOIN
-                            (SELECT id
-                             FROM person
-                             WHERE team_id = 2
-                               AND id IN
-                                 (SELECT id
-                                  FROM person
-                                  WHERE team_id = 2
-                                    AND ((replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'
-                                          AND has(['20'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))
-                                         OR (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                             OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))) )
-                             GROUP BY id
-                             HAVING max(is_deleted) = 0
-                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
-                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
-                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                            AND timestamp <= toDateTime('2020-07-01 00:00:00') ) events
+                            AND timestamp <= toDateTime('2020-07-01 00:00:00')
+                            AND ((replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%.com%'
+                                  AND has(['20'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'age'), '^"|"$', '')))
+                                 OR (replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%.org%'
+                                     OR has(['28'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'age'), '^"|"$', '')))) ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -721,22 +615,9 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id
+                           e.person_id as aggregation_target,
+                           e.person_id as person_id
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT id
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -792,16 +673,9 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id
+                           e.person_id as aggregation_target,
+                           e.person_id as person_id
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 08:00:00')
@@ -1435,17 +1309,10 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
+                              e.person_id as aggregation_target,
                               e."properties" as "properties",
-                              pdi.person_id as person_id
+                              e.person_id as person_id
                        FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['buy', 'sign up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -1538,17 +1405,10 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
+                              e.person_id as aggregation_target,
                               e."properties" as "properties",
-                              pdi.person_id as person_id
+                              e.person_id as person_id
                        FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['buy', 'sign up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -1570,16 +1430,9 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -1677,7 +1530,7 @@
                                  if(step_1 = 1, timestamp, null) as latest_1,
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
-                                 replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                                 replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS prop_basic,
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM
@@ -1685,24 +1538,10 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target,
-                                    pdi.person_id as person_id,
-                                    groups_0.group_properties_0 as group_properties_0
+                                    e.person_id as aggregation_target,
+                                    e.person_id as person_id,
+                                    e."group0_properties" as "group0_properties"
                              FROM events e
-                             INNER JOIN
-                               (SELECT distinct_id,
-                                       argMax(person_id, version) as person_id
-                                FROM person_distinct_id2
-                                WHERE team_id = 2
-                                GROUP BY distinct_id
-                                HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                             INNER JOIN
-                               (SELECT group_key,
-                                       argMax(group_properties, _timestamp) AS group_properties_0
-                                FROM groups
-                                WHERE team_id = 2
-                                  AND group_type_index = 0
-                                GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
                                AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -1723,16 +1562,9 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -1823,7 +1655,7 @@
                                  if(step_1 = 1, timestamp, null) as latest_1,
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
-                                 replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                                 replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS prop_basic,
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM
@@ -1831,24 +1663,10 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target,
-                                    pdi.person_id as person_id,
-                                    groups_0.group_properties_0 as group_properties_0
+                                    e.person_id as aggregation_target,
+                                    e.person_id as person_id,
+                                    e."group0_properties" as "group0_properties"
                              FROM events e
-                             INNER JOIN
-                               (SELECT distinct_id,
-                                       argMax(person_id, version) as person_id
-                                FROM person_distinct_id2
-                                WHERE team_id = 2
-                                GROUP BY distinct_id
-                                HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                             INNER JOIN
-                               (SELECT group_key,
-                                       argMax(group_properties, _timestamp) AS group_properties_0
-                                FROM groups
-                                WHERE team_id = 2
-                                  AND group_type_index = 0
-                                GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
                                AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -1873,16 +1691,9 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -1973,7 +1784,7 @@
                                  if(step_1 = 1, timestamp, null) as latest_1,
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
-                                 replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                                 replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS prop_basic,
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM
@@ -1981,24 +1792,10 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target,
-                                    pdi.person_id as person_id,
-                                    groups_0.group_properties_0 as group_properties_0
+                                    e.person_id as aggregation_target,
+                                    e.person_id as person_id,
+                                    e."group0_properties" as "group0_properties"
                              FROM events e
-                             INNER JOIN
-                               (SELECT distinct_id,
-                                       argMax(person_id, version) as person_id
-                                FROM person_distinct_id2
-                                WHERE team_id = 2
-                                GROUP BY distinct_id
-                                HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                             INNER JOIN
-                               (SELECT group_key,
-                                       argMax(group_properties, _timestamp) AS group_properties_0
-                                FROM groups
-                                WHERE team_id = 2
-                                  AND group_type_index = 0
-                                GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
                                AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -2023,16 +1820,9 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -2123,7 +1913,7 @@
                                  if(step_1 = 1, timestamp, null) as latest_1,
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
-                                 replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                                 replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS prop_basic,
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM
@@ -2131,24 +1921,10 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target,
-                                    pdi.person_id as person_id,
-                                    groups_0.group_properties_0 as group_properties_0
+                                    e.person_id as aggregation_target,
+                                    e.person_id as person_id,
+                                    e."group0_properties" as "group0_properties"
                              FROM events e
-                             INNER JOIN
-                               (SELECT distinct_id,
-                                       argMax(person_id, version) as person_id
-                                FROM person_distinct_id2
-                                WHERE team_id = 2
-                                GROUP BY distinct_id
-                                HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                             INNER JOIN
-                               (SELECT group_key,
-                                       argMax(group_properties, _timestamp) AS group_properties_0
-                                FROM groups
-                                WHERE team_id = 2
-                                  AND group_type_index = 0
-                                GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
                                AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -2173,16 +1949,9 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -2273,7 +2042,7 @@
                                  if(step_1 = 1, timestamp, null) as latest_1,
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
-                                 replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                                 replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS prop_basic,
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM
@@ -2281,24 +2050,10 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target,
-                                    pdi.person_id as person_id,
-                                    groups_0.group_properties_0 as group_properties_0
+                                    e.person_id as aggregation_target,
+                                    e.person_id as person_id,
+                                    e."group0_properties" as "group0_properties"
                              FROM events e
-                             INNER JOIN
-                               (SELECT distinct_id,
-                                       argMax(person_id, version) as person_id
-                                FROM person_distinct_id2
-                                WHERE team_id = 2
-                                GROUP BY distinct_id
-                                HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                             INNER JOIN
-                               (SELECT group_key,
-                                       argMax(group_properties, _timestamp) AS group_properties_0
-                                FROM groups
-                                WHERE team_id = 2
-                                  AND group_type_index = 0
-                                GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
                                AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -2392,17 +2147,10 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
+                              e.person_id as aggregation_target,
                               e."properties" as "properties",
-                              pdi.person_id as person_id
+                              e.person_id as person_id
                        FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['buy', 'sign up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
