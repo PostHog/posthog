@@ -43,6 +43,9 @@ const GROUP_INTRODUCTION_OPTION: LemonSelectOption<BaseMathType | PropertyMathTy
     ),
 }
 
+const NUMERICAL_REQUIREMENT_NOTICE =
+    'This can only be used on properties that have at least one number type occurence in your events.'
+
 export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | PropertyMathType | string> = [
     {
         title: 'Event Aggregation',
@@ -117,7 +120,8 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                 label: (
                     <Label
                         tooltip={
-                            'Average of a property value within an event or action. For example 3 events captured with property amount equal to 10, 12 and 20, result in 14.'
+                            'Average of a property value within an event or action. For example, 3 events captured with property amount equal to 10, 12 and 20, result in 14.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
                         }
                     >
                         Average
@@ -129,7 +133,8 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                 label: (
                     <Label
                         tooltip={
-                            'Sum of property values within an event or action. For example 3 events captured with property'
+                            'Sum of property values within an event or action. For example, 3 events captured with property.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
                         }
                     >
                         Sum
@@ -141,7 +146,8 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                 label: (
                     <Label
                         tooltip={
-                            'Event property minimum. For example 3 events captured with property amount equal to 10, 12 and 20, result in 10.'
+                            'Event property minimum. For example, 3 events captured with property amount equal to 10, 12 and 20, result in 10.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
                         }
                     >
                         Minimum
@@ -153,7 +159,8 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                 label: (
                     <Label
                         tooltip={
-                            'Event property maximum. For example 3 events captured with property amount equal to 10, 12 and 20, result in 20.'
+                            'Event property maximum. For example, 3 events captured with property amount equal to 10, 12 and 20, result in 20.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
                         }
                     >
                         Maximum
@@ -165,7 +172,8 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                 label: (
                     <Label
                         tooltip={
-                            'Event property median (50th percentile). For example 100 events captured with property amount equal to 101..200, result in 150.'
+                            'Event property median (50th percentile). For example, 100 events captured with property amount equal to 101..200, result in 150.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
                         }
                     >
                         Median
@@ -177,7 +185,8 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                 label: (
                     <Label
                         tooltip={
-                            'Event property 90th percentile. For example 3 events captured with property amount equal to 101..200, result in 190.'
+                            'Event property 90th percentile. For example, 3 events captured with property amount equal to 101..200, result in 190.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
                         }
                     >
                         90th Percentile
@@ -189,7 +198,8 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                 label: (
                     <Label
                         tooltip={
-                            'Event property 95th percentile. For example 3 events captured with property amount equal to 101..200, result in 195.'
+                            'Event property 95th percentile. For example, 3 events captured with property amount equal to 101..200, result in 195.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
                         }
                     >
                         95th Percentile
@@ -201,7 +211,8 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                 label: (
                     <Label
                         tooltip={
-                            'Event property 99th percentile. For example 3 events captured with property amount equal to 101..200, result in 199.'
+                            'Event property 99th percentile. For example, 3 events captured with property amount equal to 101..200, result in 199.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
                         }
                     >
                         99th Percentile

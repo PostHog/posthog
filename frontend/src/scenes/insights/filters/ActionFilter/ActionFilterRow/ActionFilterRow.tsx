@@ -398,9 +398,6 @@ interface MathSelectorProps {
     style?: React.CSSProperties
 }
 
-// const NUMERICAL_REQUIREMENT_NOTICE =
-//     'This can only be used on properties that have at least one number type occurence in your events.'
-
 function MathSelector({
     math,
     mathGroupTypeIndex,
