@@ -46,6 +46,34 @@
                     }
                 }
             }
+
+            .taxonomic-url-truncate {
+                max-height: 36px;
+                line-height: 17px;
+                overflow: hidden;
+                text-align: justify;
+                text-overflow: ellipsis;
+                margin-right: -8px;
+                padding-right: 9.6px;
+                position: relative;
+
+                &::before {
+                    content: '...';
+                    position: absolute;
+                    right: -2px;
+                    bottom: 0;
+                }
+
+                &::after {
+                    content: '';
+                    position: absolute;
+                    right: 0;
+                    width: 9.6px;
+                    height: 25px;
+                    margin-top: 3.2px;
+                    background: white;
+                }
+            }
         }
 
         & > div {
@@ -62,6 +90,12 @@
         &.hover {
             background-color: var(--primary-bg-hover);
             border-radius: var(--radius);
+
+            .taxonomic-url-truncate {
+                &::after {
+                    background: var(--primary-bg-hover);
+                }
+            }
         }
 
         &.selected {

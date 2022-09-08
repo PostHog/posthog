@@ -109,6 +109,7 @@ const renderItemContents = ({
         !(item as PropertyDefinition).is_event_property
 
     const icon = <div className="taxonomic-list-row-contents-icon">{group.getIcon?.(item)}</div>
+    const itemName = group.getName(item) || item.name || ''
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.EventFeatureFlags ||
@@ -129,10 +130,14 @@ const renderItemContents = ({
         <div className="taxonomic-list-row-contents">
             {listGroupType === TaxonomicFilterGroupType.Elements ? (
                 <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
+            ) : listGroupType === TaxonomicFilterGroupType.PageviewUrls ? (
+                <p className="taxonomic-url-truncate" title={itemName}>
+                    {itemName}
+                </p>
             ) : (
                 <>
                     {group.getIcon ? icon : null}
-                    {group.getName(item) || item.name || ''}
+                    {itemName}
                 </>
             )}
         </div>
@@ -298,7 +303,7 @@ export function InfiniteList(): JSX.Element {
                             height={height}
                             rowCount={isLoading && totalListCount === 0 ? 7 : totalListCount}
                             overscanRowCount={100}
-                            rowHeight={36} // LemonRow heights
+                            rowHeight={40} // LemonRow heights
                             rowRenderer={renderItem}
                             onRowsRendered={onRowsRendered}
                             scrollToIndex={index}
