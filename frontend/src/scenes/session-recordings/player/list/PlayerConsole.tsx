@@ -72,7 +72,7 @@ export function PlayerConsole({ sessionRecordingId, playerKey }: SessionRecordin
                         <LemonButton
                             type="secondary"
                             className="my-2"
-                            href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
+                            to="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
                         >
                             Learn more
                         </LemonButton>

@@ -89,7 +89,7 @@ function TaxonomyIntroductionSection(): JSX.Element {
                     to="https://posthog.com/docs/user-guides/data-management"
                     target="_blank"
                     data-attr="taxonomy-learn-more"
-                    style={{ fontWeight: 600, marginTop: 8 }}
+                    className="mt-2 font-semibold"
                 >
                     Learn more about Data Management
                     <IconOpenInNew style={{ marginLeft: 8 }} />

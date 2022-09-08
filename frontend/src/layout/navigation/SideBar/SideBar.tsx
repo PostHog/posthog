@@ -233,7 +233,8 @@ function Pages(): JSX.Element {
                                                 fullWidth
                                                 key={index}
                                                 onClick={() => setIsToolbarLaunchShown(false)}
-                                                href={launchUrl(appUrl)}
+                                                to={launchUrl(appUrl)}
+                                                targetBlank
                                                 sideIcon={
                                                     <Tooltip title="Launch toolbar">
                                                         <IconOpenInApp />
