@@ -63,6 +63,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     has_group_types: true,
     primary_dashboard: 1,
     live_events_columns: ['event', 'person'],
+    actor_on_events_querying_setting_enabled: false,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
