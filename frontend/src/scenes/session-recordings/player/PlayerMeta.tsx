@@ -87,7 +87,7 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
         loading,
     } = useValues(metaLogic({ sessionRecordingId, playerKey }))
     return (
-        <div className="player-meta-container-v3">
+        <div className="player-meta-container-v3 border-b">
             <Row className="player-meta-user-section">
                 <Col className="player-meta-avatar">
                     {!sessionPerson ? (
@@ -167,6 +167,7 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                     )}
                 </Row>
             </Row>
+            {/*<LemonDivider className="my-0" />*/}
         </div>
     )
 }

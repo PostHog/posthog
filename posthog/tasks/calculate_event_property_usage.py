@@ -1,7 +1,8 @@
 import json
+import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
-from typing import DefaultDict, Dict, List, Optional, Tuple, cast
+from typing import DefaultDict, Dict, List, Optional, Set, Tuple, cast
 
 from django.db.models import Sum
 from django.utils import timezone
@@ -10,12 +11,34 @@ from posthog.logging.timing import timed
 from posthog.models import EventDefinition, EventProperty, Insight, PropertyDefinition, Team
 from posthog.models.filters.filter import Filter
 from posthog.models.property_definition import PropertyType
+from posthog.redis import get_client
+
+CALCULATED_PROPERTIES_FOR_TEAMS_KEY = "CALCULATED_PROPERTIES_FOR_TEAMS_KEY"
 
 
 @timed("calculate_event_property_usage")
 def calculate_event_property_usage() -> None:
+    teams_to_exclude = recently_calculated_teams(now_in_seconds_since_epoch=time.time())
+
     for team_id in Team.objects.values_list("id", flat=True):
-        calculate_event_property_usage_for_team(team_id=team_id)
+        if team_id not in teams_to_exclude:
+            calculate_event_property_usage_for_team(team_id=team_id)
+            get_client().zadd(name=CALCULATED_PROPERTIES_FOR_TEAMS_KEY, mapping={str(team_id): time.time()})
+
+
+def recently_calculated_teams(now_in_seconds_since_epoch: float) -> Set[int]:
+    """
+    Each time a team has properties calculated it is added to the sorted set with the seconds since epoch as its score.
+    That means we can read all teams in that set whose score is within the seconds since epoch covered in the last 24 hours
+    And exclude them from recalculation
+    """
+    one_day_ago = now_in_seconds_since_epoch - 86400
+    return {
+        int(team_id)
+        for team_id, _ in get_client().zrangebyscore(
+            CALCULATED_PROPERTIES_FOR_TEAMS_KEY, min=one_day_ago, max=now_in_seconds_since_epoch, withscores=True
+        )
+    }
 
 
 def gauge_event_property_usage() -> None:

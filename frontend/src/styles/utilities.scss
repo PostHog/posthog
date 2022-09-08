@@ -617,6 +617,9 @@
 .rounded-3xl {
     border-radius: 1.5rem; /* 24px */
 }
+.rounded-full {
+    border-radius: 9999px;
+}
 
 .overflow-auto {
     overflow: auto;
@@ -732,4 +735,8 @@
     .list-#{$list_style_type} {
         list-style-type: #{$list_style_type};
     }
+}
+
+.shadow {
+    box-shadow: var(--shadow-elevation);
 }

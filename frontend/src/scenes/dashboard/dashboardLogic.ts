@@ -25,7 +25,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
 import { dayjs, now } from 'lib/dayjs'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
@@ -189,8 +188,13 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         items: state?.items.map((item) => ({ ...item, layouts: itemLayouts[item.short_id] })),
                     } as DashboardType
                 },
-                [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item, dashboardIds }) => {
-                    if (dashboardIds && props.id && !dashboardIds.includes(props.id)) {
+                [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
+                    const targetDashboards = (item.dashboards || []).concat(extraDashboardIds || [])
+                    if (!props.id) {
+                        // what are we even updating?
+                        return state
+                    }
+                    if (!targetDashboards.includes(props.id)) {
                         // this update is not for this dashboard
                         return state
                     }
@@ -198,18 +202,23 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     if (state) {
                         const itemIndex = state.items.findIndex((i) => i.short_id === item.short_id)
                         const newItems = state.items.slice(0)
+
                         if (itemIndex >= 0) {
-                            newItems[itemIndex] = mergeWithDashboardTile(item, newItems[itemIndex])
+                            if (item.dashboards?.includes(props.id)) {
+                                newItems[itemIndex] = { ...newItems[itemIndex], ...item }
+                            } else {
+                                newItems.splice(itemIndex, 1)
+                            }
                         } else {
                             newItems.push(item)
                         }
+
                         return {
                             ...state,
-                            items: newItems
-                                .filter((i) => !i.deleted)
-                                .filter((i) => (i.dashboards || []).includes(props.id || -1)),
+                            items: newItems.filter((i) => !i.deleted),
                         } as DashboardType
                     }
+
                     return null
                 },
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
@@ -684,7 +693,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         )
                     }
 
-                    dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem, [dashboardId])
+                    dashboardsModel.actions.updateDashboardInsight(refreshedDashboardItem)
                     actions.setRefreshStatus(dashboardItem.short_id)
                 } catch (e: any) {
                     if (isBreakpoint(e)) {

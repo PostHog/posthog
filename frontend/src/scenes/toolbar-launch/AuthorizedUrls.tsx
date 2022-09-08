@@ -137,7 +137,8 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                 <>
                                                     <LemonButton
                                                         icon={<IconOpenInApp />}
-                                                        href={launchUrl(keyedAppURL.url)}
+                                                        to={launchUrl(keyedAppURL.url)}
+                                                        targetBlank
                                                         tooltip={'Launch toolbar'}
                                                         center
                                                         className="ActionButton"

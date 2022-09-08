@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { Skeleton } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { SessionRecording } from './SessionRecording'
@@ -38,6 +37,7 @@ import { SlackIntegration } from './SlackIntegration'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { ActorOnEventsQuerying } from './ActorOnEventsQuerying'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -82,7 +82,12 @@ export function ProjectSettings(): JSX.Element {
 
     useAnchor(location.hash)
 
-    const loadingComponent = <Skeleton active />
+    const loadingComponent = (
+        <div className="space-y-4">
+            <LemonSkeleton className="w-1/2" />
+            <LemonSkeleton repeat={3} />
+        </div>
+    )
 
     return (
         <div>
