@@ -203,6 +203,8 @@ export function ActionFilterRow({
                         taxonomicGroupTypes={actionsTaxonomicGroupTypes}
                     />
                 ),
+                visible: dropDownCondition,
+                onClickOutside: () => selectFilter(null),
             }}
             type="secondary"
             status="stealth"
