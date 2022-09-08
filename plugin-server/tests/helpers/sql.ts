@@ -253,6 +253,7 @@ export async function createUserTeamAndOrganization(
         data_attributes: ['data-attr'],
         person_display_name_properties: [],
         access_control: false,
+        actor_on_events_querying_setting_enabled: false,
     })
 }
 

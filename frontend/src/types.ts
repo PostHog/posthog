@@ -251,6 +251,7 @@ export interface TeamType extends TeamBasicType {
         excluded_event_property_names?: string[]
         excluded_event_names?: string[]
     }
+    actor_on_events_querying_setting_enabled: boolean
 }
 
 export interface ActionType {

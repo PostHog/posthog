@@ -123,6 +123,8 @@ class Team(UUIDClassicModel):
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
     )  # Dashboard shown on project homepage
 
+    actor_on_events_querying_setting_enabled: models.BooleanField = models.BooleanField(null=True, blank=True)
+
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
     @property
@@ -203,6 +205,9 @@ class Team(UUIDClassicModel):
     @property
     def actor_on_events_querying_enabled(self) -> bool:
         # on PostHog Cloud, use the feature flag
+        if self.actor_on_events_querying_setting_enabled:
+            return True
+
         if settings.MULTI_TENANCY:
             return posthoganalytics.feature_enabled(
                 "person-on-events-enabled",
