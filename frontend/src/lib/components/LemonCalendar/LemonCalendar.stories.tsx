@@ -39,7 +39,37 @@ CustomStyles.args = {
     },
 }
 
+export const MondayFirst = BasicTemplate.bind({})
+MondayFirst.args = {
+    weekStart: 1,
+}
+
+export const TuesdayFirst = BasicTemplate.bind({})
+TuesdayFirst.args = {
+    weekStart: 2,
+}
+
+export const WednesdayFirst = BasicTemplate.bind({})
+WednesdayFirst.args = {
+    weekStart: 3,
+}
+
+export const ThursdayFirst = BasicTemplate.bind({})
+ThursdayFirst.args = {
+    weekStart: 4,
+}
+
+export const FridayFirst = BasicTemplate.bind({})
+FridayFirst.args = {
+    weekStart: 5,
+}
+
+export const SaturdayFirst = BasicTemplate.bind({})
+SaturdayFirst.args = {
+    weekStart: 6,
+}
+
 export const SundayFirst = BasicTemplate.bind({})
 SundayFirst.args = {
-    sundayFirst: true,
+    weekStart: 0,
 }

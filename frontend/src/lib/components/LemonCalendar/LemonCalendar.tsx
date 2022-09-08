@@ -17,8 +17,8 @@ export interface LemonCalendarProps {
     getLemonButtonProps?: (opts: GetLemonButtonPropsOpts) => LemonButtonProps
     /** Number of months */
     months?: number
-    /** Show Sunday first */
-    sundayFirst?: boolean
+    /** First day of the week (defaults to 1 = Monday) */
+    weekStart?: number
 }
 
 export interface GetLemonButtonPropsOpts {
@@ -33,6 +33,7 @@ const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
 
 export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
     const months = Math.max(props.months ?? 1, 1)
+    const weekStart = props.weekStart ?? 1
     const today = dayjs().startOf('day')
     const [leftmostMonth, setLeftmostMonth] = useState(props.leftmostMonth ?? dayjs().format('YYYY-MM-DD'))
     useEffect(() => {
@@ -49,12 +50,8 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                     .startOf('month')
                 const endOfMonth = (leftmostMonth ? dayjs(leftmostMonth) : dayjs()).add(month, 'month').endOf('month')
                 const stringMonth = startOfMonth.format('YYYY-MM-DD')
-                const firstDay = props.sundayFirst
-                    ? startOfMonth.subtract(startOfMonth.day(), 'days')
-                    : startOfMonth.subtract(startOfMonth.day() === 0 ? 6 : startOfMonth.day() - 1, 'days')
-                const lastDay = props.sundayFirst
-                    ? endOfMonth.add(6 - endOfMonth.day(), 'days')
-                    : endOfMonth.add(endOfMonth.day() === 0 ? 0 : 7 - endOfMonth.day(), 'days')
+                const firstDay = startOfMonth.subtract((startOfMonth.day() - weekStart + 7) % 7, 'days')
+                const lastDay = endOfMonth.add((((weekStart + 6) % 7) - endOfMonth.day() + 7) % 7, 'days')
                 const weeks = lastDay.diff(firstDay, 'week') + 1
                 const showLeftMonth = month === 0
                 const showRightMonth = month + 1 === months
