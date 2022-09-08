@@ -102,6 +102,7 @@ export function TaxonomicPropertyFilter({
                 <div
                     className={clsx('TaxonomicPropertyFilter__row', {
                         [`width-${size}`]: true,
+                        'TaxonomicPropertyFilter__row--or-filtering': orFiltering,
                     })}
                 >
                     <div className="TaxonomicPropertyFilter__row__operator">

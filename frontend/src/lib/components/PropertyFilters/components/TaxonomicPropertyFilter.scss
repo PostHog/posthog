@@ -73,5 +73,11 @@
                 }
             }
         }
+
+        &.TaxonomicPropertyFilter__row--or-filtering {
+            .TaxonomicPropertyFilter__row__operator {
+                width: 1.5rem;
+            }
+        }
     }
 }
