@@ -25,6 +25,13 @@ body strong {
     font-weight: 600;
 }
 
+// Disable default styling for ul
+ul {
+    margin-bottom: 0;
+    list-style: none;
+    padding-left: 0;
+}
+
 // This may look odd but sets up our utility classes
 * {
     border-style: solid;

@@ -59,15 +59,6 @@ export enum InsightEventSource {
     AddDescription = 'add_insight_description',
 }
 
-export enum RecordingWatchedSource {
-    Direct = 'direct', // Visiting the URL directly
-    Unknown = 'unknown',
-    RecordingsList = 'recordings_list',
-    ProjectHomepage = 'project_homepage',
-    WebPerformance = 'web_performance',
-    PersonModal = 'person_modal',
-}
-
 export enum GraphSeriesAddedSource {
     Default = 'default',
     Duplicate = 'duplicate',
@@ -88,7 +79,18 @@ interface RecordingViewedProps {
     end_time?: number // End timestamp of the session
     page_change_events_length: number
     recording_width?: number
-    source: RecordingWatchedSource
+}
+
+export interface RecordingViewedSummaryAnalytics {
+    viewed_time_ms?: number
+    recording_duration_ms?: number
+    recording_age_days?: number
+    meta_data_load_time_ms?: number
+    first_snapshot_load_time_ms?: number
+    first_snapshot_and_meta_load_time_ms?: number
+    all_snapshots_load_time_ms?: number
+    rrweb_warning_count: number
+    error_count_during_recording_playback: number
 }
 
 function flattenProperties(properties: AnyPropertyFilter[]): string[] {
@@ -347,11 +349,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportRecording: (
             recordingData: SessionPlayerData,
-            source: RecordingWatchedSource,
             loadTime: number,
             type: SessionRecordingUsageType,
             delay?: number
-        ) => ({ recordingData, source, loadTime, type, delay }),
+        ) => ({ recordingData, loadTime, type, delay }),
         reportRecordingScrollTo: (rowIndex: number) => ({ rowIndex }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
@@ -379,6 +380,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             question,
         }),
         reportRecordingConsoleViewed: (logCount: number) => ({ logCount }),
+        reportRecordingViewedSummary: (recordingViewedSummary: RecordingViewedSummaryAnalytics) => ({
+            recordingViewedSummary,
+        }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
@@ -450,12 +454,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportInsightOpenedFromRecentInsightList: true,
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
-        reportTeamHasIngestedEvents: true,
         reportIngestionSelectPlatformType: (platform: PlatformType) => ({ platform }),
         reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
         reportIngestionContinueWithoutVerifying: true,
+        reportIngestionContinueWithoutBilling: true,
         reportIngestionThirdPartyAboutClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
@@ -866,7 +870,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ recordingData, source, loadTime, type }) => {
+        reportRecording: ({ recordingData, loadTime, type }) => {
             // @ts-expect-error
             const eventIndex = new EventIndex(recordingData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
@@ -876,7 +880,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 end_time: recordingData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
-                source: source,
             }
             posthog.capture(`recording ${type}`, payload)
         },
@@ -943,6 +946,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportRecordingConsoleViewed: ({ logCount }) => {
             posthog.capture('recording console logs viewed', { log_count: logCount })
+        },
+        reportRecordingViewedSummary: ({ recordingViewedSummary }) => {
+            posthog.capture('recording viewed summary', { ...recordingViewedSummary })
         },
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {
@@ -1064,9 +1070,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportPersonOpenedFromNewlySeenPersonsList: () => {
             posthog.capture('person opened from newly seen persons list')
         },
-        reportTeamHasIngestedEvents: () => {
-            posthog.capture('team has ingested events')
-        },
         reportIngestionSelectPlatformType: ({ platform }) => {
             posthog.capture('ingestion select platform type', {
                 platform: platform,
@@ -1087,6 +1090,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportIngestionContinueWithoutVerifying: () => {
             posthog.capture('ingestion continue without verifying')
+        },
+        reportIngestionContinueWithoutBilling: () => {
+            posthog.capture('ingestion continue without adding billing details')
         },
         reportIngestionThirdPartyAboutClicked: ({ name }) => {
             posthog.capture('ingestion third party about clicked', {

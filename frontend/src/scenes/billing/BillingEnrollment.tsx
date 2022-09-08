@@ -23,9 +23,9 @@ export function BillingEnrollment(): JSX.Element | null {
             <Skeleton active />
         </Card>
     ) : (
-        <div className="flex flex-row space-x-2">
+        <div className="flex flex-row space-x-2 justify-center">
             {plans.map((plan: PlanInterface) => (
-                <Plan key={plan.key} plan={plan} onSubscribe={handleBillingSubscribe} />
+                <Plan key={plan.key} plan={plan} onSubscribe={handleBillingSubscribe} canHideDetails={false} />
             ))}
         </div>
     )
