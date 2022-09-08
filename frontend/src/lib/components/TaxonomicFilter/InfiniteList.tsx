@@ -1,7 +1,7 @@
 import './InfiniteList.scss'
 import '../Popup/Popup.scss'
 import React from 'react'
-import { Empty, Skeleton, Tag } from 'antd'
+import { Empty, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -23,6 +23,7 @@ import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionP
 import { ControlledDefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { pluralize } from 'lib/utils'
 import { flip, offset, shift, size, useFloating } from '@floating-ui/react-dom-interactions'
+import { LemonSkeleton } from '../LemonSkeleton'
 
 enum ListTooltip {
     None = 0,
@@ -264,16 +265,13 @@ export function InfiniteList(): JSX.Element {
                 className={`${commonDivProps.className} skeleton-row`}
                 data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
             >
-                <Skeleton active title={false} paragraph={{ rows: 1 }} />
+                <LemonSkeleton />
             </div>
         )
     }
 
     return (
-        <div
-            className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}
-            style={{ flexGrow: 1 }}
-        >
+        <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}>
             {showEmptyState ? (
                 <div className="no-infinite-results">
                     <Empty

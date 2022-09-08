@@ -2,8 +2,8 @@ import React from 'react'
 import './CompactList.scss'
 import { LemonDivider } from '../LemonDivider'
 import { LemonButton } from '../LemonButton'
-import { Skeleton } from 'antd'
 import { EmptyMessage, EmptyMessageProps } from '../EmptyMessage/EmptyMessage'
+import { LemonSkeleton } from '../LemonSkeleton'
 
 interface CompactListProps {
     title: string
@@ -33,9 +33,9 @@ export function CompactList({
             </div>
             <div className="scrollable-list">
                 {loading ? (
-                    <div className="skeleton-container">
+                    <div className="p-2 space-y-6">
                         {Array.from({ length: 6 }, (_, index) => (
-                            <Skeleton key={index} active paragraph={false} />
+                            <LemonSkeleton key={index} />
                         ))}
                     </div>
                 ) : items.length === 0 && emptyMessage ? (
