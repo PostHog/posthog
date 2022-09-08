@@ -424,6 +424,12 @@ function MathSelector({
         relevantEventMathEntries = selectFormattedOptions
     }
 
+    // add data-attr dynamically
+    relevantEventMathEntries = relevantEventMathEntries.map((section) => ({
+        ...section,
+        options: section.options.map((option) => ({ ...option, 'data-attr': `math-${option.value}-${index}` })),
+    }))
+
     let mathType = apiValueToMathType(math, mathGroupTypeIndex)
     if (mathAvailability === MathAvailability.ActorsOnly && !mathDefinitions[mathType]?.actor) {
         // Backwards compatibility for Stickiness insights that had a non-actor value before (e.g. "Total")
