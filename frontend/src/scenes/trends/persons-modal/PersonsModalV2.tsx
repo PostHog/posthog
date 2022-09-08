@@ -7,7 +7,7 @@ import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/
 import './PersonsModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import { IconArrowDropDown, IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
