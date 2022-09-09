@@ -43,40 +43,42 @@
             gap: 0.5rem;
         }
 
-        // Mobile screen - columns
-        &.width-tiny {
-            .TaxonomicPropertyFilter__row__items {
-                flex-direction: column;
-                align-items: stretch;
-            }
-        }
-
-        // small size - force wrapping
-        &.width-small {
-            .TaxonomicPropertyFilter__row__items {
-                > :first-child {
-                    flex: 1;
-                    min-width: 10rem;
-                }
-
-                > :last-child {
-                    width: 100%;
+        &.TaxonomicPropertyFilter__row--showing-operators {
+            // Mobile screen - columns
+            &.width-tiny {
+                .TaxonomicPropertyFilter__row__items {
+                    flex-direction: column;
+                    align-items: stretch;
                 }
             }
-        }
 
-        &.width-medium {
-            .TaxonomicPropertyFilter__row__items {
-                > :first-child {
-                    width: 30%;
-                    min-width: 10rem;
+            // small size - force wrapping
+            &.width-small {
+                .TaxonomicPropertyFilter__row__items {
+                    > :first-child {
+                        flex: 1;
+                        min-width: 10rem;
+                    }
+
+                    > :last-child {
+                        width: 100%;
+                    }
+                }
+            }
+
+            &.width-medium {
+                .TaxonomicPropertyFilter__row__items {
+                    > :first-child {
+                        width: 30%;
+                        min-width: 10rem;
+                    }
                 }
             }
         }
 
         &.TaxonomicPropertyFilter__row--or-filtering {
             .TaxonomicPropertyFilter__row__operator {
-                width: 1.5rem;
+                width: 2rem;
             }
         }
     }

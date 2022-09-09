@@ -103,6 +103,7 @@ export function TaxonomicPropertyFilter({
                     className={clsx('TaxonomicPropertyFilter__row', {
                         [`width-${size}`]: true,
                         'TaxonomicPropertyFilter__row--or-filtering': orFiltering,
+                        'TaxonomicPropertyFilter__row--showing-operators': showOperatorValueSelect,
                     })}
                 >
                     <div className="TaxonomicPropertyFilter__row__operator">
@@ -111,11 +112,11 @@ export function TaxonomicPropertyFilter({
                                 {propertyGroupType && index !== 0 && filter?.key && (
                                     <div>
                                         {propertyGroupType === FilterLogicalOperator.And ? (
-                                            <span style={{ fontSize: 12 }}>
+                                            <span className="text-sm">
                                                 <strong>{'&'}</strong>
                                             </span>
                                         ) : (
-                                            <span style={{ fontSize: 11 }}>
+                                            <span className="text-xs">
                                                 <strong>{propertyGroupType}</strong>
                                             </span>
                                         )}
@@ -127,12 +128,10 @@ export function TaxonomicPropertyFilter({
                                 {index === 0 ? (
                                     <>
                                         <span className="arrow">&#8627;</span>
-                                        <span className="text">where</span>
+                                        <span>where</span>
                                     </>
                                 ) : (
-                                    <span className="stateful-badge and" style={{ fontSize: '90%' }}>
-                                        AND
-                                    </span>
+                                    <span className="stateful-badge and text-xs">AND</span>
                                 )}
                             </div>
                         )}
