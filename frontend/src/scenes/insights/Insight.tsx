@@ -40,6 +40,8 @@ import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useDebouncedCallback } from 'use-debounce'
+import { AlertMessage } from 'lib/components/AlertMessage'
+import { Link } from '@posthog/lemon-ui'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -77,6 +79,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     }, [insightId])
 
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
+    const actorOnEventsQueryingEnabled = featureFlags[FEATURE_FLAGS.ACTOR_ON_EVENTS_QUERYING]
 
     const debouncedOnChange = useDebouncedCallback((insightMetadata) => {
         if (insightMode === ItemMode.Edit) {
@@ -297,6 +300,16 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     </>
                 }
             />
+
+            {actorOnEventsQueryingEnabled ? (
+                <div className="mb-4">
+                    <AlertMessage type="info">
+                        Results looking different? We've changed how insights are calculated. Read more about this{' '}
+                        <Link to={`https://posthog.com/docs/how-posthog-works/queries`}>here</Link>. Reach out to us if
+                        you see something unexpected{' '}
+                    </AlertMessage>
+                </div>
+            ) : null}
 
             {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
 
