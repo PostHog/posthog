@@ -28,7 +28,6 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     className?: string
-    style?: Partial<React.CSSProperties>
     bordered?: boolean
     onSet: CallableFunction
     value?: string | number | Array<string | number> | null
@@ -51,7 +50,6 @@ export function PropertyValue({
     endpoint = undefined,
     placeholder = undefined,
     className,
-    style = {},
     bordered = true,
     onSet,
     value,
@@ -144,7 +142,7 @@ export function PropertyValue({
 
     const commonInputProps = {
         className,
-        style: { width: '100%', ...style },
+        style: { width: '100%' },
         onSearch: (newInput: string) => {
             setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
