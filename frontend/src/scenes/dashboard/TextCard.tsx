@@ -99,7 +99,7 @@ export function TextCardInternal(
 
     return (
         <div
-            className={clsx('TextCard border rounded flex flex-col', className)}
+            className={clsx('TextCard border rounded flex flex-col overflow-hidden', className)}
             data-attr="text-card"
             {...divProps}
             ref={ref}
@@ -170,7 +170,7 @@ export function TextCardInternal(
                         InsightColor.White /* White has historically meant no color synonymously to null */ && (
                         <div className={clsx('DashboardCard__ribbon ml-2', textTile.color)} />
                     )}
-                <Textfit mode="multi" min={32} max={120}>
+                <Textfit mode="multi" min={16} max={120}>
                     <div className="whitespace-pre-wrap px-2 pb-2">{textTile.body}</div>
                 </Textfit>
             </div>
