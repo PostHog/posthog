@@ -124,8 +124,8 @@ export function EventDefinitionsTable(): JSX.Element {
                       },
                   } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
                   {
-                      title: 'Last updated',
-                      key: 'last_updated',
+                      title: 'Last seen',
+                      key: 'last_seen',
                       align: 'left',
                       render: function Render(_, definition: CombinedEvent) {
                           const last_updated_at = definition.last_updated_at
