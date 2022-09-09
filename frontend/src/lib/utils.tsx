@@ -587,6 +587,18 @@ export function stripHTTP(url: string): string {
     return url
 }
 
+export function isDomain(url: string): boolean {
+    // TODO: Make this Work
+    try {
+        const parsedUrl = new URL(url)
+        if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
+            return true
+        }
+    } finally {
+        return false
+    }
+}
+
 export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false

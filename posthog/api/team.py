@@ -78,6 +78,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "has_group_types",
             "primary_dashboard",
             "live_events_columns",
+            "recording_domains",
         )
         read_only_fields = (
             "id",

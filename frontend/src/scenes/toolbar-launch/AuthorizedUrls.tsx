@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Popconfirm } from 'antd'
-import { authorizedUrlsLogic } from './authorizedUrlsLogic'
+import { AuthorizedURLFormType, authorizedUrlsLogic } from './authorizedUrlsLogic'
 import { isMobile } from 'lib/utils'
 import { LemonRow } from 'lib/components/LemonRow'
 import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/components/icons'
@@ -16,6 +16,7 @@ import { Field } from 'lib/forms/Field'
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
     actionId?: number
+    type: AuthorizedURLFormType
 }
 
 function EmptyState({
@@ -42,14 +43,14 @@ function EmptyState({
     )
 }
 
-function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
-    const logic = authorizedUrlsLogic({ actionId })
+function AuthorizedUrlForm({ actionId, type }: { actionId?: number; type: AuthorizedURLFormType }): JSX.Element {
+    const logic = authorizedUrlsLogic({ actionId, type })
     const { isProposedUrlSubmitting } = useValues(logic)
     const { cancelProposingUrl } = useActions(logic)
     return (
         <Form
             logic={authorizedUrlsLogic}
-            props={{ actionId }}
+            props={{ actionId, type }}
             formKey="proposedUrl"
             enableFormOnSubmit
             className="w-full space-y-2"
@@ -73,8 +74,8 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
     )
 }
 
-export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterface): JSX.Element {
-    const logic = authorizedUrlsLogic({ actionId })
+export function AuthorizedUrls({ pageKey, actionId, type }: AuthorizedUrlsTableInterface): JSX.Element {
+    const logic = authorizedUrlsLogic({ actionId, type })
     const { appUrlsKeyed, suggestionsLoading, searchTerm, launchUrl, editUrlIndex, isAddUrlFormVisible } =
         useValues(logic)
     const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex } = useActions(logic)
@@ -101,7 +102,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                 <div className="space-y-2">
                     {isAddUrlFormVisible && (
                         <LemonRow outlined fullWidth size="large">
-                            <AuthorizedUrlForm actionId={actionId} />
+                            <AuthorizedUrlForm type={type} actionId={actionId} />
                         </LemonRow>
                     )}
                     <EmptyState
@@ -113,7 +114,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                         return (
                             <div key={index} className={clsx('border rounded flex items-center py-2 px-4 min-h-14')}>
                                 {editUrlIndex === index ? (
-                                    <AuthorizedUrlForm actionId={actionId} />
+                                    <AuthorizedUrlForm type={type} actionId={actionId} />
                                 ) : (
                                     <>
                                         {keyedAppURL.type === 'suggestion' && (

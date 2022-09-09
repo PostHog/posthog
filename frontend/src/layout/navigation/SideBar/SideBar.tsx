@@ -41,7 +41,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { authorizedUrlsLogic } from 'scenes/toolbar-launch/authorizedUrlsLogic'
+import { AuthorizedURLFormType, authorizedUrlsLogic } from 'scenes/toolbar-launch/authorizedUrlsLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Tooltip } from 'lib/components/Tooltip'
 import Typography from 'antd/lib/typography'
@@ -57,7 +57,7 @@ function Pages(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
     const { frontendApps } = useValues(frontendAppsLogic)
-    const { appUrls, launchUrl } = useValues(authorizedUrlsLogic)
+    const { appUrls, launchUrl } = useValues(authorizedUrlsLogic({ type: AuthorizedURLFormType.TOOLBAR_URLS }))
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
     const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)

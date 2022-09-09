@@ -36,6 +36,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { SlackIntegration } from './SlackIntegration'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { AuthorizedURLFormType } from 'scenes/toolbar-launch/authorizedUrlsLogic'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -262,7 +263,7 @@ export function ProjectSettings(): JSX.Element {
                     <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
                     However, wildcarded top-level domains cannot be used (for security reasons).
                 </p>
-                <AuthorizedUrls />
+                <AuthorizedUrls type={AuthorizedURLFormType.TOOLBAR_URLS} />
                 <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="attributes">
                     Data attributes
@@ -314,8 +315,7 @@ export function ProjectSettings(): JSX.Element {
                     >
                         posthog-js
                     </a>{' '}
-                    <b>directly</b> installed, and the domains you wish to record must be set in{' '}
-                    <a href="#authorized-urls">Authorized URLs</a>. For more details, check out our{' '}
+                    <b>directly</b> installed. For more details, check out our{' '}
                     <a
                         href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"
@@ -325,9 +325,20 @@ export function ProjectSettings(): JSX.Element {
                     .
                 </p>
                 <SessionRecording />
+                <h2 className="subtitle my-6" id="urls">
+                    Authorized domains for Recordings
+                </h2>
+                <p>
+                    Use the settings below to restrict the domains where recordings will be captured. If no domains are
+                    listed, then there will be no domain restriction.
+                </p>
+                <p>
+                    <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
+                    However, wildcarded top-level domains cannot be used (for security reasons).
+                </p>
+                <AuthorizedUrls type={AuthorizedURLFormType.RECORDING_DOMAINS} />
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
-                <LemonDivider className="my-6" />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />
                 {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
