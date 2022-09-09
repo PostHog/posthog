@@ -1626,3 +1626,22 @@ export function IconEyeVisible(props: SvgIconProps): JSX.Element {
         </SvgIcon>
     )
 }
+
+export function IconFunnelHorizontal(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M19 5L19 8L5 8L5 5L19 5ZM15 10.6L15 13.4L5 13.4L5 10.6L15 10.6ZM11 16.2L11 19L5 19L5 16.2L11 16.2Z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+export function IconFunnelVertical(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M5 5H8V19H5V5ZM10.6 9H13.4V19H10.6V9ZM16.2 13H19V19H16.2V13Z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
