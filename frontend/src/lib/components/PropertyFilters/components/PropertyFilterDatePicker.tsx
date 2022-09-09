@@ -48,8 +48,7 @@ export function PropertyFilterDatePicker({
             autoFocus={autoFocus}
             open={datePickerOpen}
             inputReadOnly={false}
-            className={'filter-date-picker'}
-            dropdownClassName={'filter-date-picker-dropdown'}
+            className={'filter-date-picker w-full h-10'}
             format={dateFormat}
             showTime={includeTimeInFilter}
             showNow={false}
