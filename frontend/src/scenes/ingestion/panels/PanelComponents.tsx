@@ -6,7 +6,6 @@ import React from 'react'
 import { BOOKMARKLET } from '../constants'
 import { ingestionLogic, INGESTION_STEPS } from '../ingestionLogic'
 import './Panels.scss'
-import { ArrowLeftOutlined } from '@ant-design/icons'
 import { IconArrowLeft } from 'lib/components/icons'
 
 export function PanelFooter(): JSX.Element {
