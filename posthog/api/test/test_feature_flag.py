@@ -1033,10 +1033,7 @@ class TestFeatureFlag(APIBaseTest):
                 },
                 "deleted": False,
                 "active": True,
-                "is_simple_flag": True,
-                "rollout_percentage": 20,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[0],
         )
@@ -1051,10 +1048,7 @@ class TestFeatureFlag(APIBaseTest):
                 },
                 "deleted": False,
                 "active": True,
-                "is_simple_flag": False,
-                "rollout_percentage": None,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[1],
         )
@@ -1065,10 +1059,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filters": {"groups": [{"rollout_percentage": 21}], "aggregation_group_type_index": 0},
                 "deleted": False,
                 "active": True,
-                "is_simple_flag": False,
-                "rollout_percentage": None,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[2],
         )
@@ -1079,10 +1070,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "deleted": False,
                 "active": False,
-                "is_simple_flag": True,
-                "rollout_percentage": 100,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[3],
         )
