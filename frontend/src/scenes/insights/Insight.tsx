@@ -304,7 +304,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             {actorOnEventsQueryingEnabled ? (
                 <div className="mb-4">
                     <AlertMessage type="info">
-                        To speed up queries, we've adjust how they're calculated. You might notice some differences in
+                        To speed up queries, we've adjusted how they're calculated. You might notice some differences in
                         the insight results. Read more about what changes to expect{' '}
                         <Link to={`https://posthog.com/docs/how-posthog-works/queries`}>here</Link>. Please{' '}
                         <Link to={'https://posthog.com/support/'}>contact us</Link> if you have any further questions
