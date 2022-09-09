@@ -87,6 +87,8 @@ services:
         <<: *worker
         command: /compose/start
         restart: on-failure
+        ports:
+            - '8000:8000'
         volumes:
             - ./compose:/compose
     caddy:
