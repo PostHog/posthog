@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import './DurationPicker.scss'
 import { Duration, SmallTimeUnit } from '~/types'
-import { Input, Select } from 'antd'
+import { LemonSelect, LemonInput } from '@posthog/lemon-ui'
 
 interface DurationPickerProps {
     onChange: (value_seconds: number) => void
@@ -44,33 +43,26 @@ export function DurationPicker({ initialValue, onChange, autoFocus, style }: Dur
     }, [timeValue, unit])
 
     return (
-        <div className="DurationPicker" style={style}>
-            <Input
-                className="DurationPicker__time-input"
+        <div className="flex items-center gap-2" style={style}>
+            <LemonInput
                 type="number"
                 value={timeValue ?? undefined}
                 placeholder="0"
                 min={0}
                 autoFocus={autoFocus}
                 step={1}
-                onChange={(event) => {
-                    const newValue = parseFloat(event.target.value)
+                onChange={(val) => {
+                    const newValue = val
                     setTimeValue(newValue)
                 }}
             />
-            <Select
-                className="DurationPicker__unit-picker"
+            <LemonSelect
                 value={unit}
                 onChange={(newValue) => {
                     setUnit(newValue as SmallTimeUnit)
                 }}
-            >
-                {durationOptions.map((value) => (
-                    <Select.Option key={value} value={value}>
-                        {value}
-                    </Select.Option>
-                ))}
-            </Select>
+                options={durationOptions.map((value) => ({ key: value, label: value }))}
+            />
         </div>
     )
 }

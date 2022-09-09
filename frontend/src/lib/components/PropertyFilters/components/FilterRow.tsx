@@ -9,7 +9,6 @@ import './FilterRow.scss'
 import clsx from 'clsx'
 import { IconClose, IconDelete, IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import { CloseButton } from 'lib/components/CloseButton'
 
 interface FilterRowProps {
     item: Record<string, any>
