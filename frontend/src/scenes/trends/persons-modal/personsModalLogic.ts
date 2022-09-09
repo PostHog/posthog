@@ -7,11 +7,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 
+import type { personsModalLogicType } from './personsModalLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { fromParamsGivenUrl, isGroupType } from 'lib/utils'
 import { groupsModel } from '~/models/groupsModel'
-
-import type { personsModalLogicType } from './personsModalLogicType'
 
 export interface PersonModalLogicProps {
     url: string
@@ -27,7 +26,7 @@ export interface ListActorsResponse {
 }
 
 export const personsModalLogic = kea<personsModalLogicType>([
-    path(['scenes', 'trends', 'personsModalLogicV2']),
+    path(['scenes', 'trends', 'personsModalLogic']),
     props({} as PersonModalLogicProps),
     key((props) => props.url),
     actions({
@@ -73,6 +72,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     ...(actorsResponse?.results?.[0]?.people || []),
                 ],
                 resetActors: () => [],
+            },
+        ],
+        missingActorsCount: [
+            0,
+            {
+                loadActorsSuccess: (state, { actorsResponse }) => state + (actorsResponse?.missing_persons || 0),
+                resetActors: () => 0,
             },
         ],
         searchTerm: [
@@ -125,14 +131,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
     })),
 
     selectors({
-        actorType: [
-            (s) => [s.actors],
-            (actors) => {
-                const firstResult = actors[0]
-
-                return firstResult?.type
-            },
-        ],
         actorLabel: [
             (s) => [s.actors, s.aggregationLabel],
             (actors, aggregationLabel) => {

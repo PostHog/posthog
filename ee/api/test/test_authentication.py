@@ -336,9 +336,8 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+            saml_response = f.read()
 
         response = self.client.post(
             "/complete/saml/",
@@ -373,9 +372,10 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_alt_attribute_names"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_alt_attribute_names"), "r", encoding="utf_8"
+        ) as f:
+            saml_response = f.read()
 
         user_count = User.objects.count()
 
@@ -434,9 +434,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+            saml_response = f.read()
 
         user_count = User.objects.count()
 
@@ -468,9 +467,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+            saml_response = f.read()
 
         user_count = User.objects.count()
 
@@ -500,9 +498,10 @@ YotAcSbU3p5bzd11wpyebYHB"""
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_no_first_name"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_no_first_name"), "r", encoding="utf_8"
+        ) as f:
+            saml_response = f.read()
 
         user_count = User.objects.count()
 
@@ -533,9 +532,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+            saml_response = f.read()
 
         with self.assertRaises(AuthFailed) as e:
             response = self.client.post(
@@ -611,9 +609,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+            saml_response = f.read()
 
         with self.assertRaises(AuthFailed) as e:
             response = self.client.post(

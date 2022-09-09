@@ -76,7 +76,7 @@ ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTER
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", True, type_cast=str_to_bool)
 EVENT_PROPERTY_USAGE_INTERVAL_CRON = get_from_env(
     "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_CRON",
-    "0 1 * * *",
+    "0 */6 * * *",
 )
 
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
@@ -134,4 +134,4 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403
 
 # Lastly, cloud settings override and modify all
-from posthog.settings.cloud import *  # noqa: F401
+from posthog.settings.cloud import *  # noqa: F401, E402

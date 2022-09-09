@@ -1,9 +1,9 @@
 import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useValues } from 'kea'
-import { Skeleton } from 'antd'
 import { frontendAppSceneLogic } from 'scenes/apps/frontendAppSceneLogic'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export function FrontendAppScene(): JSX.Element {
     const { Component, appConfig, breadcrumbs } = useValues(frontendAppSceneLogic)
@@ -17,7 +17,7 @@ export function FrontendAppScene(): JSX.Element {
                     'App Loading...'
                 }
             />
-            {Component ? <Component {...appConfig} /> : <Skeleton />}
+            {Component ? <Component {...appConfig} /> : <SpinnerOverlay />}
         </>
     )
 }

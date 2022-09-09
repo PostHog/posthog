@@ -1,11 +1,12 @@
 import React from 'react'
 import { PropertyOperator, RecordingDurationFilter } from '~/types'
-import { Button, Row, Space } from 'antd'
+import { Row, Space } from 'antd'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { Popup } from 'lib/components/Popup/Popup'
 import { durationFilterLogic } from './durationFilterLogic'
 import { useActions, useValues } from 'kea'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import { LemonButton } from '@posthog/lemon-ui'
 interface Props {
     initialFilter: RecordingDurationFilter
     onChange: (value: RecordingDurationFilter) => void
@@ -37,13 +38,16 @@ export function DurationFilter({ initialFilter, onChange, pageKey }: Props): JSX
                 </Row>
             }
         >
-            <Button
+            <LemonButton
+                type="secondary"
+                status="stealth"
+                size="small"
                 onClick={() => {
                     setIsOpen(true)
                 }}
             >
                 {durationString}
-            </Button>
+            </LemonButton>
         </Popup>
     )
 }

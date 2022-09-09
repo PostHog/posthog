@@ -8,7 +8,6 @@ import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/ut
 import { organizationLogic } from './organizationLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
 import { lemonToast } from 'lib/components/lemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { IconSwapHoriz } from 'lib/components/icons'
 import { loaders } from 'kea-loaders'
 
@@ -25,7 +24,7 @@ const parseUpdatedAttributeName = (attr: string | null): string => {
 export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect({
-        actions: [eventUsageLogic, ['reportTeamHasIngestedEvents'], userLogic, ['loadUser']],
+        actions: [userLogic, ['loadUser']],
     }),
     actions({
         deleteTeam: (team: TeamType) => ({ team }),
@@ -120,7 +119,7 @@ export const teamLogic = kea<teamLogicType>([
         ],
         timezone: [(selectors) => [selectors.currentTeam], (currentTeam): string => currentTeam?.timezone || 'UTC'],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         deleteTeam: async ({ team }) => {
             try {
                 await api.delete(`api/projects/${team.id}`)
@@ -135,13 +134,6 @@ export const teamLogic = kea<teamLogicType>([
         },
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
-        },
-        loadCurrentTeamSuccess: () => {
-            // For Onboarding 1's experiment, we are tracking whether a team has ingested events on the client side
-            // because experiments doesn't support this yet in other libraries
-            if (values.currentTeam?.ingested_event) {
-                actions.reportTeamHasIngestedEvents()
-            }
         },
     })),
     events(({ actions }) => ({

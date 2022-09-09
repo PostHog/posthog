@@ -448,3 +448,9 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
         return queryset.filter(uuid=key)
     except ValueError:
         return queryset.filter(pk=key)
+
+
+def parse_bool(value: Union[str, List[str]]) -> bool:
+    if value == "true":
+        return True
+    return False

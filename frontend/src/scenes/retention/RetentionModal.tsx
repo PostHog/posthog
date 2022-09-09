@@ -141,7 +141,7 @@ export function RetentionModal({
                                     ))}
                             </tbody>
                         </table>
-                        <div className="m-4 text-center">
+                        <div className="m-4 flex justify-center">
                             {actors.next ? (
                                 <LemonButton type="primary" onClick={loadMore} loading={loadingMore}>
                                     Load more {aggregationTargetLabel.plural}
