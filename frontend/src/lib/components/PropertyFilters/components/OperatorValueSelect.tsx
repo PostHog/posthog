@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
-import { Col } from 'antd'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
@@ -11,7 +10,6 @@ import {
     isOperatorRegex,
 } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
-import { ColProps } from 'antd/lib/col'
 import { dayjs } from 'lib/dayjs'
 import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
@@ -20,7 +18,6 @@ export interface OperatorValueSelectProps {
     propkey?: string
     operator?: PropertyOperator | null
     value?: string | number | Array<string | number> | null
-    columnOptions?: ColProps | [ColProps, ColProps]
     placeholder?: string
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
@@ -60,7 +57,6 @@ export function OperatorValueSelect({
     propkey,
     operator,
     value,
-    columnOptions,
     placeholder,
     endpoint,
     onChange,
@@ -93,7 +89,7 @@ export function OperatorValueSelect({
 
     return (
         <>
-            <Col {...(Array.isArray(columnOptions) ? columnOptions[0] : columnOptions)}>
+            <div data-attr="taxonomic-operator">
                 <OperatorSelect
                     operator={currentOperator || PropertyOperator.Exact}
                     operators={operators}
@@ -124,9 +120,9 @@ export function OperatorValueSelect({
                     {...operatorSelectProps}
                     defaultOpen={defaultOpen}
                 />
-            </Col>
+            </div>
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propkey && (
-                <Col {...(Array.isArray(columnOptions) ? columnOptions[1] : columnOptions)}>
+                <div className="flex-1" style={{ minWidth: '10rem' }} data-attr="taxonomic-value-select">
                     <PropertyValue
                         type={type}
                         key={propkey}
@@ -151,7 +147,7 @@ export function OperatorValueSelect({
                         // open automatically only if new filter
                         autoFocus={!isMobile() && value === null}
                     />
-                </Col>
+                </div>
             )}
             {validationError && <span className="taxonomic-validation-error">{validationError}</span>}
         </>
@@ -173,6 +169,8 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
             options={operatorOptions}
             value={operator || '='}
             placeholder="Property key"
+            dropdownMatchSelectWidth={false}
+            fullWidth
             onChange={(op) => {
                 const newOperator = op as typeof op & CustomOptionsType
                 onChange(newOperator.value)

@@ -1,6 +1,5 @@
 import './TaxonomicPropertyFilter.scss'
 import React, { useMemo } from 'react'
-import { Col } from 'antd'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
@@ -86,15 +85,14 @@ export function TaxonomicPropertyFilter({
 
     const { ref: wrapperRef, size } = useResizeBreakpoints({
         0: 'tiny',
-        350: 'small',
-        512: 'medium',
-        1280: 'large',
+        400: 'small',
+        550: 'medium',
     })
 
     return (
         <div
-            className={clsx('taxonomic-property-filter', {
-                'in-dropdown': !showInitialSearchInline && !disablePopover,
+            className={clsx('TaxonomicPropertyFilter', {
+                'TaxonomicPropertyFilter--in-dropdown': !showInitialSearchInline && !disablePopover,
             })}
             ref={wrapperRef}
         >
@@ -102,111 +100,106 @@ export function TaxonomicPropertyFilter({
                 taxonomicFilter
             ) : (
                 <div
-                    className={clsx('taxonomic-filter-row', {
+                    className={clsx('TaxonomicPropertyFilter__row', {
                         [`width-${size}`]: true,
-                        'logical-operator-filtering': orFiltering,
+                        'TaxonomicPropertyFilter__row--or-filtering': orFiltering,
+                        'TaxonomicPropertyFilter__row--showing-operators': showOperatorValueSelect,
                     })}
                 >
-                    {orFiltering ? (
-                        <>
-                            {propertyGroupType && index !== 0 && filter?.key && (
-                                <div className="taxonomic-where">
-                                    {propertyGroupType === FilterLogicalOperator.And ? (
-                                        <span style={{ fontSize: 12 }}>
-                                            <strong>{'&'}</strong>
-                                        </span>
-                                    ) : (
-                                        <span style={{ fontSize: 11 }}>
-                                            <strong>{propertyGroupType}</strong>
-                                        </span>
-                                    )}
-                                </div>
-                            )}
-                        </>
-                    ) : (
-                        <Col className="taxonomic-where">
-                            {index === 0 ? (
-                                <>
-                                    <span className="arrow">&#8627;</span>
-                                    <span className="text">where</span>
-                                </>
-                            ) : (
-                                <span className="stateful-badge and" style={{ fontSize: '90%' }}>
-                                    AND
-                                </span>
-                            )}
-                        </Col>
-                    )}
-
-                    <LemonButtonWithPopup
-                        popup={{
-                            overlay: dropdownOpen ? taxonomicFilter : null,
-                            visible: dropdownOpen,
-                            placement: 'bottom',
-                            onClickOutside: closeDropdown,
-                        }}
-                        onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
-                        className={`taxonomic-button${!filter?.type && !filter?.key ? ' add-filter' : ''}`}
-                        type="secondary"
-                        data-attr={'property-select-toggle-' + index}
-                    >
-                        {filter?.type === 'cohort' ? (
-                            <div>{selectedCohortName || `Cohort #${filter?.value}`}</div>
-                        ) : filter?.key ? (
-                            <PropertyKeyInfo value={filter.key} disablePopover ellipsis />
-                        ) : (
+                    <div className="TaxonomicPropertyFilter__row__operator">
+                        {orFiltering ? (
                             <>
-                                {orFiltering && propertyGroupType ? (
-                                    <div className="text-primary flex items-center">
-                                        <IconPlus style={{ color: 'var(--primary)' }} className="mr-2" />
-                                        Add filter
+                                {propertyGroupType && index !== 0 && filter?.key && (
+                                    <div>
+                                        {propertyGroupType === FilterLogicalOperator.And ? (
+                                            <span className="text-sm">
+                                                <strong>{'&'}</strong>
+                                            </span>
+                                        ) : (
+                                            <span className="text-xs">
+                                                <strong>{propertyGroupType}</strong>
+                                            </span>
+                                        )}
                                     </div>
-                                ) : (
-                                    <div>Add filter</div>
                                 )}
                             </>
+                        ) : (
+                            <div className="flex items-center gap-1">
+                                {index === 0 ? (
+                                    <>
+                                        <span className="arrow">&#8627;</span>
+                                        <span>where</span>
+                                    </>
+                                ) : (
+                                    <span className="stateful-badge and text-xs">AND</span>
+                                )}
+                            </div>
                         )}
-                    </LemonButtonWithPopup>
-
-                    {showOperatorValueSelect && (
-                        <OperatorValueSelect
-                            propertyDefinitions={propertyDefinitions}
-                            type={filter?.type}
-                            propkey={filter?.key}
-                            operator={filter?.operator}
-                            value={filter?.value}
-                            placeholder="Enter value..."
-                            endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
-                            onChange={(newOperator, newValue) => {
-                                if (filter?.key && filter?.type) {
-                                    setFilter(
-                                        index,
-                                        filter?.key,
-                                        newValue || null,
-                                        newOperator,
-                                        filter?.type,
-                                        filter?.group_type_index
-                                    )
-                                }
-                                if (
-                                    newOperator &&
-                                    newValue &&
-                                    !isOperatorMulti(newOperator) &&
-                                    !isOperatorRegex(newOperator)
-                                ) {
-                                    onComplete()
-                                }
+                    </div>
+                    <div className="TaxonomicPropertyFilter__row__items">
+                        <LemonButtonWithPopup
+                            popup={{
+                                overlay: dropdownOpen ? taxonomicFilter : null,
+                                visible: dropdownOpen,
+                                placement: 'bottom',
+                                onClickOutside: closeDropdown,
                             }}
-                            columnOptions={[
-                                {
-                                    className: 'taxonomic-operator',
-                                },
-                                {
-                                    className: 'taxonomic-value-select',
-                                },
-                            ]}
-                        />
-                    )}
+                            status="stealth"
+                            onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                            type="secondary"
+                            data-attr={'property-select-toggle-' + index}
+                        >
+                            {filter?.type === 'cohort' ? (
+                                <div>{selectedCohortName || `Cohort #${filter?.value}`}</div>
+                            ) : filter?.key ? (
+                                <PropertyKeyInfo value={filter.key} disablePopover ellipsis />
+                            ) : (
+                                <>
+                                    {orFiltering && propertyGroupType ? (
+                                        <div className="text-primary flex items-center">
+                                            <IconPlus style={{ color: 'var(--primary)' }} className="mr-2" />
+                                            Add filter
+                                        </div>
+                                    ) : (
+                                        <div>Add filter</div>
+                                    )}
+                                </>
+                            )}
+                        </LemonButtonWithPopup>
+                        {showOperatorValueSelect ? (
+                            <OperatorValueSelect
+                                propertyDefinitions={propertyDefinitions}
+                                type={filter?.type}
+                                propkey={filter?.key}
+                                operator={filter?.operator}
+                                value={filter?.value}
+                                placeholder="Enter value..."
+                                endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
+                                onChange={(newOperator, newValue) => {
+                                    if (filter?.key && filter?.type) {
+                                        setFilter(
+                                            index,
+                                            filter?.key,
+                                            newValue || null,
+                                            newOperator,
+                                            filter?.type,
+                                            filter?.group_type_index
+                                        )
+                                    }
+                                    if (
+                                        newOperator &&
+                                        newValue &&
+                                        !isOperatorMulti(newOperator) &&
+                                        !isOperatorRegex(newOperator)
+                                    ) {
+                                        onComplete()
+                                    }
+                                }}
+                            />
+                        ) : (
+                            <div />
+                        )}
+                    </div>
                 </div>
             )}
         </div>

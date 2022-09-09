@@ -196,6 +196,7 @@ export function UniversalSearchPopup({
                             type="search"
                             placeholder={'Search...'}
                             value={searchQuery}
+                            transparentBackground
                         />
                     )}
                 </div>
