@@ -443,6 +443,7 @@ function MathSelector({
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
             dropdownMatchSelectWidth={false}
+            dropdownPlacement={'bottom-start'}
         />
     )
 }
