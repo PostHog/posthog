@@ -490,7 +490,7 @@ export const mathsLogic = kea<mathsLogicType>({
                 ].includes(groupsAccessStatus)
                 const mathOptions = SELECT_FORMATTED_OPTIONS
 
-                if (!hasGroupAccess) {
+                if (hasGroupAccess) {
                     mathOptions[0].footer = <GroupIntroductionFooter />
                 } else {
                     mathOptions[0].options.push(...groupsMathFormattedSelectDefinitions)
