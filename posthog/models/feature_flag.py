@@ -35,6 +35,24 @@ class FeatureFlagMatchReason(str, Enum):
     OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
     NO_GROUP_TYPE = "no_group_type"
 
+    def score(self):
+        if self == FeatureFlagMatchReason.CONDITION_MATCH:
+            return 3
+        if self == FeatureFlagMatchReason.NO_GROUP_TYPE:
+            return 2
+        if self == FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
+            return 1
+        if self == FeatureFlagMatchReason.NO_CONDITION_MATCH:
+            return 0
+
+        return -1
+
+    def __lt__(self, other):
+        if self.__class__ is other.__class__:
+            return self.score() < other.score()
+
+        raise NotImplementedError(f"Cannot compare {self.__class__} and {other.__class__}")
+
 
 @dataclass(frozen=True)
 class FeatureFlagMatch:
@@ -302,8 +320,8 @@ class FeatureFlagMatcher:
         if self.hashed_identifier(feature_flag) is None:
             return FeatureFlagMatch(match=False, reason=FeatureFlagMatchReason.NO_GROUP_TYPE)
 
-        last_seen_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
-        last_index = 0
+        highest_priority_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
+        highest_priority_index = 0
         for index, condition in enumerate(feature_flag.conditions):
             is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, index)
             if is_match:
@@ -314,10 +332,13 @@ class FeatureFlagMatcher:
                     condition_index=index,
                 )
 
-            last_seen_evaluation_reason = evaluation_reason
-            last_index = index
+            highest_priority_evaluation_reason, highest_priority_index = self.get_highest_priority_match_evaluation(
+                highest_priority_evaluation_reason, highest_priority_index, evaluation_reason, index
+            )
 
-        return FeatureFlagMatch(match=False, reason=last_seen_evaluation_reason, condition_index=last_index)
+        return FeatureFlagMatch(
+            match=False, reason=highest_priority_evaluation_reason, condition_index=highest_priority_index
+        )
 
     def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
         flags_enabled = {}
@@ -508,6 +529,18 @@ class FeatureFlagMatcher:
             if property.operator == "is_not_set":
                 return False
         return True
+
+    def get_highest_priority_match_evaluation(
+        self,
+        current_match: FeatureFlagMatchReason,
+        current_index: int,
+        new_match: FeatureFlagMatchReason,
+        new_index: int,
+    ):
+        if current_match <= new_match:
+            return new_match, new_index
+
+        return current_match, current_index
 
 
 def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:

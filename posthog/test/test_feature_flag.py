@@ -1040,9 +1040,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def test_cohort_expansion_returns_same_result_as_regular_flag(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop1": "something1"})
-        Person.objects.create(team=self.team, distinct_ids=["example_id_2"], properties={"$some_prop2": "something2"})
-        Person.objects.create(team=self.team, distinct_ids=["example_id_3"], properties={"$some_prop": "something"})
+        Person.objects.create(team=self.team, distinct_ids=["example_id_4"], properties={"$some_prop1": "something1"})
+        Person.objects.create(team=self.team, distinct_ids=["example_id_5"], properties={"$some_prop2": "something2"})
+        Person.objects.create(team=self.team, distinct_ids=["example_id_6"], properties={"$some_prop": "something"})
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -1065,23 +1065,26 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         cohort.calculate_people_ch(pending_version=0)
 
+        ff_key = "cohort-exp"
+
         feature_flag: FeatureFlag = self.create_feature_flag(
+            key=ff_key,
             filters={
                 "groups": [
-                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50}
+                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 28}
                 ]
-            }
+            },
         )
 
         feature_flag.update_cohorts()
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id_1").get_match(feature_flag),
-            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            FeatureFlagMatcher([feature_flag], "example_id_4").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id_2").get_match(feature_flag),
-            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
+            FeatureFlagMatcher([feature_flag], "example_id_5").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
@@ -1089,7 +1092,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         matches = []
-        for i in range(1, 6):
+        for i in range(1, 7):
             distinct_id = f"example_id_{i}"
             match = FeatureFlagMatcher([feature_flag], distinct_id).get_match(feature_flag)
             matches.append((match.match, match.reason))
@@ -1097,10 +1100,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         expanded_filters = feature_flag.transform_cohort_filters_for_easy_evaluation()
         feature_flag.delete()
 
-        feature_flag_expanded: FeatureFlag = self.create_feature_flag(filters={"groups": expanded_filters})
+        feature_flag_expanded: FeatureFlag = self.create_feature_flag(key=ff_key, filters={"groups": expanded_filters})
 
         expanded_matches = []
-        for i in range(1, 6):
+        for i in range(1, 7):
             distinct_id = f"example_id_{i}"
             match = FeatureFlagMatcher([feature_flag_expanded], distinct_id).get_match(feature_flag_expanded)
             expanded_matches.append((match.match, match.reason))
