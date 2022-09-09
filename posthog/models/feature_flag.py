@@ -129,10 +129,7 @@ class FeatureFlag(models.Model):
         cohort_group_rollout = None
         cohort: Optional[Cohort] = None
 
-        # if feature_flag_conditions_count == 1:
-
         parsed_conditions = []
-        # assume single condition for now
         for condition in self.conditions:
             cohort_condition = False
             props = condition.get("properties", [])
@@ -144,14 +141,13 @@ class FeatureFlag(models.Model):
                     if cohort_id:
                         if len(props) > 1:
                             # We cannot expand this cohort condition if it's not the only property in its group.
-                            # TODO: It might be ok with single level AND'ed cohort properties. But eh, let it be.
                             return self.conditions
                         try:
                             cohort = Cohort.objects.get(pk=cohort_id)
                         except Cohort.DoesNotExist:
                             return self.conditions
             if not cohort_condition:
-                # ff group without a cohort filter, let it be as is.
+                # flag group without a cohort filter, let it be as is.
                 parsed_conditions.append(condition)
 
         if not cohort or len(cohort.properties.flat) == 0:
@@ -179,6 +175,7 @@ class FeatureFlag(models.Model):
             )
 
         elif isinstance(target_properties.values[0], Property):
+            # Property Group of properties
             if target_properties.type == PropertyOperatorType.AND:
                 parsed_conditions.append(
                     {
