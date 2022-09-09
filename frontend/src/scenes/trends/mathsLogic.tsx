@@ -26,12 +26,10 @@ function Label({ tooltip, children = null }: { tooltip?: string; children: React
     )
 }
 
-const GROUP_INTRODUCTION_OPTION: LemonSelectOption<BaseMathType | PropertyMathType | string> = {
-    value: 'group_notice',
-    unclickable: true,
-    label: (
-        <div className="text-sm">
-            Enter your payment information to use group analytics. {}
+const GroupIntroductionFooter = (): JSX.Element => {
+    return (
+        <div className="text-sm bg-side rounded p-2" style={{ maxWidth: '15rem' }}>
+            Enter your payment information to use group analytics.{' '}
             <Link
                 className="font-medium"
                 to="/organization/billing"
@@ -40,7 +38,7 @@ const GROUP_INTRODUCTION_OPTION: LemonSelectOption<BaseMathType | PropertyMathTy
             >
                 Upgrade
             </Link>{' '}
-            or {}
+            or{' '}
             <Link
                 className="font-medium"
                 to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
@@ -50,7 +48,7 @@ const GROUP_INTRODUCTION_OPTION: LemonSelectOption<BaseMathType | PropertyMathTy
                 Learn more
             </Link>
         </div>
-    ),
+    )
 }
 
 const NUMERICAL_REQUIREMENT_NOTICE =
@@ -492,8 +490,8 @@ export const mathsLogic = kea<mathsLogicType>({
                 ].includes(groupsAccessStatus)
                 const mathOptions = SELECT_FORMATTED_OPTIONS
 
-                if (hasGroupAccess) {
-                    mathOptions[0].options.push(GROUP_INTRODUCTION_OPTION)
+                if (!hasGroupAccess) {
+                    mathOptions[0].footer = <GroupIntroductionFooter />
                 } else {
                     mathOptions[0].options.push(...groupsMathFormattedSelectDefinitions)
                 }

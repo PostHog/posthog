@@ -39,8 +39,6 @@ export interface LemonButtonPropsBase
     center?: boolean
     /** @deprecated Buttons should never be disabled. Work with Design to find an alternative approach. */
     disabled?: boolean
-    /** Special case value for buttons such as compact icon-only buttons */
-    unclickable?: boolean
     noPadding?: boolean
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
@@ -69,7 +67,6 @@ function LemonButtonInternal(
         tooltip,
         htmlType = 'button',
         noPadding,
-        unclickable,
         to,
         targetBlank,
         disableClientSideRouting,
@@ -98,7 +95,6 @@ function LemonButtonInternal(
                 noPadding && `LemonButton--noPadding`,
                 size && `LemonButton--${size}`,
                 disabled && 'LemonButton--disabled',
-                unclickable && 'LemonButton--unclickable',
                 active && 'LemonButton--active',
                 fullWidth && 'LemonButton--full-width',
                 center && 'LemonButton--centered',
@@ -107,7 +103,7 @@ function LemonButtonInternal(
                 !!sideIcon && `LemonButton--hasSideIcon`,
                 className
             )}
-            disabled={disabled || loading || unclickable}
+            disabled={disabled || loading}
             to={to}
             target={targetBlank ? '_blank' : undefined}
             disableClientSideRouting={disableClientSideRouting}

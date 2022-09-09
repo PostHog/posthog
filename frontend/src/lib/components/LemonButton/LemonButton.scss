@@ -24,15 +24,6 @@
         cursor: not-allowed;
     }
 
-    &.LemonButton--unclickable {
-        cursor: not-allowed;
-        padding-bottom: 0.5rem;
-        padding-top: 0.5rem;
-        max-width: 20rem;
-        opacity: 100%;
-        background: var(--side);
-    }
-
     &.LemonButton--full-width {
         width: 100%;
         padding-left: 0.5rem;
@@ -112,7 +103,7 @@
         font-weight: 400;
         color: var(--default);
 
-        &:not(:disabled):not(.LemonButton--unclickable):hover,
+        &:not(:disabled):hover,
         &.LemonButton--active {
             background: var(--primary-highlight);
         }
