@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
@@ -22,6 +22,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
     const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecordingId, offset } =
         useValues(sessionRecordingsTableLogicInstance)
     const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
+    const playlistRef = useRef<HTMLDivElement>(null)
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
@@ -47,7 +48,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
         },
     ]
     return (
-        <div className="SessionRecordingPlaylist" data-attr="session-recordings-playlist">
+        <div ref={playlistRef} className="SessionRecordingPlaylist" data-attr="session-recordings-playlist">
             <div className="SessionRecordingPlaylist__left-column mr-4">
                 <LemonTable
                     dataSource={sessionRecordings}
@@ -58,6 +59,11 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                             // Lets the link to the person open the person's page and not the session recording
                             if (!(e.target as HTMLElement).closest('a')) {
                                 openSessionPlayer(sessionRecording.id)
+                                window.scrollTo({
+                                    left: 0,
+                                    top: playlistRef?.current?.offsetTop ? playlistRef.current.offsetTop - 8 : 0,
+                                    behavior: 'smooth',
+                                })
                             }
                         },
                     })}
