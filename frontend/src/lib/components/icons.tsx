@@ -1626,3 +1626,19 @@ export function IconEyeVisible(props: SvgIconProps): JSX.Element {
         </SvgIcon>
     )
 }
+
+export function IconArrowLeft(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M7.99 11H20V13H7.99V16L4 12L7.99 8V11Z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+export function IconArrowRight(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M16.01 11H4V13H16.01V16L20 12L16.01 8V11Z" fill="currentColor" />
+        </SvgIcon>
+    )
+}

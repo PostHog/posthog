@@ -293,9 +293,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
                     }
                     return
                 case INGESTION_STEPS.VERIFY:
-                    if (values.platform) {
-                        actions.setVerify(true)
-                    }
+                    actions.setVerify(true)
                     return
                 case INGESTION_STEPS.BILLING:
                     if (values.platform) {
