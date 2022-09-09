@@ -9,6 +9,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { useValues } from 'kea'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import './PropertyValue.scss'
 
 type PropValue = {
     id?: number
@@ -230,6 +231,7 @@ export function PropertyValue({
             {...commonInputProps}
             autoFocus={autoFocus}
             value={input}
+            className="h-10 w-full property-filters-property-value"
             onClear={() => {
                 setInput('')
                 setValue('')

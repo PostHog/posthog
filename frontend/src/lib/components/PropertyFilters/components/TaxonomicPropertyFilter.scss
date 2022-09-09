@@ -1,5 +1,6 @@
 .TaxonomicPropertyFilter {
     width: 100%;
+    overflow: hidden;
 
     &--in-dropdown {
         width: 900px;
@@ -17,6 +18,7 @@
     .TaxonomicPropertyFilter__row {
         display: flex;
         gap: 0.5rem;
+        overflow: hidden;
 
         .TaxonomicPropertyFilter__row__operator {
             flex-shrink: 0;
@@ -41,6 +43,7 @@
             flex-wrap: wrap;
             align-items: flex-start;
             gap: 0.5rem;
+            overflow: hidden;
         }
 
         &.TaxonomicPropertyFilter__row--showing-operators {
