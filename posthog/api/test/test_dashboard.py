@@ -88,7 +88,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {"name": "dashboard new name", "creation_mode": "duplicate", "description": "Internal system metrics."},
+            {"name": "dashboard new name", "creation_mode": "duplicate"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -96,7 +96,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["name"], "dashboard new name")
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["creation_mode"], "template")
-        self.assertEqual(response_data["description"], "Internal system metrics.")
         self.assertEqual(response_data["restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
         self.assertEqual(
             response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
