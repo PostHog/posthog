@@ -9,17 +9,13 @@ import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { setAddBilling, completeOnboarding } = useActions(ingestionLogic)
+    const { isTestingOnboardingBilling } = useValues(ingestionLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const shouldShowBilling = featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING]
 
     useInterval(() => {
         if (!currentTeam?.ingested_event) {
@@ -45,7 +41,7 @@ export function VerificationPanel(): JSX.Element {
                                 center
                                 type="secondary"
                                 onClick={() => {
-                                    if (shouldShowBilling) {
+                                    if (isTestingOnboardingBilling) {
                                         setAddBilling(true)
                                     } else {
                                         completeOnboarding()
@@ -69,7 +65,7 @@ export function VerificationPanel(): JSX.Element {
                                 data-attr="wizard-complete-button"
                                 type="primary"
                                 onClick={() => {
-                                    if (shouldShowBilling) {
+                                    if (isTestingOnboardingBilling) {
                                         setAddBilling(true)
                                     } else {
                                         completeOnboarding()
@@ -78,7 +74,7 @@ export function VerificationPanel(): JSX.Element {
                                 fullWidth
                                 center
                             >
-                                {shouldShowBilling ? 'Next' : 'Complete'}
+                                {isTestingOnboardingBilling ? 'Next' : 'Complete'}
                             </LemonButton>
                         </div>
                     </div>
