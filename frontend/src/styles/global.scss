@@ -553,6 +553,7 @@ input::-ms-clear {
     min-height: 40px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
+    background-color: var(--white);
 
     .ant-select-selection-search,
     .ant-select-selection-placeholder {
