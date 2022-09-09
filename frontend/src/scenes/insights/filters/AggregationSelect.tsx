@@ -20,6 +20,10 @@ export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: Aggre
             value: UNIQUE_USERS,
             label: 'Unique users',
         },
+        ...groupTypes.map((groupType) => ({
+            value: groupType.group_type_index,
+            label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
+        })),
     ]
 
     groupTypes.forEach((groupType) => {
