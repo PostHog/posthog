@@ -89,7 +89,7 @@ export function OperatorValueSelect({
 
     return (
         <>
-            <div>
+            <div data-attr="taxonomic-operator">
                 <OperatorSelect
                     operator={currentOperator || PropertyOperator.Exact}
                     operators={operators}
@@ -122,7 +122,7 @@ export function OperatorValueSelect({
                 />
             </div>
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propkey && (
-                <div className="flex-1" style={{ minWidth: '10rem' }}>
+                <div className="flex-1" style={{ minWidth: '10rem' }} data-attr="taxonomic-value-select">
                     <PropertyValue
                         type={type}
                         key={propkey}
