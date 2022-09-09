@@ -67,6 +67,7 @@ export const billingLogic = kea<billingLogicType>([
                         actions.setPlans([response.plan])
                     }
                     if (
+                        response.event_allocation &&
                         response.current_usage > response.event_allocation &&
                         response.should_setup_billing &&
                         router.values.location.pathname !== '/organization/billing/locked' &&
