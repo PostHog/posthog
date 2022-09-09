@@ -1,7 +1,7 @@
 import hashlib
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from django.core.cache import cache
 from django.db import models
@@ -19,7 +19,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex, GroupTypeName
-from posthog.models.property.property import Property
+from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
 from posthog.queries.base import match_property, properties_to_Q
 
@@ -134,10 +134,12 @@ class FeatureFlag(models.Model):
         parsed_conditions = []
         # assume single condition for now
         for condition in self.conditions:
+            cohort_condition = False
             props = condition.get("properties", [])
             cohort_group_rollout = condition.get("rollout_percentage")
             for prop in props:
                 if prop.get("type") == "cohort":
+                    cohort_condition = True
                     cohort_id = prop.get("value")
                     if cohort_id:
                         if len(props) > 1:
@@ -148,7 +150,7 @@ class FeatureFlag(models.Model):
                             cohort = Cohort.objects.get(pk=cohort_id)
                         except Cohort.DoesNotExist:
                             return self.conditions
-            if not cohort:
+            if not cohort_condition:
                 # ff group without a cohort filter, let it be as is.
                 parsed_conditions.append(condition)
 
@@ -167,7 +169,16 @@ class FeatureFlag(models.Model):
 
         target_properties = clear_excess_levels(cohort.properties)
 
-        if isinstance(target_properties.values[0], Property):
+        if isinstance(target_properties, Property):
+            # cohort was effectively a single property.
+            parsed_conditions.append(
+                {
+                    "properties": [target_properties.to_dict()],
+                    "rollout_percentage": cohort_group_rollout,
+                }
+            )
+
+        elif isinstance(target_properties.values[0], Property):
             if target_properties.type == PropertyOperatorType.AND:
                 parsed_conditions.append(
                     {
@@ -190,11 +201,11 @@ class FeatureFlag(models.Model):
             if target_properties.type == PropertyOperatorType.AND:
                 return self.conditions
 
-            for prop_group in target_properties.values:
+            for prop_group in cast(List[PropertyGroup], target_properties.values):
                 if (
                     len(prop_group.values) == 0
                     or not isinstance(prop_group.values[0], Property)
-                    or prop_group.type == PropertyOperatorType.OR
+                    or (prop_group.type == PropertyOperatorType.OR and len(prop_group.values) > 1)
                 ):
                     # too nested or invalid, bail out
                     return self.conditions
