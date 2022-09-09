@@ -1,5 +1,5 @@
 import './Insight.scss'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
@@ -80,7 +80,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
     const actorOnEventsQueryingEnabled = featureFlags[FEATURE_FLAGS.ACTOR_ON_EVENTS_QUERYING]
-    const [alertVisible, setAlertVisible] = useState(true)
 
     const debouncedOnChange = useDebouncedCallback((insightMetadata) => {
         if (insightMode === ItemMode.Edit) {
@@ -302,9 +301,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 }
             />
 
-            {actorOnEventsQueryingEnabled && alertVisible ? (
+            {actorOnEventsQueryingEnabled ? (
                 <div className="mb-4">
-                    <AlertMessage type="info" onClose={() => setAlertVisible(false)}>
+                    <AlertMessage type="info">
                         To speed up queries, we've adjust how they're calculated. You might notice some differences in
                         the insight results. Read more about what changes to expect{' '}
                         <Link to={`https://posthog.com/docs/how-posthog-works/queries`}>here</Link>. Please{' '}
