@@ -5,8 +5,9 @@ import type { mathsLogicType } from './mathsLogicType'
 import { EVENT_MATH_TYPE, PROPERTY_MATH_TYPE } from 'lib/constants'
 import { BaseMathType, PropertyMathType } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
-import { LemonSelectOption, LemonSelectOptions, LemonSelectSection, Link } from '@posthog/lemon-ui'
+import { LemonSelectOption, LemonSelectOptions, LemonSelectSection } from '@posthog/lemon-ui'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 
 export interface MathDefinition {
     name: string
@@ -23,31 +24,6 @@ function Label({ tooltip, children = null }: { tooltip?: string; children: React
         <Tooltip title={tooltip} placement="left">
             <div>{children}</div>
         </Tooltip>
-    )
-}
-
-const GroupIntroductionFooter = (): JSX.Element => {
-    return (
-        <div className="text-sm bg-side rounded p-2" style={{ maxWidth: '15rem' }}>
-            Enter your payment information to use group analytics.{' '}
-            <Link
-                className="font-medium"
-                to="/organization/billing"
-                target="_blank"
-                data-attr="group-analytics-upgrade"
-            >
-                Upgrade
-            </Link>{' '}
-            or{' '}
-            <Link
-                className="font-medium"
-                to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
-                target="_blank"
-                data-attr="group-analytics-learn-more"
-            >
-                Learn more
-            </Link>
-        </div>
     )
 }
 

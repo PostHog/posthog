@@ -1,8 +1,9 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 
 const UNIQUE_USERS = -1
 
@@ -15,40 +16,30 @@ export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: Aggre
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    const options: LemonSelectOption<number>[] = [
+    const optionSections: LemonSelectOptions<number> = [
         {
-            value: UNIQUE_USERS,
-            label: 'Unique users',
+            title: 'Event Aggregation',
+            options: [
+                {
+                    value: UNIQUE_USERS,
+                    label: 'Unique users',
+                },
+            ],
         },
     ]
-
-    groupTypes.forEach((groupType) => {
-        options.push({
-            value: groupType.group_type_index,
-            label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
-        })
-    })
 
     if (
         [GroupsAccessStatus.HasAccess, GroupsAccessStatus.HasGroupTypes, GroupsAccessStatus.NoAccess].includes(
             groupsAccessStatus
         )
     ) {
-        options.push({
-            value: -2,
-            disabled: true,
-            label: (
-                <div>
-                    Unique Groups –{' '}
-                    <Link
-                        to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
-                        target="_blank"
-                        data-attr="group-analytics-learn-more"
-                    >
-                        Learn more
-                    </Link>
-                </div>
-            ),
+        optionSections[0].footer = <GroupIntroductionFooter />
+    } else {
+        groupTypes.forEach((groupType) => {
+            optionSections[0].options.push({
+                value: groupType.group_type_index,
+                label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
+            })
         })
     }
 
@@ -63,7 +54,7 @@ export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: Aggre
             }}
             data-attr="retention-aggregation-selector"
             dropdownMatchSelectWidth={false}
-            options={options}
+            options={optionSections}
         />
     )
 }
