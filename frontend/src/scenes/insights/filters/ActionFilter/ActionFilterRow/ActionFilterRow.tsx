@@ -291,13 +291,13 @@ export function ActionFilterRow({
                 ) : (
                     <>
                         {/* left section fixed */}
-                        <div className="row-start">
+                        <div className="ActionFilterRow__start">
                             {sortable && filterCount > 1 ? <DragHandle /> : null}
-                            {showSeriesIndicator && <div className="col series-indicator">{seriesIndicator}</div>}
+                            {showSeriesIndicator && <div>{seriesIndicator}</div>}
                         </div>
                         {/* central section flexible */}
-                        <div className="row-center">
-                            <div className="col flex-auto">{filterElement}</div>
+                        <div className="ActionFilterRow__center">
+                            <div className="flex-auto">{filterElement}</div>
                             {customRowSuffix !== undefined && <div className="col">{suffix}</div>}
                             {mathAvailability !== MathAvailability.None && (
                                 <>
@@ -351,7 +351,7 @@ export function ActionFilterRow({
                             )}
                         </div>
                         {/* right section fixed */}
-                        <div className="row-end">
+                        <div className="ActionFilterRow__end">
                             {!readOnly ? (
                                 <>
                                     {!hideFilter && propertyFiltersButton}
