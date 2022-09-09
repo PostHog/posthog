@@ -104,7 +104,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
             strategy: 'fixed',
             middleware: [
                 offset(4),
-                ...(fallbackPlacements ? [flip({ fallbackPlacements })] : []),
+                ...(fallbackPlacements ? [flip({ fallbackPlacements, fallbackStrategy: 'initialPlacement' })] : []),
                 shift(),
                 size({
                     padding: 5,
