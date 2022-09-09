@@ -228,11 +228,6 @@ export function LemonButtonWithPopup({
                 onClick={(e) => {
                     setPopupVisible((state) => !state)
                     onClick?.(e)
-                    if (parentPopupId !== 0) {
-                        // If this button is inside another popup, let's not propagate this event so that
-                        // the parent popup doesn't close
-                        e.stopPropagation()
-                    }
                 }}
                 active={popupProps.visible}
                 {...buttonProps}
