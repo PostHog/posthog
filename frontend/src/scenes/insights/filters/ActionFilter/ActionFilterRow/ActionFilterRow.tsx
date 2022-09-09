@@ -178,7 +178,7 @@ export function ActionFilterRow({
     const filterElement = (
         <LemonButtonWithPopup
             data-attr={'trend-element-subject-' + index}
-            className="LemonButton--full-width"
+            fullWidth
             popup={{
                 overlay: (
                     <TaxonomicFilter
