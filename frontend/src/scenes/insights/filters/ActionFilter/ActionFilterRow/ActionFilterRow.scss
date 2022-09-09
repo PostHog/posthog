@@ -17,15 +17,11 @@
 
     .ActionFilterRow__start,
     .ActionFilterRow__end {
-        // Positions the elements in the center of the row but still aligned top when flex wrap kicks in
-        padding-top: 10px;
+        height: 40px;
+        display: flex;
+        align-items: center;
         flex: 0;
-    }
-
-    .ActionFilterRow__end {
-        > * + * {
-            margin-left: 0.25rem;
-        }
+        gap: 0.25rem;
     }
 
     .ActionFilterRow__center {
@@ -40,9 +36,5 @@
     cursor: move;
     color: var(--default);
     font-size: 1.2em;
-    padding-right: 5px;
-
-    svg {
-        transform: rotate(90deg) translateX(5px);
-    }
+    transform: rotate(90deg);
 }
