@@ -20,6 +20,10 @@
         border: 1px solid var(--primary-light);
     }
 
+    &.LemonInput--transparent-background {
+        background-color: inherit;
+    }
+
     .LemonInput__input {
         border: none;
         outline: none;
