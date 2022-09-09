@@ -75,10 +75,7 @@ class EventDefinitionViewSet(
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
-        params = {
-            "team_id": self.team_id,
-            **search_kwargs,
-        }
+        params = {"team_id": self.team_id, "is_posthog_event": "$%", **search_kwargs}
 
         if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             from ee.models.event_definition import EnterpriseEventDefinition

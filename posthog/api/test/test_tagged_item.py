@@ -57,7 +57,7 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {"name": "dashboard new name", "description": "Internal system metrics.",},
+            {"name": "dashboard new name", "description": "Internal system metrics."},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

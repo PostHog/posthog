@@ -17,6 +17,7 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import './WebPerformance.scss'
 import Text from 'antd/lib/typography/Text'
 import { getSeriesColor } from 'lib/colors'
+import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -246,8 +247,9 @@ const VerticalMarker = ({
 }
 
 function WaterfallChart(): JSX.Element {
-    const { eventToDisplay, openedSessionRecordingId, currentEvent, sessionRecording } = useValues(webPerformanceLogic)
-    const { openRecordingModal, closeRecordingModal } = useActions(webPerformanceLogic)
+    const { eventToDisplay, currentEvent, sessionRecording } = useValues(webPerformanceLogic)
+    const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
+
     return (
         <>
             {currentEvent && (
@@ -269,7 +271,7 @@ function WaterfallChart(): JSX.Element {
                                 <MultiRecordingButton
                                     sessionRecordings={sessionRecording}
                                     onOpenRecording={(matchedRecording) => {
-                                        openRecordingModal(matchedRecording.session_id)
+                                        openSessionPlayer(matchedRecording.session_id)
                                     }}
                                 />
                             </div>
@@ -277,9 +279,9 @@ function WaterfallChart(): JSX.Element {
                     </Row>
                 </>
             )}
-            {!!openedSessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />}
+            <SessionPlayerDrawer onClose={closeSessionPlayer} />
             {eventToDisplay && (
-                <Row data-tooltip="web-performance-chart">
+                <Row>
                     <Col span={24}>
                         <div className="waterfall-chart">
                             <Row style={{ marginBottom: '8px' }}>

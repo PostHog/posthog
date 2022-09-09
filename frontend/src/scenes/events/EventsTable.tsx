@@ -29,7 +29,7 @@ import { urls } from 'scenes/urls'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { TableCellRepresentation } from 'lib/components/LemonTable/types'
 import { IconExport, IconSync } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { teamLogic } from 'scenes/teamLogic'
@@ -39,6 +39,8 @@ import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { EventBufferNotice } from './EventBufferNotice'
 import { LemonDivider } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -64,7 +66,32 @@ interface EventsTable {
     showActionsButton?: boolean
     showPersonColumn?: boolean
     linkPropertiesToFilters?: boolean
-    'data-tooltip'?: string
+    'data-attr'?: string
+}
+
+interface ExportWithConfirmationProps {
+    placement: 'topRight' | 'bottomRight'
+    onConfirm: (e?: React.MouseEvent<HTMLElement>) => void
+    children: React.ReactNode
+}
+
+function ExportWithConfirmation({ placement, onConfirm, children }: ExportWithConfirmationProps): JSX.Element {
+    return (
+        <Popconfirm
+            placement={placement}
+            title={
+                <>
+                    Exporting by csv is limited to 3,500 events.
+                    <br />
+                    To return more, please use <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to
+                    export by CSV?
+                </>
+            }
+            onConfirm={onConfirm}
+        >
+            {children}
+        </Popconfirm>
+    )
 }
 
 export function EventsTable({
@@ -86,7 +113,7 @@ export function EventsTable({
     showActionsButton = true,
     showPersonColumn = true,
     linkPropertiesToFilters = true,
-    'data-tooltip': dataTooltip,
+    'data-attr': dataAttr,
 }: EventsTable): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({
@@ -126,6 +153,9 @@ export function EventsTable({
 
     const { reportEventsTablePollingReactedToPageVisibility } = useActions(eventUsageLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const allowColumnChoice = featureFlags[FEATURE_FLAGS.ALLOW_CSV_EXPORT_COLUMN_CHOICE]
+
     usePageVisibility((pageIsVisible) => {
         setPollingActive(pageIsVisible)
         reportEventsTablePollingReactedToPageVisibility(pageIsVisible)
@@ -151,6 +181,7 @@ export function EventsTable({
             },
         }
     }
+
     const personColumn: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> = {
         title: 'Person',
         key: 'person',
@@ -397,6 +428,22 @@ export function EventsTable({
     const showFirstRow = showEventFilter || showPropertyFilter
     const showSecondRow = showAutoload || showCustomizeColumns || showExport
 
+    const exportColumns = useMemo(() => {
+        const columnMapping = {
+            url: ['properties.$current_url', 'properties.$screen_name'],
+            time: 'timestamp',
+            event: 'event',
+            source: 'properties.$lib',
+            person: ['person.distinct_ids.0', 'person.properties.email'],
+        }
+
+        return (selectedColumns === 'DEFAULT' ? defaultColumns.map((e) => e.key || '') : selectedColumns).flatMap(
+            (x) => {
+                return columnMapping[x] || `properties.${x}`
+            }
+        )
+    }, [defaultColumns, selectedColumns])
+
     return (
         <div className="events" data-attr="events-table">
             {showFirstRow && (
@@ -432,7 +479,7 @@ export function EventsTable({
                     {showAutoload && (
                         <LemonSwitch
                             bordered
-                            data-tooltip="live-events-refresh-toggle"
+                            data-attr="live-events-refresh-toggle"
                             id="autoload-switch"
                             label="Automatically load new events"
                             checked={automaticLoadEnabled}
@@ -446,7 +493,40 @@ export function EventsTable({
                                 defaultColumns={defaultColumns.map((e) => e.key || '')}
                             />
                         )}
-                        {showExport && (
+                        {showExport && allowColumnChoice ? (
+                            <LemonButtonWithPopup
+                                popup={{
+                                    sameWidth: false,
+                                    closeOnClickInside: false,
+                                    overlay: [
+                                        <ExportWithConfirmation
+                                            key={1}
+                                            placement={'topRight'}
+                                            onConfirm={() => {
+                                                startDownload(exportColumns)
+                                            }}
+                                        >
+                                            <LemonButton fullWidth={true} status="stealth">
+                                                Export current columns
+                                            </LemonButton>
+                                        </ExportWithConfirmation>,
+                                        <ExportWithConfirmation
+                                            key={0}
+                                            placement={'bottomRight'}
+                                            onConfirm={() => startDownload()}
+                                        >
+                                            <LemonButton fullWidth={true} status="stealth">
+                                                Export all columns
+                                            </LemonButton>
+                                        </ExportWithConfirmation>,
+                                    ],
+                                }}
+                                type="secondary"
+                                icon={<IconExport />}
+                            >
+                                Export
+                            </LemonButtonWithPopup>
+                        ) : (
                             <Popconfirm
                                 placement="topRight"
                                 title={
@@ -458,7 +538,7 @@ export function EventsTable({
                                         by CSV?
                                     </>
                                 }
-                                onConfirm={startDownload}
+                                onConfirm={() => startDownload()}
                             >
                                 <LemonButton type="secondary" icon={<IconExport style={{ color: 'var(--primary)' }} />}>
                                     Export
@@ -473,7 +553,7 @@ export function EventsTable({
                 className="mb-4"
             />
             <LemonTable
-                data-tooltip={dataTooltip}
+                data-attr={dataAttr}
                 dataSource={eventsFormatted}
                 loading={isLoading}
                 columns={columns}
@@ -511,6 +591,7 @@ export function EventsTable({
                               },
                               rowExpandable: ({ event, date_break, new_events }) =>
                                   date_break || new_events ? -1 : !!event,
+                              noIndent: true,
                           }
                         : undefined
                 }

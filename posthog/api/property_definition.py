@@ -62,13 +62,13 @@ class QueryContext:
             return dataclasses.replace(
                 self,
                 is_feature_flag_filter="AND (name LIKE %(is_feature_flag_like)s)",
-                params={**self.params, "is_feature_flag_like": "$feature/%",},
+                params={**self.params, "is_feature_flag_like": "$feature/%"},
             )
         elif is_feature_flag == "false":
             return dataclasses.replace(
                 self,
                 is_feature_flag_filter="AND (name NOT LIKE %(is_feature_flag_like)s)",
-                params={**self.params, "is_feature_flag_like": "$feature/%",},
+                params={**self.params, "is_feature_flag_like": "$feature/%"},
             )
         else:
             return self
@@ -94,7 +94,7 @@ class QueryContext:
             self,
             event_property_filter=event_property_filter,
             event_property_field=event_property_field,
-            params={**self.params, "event_names": tuple(event_names or []),},
+            params={**self.params, "event_names": tuple(event_names or [])},
         )
 
     def with_search(self, search_query: str, search_kwargs: Dict) -> "QueryContext":
@@ -143,13 +143,16 @@ HIDDEN_PROPERTY_DEFINITIONS = set(
         # used for updating properties
         "$set",
         "$set_once",
+        # posthog-js used to send it and shouldn't have, now it confuses users
+        "$initial_referrer",
+        "$initial_referring_domain",
         # Group Analytics
         "$groups",
         "$group_type",
         "$group_key",
         "$group_set",
     ]
-    + [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)],
+    + [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)]
 )
 
 
@@ -230,7 +233,7 @@ class PropertyDefinitionViewSet(
         queryset = PropertyDefinition.objects
 
         property_definition_fields = ", ".join(
-            [f'"{f.column}"' for f in PropertyDefinition._meta.get_fields() if hasattr(f, "column")],  # type: ignore
+            [f'"{f.column}"' for f in PropertyDefinition._meta.get_fields() if hasattr(f, "column")]  # type: ignore
         )
 
         use_enterprise_taxonomy = self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)  # type: ignore
@@ -244,13 +247,13 @@ class PropertyDefinitionViewSet(
                         f'"{f.column}"'  # type: ignore
                         for f in EnterprisePropertyDefinition._meta.get_fields()
                         if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
-                    ],
+                    ]
                 )
 
                 queryset = EnterprisePropertyDefinition.objects.prefetch_related(
                     Prefetch(
                         "tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
-                    ),
+                    )
                 )
             except ImportError:
                 use_enterprise_taxonomy = False
@@ -316,7 +319,7 @@ class PropertyDefinitionViewSet(
                     return enterprise_property
                 non_enterprise_property = PropertyDefinition.objects.get(id=id)
                 new_enterprise_property = EnterprisePropertyDefinition(
-                    propertydefinition_ptr_id=non_enterprise_property.id, description="",
+                    propertydefinition_ptr_id=non_enterprise_property.id, description=""
                 )
                 new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
                 new_enterprise_property.save()

@@ -75,6 +75,17 @@ class TestTeamAPI(APIBaseTest):
         self.team.refresh_from_db()
         self.assertEqual(self.team.timezone, "Europe/Istanbul")
 
+    def test_update_test_filter_default_checked(self):
+
+        response = self.client.patch("/api/projects/@current/", {"test_account_filters_default_checked": "true"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["test_account_filters_default_checked"], True)
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.test_account_filters_default_checked, True)
+
     def test_cannot_set_invalid_timezone_for_project(self):
         response = self.client.patch("/api/projects/@current/", {"timezone": "America/I_Dont_Exist"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -104,7 +115,7 @@ class TestTeamAPI(APIBaseTest):
 
     def test_filter_permission(self):
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/", {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
+            f"/api/projects/{self.team.id}/", {"test_account_filters": [{"key": "$current_url", "value": "test"}]}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -167,19 +178,17 @@ class TestTeamAPI(APIBaseTest):
             data={"filters": {"events": json.dumps([{"id": "user signed up"}])}},
         )
         response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/", data={"filters": {"events": json.dumps([{"id": "$pageview"}])}},
+            f"/api/projects/{self.team.id}/insights/", data={"filters": {"events": json.dumps([{"id": "$pageview"}])}}
         ).json()
         self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/", data={"events": json.dumps([{"id": "$pageview"}])},
+            f"/api/projects/{self.team.id}/insights/trend/", data={"events": json.dumps([{"id": "$pageview"}])}
         )
         self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/", data={"events": json.dumps([{"id": "user signed up"}])},
+            f"/api/projects/{self.team.id}/insights/trend/", data={"events": json.dumps([{"id": "user signed up"}])}
         )
 
         self.assertEqual(cache.get(response["filters_hash"])["result"][0]["count"], 0)
-        self.client.patch(
-            f"/api/projects/{self.team.id}/", {"timezone": "US/Pacific"},
-        )
+        self.client.patch(f"/api/projects/{self.team.id}/", {"timezone": "US/Pacific"})
         # Verify cache was deleted
         self.assertEqual(cache.get(response["filters_hash"]), None)
 
@@ -191,5 +200,5 @@ def create_team(organization: Organization, name: str = "Test team") -> Team:
     with real world  scenarios.
     """
     return Team.objects.create(
-        organization=organization, name=name, ingested_event=True, completed_snippet_onboarding=True, is_demo=True,
+        organization=organization, name=name, ingested_event=True, completed_snippet_onboarding=True, is_demo=True
     )

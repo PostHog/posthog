@@ -111,9 +111,9 @@ class LoginPrecheckSerializer(serializers.Serializer):
 class NonCreatingViewSetMixin(mixins.CreateModelMixin):
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
-            Method `create()` is overridden to send a more appropriate HTTP
-            status code (as no object is actually created).
-            """
+        Method `create()` is overridden to send a more appropriate HTTP
+        status code (as no object is actually created).
+        """
         response = super().create(request, *args, **kwargs)
         response.status_code = getattr(self, "SUCCESS_STATUS_CODE", status.HTTP_200_OK)
         return response

@@ -65,7 +65,7 @@ def parse_kafka_event_data(
 
 
 def parse_kafka_recording_for_object_storage_event_data(
-    team_id: int, recording_event: ChunkedRecordingEvent,
+    team_id: int, recording_event: ChunkedRecordingEvent
 ) -> Tuple[List[Tuple[str, str]], str]:
     headers = [
         ("unixTimestamp", str(recording_event.unix_timestamp)),
@@ -74,7 +74,7 @@ def parse_kafka_recording_for_object_storage_event_data(
         ("distinctId", recording_event.distinct_id),
         ("chunkCount", str(recording_event.chunk_count)),
         ("chunkIndex", str(recording_event.chunk_index)),
-        ("eventSource", str(recording_event.recording_event_source) if recording_event.recording_event_source else "",),
+        ("eventSource", str(recording_event.recording_event_source) if recording_event.recording_event_source else ""),
         ("eventType", str(recording_event.recording_event_type) if recording_event.recording_event_type else ""),
         ("windowId", recording_event.window_id if recording_event.window_id else ""),
         ("teamId", str(team_id)),
@@ -212,7 +212,7 @@ def _ensure_web_feature_flags_in_properties(
 ):
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
     if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
-        flags = get_active_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
+        flags, _ = get_active_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
         event["properties"]["$active_feature_flags"] = list(flags.keys())
         for k, v in flags.items():
             event["properties"][f"$feature/{k}"] = v
@@ -277,7 +277,7 @@ def get_event(request):
             session_recording_events = get_session_recording_events_for_object_storage(events)
             for recording_event in session_recording_events:
                 headers, data = parse_kafka_recording_for_object_storage_event_data(
-                    ingestion_context.team_id, recording_event,
+                    ingestion_context.team_id, recording_event
                 )
                 log_session_recording_event(
                     headers,
@@ -329,9 +329,7 @@ def get_event(request):
             capture_internal(event, distinct_id, ip, site_url, now, sent_at, ingestion_context.team_id, event_uuid)  # type: ignore
         except Exception as e:
             capture_exception(e, {"data": data})
-            statsd.incr(
-                "posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture",},
-            )
+            statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
             return cors_response(
                 request,
                 generate_exception_response(
@@ -343,9 +341,7 @@ def get_event(request):
                 ),
             )
 
-    statsd.incr(
-        "posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
-    )
+    statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))
 
 

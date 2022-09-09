@@ -15,7 +15,7 @@ export function LemonLabel({ children, info, className, showOptional, ...props }
         <label className={clsx('LemonLabel', className)} {...props}>
             {children}
 
-            {showOptional ? <span>(optional)</span> : null}
+            {showOptional ? <span className="LemonLabel__extra">(optional)</span> : null}
 
             {info ? (
                 <Tooltip title={info}>

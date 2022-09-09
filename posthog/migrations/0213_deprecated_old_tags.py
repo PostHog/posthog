@@ -28,7 +28,10 @@ class Migration(migrations.Migration):
                 base_field=models.CharField(max_length=32), blank=True, default=list, null=True, size=None
             ),
         ),
-        migrations.RemoveConstraint(model_name="taggeditem", name="exactly_one_related_object",),
+        migrations.RemoveConstraint(
+            model_name="taggeditem",
+            name="exactly_one_related_object",
+        ),
         migrations.AddField(
             model_name="taggeditem",
             name="dashboard",

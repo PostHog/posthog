@@ -44,7 +44,7 @@ def materialize_session_and_window_id(database):
     for property_name in properties:
         materialized_columns = get_materialized_columns("events", use_cache=False)
         # If the column is not materialized, materialize it
-        if property_name not in materialized_columns:
+        if (property_name, "properties") not in materialized_columns:
             materialize("events", property_name, property_name)
 
         # Now, we need to clean up any potentail inconsistencies with existing column names

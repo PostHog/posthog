@@ -65,6 +65,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "completed_snippet_onboarding",
             "ingested_event",
             "test_account_filters",
+            "test_account_filters_default_checked",
             "path_cleaning_filters",
             "is_demo",
             "timezone",

@@ -39,5 +39,5 @@ def get_person_property_values_for_key(key: str, team: Team, value: Optional[str
             {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
         )
     return sync_execute(
-        SELECT_PERSON_PROP_VALUES_SQL.format(property_field=property_field), {"team_id": team.pk, "key": key},
+        SELECT_PERSON_PROP_VALUES_SQL.format(property_field=property_field), {"team_id": team.pk, "key": key}
     )

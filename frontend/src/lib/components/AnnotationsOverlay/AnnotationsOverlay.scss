@@ -1,0 +1,73 @@
+.AnnotationsOverlay {
+    position: absolute;
+    top: var(--annotations-overlay-chart-area-height);
+    left: var(--annotations-overlay-chart-area-left);
+}
+
+.AnnotationsBadge {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: calc(
+        var(--annotations-overlay-tick-interval) * var(--annotations-badge-index) -
+            var(--annotations-overlay-chart-area-left) + var(--annotations-overlay-first-tick-left)
+    );
+    height: 3rem;
+    width: var(--annotations-overlay-tick-interval);
+    border: none;
+    background: none;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    -webkit-appearance: none !important;
+
+    > .LemonBubble {
+        transition: transform 150ms ease; // Same as LemonBubble's transition
+        // Override .LemonBubble--position-self-centered
+        transform: scale(var(--annotations-badge-scale));
+        transform-origin: center;
+    }
+}
+
+.AnnotationsPopover {
+    --annotations-popover-width: 30rem;
+    --annotations-popover-max-left: calc(var(--annotations-overlay-chart-width) - var(--annotations-popover-width));
+    transition: top 200ms ease, left 200ms ease, opacity 200ms ease;
+    position: absolute;
+    left: clamp(
+        0px,
+        calc(
+            var(--annotations-overlay-chart-area-left) + var(--annotations-overlay-active-badge-left) -
+                var(--annotations-popover-width) / 2
+        ),
+        var(--annotations-popover-max-left)
+    );
+    top: calc(var(--annotations-overlay-active-badge-top) - 1.25rem);
+    transform: translateY(-100%) !important;
+
+    &.AnnotationsPopover--enter,
+    &.AnnotationsPopover--exit.AnnotationsPopover--exit-active {
+        opacity: 0;
+    }
+
+    &.AnnotationsPopover--enter.AnnotationsPopover--enter-active,
+    &.AnnotationsPopover--exit {
+        opacity: 1;
+    }
+
+    > .LemonModal {
+        margin: 0 0 0 calc(var(--annotations-overlay-chart-area-left) * -1);
+        min-width: unset;
+        max-width: unset;
+    }
+
+    ul {
+        max-height: 28rem;
+    }
+}
+
+.AnnotationCard {
+    .profile-package {
+        vertical-align: bottom;
+    }
+}

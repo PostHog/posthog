@@ -9,7 +9,7 @@ export default {
 } as ComponentMeta<typeof LemonBubble>
 
 const Template: ComponentStory<typeof LemonBubble> = ({ count, ...props }: LemonBubbleProps) => {
-    const [countOverride, setCount] = useState(count)
+    const [countOverride, setCount] = useState(count as number)
 
     return (
         <>

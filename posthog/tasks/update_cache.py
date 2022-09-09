@@ -167,9 +167,7 @@ def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: Qu
             "dashboard_id": candidate_tile.dashboard_id,
             "cache_key": candidate_tile.filters_hash,
         }
-        statsd.gauge(
-            "update_cache_queue.dashboards_lag", round(dashboard_cache_age), tags=tags,
-        )
+        statsd.gauge("update_cache_queue.dashboards_lag", round(dashboard_cache_age), tags=tags)
         ages.append({**tags, "age": round(dashboard_cache_age)})
 
     logger.info("update_cache_queue.seen_ages", ages=ages)
@@ -221,7 +219,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
         dashboard_tiles_queryset.update(last_refresh=timezone.now(), refreshing=False)
         statsd.incr(
             "update_cache_item_no_results",
-            tags={"team": team_id, "cache_key": key, "insight_id": insight_id, "dashboard_id": dashboard_id,},
+            tags={"team": team_id, "cache_key": key, "insight_id": insight_id, "dashboard_id": dashboard_id},
         )
         _mark_refresh_attempt_when_no_results(dashboard_id, dashboard_tiles_queryset, insight_id, insights_queryset)
         result = []
@@ -283,7 +281,7 @@ def synchronously_update_insight_cache(insight: Insight, dashboard: Optional[Das
 
 
 def update_filters_hash(cache_key: str, dashboard: Optional[Dashboard], insight: Insight) -> None:
-    """ check if the cache key has changed, usually because of a new default filter
+    """check if the cache key has changed, usually because of a new default filter
     # there are three possibilities
     # 1) the insight is not being updated in a dashboard context
     #    --> so set its cache key if it doesn't match
@@ -302,7 +300,7 @@ def update_filters_hash(cache_key: str, dashboard: Optional[Dashboard], insight:
         )
         should_update_insight_filters_hash = True
     if dashboard:
-        dashboard_tiles = DashboardTile.objects.filter(insight=insight, dashboard=dashboard,).exclude(
+        dashboard_tiles = DashboardTile.objects.filter(insight=insight, dashboard=dashboard).exclude(
             filters_hash=cache_key
         )
 
@@ -333,7 +331,7 @@ def update_filters_hash(cache_key: str, dashboard: Optional[Dashboard], insight:
 
         statsd.incr(
             "update_cache_item_set_new_cache_key_on_shared_insight",
-            tags={"team": insight.team.id, "cache_key": cache_key, "insight_id": insight.id, "dashboard_id": None,},
+            tags={"team": insight.team.id, "cache_key": cache_key, "insight_id": insight.id, "dashboard_id": None},
         )
 
 

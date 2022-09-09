@@ -120,7 +120,7 @@ class TestDecide(BaseTest):
         self.client.logout()
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
         FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
         )
         FeatureFlag.objects.create(
             team=self.team,
@@ -165,7 +165,7 @@ class TestDecide(BaseTest):
         self.client.logout()
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
         FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
         )
         FeatureFlag.objects.create(
             team=self.team,
@@ -183,7 +183,7 @@ class TestDecide(BaseTest):
                         {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
                         {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
                         {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ],
+                    ]
                 },
             },
             name="This is a feature flag with multiple variants.",
@@ -251,7 +251,7 @@ class TestDecide(BaseTest):
                         {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
                         {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
                         {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ],
+                    ]
                 },
             },
             name="This is a feature flag with multiple variants.",
@@ -307,7 +307,7 @@ class TestDecide(BaseTest):
                         {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
                         {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
                         {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ],
+                    ]
                 },
             },
             name="This is a feature flag with multiple variants.",
@@ -361,7 +361,7 @@ class TestDecide(BaseTest):
                         {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
                         {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
                         {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ],
+                    ]
                 },
             },
             name="This is a feature flag with multiple variants.",
@@ -425,7 +425,7 @@ class TestDecide(BaseTest):
                         {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
                         {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
                         {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ],
+                    ]
                 },
             },
             name="This is a feature flag with multiple variants.",
@@ -487,7 +487,7 @@ class TestDecide(BaseTest):
                         {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
                         {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
                         {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ],
+                    ]
                 },
             },
             name="This is a feature flag with multiple variants.",
@@ -539,7 +539,7 @@ class TestDecide(BaseTest):
         person.add_distinct_id("other_id")
 
         with self.assertNumQueries(5):
-            response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"},)
+            response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"})
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
             self.assertEqual(
@@ -577,7 +577,7 @@ class TestDecide(BaseTest):
                         {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
                         {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
                         {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ],
+                    ]
                 },
             },
             name="This is a feature flag with multiple variants.",
@@ -613,7 +613,7 @@ class TestDecide(BaseTest):
         # no quick decent way to find how 'other_id' is to be treated.
         # So, things appear like a completely new person with distinct-id = other_id.
         with self.assertNumQueries(4):
-            response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"},)
+            response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"})
             # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
             self.assertEqual("third-variant", response.json()["featureFlags"]["multivariate-flag"])  # variant changed
@@ -622,7 +622,7 @@ class TestDecide(BaseTest):
         # Finally, 'other_id' is merged. The result goes back to its overridden values
 
         with self.assertNumQueries(5):
-            response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"},)
+            response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"})
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
             self.assertEqual(
@@ -658,7 +658,7 @@ class TestDecide(BaseTest):
                         {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
                         {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
                         {"key": "fourth-variant", "name": "Fourth Variant", "rollout_percentage": 25},
-                    ],
+                    ]
                 },
             },
             name="This is a feature flag with top-level property filtering and percentage rollout.",
@@ -722,10 +722,10 @@ class TestDecide(BaseTest):
         key.save()
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
         FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
+            team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user
         )
         FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=100, name="Disabled", key="disabled", created_by=self.user, active=False,
+            team=self.team, rollout_percentage=100, name="Disabled", key="disabled", created_by=self.user, active=False
         )  # disabled flag
         FeatureFlag.objects.create(
             team=self.team,
@@ -760,7 +760,7 @@ class TestDecide(BaseTest):
         key.save()
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
         FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
+            team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user
         )
         response = self._post_decide({"distinct_id": "example_id", "api_key": None, "project_id": self.team.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -777,9 +777,7 @@ class TestDecide(BaseTest):
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             response_data = response.json()
             detail = response_data.pop("detail")
-            self.assertEqual(
-                response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None},
-            )
+            self.assertEqual(response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None})
             self.assertIn("Malformed request data:", detail)
 
     def test_invalid_gzip_payload_on_decide_endpoint(self):
@@ -793,7 +791,5 @@ class TestDecide(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
         detail = response_data.pop("detail")
-        self.assertEqual(
-            response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None},
-        )
+        self.assertEqual(response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None})
         self.assertIn("Malformed request data:", detail)

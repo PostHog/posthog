@@ -5,7 +5,6 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import {
     definitionLogic,
     DefinitionLogicProps,
@@ -65,9 +64,6 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                                     verified: !!_event.verified,
                                 },
                             })
-                            eventDefinitionsModel
-                                .findMounted()
-                                ?.actions.updateEventDefinition(definition as EventDefinition)
                         } else {
                             // Event Property Definition
                             const _eventProperty = definition as PropertyDefinition
@@ -83,7 +79,6 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                     }
 
                     lemonToast.success(`${capitalizeFirstLetter(values.singular)} saved`)
-                    eventDefinitionsModel.actions.loadEventDefinitions(true) // reload definitions so they are immediately available
                     // Update table values
                     if (values.isEvent) {
                         actions.setLocalEventDefinition(definition)

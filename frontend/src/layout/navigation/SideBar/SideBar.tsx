@@ -66,7 +66,6 @@ function Pages(): JSX.Element {
         <ul>
             <div className="SideBar__heading">Project</div>
             <PageButton
-                data-tooltip="project-button"
                 title={currentTeam?.name ?? 'Choose project'}
                 icon={<Lettermark name={currentOrganization?.name} />}
                 identifier={Scene.ProjectHomepage}
@@ -102,7 +101,7 @@ function Pages(): JSX.Element {
                                         <h5>Pinned dashboards</h5>
                                         <LemonDivider />
                                         {pinnedDashboards.length > 0 ? (
-                                            <ul className="m-0 p-0 list-none">
+                                            <ul>
                                                 {pinnedDashboards.map((dashboard) => (
                                                     <PageButton
                                                         key={dashboard.id}

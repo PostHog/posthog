@@ -108,7 +108,7 @@ def get_breakdown_prop_values(
         from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 
         entity_filter, entity_params = FunnelEventQuery(
-            filter, team, using_person_on_events=team.actor_on_events_querying_enabled,
+            filter, team, using_person_on_events=team.actor_on_events_querying_enabled
         )._get_entity_query()
         entity_format_params = {"entity_query": entity_filter}
     else:
@@ -194,17 +194,20 @@ def _to_value_expression(
             query_alias=None,
             table="events" if direct_on_events else "person",
             column="person_properties" if direct_on_events else "person_props",
-            allow_denormalized_props=False if direct_on_events else True,
+            allow_denormalized_props=True,
+            materialised_table_column="person_properties" if direct_on_events else "properties",
         )
     elif breakdown_type == "group":
         value_expression, _ = get_property_string_expr(
-            table="groups",
+            table="events" if direct_on_events else "groups",
             property_name=cast(str, breakdown),
             var="%(key)s",
             column=f"group{breakdown_group_type_index}_properties"
             if direct_on_events
             else f"group_properties_{breakdown_group_type_index}",
-            allow_denormalized_props=False if direct_on_events else True,
+            materialised_table_column=f"group{breakdown_group_type_index}_properties"
+            if direct_on_events
+            else "group_properties",
         )
     else:
         value_expression = get_single_or_multi_property_string_expr(
@@ -240,7 +243,7 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
         props_to_filter = props_to_filter.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        team_id=team.pk, property_group=props_to_filter, prepend="all_cohort_", table_name="all_events",
+        team_id=team.pk, property_group=props_to_filter, prepend="all_cohort_", table_name="all_events"
     )
     query = f"""
             SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value

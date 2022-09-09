@@ -346,7 +346,7 @@ export const experimentLogic = kea<experimentLogicType>({
                             return response as Experiment
                         } catch (error: any) {
                             if (error.status === 404) {
-                                router.actions.push(urls.experiments())
+                                throw error
                             } else {
                                 lemonToast.error(`Failed to load experiment ${values.experimentId}`)
                                 throw new Error(`Failed to load experiment ${values.experimentId}`)

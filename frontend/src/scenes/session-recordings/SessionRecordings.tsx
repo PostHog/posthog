@@ -6,11 +6,16 @@ import { useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
+import { SessionRecordingsFilters } from './SessionRecordingFilters'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { Link } from '@posthog/lemon-ui'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     return (
         <div>
             <PageHeader title={<div>Recordings</div>} />
@@ -22,8 +27,12 @@ export function SessionsRecordings(): JSX.Element {
                     </AlertMessage>
                 </div>
             ) : null}
-
-            <SessionRecordingsTable key="global" />
+            <SessionRecordingsFilters />
+            {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST] ? (
+                <SessionRecordingsPlaylist key="global" />
+            ) : (
+                <SessionRecordingsTable key="global" />
+            )}
         </div>
     )
 }

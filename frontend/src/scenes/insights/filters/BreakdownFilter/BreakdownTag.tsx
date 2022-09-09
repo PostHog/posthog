@@ -81,7 +81,7 @@ export function BreakdownTag({
             }}
         >
             <>
-                {isPersonEventOrGroup(breakdown) && <PropertyKeyInfo value={breakdown} style={{}} />}
+                {isPersonEventOrGroup(breakdown) && <PropertyKeyInfo value={breakdown} />}
                 {isAllCohort(breakdown) && <PropertyKeyInfo value={'All Users'} />}
                 {isCohort(breakdown) && (
                     <PropertyKeyInfo value={cohortsById[breakdown]?.name || `Cohort ${breakdown}`} />

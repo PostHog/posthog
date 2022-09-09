@@ -32,6 +32,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
+from posthog.client import sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
     INSIGHT,
@@ -62,6 +63,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
@@ -133,9 +135,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         filters = instance.dashboard_filters()
 
         if not filters.get("date_from"):
-            filters.update(
-                {"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d",}
-            )
+            filters.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
         representation["filters"] = filters
         return representation
 
@@ -413,7 +413,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
 
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
-            self.request.query_params.get("basic", "0"),
+            self.request.query_params.get("basic", "0")
         ):
             return InsightBasicSerializer
         return super().get_serializer_class()
@@ -426,7 +426,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related(
-            "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization",
+            "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization"
         )
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
@@ -641,15 +641,9 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            return {
-                "result": ClickhouseFunnelTrends(team=team, filter=filter).run(),
-                "timezone": team.timezone,
-            }
+            return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run(), "timezone": team.timezone}
         elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            return {
-                "result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(),
-                "timezone": team.timezone,
-            }
+            return {"result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(), "timezone": team.timezone}
         else:
             funnel_order_class = get_funnel_order_class(filter)
             return {"result": funnel_order_class(team=team, filter=filter).run(), "timezone": team.timezone}
@@ -737,6 +731,16 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
 
         activity_page = load_activity(scope="Insight", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["POST"], detail=False)
+    def cancel(self, request: request.Request, **kwargs):
+        if "client_query_id" not in request.data:
+            raise serializers.ValidationError({"client_query_id": "Field is required."})
+        sync_execute(
+            f"KILL QUERY ON CLUSTER {CLICKHOUSE_CLUSTER} WHERE query_id LIKE %(client_query_id)s",
+            {"client_query_id": f"{self.team.pk}_{request.data['client_query_id']}%"},
+        )
+        return Response(status=status.HTTP_201_CREATED)
 
 
 class LegacyInsightViewSet(InsightViewSet):

@@ -4,13 +4,15 @@ import {
     SessionRecordingPlayerV2,
     SessionRecordingPlayerV3,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { Button, Col, Modal, Row } from 'antd'
+import { Button, Col, Row } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { IconClose } from 'lib/components/icons'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { PlayerMetaV3 } from 'scenes/session-recordings/player/PlayerMeta'
+import { sessionPlayerDrawerLogic } from './sessionPlayerDrawerLogic'
+import { LemonModal } from '@posthog/lemon-ui'
+import { PlayerMetaV3 } from './player/PlayerMeta'
 
 interface SessionPlayerDrawerProps {
     isPersonPage?: boolean
@@ -19,26 +21,34 @@ interface SessionPlayerDrawerProps {
 
 export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPlayerDrawerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { activeSessionRecordingId } = useValues(sessionPlayerDrawerLogic)
     const isSessionRecordingsPlayerV3 = !!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]
 
     if (isSessionRecordingsPlayerV3) {
         return (
-            <Modal
-                className="session-player-wrapper-v3"
-                title={<PlayerMetaV3 />}
-                visible
-                destroyOnClose
-                closeIcon={<IconClose />}
-                onCancel={onClose}
-                footer={null}
-                // zIndex: 1061 ensures it opens above the insight person modal which is 1060
-                style={{ zIndex: 1061 }}
-            >
-                <Col className="session-drawer-body">
-                    <SessionRecordingPlayerV3 />
-                </Col>
-            </Modal>
+            <LemonModal isOpen={!!activeSessionRecordingId} onClose={onClose} simple title={''}>
+                <header className="border-b">
+                    {activeSessionRecordingId ? (
+                        <PlayerMetaV3 playerKey="drawer" sessionRecordingId={activeSessionRecordingId} />
+                    ) : null}
+                </header>
+                <LemonModal.Content>
+                    <div className="session-player-wrapper-v3">
+                        {activeSessionRecordingId && (
+                            <SessionRecordingPlayerV3
+                                playerKey="drawer"
+                                sessionRecordingId={activeSessionRecordingId}
+                                includeMeta={false}
+                            />
+                        )}
+                    </div>
+                </LemonModal.Content>
+            </LemonModal>
         )
+    }
+
+    if (!activeSessionRecordingId) {
+        return <></>
     }
 
     return (
@@ -70,7 +80,9 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                     </div>
                 </Row>
                 <Row className="session-drawer-body">
-                    <SessionRecordingPlayerV2 />
+                    {activeSessionRecordingId && (
+                        <SessionRecordingPlayerV2 playerKey="drawer" sessionRecordingId={activeSessionRecordingId} />
+                    )}
                 </Row>
             </Col>
         </Drawer>

@@ -1,6 +1,6 @@
 const createAction = (actionName) => {
     cy.get('[data-attr=create-action]').click()
-    cy.get('.ant-card-head-title').should('contain', 'event or pageview')
+    cy.get('.LemonButton').should('contain', 'From event or pageview')
     cy.get('[data-attr=new-action-pageview]').click()
     cy.get('[data-attr=action-name-create]').should('exist')
 

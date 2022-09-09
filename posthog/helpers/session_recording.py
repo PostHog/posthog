@@ -252,7 +252,7 @@ def get_active_segments_from_event_list(
             if current_active_segment:
                 active_recording_segments.append(current_active_segment)
             current_active_segment = RecordingSegment(
-                start_time=current_timestamp, end_time=current_timestamp, window_id=window_id, is_active=True,
+                start_time=current_timestamp, end_time=current_timestamp, window_id=window_id, is_active=True
             )
 
     # Add the active last segment if it hasn't already been added
@@ -298,7 +298,7 @@ def generate_inactive_segments_for_range(
             segment_end_time = min(window_end_time, range_end_time)
             inactive_segments.append(
                 RecordingSegment(
-                    start_time=segment_start_time, end_time=segment_end_time, window_id=window_id, is_active=False,
+                    start_time=segment_start_time, end_time=segment_end_time, window_id=window_id, is_active=False
                 )
             )
             current_time = min(segment_end_time, window_end_time)

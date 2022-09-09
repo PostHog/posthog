@@ -1,5 +1,6 @@
 import hashlib
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.core.cache import cache
@@ -27,9 +28,19 @@ from .person import Person, PersonDistinctId
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
 
+class FeatureFlagMatchReason(str, Enum):
+    CONDITION_MATCH = "condition_match"
+    NO_CONDITION_MATCH = "no_condition_match"
+    OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
+    NO_GROUP_TYPE = "no_group_type"
+
+
 @dataclass(frozen=True)
 class FeatureFlagMatch:
+    match: bool = False
     variant: Optional[str] = None
+    reason: FeatureFlagMatchReason = FeatureFlagMatchReason.NO_CONDITION_MATCH
+    condition_index: Optional[int] = None
 
 
 class FeatureFlag(models.Model):
@@ -38,7 +49,7 @@ class FeatureFlag(models.Model):
 
     key: models.CharField = models.CharField(max_length=400)
     name: models.TextField = models.TextField(
-        blank=True,
+        blank=True
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
 
     filters: models.JSONField = models.JSONField(default=dict)
@@ -95,8 +106,8 @@ class FeatureFlag(models.Model):
             #   We don't want to migrate to avoid /decide endpoint downtime until this code has been deployed
             return {
                 "groups": [
-                    {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage},
-                ],
+                    {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
+                ]
             }
 
     @property
@@ -133,9 +144,8 @@ class FeatureFlagHashKeyOverride(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["team", "person", "feature_flag_key"],
-                name="Unique hash_key for a user/team/feature_flag combo",
-            ),
+                fields=["team", "person", "feature_flag_key"], name="Unique hash_key for a user/team/feature_flag combo"
+            )
         ]
 
     # Can't use a foreign key to feature_flag_key directly, since
@@ -171,6 +181,7 @@ class FeatureFlagMatcher:
         cache: Optional[FlagsMatcherCache] = None,
         hash_key_overrides: Dict[str, str] = {},
         property_value_overrides: Dict[str, str] = {},
+        group_property_value_overrides: Dict[str, Dict[str, str]] = {},
     ):
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
@@ -178,31 +189,46 @@ class FeatureFlagMatcher:
         self.cache = cache or FlagsMatcherCache(self.feature_flags[0].team_id)
         self.hash_key_overrides = hash_key_overrides
         self.property_value_overrides = property_value_overrides
+        self.group_property_value_overrides = group_property_value_overrides
 
-    def get_match(self, feature_flag: FeatureFlag) -> Optional[FeatureFlagMatch]:
+    def get_match(self, feature_flag: FeatureFlag) -> FeatureFlagMatch:
         # If aggregating flag by groups and relevant group type is not passed - flag is off!
         if self.hashed_identifier(feature_flag) is None:
-            return None
+            return FeatureFlagMatch(match=False, reason=FeatureFlagMatchReason.NO_GROUP_TYPE)
 
-        is_match = any(
-            self.is_condition_match(feature_flag, condition, index)
-            for index, condition in enumerate(feature_flag.conditions)
-        )
-        if is_match:
-            return FeatureFlagMatch(variant=self.get_matching_variant(feature_flag))
-        else:
-            return None
+        last_seen_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
+        last_index = 0
+        for index, condition in enumerate(feature_flag.conditions):
+            is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, index)
+            if is_match:
+                return FeatureFlagMatch(
+                    match=True,
+                    variant=self.get_matching_variant(feature_flag),
+                    reason=evaluation_reason,
+                    condition_index=index,
+                )
 
-    def get_matches(self) -> Dict[str, Union[str, bool]]:
+            last_seen_evaluation_reason = evaluation_reason
+            last_index = index
+
+        return FeatureFlagMatch(match=False, reason=last_seen_evaluation_reason, condition_index=last_index)
+
+    def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
         flags_enabled = {}
+        flag_evaluation_reasons = {}
         for feature_flag in self.feature_flags:
             try:
-                match = self.get_match(feature_flag)
-                if match:
-                    flags_enabled[feature_flag.key] = match.variant or True
+                flag_match = self.get_match(feature_flag)
+                if flag_match.match:
+                    flags_enabled[feature_flag.key] = flag_match.variant or True
+
+                flag_evaluation_reasons[feature_flag.key] = {
+                    "reason": flag_match.reason,
+                    "condition_index": flag_match.condition_index,
+                }
             except Exception as err:
                 capture_exception(err)
-        return flags_enabled
+        return flags_enabled, flag_evaluation_reasons
 
     def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:
         for variant in self.variant_lookup_table(feature_flag):
@@ -213,29 +239,34 @@ class FeatureFlagMatcher:
                 return variant["key"]
         return None
 
-    def is_condition_match(self, feature_flag: FeatureFlag, condition: Dict, condition_index: int):
+    def is_condition_match(
+        self, feature_flag: FeatureFlag, condition: Dict, condition_index: int
+    ) -> Tuple[bool, FeatureFlagMatchReason]:
         rollout_percentage = condition.get("rollout_percentage")
         if len(condition.get("properties", [])) > 0:
             properties = Filter(data=condition).property_groups.flat
-            if self.can_compute_locally(properties):
+            if self.can_compute_locally(properties, feature_flag.aggregation_group_type_index):
                 # :TRICKY: If overrides are enough to determine if a condition is a match,
                 # we can skip checking the query.
                 # This ensures match even if the person hasn't been ingested yet.
-                condition_match = all(
-                    match_property(property, self.property_value_overrides) for property in properties
-                )
+                target_properties = self.property_value_overrides
+                if feature_flag.aggregation_group_type_index is not None:
+                    target_properties = self.group_property_value_overrides.get(
+                        self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index], {}
+                    )
+                condition_match = all(match_property(property, target_properties) for property in properties)
             else:
                 condition_match = self._condition_matches(feature_flag, condition_index)
 
             if not condition_match:
-                return False
+                return False, FeatureFlagMatchReason.NO_CONDITION_MATCH
             elif rollout_percentage is None:
-                return True
+                return True, FeatureFlagMatchReason.CONDITION_MATCH
 
         if rollout_percentage is not None and self.get_hash(feature_flag) > (rollout_percentage / 100):
-            return False
+            return False, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND
 
-        return True
+        return True, FeatureFlagMatchReason.CONDITION_MATCH
 
     def _condition_matches(self, feature_flag: FeatureFlag, condition_index: int) -> bool:
         return self.query_conditions.get(f"flag_{feature_flag.pk}_condition_{condition_index}", False)
@@ -257,9 +288,9 @@ class FeatureFlagMatcher:
     def query_conditions(self) -> Dict[str, bool]:
         team_id = self.feature_flags[0].team_id
         person_query: QuerySet = Person.objects.filter(
-            team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id,
+            team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
         )
-        basic_group_query: QuerySet = Group.objects.filter(team_id=team_id,)
+        basic_group_query: QuerySet = Group.objects.filter(team_id=team_id)
         group_query_per_group_type_mapping: Dict[GroupTypeIndex, Tuple[QuerySet, List[str]]] = {}
         # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
         # If no groups for a group type are passed in, we can skip querying for that group type,
@@ -281,11 +312,16 @@ class FeatureFlagMatcher:
                 expr: Any = None
                 if len(condition.get("properties", {})) > 0:
                     # Feature Flags don't support OR filtering yet
+                    target_properties = self.property_value_overrides
+                    if feature_flag.aggregation_group_type_index is not None:
+                        target_properties = self.group_property_value_overrides.get(
+                            self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index], {}
+                        )
                     expr = properties_to_Q(
                         Filter(data=condition).property_groups.flat,
                         team_id=team_id,
                         is_direct_query=True,
-                        override_property_values=self.property_value_overrides,
+                        override_property_values=target_properties,
                     )
 
                 if feature_flag.aggregation_group_type_index is None:
@@ -352,9 +388,16 @@ class FeatureFlagMatcher:
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
-    def can_compute_locally(self, properties: List[Property]) -> bool:
+    def can_compute_locally(
+        self, properties: List[Property], group_type_index: Optional[GroupTypeIndex] = None
+    ) -> bool:
+        target_properties = self.property_value_overrides
+        if group_type_index is not None:
+            target_properties = self.group_property_value_overrides.get(
+                self.cache.group_type_index_to_name[group_type_index], {}
+            )
         for property in properties:
-            if property.key not in self.property_value_overrides:
+            if property.key not in target_properties:
                 return False
             if property.operator == "is_not_set":
                 return False
@@ -379,7 +422,8 @@ def _get_active_feature_flags(
     person_id: Optional[int] = None,
     groups: Dict[GroupTypeName, str] = {},
     property_value_overrides: Dict[str, str] = {},
-) -> Dict[str, Union[bool, str]]:
+    group_property_value_overrides: Dict[str, Dict[str, str]] = {},
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
     cache = FlagsMatcherCache(team_id)
 
     if person_id is not None:
@@ -389,10 +433,16 @@ def _get_active_feature_flags(
 
     if feature_flags:
         return FeatureFlagMatcher(
-            feature_flags, distinct_id, groups, cache, overrides, property_value_overrides
+            feature_flags,
+            distinct_id,
+            groups,
+            cache,
+            overrides,
+            property_value_overrides,
+            group_property_value_overrides,
         ).get_matches()
 
-    return {}
+    return {}, {}
 
 
 # Return feature flags
@@ -402,7 +452,8 @@ def get_active_feature_flags(
     groups: Dict[GroupTypeName, str] = {},
     hash_key_override: Optional[str] = None,
     property_value_overrides: Dict[str, str] = {},
-) -> Dict[str, Union[bool, str]]:
+    group_property_value_overrides: Dict[str, Dict[str, str]] = {},
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
 
     all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
@@ -419,6 +470,7 @@ def get_active_feature_flags(
             distinct_id,
             groups=groups,
             property_value_overrides=property_value_overrides,
+            group_property_value_overrides=group_property_value_overrides,
         )
 
     person_id = (
@@ -460,6 +512,7 @@ def get_active_feature_flags(
         person_id,
         groups=groups,
         property_value_overrides=property_value_overrides,
+        group_property_value_overrides=group_property_value_overrides,
     )
 
 
@@ -490,8 +543,8 @@ class FeatureFlagOverride(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["user", "feature_flag", "team"], name="unique feature flag for a user/team combo",
-            ),
+                fields=["user", "feature_flag", "team"], name="unique feature flag for a user/team combo"
+            )
         ]
 
     feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
