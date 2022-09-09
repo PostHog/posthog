@@ -25,11 +25,11 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
                             between A and B.
                         </li>
                         <li>
-                            <b>Strict Order</b> - Step B must happen directly after Step A without any events in
+                            <b>Strict order</b> - Step B must happen directly after Step A without any events in
                             between.
                         </li>
                         <li>
-                            <b>Any Order</b> - Steps can be completed in any sequence.
+                            <b>Any order</b> - Steps can be completed in any sequence.
                         </li>
                     </ul>
                 }

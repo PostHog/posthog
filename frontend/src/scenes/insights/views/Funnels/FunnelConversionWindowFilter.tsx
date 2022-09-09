@@ -25,7 +25,9 @@ export function FunnelConversionWindowFilter(): JSX.Element {
 
     const options: LemonSelectOption<FunnelConversionWindowTimeUnit>[] = Object.keys(TIME_INTERVAL_BOUNDS).map(
         (unit) => ({
-            label: pluralize(conversionWindow.funnel_window_interval ?? 7, unit, `${unit}s`, false),
+            label: capitalizeFirstLetter(
+                pluralize(conversionWindow.funnel_window_interval ?? 7, unit, `${unit}s`, false)
+            ),
             value: unit as FunnelConversionWindowTimeUnit,
         })
     )

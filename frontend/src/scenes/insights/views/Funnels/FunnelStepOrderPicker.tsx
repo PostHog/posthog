@@ -17,11 +17,11 @@ const options: StepOption[] = [
         value: StepOrderValue.ORDERED,
     },
     {
-        label: 'Strict Order',
+        label: 'Strict order',
         value: StepOrderValue.STRICT,
     },
     {
-        label: 'Any Order',
+        label: 'Any order',
         value: StepOrderValue.UNORDERED,
     },
 ]
