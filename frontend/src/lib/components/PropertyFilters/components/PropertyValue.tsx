@@ -142,7 +142,6 @@ export function PropertyValue({
 
     const commonInputProps = {
         className,
-        style: { width: '100%' },
         onSearch: (newInput: string) => {
             setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -187,7 +186,7 @@ export function PropertyValue({
             loading={options[propertyKey]?.status === 'loading'}
             propertyKey={propertyKey}
             {...commonInputProps}
-            className="property-filters-property-value"
+            className="property-filters-property-value w-full"
             autoFocus={autoFocus}
             value={value === null ? [] : value}
             mode="multiple"
@@ -223,20 +222,9 @@ export function PropertyValue({
             })}
         </SelectGradientOverflow>
     ) : isDateTimeProperty ? (
-        <PropertyFilterDatePicker
-            autoFocus={autoFocus}
-            operator={operator}
-            value={value}
-            setValue={setValue}
-            style={commonInputProps.style}
-        />
+        <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
     ) : isDurationProperty ? (
-        <DurationPicker
-            style={commonInputProps.style}
-            autoFocus={autoFocus}
-            initialValue={value as number}
-            onChange={setValue}
-        />
+        <DurationPicker autoFocus={autoFocus} initialValue={value as number} onChange={setValue} />
     ) : (
         <AutoComplete
             {...commonInputProps}

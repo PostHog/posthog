@@ -5,7 +5,6 @@ import { LemonSelect, LemonInput } from '@posthog/lemon-ui'
 interface DurationPickerProps {
     onChange: (value_seconds: number) => void
     initialValue?: number
-    style?: Partial<React.CSSProperties>
     autoFocus?: boolean
 }
 
@@ -29,7 +28,7 @@ export const convertSecondsToDuration = (seconds: number): Duration => {
     }
 }
 
-export function DurationPicker({ initialValue, onChange, autoFocus, style }: DurationPickerProps): JSX.Element {
+export function DurationPicker({ initialValue, onChange, autoFocus }: DurationPickerProps): JSX.Element {
     const [timeValue, setTimeValue] = useState(convertSecondsToDuration(initialValue || 0).timeValue)
     const [unit, setUnit] = useState(convertSecondsToDuration(initialValue || 0).unit)
 
@@ -43,7 +42,7 @@ export function DurationPicker({ initialValue, onChange, autoFocus, style }: Dur
     }, [timeValue, unit])
 
     return (
-        <div className="flex items-center gap-2" style={style}>
+        <div className="flex items-center gap-2">
             <LemonInput
                 type="number"
                 value={timeValue ?? undefined}
