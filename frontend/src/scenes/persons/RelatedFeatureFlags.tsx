@@ -149,8 +149,8 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
                         value="all"
                         dropdownMaxContentWidth
                     />
-                    <span className="ml-2" style={{ fontSize: '.75rem' }}>
-                        <b>MATCH EVALUATION</b>
+                    <span className="ml-2">
+                        <b>Match evaluation</b>
                     </span>
                     <LemonSelect
                         options={[
