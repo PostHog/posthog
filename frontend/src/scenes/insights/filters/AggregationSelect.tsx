@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 
@@ -16,7 +16,7 @@ export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: Aggre
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    const optionSections: LemonSelectOptions<number> = [
+    const optionSections: LemonSelectSection<number>[] = [
         {
             title: 'Event Aggregation',
             options: [
@@ -24,12 +24,12 @@ export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: Aggre
                     value: UNIQUE_USERS,
                     label: 'Unique users',
                 },
+                ...groupTypes.map((groupType) => ({
+                    value: groupType.group_type_index,
+                    label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
+                })),
             ],
         },
-        ...groupTypes.map((groupType) => ({
-            value: groupType.group_type_index,
-            label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
-        })),
     ]
 
     if (
