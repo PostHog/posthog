@@ -96,7 +96,7 @@ describe('Events', () => {
         cy.get('.taxonomic-list-row').should('have.length', 1).click()
 
         cy.get('[data-attr="taxonomic-operator"]').click()
-        cy.get('.operator-value-option').its('length').should('eql', 10)
+        cy.get('.operator-value-option').its('length').should('eql', 11) // 10 + 1 for the label in the LemonSelect button
         cy.get('.operator-value-option').contains('< less than').should('be.visible')
         cy.get('.operator-value-option').contains('> greater than').should('be.visible')
     })
