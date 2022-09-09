@@ -1,10 +1,10 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelPlotOutlined, BarChartOutlined } from '@ant-design/icons'
 import { FunnelLayout } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
+import { IconFunnelHorizontal, IconFunnelVertical } from 'lib/components/icons'
 
 export function FunnelDisplayLayoutPicker({ disabled }: { disabled?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -17,12 +17,12 @@ export function FunnelDisplayLayoutPicker({ disabled }: { disabled?: boolean }):
             options: [
                 {
                     value: FunnelLayout.vertical,
-                    icon: <BarChartOutlined />,
+                    icon: <IconFunnelVertical />,
                     label: 'Left to right',
                 },
                 {
                     value: FunnelLayout.horizontal,
-                    icon: <FunnelPlotOutlined />,
+                    icon: <IconFunnelHorizontal />,
                     label: 'Top to bottom',
                 },
             ],

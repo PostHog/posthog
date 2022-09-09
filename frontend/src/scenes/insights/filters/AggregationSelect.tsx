@@ -26,6 +26,10 @@ export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: Aggre
                 },
             ],
         },
+        ...groupTypes.map((groupType) => ({
+            value: groupType.group_type_index,
+            label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
+        })),
     ]
 
     if (
