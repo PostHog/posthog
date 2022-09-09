@@ -33,7 +33,7 @@ export function InsightSaveButton({
                         <>
                             {!disabled && (
                                 <LemonButton
-                                    onClick={() => saveInsight(false)}
+                                    onClick={() => saveInsight(true)}
                                     data-attr="insight-save-and-continue"
                                     status="stealth"
                                     fullWidth
