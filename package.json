@@ -122,6 +122,7 @@
         "zxcvbn": "^4.4.2"
     },
     "devDependencies": {
+        "@axe-core/playwright": "^4.4.4",
         "@babel/plugin-proposal-class-properties": "^7.16.7",
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
         "@babel/plugin-transform-react-jsx": "^7.17.3",
@@ -130,6 +131,7 @@
         "@babel/preset-typescript": "^7.16.7",
         "@cypress/webpack-preprocessor": "^5.12.2",
         "@hot-loader/react-dom": "^16.13.0",
+        "@playwright/test": "^1.25.2",
         "@storybook/addon-a11y": "^6.5.10",
         "@storybook/addon-actions": "^6.5.9",
         "@storybook/addon-essentials": "^6.5.9",
