@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
-import { Col, Select, SelectProps } from 'antd'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
@@ -11,24 +10,23 @@ import {
     isOperatorRegex,
 } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
-import { ColProps } from 'antd/lib/col'
 import { dayjs } from 'lib/dayjs'
+import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 export interface OperatorValueSelectProps {
     type?: string
     propkey?: string
     operator?: PropertyOperator | null
     value?: string | number | Array<string | number> | null
-    columnOptions?: ColProps | [ColProps, ColProps]
     placeholder?: string
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
-    operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
+    operatorSelectProps?: Omit<LemonSelectProps<any>, 'onChange'>
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
 }
 
-interface OperatorSelectProps extends SelectProps<any> {
+interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
     operator: PropertyOperator
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
@@ -59,7 +57,6 @@ export function OperatorValueSelect({
     propkey,
     operator,
     value,
-    columnOptions,
     placeholder,
     endpoint,
     onChange,
@@ -92,7 +89,7 @@ export function OperatorValueSelect({
 
     return (
         <>
-            <Col {...(Array.isArray(columnOptions) ? columnOptions[0] : columnOptions)}>
+            <div data-attr="taxonomic-operator">
                 <OperatorSelect
                     operator={currentOperator || PropertyOperator.Exact}
                     operators={operators}
@@ -123,9 +120,9 @@ export function OperatorValueSelect({
                     {...operatorSelectProps}
                     defaultOpen={defaultOpen}
                 />
-            </Col>
+            </div>
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propkey && (
-                <Col {...(Array.isArray(columnOptions) ? columnOptions[1] : columnOptions)}>
+                <div className="flex-1" style={{ minWidth: '10rem' }} data-attr="taxonomic-value-select">
                     <PropertyValue
                         type={type}
                         key={propkey}
@@ -150,7 +147,7 @@ export function OperatorValueSelect({
                         // open automatically only if new filter
                         autoFocus={!isMobile() && value === null}
                     />
-                </Col>
+                </div>
             )}
             {validationError && <span className="taxonomic-validation-error">{validationError}</span>}
         </>
@@ -163,27 +160,22 @@ type CustomOptionsType = {
 }
 
 export function OperatorSelect({ operator, operators, onChange, ...props }: OperatorSelectProps): JSX.Element {
+    const operatorOptions = operators.map((op) => ({
+        label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
+        value: op || PropertyOperator.Exact,
+    }))
     return (
-        <Select
-            style={{ width: '100%' }}
-            defaultActiveFirstOption
-            labelInValue
-            value={{
-                value: operator || '=',
-                label: allOperatorsMapping[operator || PropertyOperator.Exact],
-            }}
+        <LemonSelect
+            options={operatorOptions}
+            value={operator || '='}
             placeholder="Property key"
-            onChange={(_value, op) => {
+            dropdownMatchSelectWidth={false}
+            fullWidth
+            onChange={(op) => {
                 const newOperator = op as typeof op & CustomOptionsType
                 onChange(newOperator.value)
             }}
-            {...props}
-        >
-            {operators.map((op) => (
-                <Select.Option key={op} value={op || PropertyOperator.Exact} className={'operator-value-option'}>
-                    {allOperatorsMapping[op || PropertyOperator.Exact]}
-                </Select.Option>
-            ))}
-        </Select>
+            className={props.className}
+        />
     )
 }
