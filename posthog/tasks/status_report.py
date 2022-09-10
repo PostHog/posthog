@@ -104,7 +104,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             # pull person stats and the rest here from Postgres always
             persons_considered_total = Person.objects.filter(team_id=team.id)
             persons_considered_total_new_in_period = persons_considered_total.filter(
-                created_at__gte=period_start, created_at__lte=period_end,
+                created_at__gte=period_start, created_at__lte=period_end
             )
             team_report["persons_count_total"] = persons_considered_total.count()
             instance_usage_summary["persons_count_total"] += team_report["persons_count_total"]
@@ -147,7 +147,7 @@ def capture_event(name: str, report: Dict[str, Any], dry_run: bool) -> None:
         for user in User.objects.all():
             posthoganalytics.capture(user.distinct_id, f"user {name}", {**report, "scope": "user"})
     else:
-        print(name, json.dumps(report))  # noqa: T001
+        print(name, json.dumps(report))  # noqa: T201
 
 
 def fetch_instance_params(report: Dict[str, Any]) -> dict:

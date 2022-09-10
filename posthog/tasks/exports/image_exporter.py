@@ -47,7 +47,7 @@ def get_driver() -> webdriver.Chrome:
         return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
 
     return webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM, log_level=logging.ERROR).install()),
+        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE, log_level=logging.ERROR).install()),
         options=options,
     )
 
@@ -114,7 +114,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
 
 def _screenshot_asset(
-    image_path: str, url_to_render: str, screenshot_width: ScreenWidth, wait_for_css_selector: CSSSelector,
+    image_path: str, url_to_render: str, screenshot_width: ScreenWidth, wait_for_css_selector: CSSSelector
 ) -> None:
     driver: Optional[webdriver.Chrome] = None
     try:
@@ -142,7 +142,7 @@ def _screenshot_asset(
                     pass
                 capture_exception(e)
 
-            raise e
+        raise e
     finally:
         if driver:
             driver.quit()

@@ -6,7 +6,7 @@ import { InsightLogicProps, FilterType, InsightType, TrendResult, ActionFilter, 
 import type { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { personsModalLogic } from './personsModalLogic'
+import { personsModalLogic } from './persons-modal/personsModalLogic'
 import { groupsModel } from '~/models/groupsModel'
 
 export const trendsLogic = kea<trendsLogicType>({

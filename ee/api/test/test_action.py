@@ -16,10 +16,10 @@ class TestActionApi(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/actions/", data={"name": "user signed up",},)
+        response = self.client.post(f"/api/projects/{self.team.id}/actions/", data={"name": "user signed up"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["tags"], [])
 
@@ -41,7 +41,7 @@ class TestActionApi(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
         )
 
         response = self.client.post(
@@ -55,7 +55,7 @@ class TestActionApi(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
         )
 
         tag = Tag.objects.create(name="tag", team=self.team)
@@ -74,10 +74,10 @@ class TestActionApi(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
         )
         response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/", data={"name": "user signed up", "tags": ["a", "b", "a"]},
+            f"/api/projects/{self.team.id}/actions/", data={"name": "user signed up", "tags": ["a", "b", "a"]}
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])

@@ -79,7 +79,8 @@ DISPLAY_TYPES = Literal[
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
-    "PathsViz", "FunnelViz",
+    "PathsViz",
+    "FunnelViz",
 ]
 
 

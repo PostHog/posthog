@@ -3,7 +3,7 @@ import time
 from random import randrange
 from typing import Any, Dict, List
 
-from celery import Celery
+from celery import Celery, chain
 from celery.schedules import crontab
 from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
 from django.conf import settings
@@ -65,7 +65,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # Update events table partitions twice a week
     sender.add_periodic_task(
-        crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
+        crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s()  # check twice a week
     )
 
     # Send weekly status report on self-hosted instances
@@ -94,7 +94,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sender.add_periodic_task(
-        settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
+        settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS,
+        check_cached_items.s(),
+        name="check dashboard items",
     )
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
@@ -118,10 +120,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
         sender.add_periodic_task(
-            settings.EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
+            get_crontab(settings.EVENT_PROPERTY_USAGE_INTERVAL_CRON),
             calculate_event_property_usage.s(),
             name="calculate event property usage",
         )
+
+        sender.add_periodic_task(get_crontab("0 6 * * *"), count_teams_with_no_property_query_count.s())
 
     clear_clickhouse_crontab = get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)
     if clear_clickhouse_crontab:
@@ -146,7 +150,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
         if materialize_columns_crontab:
             sender.add_periodic_task(
-                materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns",
+                materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns"
             )
 
             sender.add_periodic_task(
@@ -269,18 +273,10 @@ def pg_plugin_server_query_timing():
             pass
 
 
-CLICKHOUSE_TABLES = [
-    "events",
-    "person",
-    "person_distinct_id",
-    "person_distinct_id2",
-    "session_recording_events",
-]
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "person_distinct_id2", "session_recording_events"]
 
 if settings.CLICKHOUSE_REPLICATION:
-    CLICKHOUSE_TABLES.extend(
-        ["sharded_events", "sharded_session_recording_events",]
-    )
+    CLICKHOUSE_TABLES.extend(["sharded_events", "sharded_session_recording_events"])
 
 
 @app.task(ignore_result=True)
@@ -342,7 +338,20 @@ def graphile_queue_size():
         )
 
         queue_size = cursor.fetchone()[0]
-        gauge(f"graphile_queue_size", queue_size)
+        gauge("graphile_queue_size", queue_size)
+
+        # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
+        # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
+        cursor.execute(
+            """
+        SELECT task_identifier, count(*) as c FROM graphile_worker.jobs
+        WHERE attempts < max_attempts
+        GROUP BY task_identifier
+        """
+        )
+
+        for (task_identifier, count) in cursor.fetchall():
+            gauge("graphile_waiting_jobs", count, tags={"task_identifier": task_identifier})
 
 
 @app.task(ignore_result=True)
@@ -483,11 +492,63 @@ def debug_task(self):
     print(f"Request: {self.request!r}")
 
 
-@app.task(ignore_result=True)
+@app.task(ignore_result=False)
+def calculate_event_property_usage_chain():
+    # .subtask(immutable=True) means the chain runs in order but doesn't care about the results of the previous step
+    return chain(
+        gauge_event_property_usage.subtask(immutable=True),
+        calculate_event_property_usage.subtask(immutable=True),
+        gauge_event_property_usage.subtask(immutable=True),
+    ).apply_async()
+
+
+@app.task(ignore_result=False)
 def calculate_event_property_usage():
     from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
 
-    calculate_event_property_usage()
+    return calculate_event_property_usage()
+
+
+@app.task(ignore_result=False)
+def gauge_event_property_usage():
+    from posthog.tasks.calculate_event_property_usage import gauge_event_property_usage
+
+    return gauge_event_property_usage()
+
+
+@app.task(ignore_result=True)
+def count_teams_with_no_property_query_count():
+    import structlog
+
+    from posthog.internal_metrics import gauge
+
+    logger = structlog.get_logger(__name__)
+
+    with connection.cursor() as cursor:
+        try:
+            cursor.execute(
+                """
+                WITH team_has_recent_dashboards AS (
+                    SELECT distinct team_id FROM posthog_dashboarditem WHERE created_at > NOW() - INTERVAL '30 days'
+                )
+                SELECT count(*) AS team_count FROM
+                    (
+                    SELECT team_id, sum(query_usage_30_day) AS total
+                    FROM posthog_propertydefinition
+                    WHERE team_id IN (SELECT team_id FROM team_has_recent_dashboards)
+                    GROUP BY team_id
+                    ) as counted
+                WHERE counted.total = 0
+                """
+            )
+
+            count = cursor.fetchone()
+            gauge(
+                f"calculate_event_property_usage.teams_with_no_property_query_count",
+                count[0],
+            )
+        except Exception as exc:
+            logger.error("calculate_event_property_usage.count_teams_failed", exc=exc, exc_info=True)
 
 
 @app.task(ignore_result=True)

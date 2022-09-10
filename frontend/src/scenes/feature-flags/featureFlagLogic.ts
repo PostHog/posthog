@@ -59,12 +59,13 @@ export interface FeatureFlagLogicProps {
 export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
-    key(({ id }) => id ?? 'new'),
+    key(({ id }) => id ?? 'unknown'),
     connect({
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
     }),
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        setFeatureFlagMissing: true,
         addConditionSet: true,
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
         removeConditionSet: (index: number) => ({ index }),
@@ -94,8 +95,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 key: !key
                     ? 'You need to set a key'
                     : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
-                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-                    : undefined,
+                        ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                        : undefined,
                 filters: {
                     multivariate: {
                         variants: filters?.multivariate?.variants?.map(
@@ -103,8 +104,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 key: !variantKey
                                     ? 'You need to set a key'
                                     : !variantKey.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
-                                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-                                    : undefined,
+                                        ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                                        : undefined,
                             })
                         ),
                     },
@@ -260,6 +261,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+
+        featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
         isEditingFlag: [
             false,
             {
@@ -267,11 +270,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
                 if (props.id && props.id !== 'new') {
-                    return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
+                    try {
+                        return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
+                    } catch (e) {
+                        actions.setFeatureFlagMissing()
+                        throw e
+                    }
                 }
                 return NEW_FLAG
             },

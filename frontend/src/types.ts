@@ -236,6 +236,7 @@ export interface TeamType extends TeamBasicType {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
+    test_account_filters_default_checked: boolean
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
     person_display_name_properties: string[]
@@ -554,6 +555,13 @@ export interface PersonType {
     is_identified?: boolean
 }
 
+export interface PersonListParams {
+    properties?: AnyPropertyFilter[]
+    search?: string
+    cohort?: number
+    distinct_id?: string
+}
+
 interface MatchedRecordingEvents {
     uuid: string
     window_id: string
@@ -681,6 +689,7 @@ export enum PersonsTabType {
     COHORTS = 'cohorts',
     RELATED = 'related',
     HISTORY = 'history',
+    FEATURE_FLAGS = 'featureFlags',
 }
 
 export enum LayoutView {
@@ -918,7 +927,10 @@ export interface FrontendApp {
 
 export interface JobPayloadFieldOptions {
     type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    title?: string
     required?: boolean
+    default?: any
+    staff_only?: boolean
 }
 
 export interface JobSpec {
@@ -968,7 +980,7 @@ export enum AnnotationScope {
     Organization = 'organization',
 }
 
-export interface AnnotationType {
+export interface RawAnnotationType {
     id: number
     scope: AnnotationScope
     content: string
@@ -981,6 +993,10 @@ export interface AnnotationType {
     insight_name?: InsightModel['name'] | null
     deleted?: boolean
     creation_type?: string
+}
+
+export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+    date_marker: dayjs.Dayjs
 }
 
 export enum ChartDisplayType {
@@ -1557,7 +1573,7 @@ export interface PropertyDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null
+    volume_30_day?: number | null // TODO: Deprecated, replace or remove
     query_usage_30_day?: number | null
     updated_at?: string
     updated_by?: UserBasicType | null
@@ -1767,7 +1783,7 @@ export interface VersionType {
     release_date?: string
 }
 
-export interface dateMappingOption {
+export interface DateMappingOption {
     key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
@@ -2028,4 +2044,10 @@ export enum YesOrNoResponse {
 export interface SessionRecordingPlayerProps {
     sessionRecordingId: SessionRecordingId
     playerKey: string
+    includeMeta?: boolean
+}
+
+export enum FeatureFlagReleaseType {
+    ReleaseToggle = 'Release toggle',
+    Variants = 'Multiple variants',
 }

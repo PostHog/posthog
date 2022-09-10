@@ -42,15 +42,13 @@ class TestTeam(BaseTest):
                     "key": "$host",
                     "operator": "is_not",
                     "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
-                },
+                }
             ],
         )
 
     def test_create_team_sets_primary_dashboard(self):
         team = Team.objects.create_with_data(organization=self.organization)
-        self.assertIsInstance(
-            team.primary_dashboard, Dashboard,
-        )
+        self.assertIsInstance(team.primary_dashboard, Dashboard)
 
         # Ensure insights are created and linked
         self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 6)

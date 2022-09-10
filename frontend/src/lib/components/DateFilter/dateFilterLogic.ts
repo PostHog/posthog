@@ -1,119 +1,110 @@
-import { actions, props, events, kea, listeners, path, reducers, selectors, key } from 'kea'
+import { actions, props, kea, listeners, path, reducers, selectors, key } from 'kea'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import type { dateFilterLogicType } from './dateFilterLogicType'
-import { isDate, dateFilterToText } from 'lib/utils'
-import { dateMappingOption } from '~/types'
-
-export type DateFilterLogicPropsType = {
-    key: string
-    defaultValue: string
-    onChange?: (fromDate: string, toDate: string) => void
-    dateFrom?: Dayjs | string | null
-    dateTo?: Dayjs | string | null
-    dateOptions?: dateMappingOption[]
-    isDateFormatted?: boolean
-}
+import { isDate, dateFilterToText, dateStringToDayJs, formatDateRange, formatDate } from 'lib/utils'
+import { DateMappingOption } from '~/types'
+import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 
 export const dateFilterLogic = kea<dateFilterLogicType>([
     path(['lib', 'components', 'DateFilter', 'DateFilterLogic']),
-    props({ defaultValue: 'Custom' } as DateFilterLogicPropsType),
+    props({} as DateFilterLogicProps),
     key(({ key }) => key),
     actions({
         open: true,
+        openFixedRange: true,
+        openDateToNow: true,
         close: true,
-        openDateRange: true,
-        setDate: (dateFrom: string, dateTo: string) => ({ dateFrom, dateTo }),
-        setRangeDateFrom: (range: Dayjs | string | undefined | null) => ({ range }),
-        setRangeDateTo: (range: Dayjs | string | undefined | null) => ({ range }),
-        setValue: (value: string) => ({ value }),
+        applyRange: true,
+        setDate: (dateFrom: string, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setRangeDateFrom: (range: Dayjs | null) => ({ range }),
+        setRangeDateTo: (range: Dayjs | null) => ({ range }),
     }),
     reducers(({ props }) => ({
-        isOpen: [
+        view: [
+            DateFilterView.QuickList as DateFilterView,
+            {
+                open: () => DateFilterView.QuickList,
+                openFixedRange: () => DateFilterView.FixedRange,
+                openDateToNow: () => DateFilterView.DateToNow,
+            },
+        ],
+        isVisible: [
             false,
             {
                 open: () => true,
-                close: () => false,
-                openDateRange: () => false,
-            },
-        ],
-        isDateRangeOpen: [
-            false,
-            {
-                open: () => false,
-                openDateRange: () => true,
+                openFixedRange: () => true,
+                openDateToNow: () => true,
+                setDate: () => false,
                 close: () => false,
             },
         ],
         rangeDateFrom: [
-            (props.dateFrom && isDate.test(props.dateFrom as string) ? dayjs(props.dateFrom) : undefined) as
-                | Dayjs
-                | string
-                | undefined
-                | null,
+            (props.dateFrom && (dayjs.isDayjs(props.dateFrom) || isDate.test(props.dateFrom as string))
+                ? dayjs(props.dateFrom)
+                : null) as Dayjs | null,
             {
-                setRangeDateFrom: (_, { range }) => range,
-                openDateRange: () => null,
+                setRangeDateFrom: (_, { range }) => (range ? dayjs(range) : null),
+                setDate: (_, { dateFrom }) => dateStringToDayJs(dateFrom),
             },
         ],
         rangeDateTo: [
-            (props.dateTo && isDate.test(props.dateTo as string)
+            (props.dateTo && (dayjs.isDayjs(props.dateTo) || isDate.test(props.dateTo as string))
                 ? dayjs(props.dateTo)
-                : dayjs().format('YYYY-MM-DD')) as Dayjs | string | undefined | null,
+                : dayjs()) as Dayjs | null,
             {
-                setRangeDateTo: (_, { range }) => range,
-                openDateRange: () => dayjs().format('YYYY-MM-DD'),
-            },
-        ],
-        value: [
-            dateFilterToText(props.dateFrom, props.dateTo, props.defaultValue, props.dateOptions, true),
-            {
-                setValue: (_, { value }) => value,
+                setRangeDateTo: (_, { range }) => (range ? dayjs(range) : null),
+                setDate: (_, { dateTo }) => (dateTo ? dateStringToDayJs(dateTo) : null),
             },
         ],
     })),
-    selectors(() => ({
-        isFixedDateRange: [
-            () => [(_, props) => props.dateFrom, (_, props) => props.dateTo],
-            (dateFrom: Dayjs | string | null, dateTo: Dayjs | string | null) =>
-                !!(dateFrom && dateTo && dayjs(dateFrom).isValid() && dayjs(dateTo).isValid()),
+    selectors({
+        dateFrom: [() => [(_, props) => props.dateFrom], (dateFrom) => dateFrom ?? null],
+        dateTo: [() => [(_, props) => props.dateTo], (dateTo) => dateTo ?? null],
+        dateOptions: [
+            () => [(_, props) => props.dateOptions],
+            (dateOptions): DateMappingOption[] | undefined => dateOptions,
+        ],
+        isFixedRange: [
+            (s) => [s.dateFrom, s.dateTo],
+            (dateFrom, dateTo) => !!(dateFrom && dateTo && dayjs(dateFrom).isValid() && dayjs(dateTo).isValid()),
+        ],
+        isDateToNow: [
+            (s) => [s.dateFrom, s.dateTo],
+            (dateFrom, dateTo) => !!dateFrom && !dateTo && dayjs(dateFrom).isValid(),
         ],
         isRollingDateRange: [
-            (s) => [
-                s.isFixedDateRange,
-                (_, props) => props.dateOptions,
-                (_, props) => props.dateFrom,
-                (_, props) => props.dateTo,
-            ],
-            (
-                isFixedDateRange: boolean,
-                dateOptions: dateMappingOption[],
-                dateFrom: Dayjs | string | undefined | null,
-                dateTo: Dayjs | string | undefined | null
-            ): boolean =>
-                !isFixedDateRange &&
-                !(
-                    dateOptions &&
-                    dateOptions.find((option) => option.values[0] === dateFrom && option.values[1] === dateTo)
+            (s) => [s.isFixedRange, s.isDateToNow, s.dateOptions, s.dateFrom, s.dateTo],
+            (isFixedRange, isDateToNow, dateOptions, dateFrom, dateTo): boolean =>
+                !isFixedRange &&
+                !isDateToNow &&
+                !dateOptions?.find(
+                    (option) =>
+                        (option.values[0] ?? null) === (dateFrom ?? null) &&
+                        (option.values[1] ?? null) === (dateTo ?? null)
                 ),
         ],
-    })),
-    listeners(({ props }) => ({
-        setDate: ({ dateFrom, dateTo }) => {
-            props.onChange?.(dateFrom, dateTo)
-        },
-    })),
-    events(({ actions, values }) => ({
-        propsChanged: (props) => {
-            // when props change, automatically reset the Select key to reflect the change
-            const { dateFrom, dateTo, defaultValue, dateOptions } = props
-            let newValue = null
-            if (values.isFixedDateRange) {
-                newValue = `${dateFrom} - ${dateTo}`
-            } else {
-                newValue = dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions, false)
+        label: [
+            (s) => [s.dateFrom, s.dateTo, s.isFixedRange, s.isDateToNow, s.dateOptions],
+            (dateFrom, dateTo, isFixedRange, isDateToNow, dateOptions) =>
+                isFixedRange
+                    ? formatDateRange(dayjs(dateFrom), dayjs(dateTo))
+                    : isDateToNow
+                    ? `${formatDate(dayjs(dateFrom))} to Now`
+                    : dateFilterToText(dateFrom, dateTo, 'Custom', dateOptions, false),
+        ],
+    }),
+    listeners(({ actions, values, props }) => ({
+        applyRange: () => {
+            if (values.rangeDateFrom) {
+                actions.setDate(
+                    dayjs(values.rangeDateFrom).format('YYYY-MM-DD'),
+                    values.rangeDateTo ? dayjs(values.rangeDateTo).format('YYYY-MM-DD') : null
+                )
             }
-            if (newValue && values.value !== newValue) {
-                actions.setValue(newValue)
+        },
+        setDate: ({ dateFrom, dateTo }) => {
+            if (dateFrom) {
+                props.onChange?.(dateFrom, dateTo)
             }
         },
     })),

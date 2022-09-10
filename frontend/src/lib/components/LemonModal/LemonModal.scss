@@ -6,7 +6,8 @@
     bottom: 0;
 
     transition: background-color var(--modal-transition-time) ease-out,
-        backdrop-filter var(--modal-transition-time) ease-out;
+        backdrop-filter var(--modal-transition-time) ease-out,
+        -webkit-backdrop-filter var(--modal-transition-time) ease-out;
     z-index: var(--z-modal);
 
     display: flex;
@@ -16,25 +17,26 @@
     &.ReactModal__Overlay--after-open {
         background-color: rgba(0, 0, 0, 0.2);
         backdrop-filter: blur(var(--modal-backdrop-blur));
+        -webkit-backdrop-filter: blur(var(--modal-backdrop-blur));
     }
 
     &.ReactModal__Overlay--before-close {
         background-color: rgba(0, 0, 0, 0);
         backdrop-filter: blur(0px);
+        -webkit-backdrop-filter: blur(var(--modal-backdrop-blur));
     }
 }
 
 .LemonModal {
     position: relative;
-    display: inline-block;
     max-width: 80%;
-    min-width: 480px;
+    min-width: 30rem;
     width: min-content;
     margin: 1rem auto;
     border-radius: var(--radius);
     background-color: #fff;
-    box-shadow: 0 16px 16px -16px rgba(0, 0, 0, 0.35);
-
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-elevation);
     transition: opacity var(--modal-transition-time) ease-out, transform var(--modal-transition-time) ease-out;
     display: flex;
     flex-direction: col;
@@ -53,6 +55,7 @@
         position: absolute;
         top: 1.5rem;
         right: 1.5rem;
+        z-index: 1;
     }
 
     // We nest the content in layout so that "simple" modal implementations can use this class as well
@@ -66,6 +69,10 @@
     .LemonModal__content {
         padding: 1rem 1.5rem;
         overflow-y: auto;
+
+        &.LemonModal__content--embedded {
+            padding: 0;
+        }
     }
 }
 

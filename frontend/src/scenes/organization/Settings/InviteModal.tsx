@@ -207,7 +207,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                                     description="invite link"
                                                     style={{
                                                         color: 'var(--primary)',
-                                                        background: 'var(--bg-side)',
+                                                        background: 'var(--side)',
                                                         borderRadius: 4,
                                                         padding: '0.5rem',
                                                     }}

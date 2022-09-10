@@ -17,9 +17,7 @@ import { Link } from 'lib/components/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function ThirdPartyPanel(): JSX.Element {
-    const { index } = useValues(ingestionLogic)
-    const { setPlatform, setInstructionsModal, setThirdPartySource, openThirdPartyPluginModal } =
-        useActions(ingestionLogic)
+    const { setInstructionsModal, setThirdPartySource, openThirdPartyPluginModal } = useActions(ingestionLogic)
     const { filteredUninstalledPlugins, installedPlugins } = useValues(pluginsLogic)
     const { installPlugin } = useActions(pluginsLogic)
     const {
@@ -29,7 +27,7 @@ export function ThirdPartyPanel(): JSX.Element {
     } = useActions(eventUsageLogic)
 
     return (
-        <CardContainer index={index} showFooter={true} onBack={() => setPlatform(null)}>
+        <CardContainer showFooter>
             <div className="px-6">
                 <h1 className="ingestion-title">Set up apps</h1>
                 {thirdPartySources.map((source, idx) => {
@@ -174,7 +172,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                         <div
                                             className="p-5 mt-6 mb-4 font-medium"
                                             style={{
-                                                backgroundColor: 'var(--bg-side)',
+                                                backgroundColor: 'var(--side)',
                                             }}
                                         >
                                             <p>

@@ -19,12 +19,7 @@ class LicensedTestMixin:
         self,
         message: str = "This feature is part of the premium PostHog offering. To use it, get a self-hosted license: https://license.posthog.com",
     ) -> Dict[str, Optional[str]]:
-        return {
-            "type": "server_error",
-            "code": "payment_required",
-            "detail": message,
-            "attr": None,
-        }
+        return {"type": "server_error", "code": "payment_required", "detail": message, "attr": None}
 
     @classmethod
     def setUpTestData(cls):

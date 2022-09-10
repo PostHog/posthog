@@ -47,12 +47,16 @@ export function SessionRecordingPlayerV2({ sessionRecordingId, playerKey }: Sess
     )
 }
 
-export function SessionRecordingPlayerV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+export function SessionRecordingPlayerV3({
+    sessionRecordingId,
+    playerKey,
+    includeMeta = true,
+}: SessionRecordingPlayerProps): JSX.Element {
     const { handleKeyDown } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const frame = useFrameRef({ sessionRecordingId, playerKey })
     return (
         <Col className="session-player-v3" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
-            <PlayerMetaV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+            {includeMeta ? <PlayerMetaV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} /> : null}
             <div className="session-player-body flex">
                 <div className="player-container ph-no-capture">
                     <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />

@@ -14,7 +14,7 @@
     flex-shrink: 0;
     height: 100%;
     width: 15.5rem;
-    background: var(--bg-side);
+    background: var(--side);
     border-right: 1px solid var(--border);
 
     .SideBar--hidden & {
@@ -57,10 +57,6 @@
     padding: 1rem 0.5rem;
 
     > ul {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-
         li {
             margin-top: 1px;
         }

@@ -6,7 +6,7 @@ import { JobQueueManager } from '../../src/main/job-queues/job-queue-manager'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
-import { delay } from '../../src/utils/utils'
+import { delay, UUIDT } from '../../src/utils/utils'
 import { MAXIMUM_RETRIES } from '../../src/worker/vm/upgrades/export-events'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
@@ -19,6 +19,7 @@ jest.mock('../../src/main/job-queues/job-queue-manager')
 jest.setTimeout(100000)
 
 const defaultEvent = {
+    uuid: new UUIDT().toString(),
     distinct_id: 'my_id',
     ip: '127.0.0.1',
     site_url: 'http://localhost',
@@ -953,7 +954,7 @@ describe('vm tests', () => {
         expect(response).toBe('haha')
         expect(queueMessageSpy).toHaveBeenCalledTimes(1)
         expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value.toString())
+        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value!.toString())
         expect(JSON.parse(parsedMessage.data)).toMatchObject({
             distinct_id: 'plugin-id-60',
             event: 'my-new-event',
@@ -982,7 +983,7 @@ describe('vm tests', () => {
         expect(response).toBe('haha')
         expect(queueMessageSpy).toHaveBeenCalledTimes(1)
         expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value.toString())
+        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value!.toString())
         expect(JSON.parse(parsedMessage.data)).toMatchObject({
             timestamp: '2020-02-23T02:15:00Z', // taken out of the properties
             distinct_id: 'plugin-id-60',
@@ -1009,7 +1010,7 @@ describe('vm tests', () => {
         expect(response).toBe('haha')
         expect(queueMessageSpy).toHaveBeenCalledTimes(1)
         expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value.toString())
+        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value!.toString())
         expect(JSON.parse(parsedMessage.data)).toMatchObject({
             distinct_id: 'custom id',
             event: 'my-new-event',
@@ -1118,6 +1119,7 @@ describe('vm tests', () => {
             )
             const event: ProcessedPluginEvent = {
                 ...defaultEvent,
+                uuid: new UUIDT().toString(),
                 event: 'exported',
             }
 
@@ -1132,13 +1134,17 @@ describe('vm tests', () => {
             const mockJobQueueInstance = (JobQueueManager as any).mock.instances[0]
             const mockEnqueue = mockJobQueueInstance.enqueue
             expect(mockEnqueue).toHaveBeenCalledTimes(1)
-            expect(mockEnqueue).toHaveBeenCalledWith('pluginJob', {
-                payload: { batch: [event, event, event], batchId: expect.any(Number), retriesPerformedSoFar: 1 },
-                pluginConfigId: 39,
-                pluginConfigTeam: 2,
-                timestamp: expect.any(Number),
-                type: 'exportEventsWithRetry',
-            })
+            expect(mockEnqueue).toHaveBeenCalledWith(
+                'pluginJob',
+                {
+                    payload: { batch: [event, event, event], batchId: expect.any(Number), retriesPerformedSoFar: 1 },
+                    pluginConfigId: 39,
+                    pluginConfigTeam: 2,
+                    timestamp: expect.any(Number),
+                    type: 'exportEventsWithRetry',
+                },
+                { key: 'plugin', tag: '?' }
+            )
             const jobPayload = mockEnqueue.mock.calls[0][1].payload
 
             // run the job directly
@@ -1146,13 +1152,17 @@ describe('vm tests', () => {
 
             // enqueued again
             expect(mockEnqueue).toHaveBeenCalledTimes(2)
-            expect(mockEnqueue).toHaveBeenLastCalledWith('pluginJob', {
-                payload: { batch: jobPayload.batch, batchId: jobPayload.batchId, retriesPerformedSoFar: 2 },
-                pluginConfigId: 39,
-                pluginConfigTeam: 2,
-                timestamp: expect.any(Number),
-                type: 'exportEventsWithRetry',
-            })
+            expect(mockEnqueue).toHaveBeenLastCalledWith(
+                'pluginJob',
+                {
+                    payload: { batch: jobPayload.batch, batchId: jobPayload.batchId, retriesPerformedSoFar: 2 },
+                    pluginConfigId: 39,
+                    pluginConfigTeam: 2,
+                    timestamp: expect.any(Number),
+                    type: 'exportEventsWithRetry',
+                },
+                { key: 'plugin', tag: '?' }
+            )
             const jobPayload2 = mockEnqueue.mock.calls[1][1].payload
 
             // run the job a second time
@@ -1260,6 +1270,7 @@ describe('vm tests', () => {
                 indexJs
             )
             const event: ProcessedPluginEvent = {
+                uuid: new UUIDT().toString(),
                 distinct_id: 'my_id',
                 ip: '127.0.0.1',
                 team_id: 3,
@@ -1272,23 +1283,30 @@ describe('vm tests', () => {
             }
             await delay(1010)
 
-            expect(fetch).toHaveBeenCalledTimes(15)
+            // This tests that the requests were broken up correctly according to the exportEventsBufferBytes config
+            // If you add data to the event above you should see more requests, and vice versa
+            expect(fetch).toHaveBeenCalledTimes(20)
             expect((fetch as any).mock.calls).toEqual([
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=255&count=2'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
             ])
         })
 
@@ -1314,6 +1332,7 @@ describe('vm tests', () => {
                 indexJs
             )
             const event: ProcessedPluginEvent = {
+                uuid: new UUIDT().toString(),
                 distinct_id: 'my_id',
                 ip: '127.0.0.1',
                 team_id: 3,
@@ -1328,7 +1347,7 @@ describe('vm tests', () => {
 
             expect(fetch).toHaveBeenCalledTimes(100)
             expect((fetch as any).mock.calls).toEqual(
-                Array.from(Array(100)).map(() => ['https://export.com/?length=128&count=1'])
+                Array.from(Array(100)).map(() => ['https://export.com/?length=174&count=1'])
             )
         })
 

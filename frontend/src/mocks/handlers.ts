@@ -33,7 +33,7 @@ export const handlers = mocksToHandlers({
         ],
         '/api/organizations/@current/members/': apiResults([MOCK_DEFAULT_ORGANIZATION_MEMBER]),
         '/api/organizations/@current/invites/': apiResults([MOCK_DEFAULT_ORGANIZATION_INVITE]),
-        '/api/person/properties/': apiResults(MOCK_PERSON_PROPERTIES),
+        '/api/projects/@current/persons/properties/': apiResults(MOCK_PERSON_PROPERTIES),
         '/api/personal_api_keys/': [],
         '/api/license/': apiResults([MOCK_DEFAULT_LICENSE]),
         '/api/users/@me/': () => [

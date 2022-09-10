@@ -21,11 +21,9 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             )
         with freeze_time("2021-05-02"):
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"},
+                team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"}
             )
-        create_group(
-            team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"name": "Plankton"},
-        )
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"name": "Plankton"})
 
         response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
         self.assertEqual(
@@ -58,9 +56,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             group_key="key",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
-        create_group(
-            team_id=self.team.pk, group_type_index=1, group_key="foo//bar", properties={},
-        )
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="foo//bar", properties={})
 
         fail_response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=1&group_key=key")
         self.assertEqual(fail_response.status_code, 404)

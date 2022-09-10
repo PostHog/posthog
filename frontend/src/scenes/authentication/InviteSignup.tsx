@@ -37,13 +37,9 @@ function HelperLinks(): JSX.Element {
         <div className="font-bold text-center">
             <Link to="/">App Home</Link>
             <span className="mx-2">|</span>
-            <Link href={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`} rel="noopener">
-                PostHog Website
-            </Link>
+            <Link to={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`}>PostHog Website</Link>
             <span className="mx-2">|</span>
-            <Link href={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`} rel="noopener">
-                Contact Us
-            </Link>
+            <Link to={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`}>Contact Us</Link>
         </div>
     )
 }
@@ -87,7 +83,11 @@ function ErrorView(): JSX.Element | null {
                             <div>
                                 You need to log in with the email address above, or create your own password.
                                 <div className="mt-4">
-                                    <LemonButton icon={<IconChevronLeft />} href={window.location.pathname}>
+                                    <LemonButton
+                                        icon={<IconChevronLeft />}
+                                        to={window.location.pathname}
+                                        disableClientSideRouting
+                                    >
                                         Try again
                                     </LemonButton>
                                 </div>
@@ -247,7 +247,6 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
                 <Field name="email_opt_in">
                     {({ value, onChange }) => {
-                        console.log({ value })
                         return (
                             <LemonCheckbox
                                 checked={value}

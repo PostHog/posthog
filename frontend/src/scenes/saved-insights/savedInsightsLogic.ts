@@ -12,6 +12,7 @@ import { Sorting } from 'lib/components/LemonTable'
 import { urls } from 'scenes/urls'
 import { lemonToast } from 'lib/components/lemonToast'
 import { PaginationManual } from 'lib/components/PaginationControl'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -96,7 +97,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 }
 
                 // scroll to top if the page changed, except if changed via back/forward
-                if (router.values.lastMethod !== 'POP' && values.insights.filters?.page !== filters.page) {
+                if (
+                    router.values.location.pathname === urls.savedInsights() &&
+                    router.values.lastMethod !== 'POP' &&
+                    values.insights.filters?.page !== filters.page
+                ) {
                     window.scrollTo(0, 0)
                 }
 
@@ -248,6 +253,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.setInsight(item)
         },
+        // include params to help kea typegen
+        [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
     }),
     actionToUrl: ({ values }) => {
         const changeUrl = ():
@@ -260,10 +267,17 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                   }
               ]
             | void => {
-            const nextValues = cleanFilters(values.filters)
-            const urlValues = cleanFilters(router.values.searchParams)
-            if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.savedInsights(), objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: false }]
+            if (router.values.location.pathname === urls.savedInsights()) {
+                const nextValues = cleanFilters(values.filters)
+                const urlValues = cleanFilters(router.values.searchParams)
+                if (!objectsEqual(nextValues, urlValues)) {
+                    return [
+                        urls.savedInsights(),
+                        objectDiffShallow(cleanFilters({}), nextValues),
+                        {},
+                        { replace: false },
+                    ]
+                }
             }
         }
         return {

@@ -59,10 +59,7 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
 
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
-        assert retention_by_cohort_by_period == {
-            "Day 0": {"1": ["person 2"], "2": [],},
-            "Day 1": {"1": ["person 3"]},
-        }
+        assert retention_by_cohort_by_period == {"Day 0": {"1": ["person 2"], "2": []}, "Day 1": {"1": ["person 3"]}}
 
     @snapshot_clickhouse_queries
     def test_retention_aggregation_by_distinct_id_and_retrieve_people(self):
@@ -77,9 +74,9 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
 
         setup_user_activity_by_day(
             daily_activity={
-                "2020-01-01": {"person 1": [{"event": "target event",}], "another one": [{"event": "target event",}],},
+                "2020-01-01": {"person 1": [{"event": "target event"}], "another one": [{"event": "target event"}]},
                 "2020-01-02": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
-                "2020-01-03": {"another one": [{"event": "target event"}],},
+                "2020-01-03": {"another one": [{"event": "target event"}]},
             },
             team=team,
         )
@@ -163,7 +160,7 @@ class BreakdownTests(TestCase, ClickhouseTestMixin):
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
         assert retention_by_cohort_by_period == {
-            "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"],},
+            "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"]},
             "Day 1": {"1": ["person 3"]},
         }
 
@@ -204,7 +201,7 @@ class BreakdownTests(TestCase, ClickhouseTestMixin):
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
         assert retention_by_cohort_by_period == {
-            "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"],},
+            "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"]},
             "Day 1": {"1": ["person 3", "person 1"]},
         }
 
@@ -356,7 +353,7 @@ class BreakdownTests(TestCase, ClickhouseTestMixin):
                     "person 1": [{"event": "target event", "properties": {"os": "Chrome"}}],
                     "person 2": [{"event": "target event", "properties": {"os": "Safari"}}],
                 },
-                "2020-01-02": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}],},
+                "2020-01-02": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
             },
             team=team,
         )
@@ -425,10 +422,7 @@ class IntervalTests(TestCase, ClickhouseTestMixin):
 
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
-        assert retention_by_cohort_by_period == {
-            "Week 0": {"1": ["person 1"], "2": [],},
-            "Week 1": {"1": ["person 2"]},
-        }
+        assert retention_by_cohort_by_period == {"Week 0": {"1": ["person 1"], "2": []}, "Week 1": {"1": ["person 2"]}}
 
 
 class RegressionTests(TestCase, ClickhouseTestMixin):

@@ -44,7 +44,7 @@ from posthog.settings import CLICKHOUSE_REPLICATION
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
-persons_ordering_int: int = 0
+persons_ordering_int: int = 1
 
 
 def _setup_test_data(klass):
@@ -52,9 +52,7 @@ def _setup_test_data(klass):
     klass.team = Team.objects.create(
         organization=klass.organization,
         api_token=klass.CONFIG_API_TOKEN,
-        test_account_filters=[
-            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-        ],
+        test_account_filters=[{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}],
     )
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
@@ -71,22 +69,12 @@ class ErrorResponsesMixin:
     }
 
     def not_found_response(self, message: str = "Not found.") -> Dict[str, Optional[str]]:
-        return {
-            "type": "invalid_request",
-            "code": "not_found",
-            "detail": message,
-            "attr": None,
-        }
+        return {"type": "invalid_request", "code": "not_found", "detail": message, "attr": None}
 
     def permission_denied_response(
-        self, message: str = "You do not have permission to perform this action.",
+        self, message: str = "You do not have permission to perform this action."
     ) -> Dict[str, Optional[str]]:
-        return {
-            "type": "authentication_error",
-            "code": "permission_denied",
-            "detail": message,
-            "attr": None,
-        }
+        return {"type": "authentication_error", "code": "permission_denied", "detail": message, "attr": None}
 
     def method_not_allowed_response(self, method: str) -> Dict[str, Optional[str]]:
         return {
@@ -99,22 +87,12 @@ class ErrorResponsesMixin:
     def unauthenticated_response(
         self, message: str = "Authentication credentials were not provided.", code: str = "not_authenticated"
     ) -> Dict[str, Optional[str]]:
-        return {
-            "type": "authentication_error",
-            "code": code,
-            "detail": message,
-            "attr": None,
-        }
+        return {"type": "authentication_error", "code": code, "detail": message, "attr": None}
 
     def validation_error_response(
-        self, message: str = "Malformed request", code: str = "invalid_input", attr: Optional[str] = None,
+        self, message: str = "Malformed request", code: str = "invalid_input", attr: Optional[str] = None
     ) -> Dict[str, Optional[str]]:
-        return {
-            "type": "validation_error",
-            "code": code,
-            "detail": message,
-            "attr": attr,
-        }
+        return {"type": "validation_error", "code": code, "detail": message, "attr": attr}
 
 
 class TestMixin:
@@ -325,24 +303,24 @@ class QueryMatchingTest:
 
         # Replace organization_id lookups, for postgres
         query = re.sub(
-            fr"""("organization_id"|"posthog_organization"\."id") = '[^']+'::uuid""",
+            rf"""("organization_id"|"posthog_organization"\."id") = '[^']+'::uuid""",
             r"""\1 = '00000000-0000-0000-0000-000000000000'::uuid""",
             query,
         )
         query = re.sub(
-            fr"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
+            rf"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
             query,
         )
 
         # Replace tag id lookups for postgres
         query = re.sub(
-            fr"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
+            rf"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid /* ... */)""",
             query,
         )
 
-        query = re.sub(fr"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""", r"""user_id:0 request:_snapshot_""", query)
+        query = re.sub(rf"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""", r"""user_id:0 request:_snapshot_""", query)
 
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
@@ -488,7 +466,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH",))
+        return self.capture_queries(("SELECT", "WITH"))
 
     @contextmanager
     def capture_queries(self, query_prefixes: Union[str, Tuple[str, str]]):
@@ -552,7 +530,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL(),]
+            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
         if CLICKHOUSE_REPLICATION:
             run_clickhouse_statement_in_parallel(
@@ -571,7 +549,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL(),]
+            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
         if CLICKHOUSE_REPLICATION:
             run_clickhouse_statement_in_parallel(

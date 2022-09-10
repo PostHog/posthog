@@ -52,10 +52,7 @@ class Entity(PropertyMixin):
 
     def __init__(self, data: Dict[str, Any]) -> None:
         self.id = data["id"]
-        if not data.get("type") or data["type"] not in [
-            TREND_FILTER_TYPE_ACTIONS,
-            TREND_FILTER_TYPE_EVENTS,
-        ]:
+        if not data.get("type") or data["type"] not in [TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS]:
             raise TypeError("Type needs to be either TREND_FILTER_TYPE_ACTIONS or TREND_FILTER_TYPE_EVENTS")
         self.type = data["type"]
         order_provided = data.get("order")
@@ -93,7 +90,7 @@ class Entity(PropertyMixin):
         }
 
     def equals(self, other) -> bool:
-        """ Checks if two entities are semantically equal."""
+        """Checks if two entities are semantically equal."""
         # Not using __eq__ since that affects hashability
 
         if self.id != other.id:
@@ -112,7 +109,7 @@ class Entity(PropertyMixin):
         return True
 
     def is_superset(self, other) -> bool:
-        """ Checks if this entity is a superset version of other. The ids match and the properties of (this) is a subset of the properties of (other)"""
+        """Checks if this entity is a superset version of other. The ids match and the properties of (this) is a subset of the properties of (other)"""
 
         self_properties = Counter([str(prop) for prop in self.property_groups.flat])
         other_properties = Counter([str(prop) for prop in other.property_groups.flat])

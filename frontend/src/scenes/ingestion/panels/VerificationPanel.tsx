@@ -7,16 +7,19 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
-import { IconCheckCircleOutline } from 'lib/components/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { setVerify, completeOnboarding } = useActions(ingestionLogic)
-    const { index } = useValues(ingestionLogic)
+    const { setAddBilling, completeOnboarding } = useActions(ingestionLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const shouldShowBilling = featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING]
 
     useInterval(() => {
         if (!currentTeam?.ingested_event) {
@@ -25,8 +28,8 @@ export function VerificationPanel(): JSX.Element {
     }, 2000)
 
     return (
-        <CardContainer index={index} onBack={() => setVerify(false)}>
-            <div className="px-6 text-center">
+        <CardContainer>
+            <div className="text-center">
                 {!currentTeam?.ingested_event ? (
                     <>
                         <div className="ingestion-listening-for-events">
@@ -42,7 +45,11 @@ export function VerificationPanel(): JSX.Element {
                                 center
                                 type="secondary"
                                 onClick={() => {
-                                    completeOnboarding()
+                                    if (shouldShowBilling) {
+                                        setAddBilling(true)
+                                    } else {
+                                        completeOnboarding()
+                                    }
                                     reportIngestionContinueWithoutVerifying()
                                 }}
                             >
@@ -51,12 +58,9 @@ export function VerificationPanel(): JSX.Element {
                         </div>
                     </>
                 ) : (
-                    // We want a forced width for this view only
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <div style={{ maxWidth: 400 }}>
-                        <IconCheckCircleOutline className="text-success text-4xl" />
+                    <div>
                         <h1 className="ingestion-title">Successfully sent events!</h1>
-                        <p className="prompt-text text-muted">
+                        <p className="prompt-text text-muted text-left">
                             You will now be able to explore PostHog and take advantage of all its features to understand
                             your users.
                         </p>
@@ -64,11 +68,17 @@ export function VerificationPanel(): JSX.Element {
                             <LemonButton
                                 data-attr="wizard-complete-button"
                                 type="primary"
-                                onClick={() => completeOnboarding()}
+                                onClick={() => {
+                                    if (shouldShowBilling) {
+                                        setAddBilling(true)
+                                    } else {
+                                        completeOnboarding()
+                                    }
+                                }}
                                 fullWidth
                                 center
                             >
-                                Complete
+                                {shouldShowBilling ? 'Next' : 'Complete'}
                             </LemonButton>
                         </div>
                     </div>

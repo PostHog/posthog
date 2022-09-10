@@ -17,7 +17,7 @@
     line-height: 1.5rem;
     font-weight: 500;
     cursor: pointer;
-    -webkit-appearance: none !important; // Important as this gets overridden by Antd styles...
+    -webkit-appearance: none !important; // Important as this gets overridden by Ant styles...
 
     &:disabled {
         opacity: var(--opacity-disabled);
@@ -58,7 +58,7 @@
             min-height: 1rem;
         }
 
-        > .LemonIcon {
+        .LemonButton__icon {
             font-size: 1.25rem;
         }
     }
@@ -73,7 +73,7 @@
             padding: 0.5rem;
         }
 
-        > .LemonIcon {
+        .LemonButton__icon {
             font-size: 1.75rem;
         }
     }
@@ -91,7 +91,8 @@
         padding: 0;
     }
 
-    .LemonIcon {
+    .LemonButton__icon {
+        display: flex;
         font-size: 1.5rem;
         flex-shrink: 0;
         transition: color 200ms ease;
@@ -117,7 +118,7 @@
             }
         }
 
-        .LemonIcon {
+        .LemonButton__icon {
             color: var(--muted-alt);
         }
 
@@ -139,7 +140,7 @@
         }
     }
 
-    @each $status in ('default', 'primary', 'danger', 'primary-alt') {
+    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 
@@ -154,7 +155,7 @@
                 }
             }
 
-            .LemonIcon {
+            .LemonButton__icon {
                 color: var(--#{$status});
             }
 
@@ -162,25 +163,24 @@
             &.LemonButton--primary {
                 color: var(--white);
                 background: var(--#{$status});
-
-                .LemonIcon {
+                .LemonButton__icon {
                     color: var(--white);
                 }
+
                 &:not(:disabled):hover,
                 &.LemonButton--active {
                     color: var(--white);
                     background: var(--#{$status}-light, var(--#{$status}));
-
-                    .LemonIcon {
+                    .LemonButton__icon {
                         color: var(--white);
                     }
                 }
                 &:not(:disabled):active {
+                    background: var(--#{$status}-dark, var(--#{$status}));
                     color: var(--white);
-                    .LemonIcon {
+                    .LemonButton__icon {
                         color: var(--white);
                     }
-                    background: var(--#{$status}-dark, var(--#{$status}));
                 }
             }
 
@@ -228,8 +228,8 @@
     .LemonButton {
         &.LemonButton--status-primary {
             &:hover {
-                // NOTE: this is a rare case so we are hardcoding the value. Only primary status is supported
-                background: #d2dbff;
+                // NOTE: this is a rare case where we specify a unique hover style. Only primary status is supported
+                background: var(--primary-button-nested-hover);
             }
         }
     }

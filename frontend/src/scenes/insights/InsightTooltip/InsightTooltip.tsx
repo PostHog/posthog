@@ -125,7 +125,6 @@ export function InsightTooltip({
                         (!altTitle &&
                             renderSeries(
                                 <InsightLabel
-                                    className="series-column-header"
                                     action={seriesColumn.action}
                                     fallbackName={seriesColumn.label}
                                     hideBreakdown
@@ -150,7 +149,7 @@ export function InsightTooltip({
         }
 
         return (
-            <>
+            <div className="InsightTooltip">
                 <LemonTable
                     dataSource={dataSource.slice(0, rowCutoff)}
                     columns={columns}
@@ -163,7 +162,7 @@ export function InsightTooltip({
                 {!hideInspectActorsSection && (
                     <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
                 )}
-            </>
+            </div>
         )
     }
 
@@ -211,7 +210,7 @@ export function InsightTooltip({
     })
 
     return (
-        <>
+        <div className="InsightTooltip">
             <LemonTable
                 dataSource={dataSource.slice(0, rowCutoff)}
                 columns={columns}
@@ -225,6 +224,6 @@ export function InsightTooltip({
             {!hideInspectActorsSection && (
                 <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
             )}
-        </>
+        </div>
     )
 }

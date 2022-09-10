@@ -43,13 +43,11 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
 
     def test_element_stats(self):
         elements = [
-            Element(tag_name="a", href="https://posthog.com/about", text="click here", order=0,),
-            Element(tag_name="div", href="https://posthog.com/about", text="click here", order=1,),
+            Element(tag_name="a", href="https://posthog.com/about", text="click here", order=0),
+            Element(tag_name="div", href="https://posthog.com/about", text="click here", order=1),
         ]
 
-        _create_person(
-            team=self.team, distinct_ids=["test"],
-        )
+        _create_person(team=self.team, distinct_ids=["test"])
         _create_event(
             team=self.team,
             elements=elements,
@@ -103,8 +101,8 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time(event_start) as frozen_time:
             elements = [
-                Element(tag_name="a", href="https://posthog.com/about", text="click here", order=0,),
-                Element(tag_name="div", href="https://posthog.com/about", text="click here", order=1,),
+                Element(tag_name="a", href="https://posthog.com/about", text="click here", order=0),
+                Element(tag_name="div", href="https://posthog.com/about", text="click here", order=1),
             ]
 
             _create_event(  # 3 am but included because date_from is set to start of day

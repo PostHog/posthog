@@ -36,8 +36,8 @@ describe('Merge person', () => {
         cy.get('[role="tab"]').contains('Events').click()
         cy.get('.extra-ids').should('not.exist') // No extra IDs
         cy.contains('$create_alias').should('not.exist')
-        cy.get('span.property-key-info:contains(Pageview)').should('have.length', 1)
-        cy.get('span.property-key-info:contains(clicked)').should('have.length', 1)
+        cy.get('.PropertyKeyInfo:contains(Pageview)').should('have.length', 1)
+        cy.get('.PropertyKeyInfo:contains(clicked)').should('have.length', 1)
 
         // Merge people
         cy.get('[data-attr=merge-person-button]').click()

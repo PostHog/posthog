@@ -5,8 +5,10 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import recordingEventsJson from '../__mocks__/recording_events.json'
+import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
 import { useMocks } from '~/mocks/jest'
 import { sessionRecordingsTableLogic } from '../sessionRecordingsTableLogic'
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 
 const playerProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -17,6 +19,7 @@ describe('metaLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
+                '/api/projects/:team/session_recordings/:id/snapshots/': { result: recordingSnapshotsJson },
                 '/api/projects/:team/events': { results: recordingEventsJson },
             },
         })
@@ -64,7 +67,10 @@ describe('metaLogic', () => {
                 },
             })
             sessionRecordingsTableLogic().mount()
+
+            silenceKeaLoadersErrors()
         })
+        afterEach(resumeKeaLoadersErrors)
         it('grabs person data from the recording list until metadata is loaded', async () => {
             // Make the metadata fetch fail
             logic.unmount()

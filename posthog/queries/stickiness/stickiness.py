@@ -51,7 +51,7 @@ class Stickiness:
         return self.process_result(counts, filter, entity)
 
     def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs):
-        _, serialized_actors = self.actor_query_class(entity=target_entity, filter=filter, team=team).get_actors()
+        _, serialized_actors, _ = self.actor_query_class(entity=target_entity, filter=filter, team=team).get_actors()
         return serialized_actors
 
     def process_result(self, counts: List, filter: StickinessFilter, entity: Entity) -> Dict[str, Any]:
@@ -104,6 +104,6 @@ class Stickiness:
             }
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(
-                {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}",}
+                {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}"}
             )
         return persons_url

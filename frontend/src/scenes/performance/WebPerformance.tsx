@@ -64,7 +64,6 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                                         type="secondary"
                                         size="small"
                                         onClick={() => {
-                                            console.log({ event }, 'setting event to display')
                                             setEventToDisplay(event)
                                         }}
                                     >
