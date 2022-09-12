@@ -28,7 +28,7 @@ import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic
 import { urls } from 'scenes/urls'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { TableCellRepresentation } from 'lib/components/LemonTable/types'
-import { IconExport, IconOpenInNew, IconSync } from 'lib/components/icons'
+import { IconExport, IconSync } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
