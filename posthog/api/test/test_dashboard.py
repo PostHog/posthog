@@ -2,7 +2,6 @@ import json
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from dateutil import parser
-from django.db import connection
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -30,24 +29,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual([dashboard["name"] for dashboard in response_data["results"]], dashboard_names)
-
-    @snapshot_postgres_queries
-    def test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count(self):
-        self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "a dashboard"})
-
-        # Get the query count when there is only a single dashboard
-        start_query_count = len(connection.queries)
-        self.client.get(f"/api/projects/{self.team.id}/dashboards/")
-        expected_query_count = len(connection.queries) - start_query_count
-
-        self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "b dashboard"})
-        self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "c dashboard"})
-        self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "d dashboard"})
-
-        # Verify that the query count only increases by one per additional dashboard
-        # sharing configuration is a prefetch and so adds another query
-        with self.assertNumQueries(expected_query_count + 3):
-            self.client.get(f"/api/projects/{self.team.id}/dashboards/")
 
     @snapshot_postgres_queries
     def test_retrieve_dashboard(self):
@@ -214,10 +195,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        for i in range(3):
+        for i in range(5):
             self._create_dashboard({"name": f"dashboard-{i}", "description": i})
 
-            with self.assertNumQueries(10 + i):
+            with self.assertNumQueries(9):
                 response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
