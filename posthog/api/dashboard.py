@@ -69,7 +69,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             .get(id=self.context["team_id"])
         )
 
-        if not available_features or (value and AvailableFeature.DASHBOARD_COLLABORATION not in available_features):
+        if value and AvailableFeature.DASHBOARD_COLLABORATION not in (available_features or []):
             raise PermissionDenied("You must have paid for dashboard collaboration to set the dashboard description")
 
         return value
