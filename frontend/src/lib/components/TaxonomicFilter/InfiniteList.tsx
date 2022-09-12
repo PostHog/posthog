@@ -131,10 +131,12 @@ const renderItemContents = ({
             {listGroupType === TaxonomicFilterGroupType.Elements ? (
                 <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover className="w-full" />
             ) : (
-                <div className="truncate" title={group.getName(item) || item.name || ''}>
+                <>
                     {group.getIcon ? icon : null}
-                    {group.getName(item) || item.name || ''}
-                </div>
+                    <span className="truncate" title={group.getName(item) || item.name || ''}>
+                        {group.getName(item) || item.name || ''}
+                    </span>
+                </>
             )}
         </div>
     )
