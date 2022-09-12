@@ -7,20 +7,32 @@ import { status } from '../../../utils/status'
 import { createPostgresPool } from '../../../utils/utils'
 import { JobQueueBase } from '../job-queue-base'
 
+export interface GraphileQueueOptions {
+    pollInterval: number
+}
+
+const DEFAULT_GRAPHILE_QUEUE_OPTIONS = {
+    pollInterval: 2000,
+}
 export class GraphileQueue extends JobQueueBase {
     serverConfig: PluginsServerConfig
     runner: Runner | null
     consumerPool: Pool | null
     producerPool: Pool | null
     workerUtilsPromise: Promise<WorkerUtils> | null
+    graphileQueueOptions: GraphileQueueOptions
 
-    constructor(serverConfig: PluginsServerConfig) {
+    constructor(
+        serverConfig: PluginsServerConfig,
+        graphileQueueOptions: GraphileQueueOptions = DEFAULT_GRAPHILE_QUEUE_OPTIONS
+    ) {
         super()
         this.serverConfig = serverConfig
         this.runner = null
         this.consumerPool = null
         this.producerPool = null
         this.workerUtilsPromise = null
+        this.graphileQueueOptions = { ...DEFAULT_GRAPHILE_QUEUE_OPTIONS, ...graphileQueueOptions }
     }
 
     // producer
@@ -79,9 +91,9 @@ export class GraphileQueue extends JobQueueBase {
                     // higher level code. If we let graphile handle signals it
                     // ends up sending another SIGTERM.
                     noHandleSignals: true,
-                    pollInterval: 2000,
                     // you can set the taskList or taskDirectory but not both
                     taskList: this.jobHandlers,
+                    ...this.graphileQueueOptions,
                 })
             }
         } else {

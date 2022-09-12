@@ -1,6 +1,6 @@
 import os from 'os'
 
-import { LogLevel, PluginsServerConfig } from '../types'
+import { JobQueueType, LogLevel, PluginsServerConfig } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import { KAFKA_EVENTS_JSON, KAFKA_EVENTS_PLUGIN_INGESTION } from './kafka-topics'
@@ -213,6 +213,12 @@ export function overrideWithEnv(
 
     if (!['ingestion', 'async', null].includes(newConfig.PLUGIN_SERVER_MODE)) {
         throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
+    }
+
+    if (newConfig.JOB_QUEUES.includes(JobQueueType.GraphileBackup) && !newConfig.JOB_QUEUE_GRAPHILE_URL) {
+        throw Error(
+            `Cannot set up a backup Graphile job queue if JOB_QUEUE_GRAPHILE_URL is not specified! Two Graphile queues would be set up for the same Postgres instance.`
+        )
     }
 
     if (!Object.keys(KAFKAJS_LOG_LEVEL_MAPPING).includes(newConfig.KAFKAJS_LOG_LEVEL)) {
