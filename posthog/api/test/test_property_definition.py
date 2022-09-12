@@ -14,14 +14,14 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
     EXPECTED_PROPERTY_DEFINITIONS = [
-        {"name": "$browser", "query_usage_30_day": 0, "is_numerical": False},
-        {"name": "$current_url", "query_usage_30_day": 0, "is_numerical": False},
-        {"name": "is_first_movie", "query_usage_30_day": 0, "is_numerical": False},
-        {"name": "app_rating", "query_usage_30_day": 0, "is_numerical": True},
-        {"name": "plan", "query_usage_30_day": 0, "is_numerical": False},
-        {"name": "purchase", "query_usage_30_day": 0, "is_numerical": True},
-        {"name": "purchase_value", "query_usage_30_day": 0, "is_numerical": True},
-        {"name": "first_visit", "query_usage_30_day": 0, "is_numerical": False},
+        {"name": "$browser", "query_usage_30_day": None, "is_numerical": False},
+        {"name": "$current_url", "query_usage_30_day": None, "is_numerical": False},
+        {"name": "is_first_movie", "query_usage_30_day": None, "is_numerical": False},
+        {"name": "app_rating", "query_usage_30_day": None, "is_numerical": True},
+        {"name": "plan", "query_usage_30_day": None, "is_numerical": False},
+        {"name": "purchase", "query_usage_30_day": None, "is_numerical": True},
+        {"name": "purchase_value", "query_usage_30_day": None, "is_numerical": True},
+        {"name": "first_visit", "query_usage_30_day": None, "is_numerical": False},
     ]
 
     @classmethod
