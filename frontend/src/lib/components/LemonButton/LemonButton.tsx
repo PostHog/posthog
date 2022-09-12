@@ -39,7 +39,6 @@ export interface LemonButtonPropsBase
     center?: boolean
     /** @deprecated Buttons should never be disabled. Work with Design to find an alternative approach. */
     disabled?: boolean
-    /** Special case value for buttons such as compact icon-only buttons */
     noPadding?: boolean
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string

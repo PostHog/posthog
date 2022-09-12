@@ -33,6 +33,8 @@ type LemonInputPropsBase = Pick<
     disabled?: boolean
     /** Whether input field is full width */
     fullWidth?: boolean
+    /** Special case - show a transparent background rather than white */
+    transparentBackground?: boolean
 
     'data-attr'?: string
     'aria-label'?: string
@@ -70,6 +72,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         suffix,
         type,
         value,
+        transparentBackground,
         ...textProps
     },
     ref
@@ -140,6 +143,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 value && 'LemonInput--hascontent',
                 fullWidth && 'LemonInput--fullwidth',
                 type && `LemonInput--type-${type}`,
+                transparentBackground && 'LemonInput--transparent-background',
                 className
             )}
             onKeyDown={(event) => {

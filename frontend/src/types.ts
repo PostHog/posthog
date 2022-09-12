@@ -689,6 +689,7 @@ export enum PersonsTabType {
     COHORTS = 'cohorts',
     RELATED = 'related',
     HISTORY = 'history',
+    FEATURE_FLAGS = 'featureFlags',
 }
 
 export enum LayoutView {
@@ -2057,4 +2058,9 @@ export interface SessionRecordingPlayerProps {
     sessionRecordingId: SessionRecordingId
     playerKey: string
     includeMeta?: boolean
+}
+
+export enum FeatureFlagReleaseType {
+    ReleaseToggle = 'Release toggle',
+    Variants = 'Multiple variants',
 }

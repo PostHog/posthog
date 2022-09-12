@@ -4,6 +4,10 @@ import { groupsModel } from '~/models/groupsModel'
 import type { mathsLogicType } from './mathsLogicType'
 import { EVENT_MATH_TYPE, PROPERTY_MATH_TYPE } from 'lib/constants'
 import { BaseMathType, PropertyMathType } from '~/types'
+import { Tooltip } from 'lib/components/Tooltip'
+import { LemonSelectOption, LemonSelectOptions, LemonSelectSection } from '@posthog/lemon-ui'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 
 export interface MathDefinition {
     name: string
@@ -14,6 +18,194 @@ export interface MathDefinition {
     actor: boolean
     type: 'property' | 'event'
 }
+
+function Label({ tooltip, children = null }: { tooltip?: string; children: React.ReactNode }): JSX.Element {
+    return (
+        <Tooltip title={tooltip} placement="left">
+            <div>{children}</div>
+        </Tooltip>
+    )
+}
+
+const NUMERICAL_REQUIREMENT_NOTICE =
+    'This can only be used on properties that have at least one number type occurence in your events.'
+
+export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | PropertyMathType | string> = [
+    {
+        title: 'Event Aggregation',
+        options: [
+            {
+                value: BaseMathType.Total,
+                label: (
+                    <Label
+                        tooltip={
+                            'Total event count. Total number of times the event was performed by any user. Example: If a user performs an event 3 times in the given period, it counts as 3.'
+                        }
+                    >
+                        Total count
+                    </Label>
+                ),
+            },
+            {
+                value: BaseMathType.DailyActive,
+                label: (
+                    <Label
+                        tooltip={
+                            'Number of unique users who performed the event in the specified period. Example: If a single user performs an event 3 times in a given day/week/month, it counts only as 1.'
+                        }
+                    >
+                        Unique users
+                    </Label>
+                ),
+            },
+            {
+                value: BaseMathType.WeeklyActive,
+                label: (
+                    <Label
+                        tooltip={
+                            'Users active in the past week (7 days). This is a trailing count that aggregates distinct users in the past 7 days for each day in the timeseries'
+                        }
+                    >
+                        Weekly active
+                    </Label>
+                ),
+            },
+            {
+                value: BaseMathType.MonthlyActive,
+                label: (
+                    <Label
+                        tooltip={
+                            'Users active in the past week (30 days). This is a trailing count that aggregates distinct users in the past 7 days for each day in the timeseries'
+                        }
+                    >
+                        Monthly active
+                    </Label>
+                ),
+            },
+            {
+                value: BaseMathType.UniqueSessions,
+                label: (
+                    <Label
+                        tooltip={
+                            'Number of unique sessions where the event was performed in the specified period. Example: If a single user performs an event 3 times in two separate sessions, it counts as two sessions.'
+                        }
+                    >
+                        Unique Sessions
+                    </Label>
+                ),
+            },
+        ],
+    },
+    {
+        title: 'Property Aggregation',
+        options: [
+            {
+                value: PropertyMathType.Average,
+                label: (
+                    <Label
+                        tooltip={
+                            'Average of a property value within an event or action. For example, 3 events captured with property amount equal to 10, 12 and 20, result in 14.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
+                        }
+                    >
+                        Average
+                    </Label>
+                ),
+            },
+            {
+                value: PropertyMathType.Sum,
+                label: (
+                    <Label
+                        tooltip={
+                            'Sum of property values within an event or action. For example, 3 events captured with property.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
+                        }
+                    >
+                        Sum
+                    </Label>
+                ),
+            },
+            {
+                value: PropertyMathType.Minimum,
+                label: (
+                    <Label
+                        tooltip={
+                            'Event property minimum. For example, 3 events captured with property amount equal to 10, 12 and 20, result in 10.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
+                        }
+                    >
+                        Minimum
+                    </Label>
+                ),
+            },
+            {
+                value: PropertyMathType.Maximum,
+                label: (
+                    <Label
+                        tooltip={
+                            'Event property maximum. For example, 3 events captured with property amount equal to 10, 12 and 20, result in 20.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
+                        }
+                    >
+                        Maximum
+                    </Label>
+                ),
+            },
+            {
+                value: PropertyMathType.Median,
+                label: (
+                    <Label
+                        tooltip={
+                            'Event property median (50th percentile). For example, 100 events captured with property amount equal to 101..200, result in 150.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
+                        }
+                    >
+                        Median
+                    </Label>
+                ),
+            },
+            {
+                value: PropertyMathType.P90,
+                label: (
+                    <Label
+                        tooltip={
+                            'Event property 90th percentile. For example, 3 events captured with property amount equal to 101..200, result in 190.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
+                        }
+                    >
+                        90th Percentile
+                    </Label>
+                ),
+            },
+            {
+                value: PropertyMathType.P95,
+                label: (
+                    <Label
+                        tooltip={
+                            'Event property 95th percentile. For example, 3 events captured with property amount equal to 101..200, result in 195.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
+                        }
+                    >
+                        95th Percentile
+                    </Label>
+                ),
+            },
+            {
+                value: PropertyMathType.P99,
+                label: (
+                    <Label
+                        tooltip={
+                            'Event property 99th percentile. For example, 3 events captured with property amount equal to 101..200, result in 199.' +
+                            NUMERICAL_REQUIREMENT_NOTICE
+                        }
+                    >
+                        99th Percentile
+                    </Label>
+                ),
+            },
+        ],
+    },
+]
 
 export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
     [BaseMathType.Total]: {
@@ -236,13 +428,13 @@ export function apiValueToMathType(math: string | undefined, groupTypeIndex: num
     if (math === 'unique_group') {
         return `unique_group::${groupTypeIndex}`
     }
-    return math || 'total'
+    return math || BaseMathType.Total
 }
 
 export const mathsLogic = kea<mathsLogicType>({
     path: ['scenes', 'trends', 'mathsLogic'],
     connect: {
-        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], groupsAccessLogic, ['groupsAccessStatus']],
     },
     selectors: {
         eventMathEntries: [
@@ -254,7 +446,7 @@ export const mathsLogic = kea<mathsLogicType>({
             (mathDefinitions) => Object.entries(mathDefinitions).filter(([, item]) => item.type == PROPERTY_MATH_TYPE),
         ],
         mathDefinitions: [
-            (s) => [s.groupsMathDefinitions],
+            (s) => [s.groupsMathDefinitions, s.groupsAccessStatus],
             (groupOptions): Record<string, MathDefinition> => {
                 const allMathOptions: Record<string, MathDefinition> = {
                     ...BASE_MATH_DEFINITIONS,
@@ -262,6 +454,25 @@ export const mathsLogic = kea<mathsLogicType>({
                     ...PROPERTY_MATH_DEFINITIONS,
                 }
                 return allMathOptions
+            },
+        ],
+        selectFormattedOptions: [
+            (s) => [s.groupsAccessStatus, s.groupsMathFormattedSelectDefinitions],
+            (groupsAccessStatus, groupsMathFormattedSelectDefinitions): LemonSelectSection<string>[] => {
+                const hasGroupAccess = [
+                    GroupsAccessStatus.HasAccess,
+                    GroupsAccessStatus.HasGroupTypes,
+                    GroupsAccessStatus.NoAccess,
+                ].includes(groupsAccessStatus)
+                const mathOptions = SELECT_FORMATTED_OPTIONS
+
+                if (hasGroupAccess) {
+                    mathOptions[0].footer = <GroupIntroductionFooter />
+                } else {
+                    mathOptions[0].options.push(...groupsMathFormattedSelectDefinitions)
+                }
+
+                return mathOptions
             },
         ],
         groupsMathDefinitions: [
@@ -291,6 +502,25 @@ export const mathsLogic = kea<mathsLogicType>({
                         } as MathDefinition,
                     ])
                 ),
+        ],
+        groupsMathFormattedSelectDefinitions: [
+            (s) => [s.groupTypes, s.aggregationLabel],
+            (groupTypes, aggregationLabel): LemonSelectOption<BaseMathType | PropertyMathType | string>[] =>
+                groupTypes.map((groupType) => ({
+                    value: apiValueToMathType('unique_group', groupType.group_type_index),
+                    label: (
+                        <Label
+                            tooltip={`Number of unique ${
+                                aggregationLabel(groupType.group_type_index).plural
+                            } who performed the event in the specified period. Example: If a single ${
+                                aggregationLabel(groupType.group_type_index).singular
+                            }
+                        performs an event 3 times in the given period, it counts only as 1.`}
+                        >
+                            Unique {aggregationLabel(groupType.group_type_index).plural}
+                        </Label>
+                    ),
+                })),
         ],
     },
 })
