@@ -5,7 +5,9 @@ from rest_framework.response import Response
 
 class ForbidDestroyModel:
     @extend_schema(
-        responses={405: None,},
+        responses={
+            405: None,
+        },
         description='Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true',
     )
     def destroy(self, request, *args, **kwargs) -> Response:
