@@ -7,16 +7,13 @@ const storybookURL: string = process.env.STORYBOOK_URL || 'https:storybook.posth
 test(`lemon colors`, async ({ page }) => {
     await page.goto(storybookURL)
     await page.locator('[data-item-id="lemon-ui-colors"]').click()
-    await page.locator(`[data-item-id="lemon-ui-colors--color-palette"]`).click()
 
-    await page.locator('button:has-text("Canvas")').click()
-    await expect(page).toHaveScreenshot({ maxDiffPixels: 100 })
+    await expect(page).toHaveScreenshot({ maxDiffPixels: 100, fullPage: true })
 })
 
 test(`lemon colors should only have allow-listed automatically detectable accessibility issues`, async ({ page }) => {
     await page.goto(storybookURL)
     await page.locator('[data-item-id="lemon-ui-colors"]').click()
-    await page.locator(`[data-item-id="lemon-ui-colors--color-palette"]`).click()
 
     const accessibilityScanResults = await new AxeBuilder({ page }).exclude('#bottom-notice').analyze()
 

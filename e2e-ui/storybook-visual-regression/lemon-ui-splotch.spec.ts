@@ -8,8 +8,7 @@ test(`lemon splotch`, async ({ page }) => {
     await page.goto(storybookURL)
     await page.locator('[data-item-id="lemon-ui-splotch--splotch"]').click()
 
-    await page.locator('button:has-text("Canvas")').click()
-    await expect(page).toHaveScreenshot({ maxDiffPixels: 100 })
+    await expect(page).toHaveScreenshot({ maxDiffPixels: 100, fullPage: true })
 })
 
 test(`lemon splotch should only have allow-listed automatically detectable accessibility issues`, async ({ page }) => {

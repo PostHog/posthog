@@ -13,7 +13,7 @@ import { devices } from '@playwright/test'
 const config: PlaywrightTestConfig = {
     testDir: './e2e-ui',
     /* Maximum time one test can run for. */
-    timeout: 30 * 1000,
+    timeout: 20 * 1000,
     expect: {
         /**
          * Maximum time expect() should wait for the condition to be met.
@@ -45,12 +45,12 @@ const config: PlaywrightTestConfig = {
 
     /* Configure projects for major browsers */
     projects: [
-        {
-            name: 'chromium',
-            use: {
-                ...devices['Desktop Chrome'],
-            },
-        },
+        // {
+        //     name: 'chromium',
+        //     use: {
+        //         ...devices['Desktop Chrome'],
+        //     },
+        // },
 
         {
             name: 'firefox',
@@ -59,12 +59,12 @@ const config: PlaywrightTestConfig = {
             },
         },
 
-        {
-            name: 'webkit',
-            use: {
-                ...devices['Desktop Safari'],
-            },
-        },
+        // {
+        //     name: 'webkit',
+        //     use: {
+        //         ...devices['Desktop Safari'],
+        //     },
+        // },
 
         /* Test against mobile viewports. */
         // {

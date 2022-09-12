@@ -9,8 +9,7 @@ test(`lemon calendar`, async ({ page }) => {
     await page.locator('[data-item-id="lemon-ui-lemon-calendar"]').click()
     await page.locator('[data-item-id="lemon-ui-lemon-calendar-lemon-calendar"]').click() // sub menu
 
-    await page.locator('button:has-text("Canvas")').click()
-    await expect(page).toHaveScreenshot({ maxDiffPixels: 100 })
+    await expect(page).toHaveScreenshot({ maxDiffPixels: 100, fullPage: true })
 })
 
 test(`lemon calendar multiple months`, async ({ page }) => {
@@ -19,8 +18,7 @@ test(`lemon calendar multiple months`, async ({ page }) => {
     await page.locator('[data-item-id="lemon-ui-lemon-calendar-lemon-calendar"]').click() // sub menu
     await page.locator('[data-item-id="lemon-ui-lemon-calendar-lemon-calendar--multiple-months"]').click()
 
-    await page.locator('button:has-text("Canvas")').click()
-    await expect(page).toHaveScreenshot({ maxDiffPixels: 100 })
+    await expect(page).toHaveScreenshot({ maxDiffPixels: 100, fullPage: true })
 })
 
 test(`lemon calendar custom styles`, async ({ page }) => {
@@ -29,8 +27,7 @@ test(`lemon calendar custom styles`, async ({ page }) => {
     await page.locator('[data-item-id="lemon-ui-lemon-calendar-lemon-calendar"]').click() // sub menu
     await page.locator('[data-item-id="lemon-ui-lemon-calendar-lemon-calendar--custom-styles"]').click()
 
-    await page.locator('button:has-text("Canvas")').click()
-    await expect(page).toHaveScreenshot({ maxDiffPixels: 100 })
+    await expect(page).toHaveScreenshot({ maxDiffPixels: 100, fullPage: true })
 })
 
 test(`lemon calendar range`, async ({ page }) => {
@@ -38,8 +35,7 @@ test(`lemon calendar range`, async ({ page }) => {
     await page.locator('[data-item-id="lemon-ui-lemon-calendar"]').click()
     await page.locator('[data-item-id="lemon-ui-lemon-calendar-lemon-calendar-range--lemon-calendar-range"]').click()
 
-    await page.locator('button:has-text("Canvas")').click()
-    await expect(page).toHaveScreenshot({ maxDiffPixels: 100 })
+    await expect(page).toHaveScreenshot({ maxDiffPixels: 100, fullPage: true })
 })
 
 test(`lemon calendar select`, async ({ page }) => {
@@ -47,8 +43,7 @@ test(`lemon calendar select`, async ({ page }) => {
     await page.locator('[data-item-id="lemon-ui-lemon-calendar"]').click()
     await page.locator('[data-item-id="lemon-ui-lemon-calendar-lemon-calendar-select--lemon-calendar-select"]').click()
 
-    await page.locator('button:has-text("Canvas")').click()
-    await expect(page).toHaveScreenshot({ maxDiffPixels: 100 })
+    await expect(page).toHaveScreenshot({ maxDiffPixels: 100, fullPage: true })
 })
 
 test(`lemon calendar should only have allow-listed automatically detectable accessibility issues`, async ({ page }) => {

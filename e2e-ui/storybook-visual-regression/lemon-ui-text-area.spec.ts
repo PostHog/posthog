@@ -4,27 +4,20 @@ import { violationFingerprints } from '../accessibility'
 
 const storybookURL: string = process.env.STORYBOOK_URL || 'https:storybook.posthog.net'
 
-const textAreaTestCases = ['basic', 'disabled']
+test(`lemon text-area`, async ({ page }) => {
+    await page.goto(storybookURL)
+    await page.locator('[data-item-id="lemon-ui-lemon-text-area"]').click()
 
-textAreaTestCases.forEach((testCase) => {
-    test(`lemon text-area ${testCase}`, async ({ page }) => {
-        await page.goto(storybookURL)
-        await page.locator('[data-item-id="lemon-ui-lemon-text-area"]').click()
-        await page.locator(`[data-item-id="lemon-ui-lemon-text-area--${testCase}"]`).click()
+    await expect(page).toHaveScreenshot({ maxDiffPixels: 100, fullPage: true })
+})
 
-        await page.locator('button:has-text("Canvas")').click()
-        await expect(page).toHaveScreenshot({ maxDiffPixels: 100 })
-    })
+test(` lemon text-area should only have allow-listed automatically detectable accessibility issues`, async ({
+    page,
+}) => {
+    await page.goto(storybookURL)
+    await page.locator('[data-item-id="lemon-ui-lemon-text-area"]').click()
 
-    test(` lemon text-area ${testCase} should only have allow-listed automatically detectable accessibility issues`, async ({
-        page,
-    }) => {
-        await page.goto(storybookURL)
-        await page.locator('[data-item-id="lemon-ui-lemon-text-area"]').click()
-        await page.locator(`[data-item-id="lemon-ui-lemon-text-area--${testCase}"]`).click()
+    const accessibilityScanResults = await new AxeBuilder({ page }).exclude('#bottom-notice').analyze()
 
-        const accessibilityScanResults = await new AxeBuilder({ page }).exclude('#bottom-notice').analyze()
-
-        expect(violationFingerprints(accessibilityScanResults)).toMatchSnapshot()
-    })
+    expect(violationFingerprints(accessibilityScanResults)).toMatchSnapshot()
 })
