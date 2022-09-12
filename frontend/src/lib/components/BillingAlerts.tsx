@@ -36,7 +36,7 @@ export function BillingAlerts(): JSX.Element | null {
         message = (
             <p>
                 <b>Action needed!&nbsp;</b>
-                <Link href={billing?.subscription_url} data-attr="alert_setup_billing">
+                <Link to={billing?.subscription_url} data-attr="alert_setup_billing">
                     {billing?.plan?.custom_setup_billing_message ||
                         'Please finish setting up your billing information.'}
                 </Link>

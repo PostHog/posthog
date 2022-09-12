@@ -25,10 +25,9 @@ import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
 import { endWithPunctation } from '../../../lib/utils'
 import { canInstallPlugins } from '../access'
-import { LinkButton } from 'lib/components/LinkButton'
 import { PluginUpdateButton } from './PluginUpdateButton'
 import { Tooltip } from 'lib/components/Tooltip'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
 
@@ -36,9 +35,11 @@ export function PluginAboutButton({ url, disabled = false }: { url: string; disa
     return (
         <Space>
             <Tooltip title="About">
-                <LinkButton to={url} target="_blank" rel="noopener noreferrer" disabled={disabled}>
-                    <InfoCircleOutlined />
-                </LinkButton>
+                <Link to={url} target="_blank">
+                    <Button disabled={disabled}>
+                        <InfoCircleOutlined />
+                    </Button>
+                </Link>
             </Tooltip>
         </Space>
     )

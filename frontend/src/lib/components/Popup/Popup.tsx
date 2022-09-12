@@ -25,7 +25,7 @@ import {
 } from '@floating-ui/react-dom-interactions'
 
 export interface PopupProps {
-    ref?: React.MutableRefObject<HTMLDivElement | null>
+    ref?: React.MutableRefObject<HTMLDivElement | null> | React.Ref<HTMLDivElement> | null
     visible?: boolean
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
@@ -104,7 +104,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
             strategy: 'fixed',
             middleware: [
                 offset(4),
-                ...(fallbackPlacements ? [flip({ fallbackPlacements })] : []),
+                ...(fallbackPlacements ? [flip({ fallbackPlacements, fallbackStrategy: 'initialPlacement' })] : []),
                 shift(),
                 size({
                     padding: 5,

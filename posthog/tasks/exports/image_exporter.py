@@ -47,7 +47,7 @@ def get_driver() -> webdriver.Chrome:
         return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
 
     return webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM, log_level=logging.ERROR).install()),
+        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE, log_level=logging.ERROR).install()),
         options=options,
     )
 
@@ -142,7 +142,7 @@ def _screenshot_asset(
                     pass
                 capture_exception(e)
 
-            raise e
+        raise e
     finally:
         if driver:
             driver.quit()

@@ -4,10 +4,15 @@ import { isExternalLink } from 'lib/utils'
 
 type RoutePart = string | Record<string, any>
 
-export interface LinkProps extends React.HTMLProps<HTMLAnchorElement> {
+export type LinkProps = Pick<
+    React.HTMLProps<HTMLAnchorElement>,
+    'target' | 'className' | 'onClick' | 'children' | 'title'
+> & {
+    /** The location to go to. This can be a kea-location or a "href"-like string */
     to?: string | [string, RoutePart?, RoutePart?]
+    /** If true, in-app navigation will not be used and the link will navigate with a page load */
+    disableClientSideRouting?: boolean
     preventClick?: boolean
-    tag?: string | React.FunctionComponentElement<any>
 }
 
 // Some URLs we want to enforce a full reload such as billing which is redirected by Django
@@ -20,14 +25,21 @@ const shouldForcePageLoad = (input: any): boolean => {
     return !!FORCE_PAGE_LOAD.find((x) => input.startsWith(x))
 }
 
-export function Link({ to, href, preventClick = false, tag = 'a', ...props }: LinkProps): JSX.Element {
+/**
+ * Link
+ *
+ * This component wraps an <a> element to ensure that proper tags are added related to target="_blank"
+ * as well deciding when a given "to" link should be opened as a standard navigation (i.e. a standard href)
+ * or whether to be routed internally via kea-router
+ */
+export function Link({ to, target, disableClientSideRouting, preventClick = false, ...props }: LinkProps): JSX.Element {
     const onClick = (event: React.MouseEvent<HTMLAnchorElement>): void => {
         if (event.metaKey || event.ctrlKey) {
             event.stopPropagation()
             return
         }
 
-        if (!props.target && to && !isExternalLink(to) && !shouldForcePageLoad(to)) {
+        if (!target && to && !isExternalLink(to) && !disableClientSideRouting && !shouldForcePageLoad(to)) {
             event.preventDefault()
             if (to && to !== '#' && !preventClick) {
                 if (Array.isArray(to)) {
@@ -40,15 +52,14 @@ export function Link({ to, href, preventClick = false, tag = 'a', ...props }: Li
         props.onClick?.(event)
     }
 
-    const elProps = {
-        ...props,
-        href: to || href || '#',
-        onClick,
-    }
-
-    if (typeof tag === 'string') {
-        return React.createElement(tag, elProps)
-    } else {
-        return React.cloneElement(tag, elProps)
-    }
+    return (
+        // eslint-disable-next-line react/forbid-elements
+        <a
+            {...props}
+            href={typeof to === 'string' ? to : '#'}
+            onClick={onClick}
+            target={target}
+            rel={target === '_blank' ? 'noopener noreferrer' : undefined}
+        />
+    )
 }
