@@ -195,6 +195,7 @@ export const dashboard: DashboardType = {
     name: 'My App Dashboard',
     description: '',
     pinned: true,
+    text_tiles: [],
     items: [
         {
             id: 1,
