@@ -6,7 +6,6 @@ import { Breadcrumb, FeatureFlagType } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
-import { toParams } from 'lib/utils'
 import { LemonSelectOption } from 'lib/components/LemonSelect'
 
 export enum FeatureFlagsTabs {
@@ -39,10 +38,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         featureFlags: {
             __default: [] as FeatureFlagType[],
             loadFeatureFlags: async () => {
-                const params = values.filters || {}
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/feature_flags/?${toParams(params)}`
-                )
+                const response = await api.get(`api/projects/${values.currentTeamId}/feature_flags`)
                 return response.results as FeatureFlagType[]
             },
             updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
@@ -53,17 +49,29 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     }),
     selectors: {
         searchedFeatureFlags: [
-            (selectors) => [selectors.featureFlags, selectors.searchTerm],
-            (featureFlags, searchTerm) => {
-                if (!searchTerm) {
+            (selectors) => [selectors.featureFlags, selectors.searchTerm, selectors.filters],
+            (featureFlags, searchTerm, filters) => {
+                if (!searchTerm && Object.keys(filters).length === 0) {
                     return featureFlags
                 }
-                return new Fuse(featureFlags, {
-                    keys: ['key', 'name'],
-                    threshold: 0.3,
-                })
-                    .search(searchTerm)
-                    .map((result) => result.item)
+                let searchedFlags = featureFlags
+                if (searchTerm) {
+                    searchedFlags = new Fuse(featureFlags, {
+                        keys: ['key', 'name'],
+                        threshold: 0.3,
+                    })
+                        .search(searchTerm)
+                        .map((result) => result.item)
+                }
+
+                const { active, created_by } = filters
+                if (active) {
+                    searchedFlags = searchedFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
+                }
+                if (created_by) {
+                    searchedFlags = searchedFlags.filter(flag => flag.created_by.id === parseInt(created_by))
+                }
+                return searchedFlags
             },
         ],
         breadcrumbs: [
