@@ -19,6 +19,7 @@
         align-items: center;
         width: fit-content;
         max-width: calc(100% + 0.5rem);
+        min-height: 2rem;
         padding: 0.25rem; // Some padding to give the focus outline more breathing space
         margin: -0.25rem;
         white-space: pre-wrap;
