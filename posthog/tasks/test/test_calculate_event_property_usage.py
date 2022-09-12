@@ -164,6 +164,38 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         self.assertEqual(empty_name_event.volume_30_day, 1)
         self.assertEqual(empty_name_property.query_usage_30_day, 1)
 
+    def test_calculate_usage_does_not_double_count_on_second_run(self) -> None:
+        EventDefinition.objects.create(team=self.team, name="$pageview")
+        PropertyDefinition.objects.create(team=self.team, name="$current_url")
+
+        with freeze_time("2020-10-01"):
+            Insight.objects.create(
+                team=self.team,
+                filters={
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$current_url", "value": "https://posthog2.com"}],
+                },
+            )
+            create_event(
+                distinct_id="test",
+                team=self.team,
+                event="$pageview",
+                properties={"$current_url": "https://posthog2.com"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2020-10-04"):  # less than 30 days later
+            calculate_event_property_usage_for_team(self.team.pk)
+            self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
+            self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
+            self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
+
+        with freeze_time("2020-10-06"):  # less than 30 days later
+            calculate_event_property_usage_for_team(self.team.pk)
+            self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
+            self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
+            self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
+
     def test_calculate_usage(self) -> None:
         EventDefinition.objects.create(team=self.team, name="$pageview")
         EventDefinition.objects.create(team=self.team, name="custom event")
