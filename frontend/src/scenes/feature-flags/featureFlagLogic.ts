@@ -95,8 +95,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 key: !key
                     ? 'You need to set a key'
                     : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
-                        ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-                        : undefined,
+                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                    : undefined,
                 filters: {
                     multivariate: {
                         variants: filters?.multivariate?.variants?.map(
@@ -104,8 +104,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 key: !variantKey
                                     ? 'You need to set a key'
                                     : !variantKey.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
-                                        ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-                                        : undefined,
+                                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                                    : undefined,
                             })
                         ),
                     },
