@@ -27,16 +27,16 @@ def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
     )
 
 
-def hostname_in_allowed_url_list(allowed_url_list: List[str], hostname: Optional[str]) -> bool:
+def hostname_in_allowed_url_list(allowed_url_list: Optional[List[str]], hostname: Optional[str]) -> bool:
     if not hostname:
         return False
 
     permitted_domains = ["127.0.0.1", "localhost"]
-
-    for url in allowed_url_list:
-        host = parse_domain(url)
-        if host:
-            permitted_domains.append(host)
+    if allowed_url_list:
+        for url in allowed_url_list:
+            host = parse_domain(url)
+            if host:
+                permitted_domains.append(host)
 
     for permitted_domain in permitted_domains:
         if "*" in permitted_domain:
