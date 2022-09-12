@@ -195,6 +195,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             f"received: {query_counts} for queries: \n\n {queries}",
         )
 
+    @snapshot_postgres_queries
+    def test_listing_insights_is_not_nplus1(self) -> None:
+        with self.assertNumQueries(6):
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(3):
+            self._create_dashboard({"name": f"dashboard-{i}"})
+
+            with self.assertNumQueries(10 + i):
+                response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
         filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
