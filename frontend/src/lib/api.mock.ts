@@ -36,7 +36,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',
     app_urls: ['https://posthog.com/', 'https://app.posthog.com'],
-    recording_domains: ['https://posthog.com/', 'https://app.posthog.com'],
+    recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
     slack_incoming_webhook: '',
     created_at: '2020-06-30T09:53:35.932534Z',

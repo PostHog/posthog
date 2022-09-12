@@ -1,9 +1,15 @@
-import { appEditorUrl, authorizedUrlListLogic, validateProposedURL } from './authorizedUrlListLogic'
+import {
+    appEditorUrl,
+    authorizedUrlListLogic,
+    AuthorizedUrlListType,
+    validateProposedURL,
+} from './authorizedUrlListLogic'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { urls } from 'scenes/urls'
+import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 
 describe('the authorized urls list logic', () => {
     let logic: ReturnType<typeof authorizedUrlListLogic.build>
@@ -20,7 +26,9 @@ describe('the authorized urls list logic', () => {
             },
         })
         initKeaTests()
-        logic = authorizedUrlListLogic()
+        logic = authorizedUrlListLogic({
+            type: AuthorizedUrlListType.TOOLBAR_URLS,
+        })
         logic.mount()
     })
 
@@ -92,6 +100,49 @@ describe('the authorized urls list logic', () => {
                     false
                 )
             ).toBe(undefined)
+        })
+    })
+    describe('recording domain type', () => {
+        beforeEach(() => {
+            logic = authorizedUrlListLogic({
+                type: AuthorizedUrlListType.RECORDING_DOMAINS,
+            })
+            logic.mount()
+        })
+        it('gets initial domains from recording_domains on the current team', () => {
+            expectLogic(logic).toMatchValues({
+                authorizedUrls: ['https://recordings.posthog.com/'],
+            })
+        })
+        it('addUrl the recording_domains on the team', () => {
+            jest.spyOn(api, 'update')
+
+            expectLogic(logic, () => logic.actions.addUrl('http://*.example.com')).toFinishAllListeners()
+
+            expect(api.update).toBeCalledWith(`api/projects/${MOCK_TEAM_ID}`, {
+                recording_domains: ['https://recordings.posthog.com/', 'http://*.example.com'],
+            })
+        })
+
+        describe('validating proposed recording domains', () => {
+            const testCases = [
+                { proposedUrl: 'https://valid.*.example.com', validityMessage: undefined },
+                {
+                    proposedUrl: 'https://not.valid.com/path',
+                    validityMessage: "Please type a valid domain (URLs with a path aren't allowed).",
+                },
+                {
+                    proposedUrl: 'https://not.*.valid.*',
+                    validityMessage:
+                        'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.',
+                },
+            ]
+
+            testCases.forEach((testCase) => {
+                it(`a proposal of "${testCase.proposedUrl}" has validity message "${testCase.validityMessage}"`, () => {
+                    expect(validateProposedURL(testCase.proposedUrl, [], true)).toEqual(testCase.validityMessage)
+                })
+            })
         })
     })
 })
