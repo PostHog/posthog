@@ -8,6 +8,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -197,12 +198,24 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_listing_insights_is_not_nplus1(self) -> None:
+        self.client.logout()
+
+        self.organization.available_features = [AvailableFeature.DASHBOARD_COLLABORATION]
+        self.organization.save()
+        self.team.access_control = True
+        self.team.save()
+
+        user_with_collaboration = User.objects.create_and_join(
+            self.organization, "no-collaboration-feature@posthog.com", None
+        )
+        self.client.force_login(user_with_collaboration)
+
         with self.assertNumQueries(6):
             response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         for i in range(3):
-            self._create_dashboard({"name": f"dashboard-{i}"})
+            self._create_dashboard({"name": f"dashboard-{i}", "description": i})
 
             with self.assertNumQueries(10 + i):
                 response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")

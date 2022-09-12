@@ -296,10 +296,10 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         self.team.access_control = True
         self.team.save()
 
-        user_without_collaboration = User.objects.create_and_join(
+        user_with_collaboration = User.objects.create_and_join(
             self.organization, "no-collaboration-feature@posthog.com", None
         )
-        self.client.force_login(user_without_collaboration)
+        self.client.force_login(user_with_collaboration)
 
         dashboard: Dashboard = Dashboard.objects.create(
             team=self.team,

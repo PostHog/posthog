@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, cast
+from typing import Any, Dict, List, Optional, cast
 
 from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
@@ -63,8 +63,13 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared"]
 
     def validate_description(self, value: str) -> str:
-        team: Team = Team.objects.get(id=self.context["team_id"])
-        if value and AvailableFeature.DASHBOARD_COLLABORATION not in team.organization.available_features:
+        available_features: Optional[List[str]] = (
+            Team.objects.select_related("organization")
+            .values_list("organization__available_features", flat=True)
+            .get(id=self.context["team_id"])
+        )
+
+        if not available_features or (value and AvailableFeature.DASHBOARD_COLLABORATION not in available_features):
             raise PermissionDenied("You must have paid for dashboard collaboration to set the dashboard description")
 
         return value
