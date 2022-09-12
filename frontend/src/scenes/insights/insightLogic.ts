@@ -922,7 +922,6 @@ export const insightLogic = kea<insightLogicType>({
             })
         },
         cancelChanges: ({ goToViewMode }) => {
-            actions.setInsightMetadata({ name: values.savedInsight.name, description: values.savedInsight.description })
             actions.setFilters(values.savedInsight.filters || {})
             if (goToViewMode) {
                 insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)

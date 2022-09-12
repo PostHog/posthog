@@ -97,11 +97,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 }
 
                 // scroll to top if the page changed, except if changed via back/forward
-                if (
-                    router.values.location.pathname === urls.savedInsights() &&
-                    router.values.lastMethod !== 'POP' &&
-                    values.insights.filters?.page !== filters.page
-                ) {
+                if (router.values.lastMethod !== 'POP' && values.insights.filters?.page !== filters.page) {
                     window.scrollTo(0, 0)
                 }
 
@@ -267,17 +263,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                   }
               ]
             | void => {
-            if (router.values.location.pathname === urls.savedInsights()) {
-                const nextValues = cleanFilters(values.filters)
-                const urlValues = cleanFilters(router.values.searchParams)
-                if (!objectsEqual(nextValues, urlValues)) {
-                    return [
-                        urls.savedInsights(),
-                        objectDiffShallow(cleanFilters({}), nextValues),
-                        {},
-                        { replace: false },
-                    ]
-                }
+            const nextValues = cleanFilters(values.filters)
+            const urlValues = cleanFilters(router.values.searchParams)
+            if (!objectsEqual(nextValues, urlValues)) {
+                return [urls.savedInsights(), objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: false }]
             }
         }
         return {

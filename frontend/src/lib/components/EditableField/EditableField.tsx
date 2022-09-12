@@ -8,7 +8,7 @@ import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { Tooltip } from '../Tooltip'
 
-export interface EditableFieldProps {
+interface EditableFieldProps {
     /** What this field stands for. */
     name: string
     value: string
