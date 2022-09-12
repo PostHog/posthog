@@ -40,7 +40,7 @@ function EmptyState({
     ) : isAddingEntry ? null : (
         <LemonRow outlined fullWidth size="large" className="AuthorizedUrlRow">
             {type === AuthorizedUrlListType.RECORDING_DOMAINS
-                ? 'No domains are specified, so recordings are authorized on all domains.'
+                ? 'No domains are specified, so recordings will be authorized on all domains.'
                 : 'There are no authorized urls. Add one to get started.'}
         </LemonRow>
     )

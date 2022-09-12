@@ -325,18 +325,23 @@ export function ProjectSettings(): JSX.Element {
                     .
                 </p>
                 <SessionRecording />
-                <h2 className="subtitle my-6" id="urls">
-                    Authorized domains for recordings
-                </h2>
-                <p>
-                    Use the settings below to restrict the domains where recordings will be captured. If no domains are
-                    listed, then there will be no domain restriction.
-                </p>
-                <p>
-                    <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
-                    However, wildcarded top-level domains cannot be used (for security reasons).
-                </p>
-                <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} />
+                {currentTeam?.session_recording_opt_in ? (
+                    <>
+                        <h2 className="subtitle my-6" id="urls">
+                            Authorized domains for recordings
+                        </h2>
+                        <p>
+                            Use the settings below to restrict the domains where recordings will be captured. If no
+                            domains are selected, then there will be no domain restriction.
+                        </p>
+                        <p>
+                            <b>Domains and wilcard subdomains are allowed</b> (example:{' '}
+                            <code>https://*.example.com</code>). However, wildcarded top-level domains cannot be used
+                            (for security reasons).
+                        </p>
+                        <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} />
+                    </>
+                ) : null}
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
