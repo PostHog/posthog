@@ -49,7 +49,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
     def test_create_basic_dashboard(self):
-        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "My new dashboard"})
+        # the front end sends an empty description even if not allowed to add one
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/", {"name": "My new dashboard", "description": ""}
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
         self.assertEqual(response_data["name"], "My new dashboard")
