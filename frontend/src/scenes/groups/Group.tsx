@@ -102,7 +102,7 @@ export function Group(): JSX.Element {
                 >
                     <RelatedFeatureFlags
                         distinctId={groupData.group_key}
-                        groups={{ [groupTypeName]: groupDisplayId(groupKey, groupData.group_properties) }}
+                        groups={{ [groupTypeName]: groupKey }}
                     />
                 </TabPane>
             </Tabs>
