@@ -17,6 +17,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
+from posthog.api.capture import get_distinct_id
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
@@ -1249,3 +1250,10 @@ class TestCapture(BaseTest):
                 "/s/", data={"data": json.dumps([event_without_timestamp]), "api_key": self.team.api_token}
             )
             self.assertEqual(kafka_produce.call_count, 2)
+            
+    def test_get_distinct_id_non_json_properties(self) -> None:
+        with self.assertRaises(ValueError):
+            get_distinct_id({ "properties": "str" })
+            
+        with self.assertRaises(ValueError):
+            get_distinct_id({ "properties": 123 })
