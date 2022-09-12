@@ -154,11 +154,6 @@ export function OperatorValueSelect({
     )
 }
 
-type CustomOptionsType = {
-    value: PropertyOperator
-    label: string
-}
-
 export function OperatorSelect({ operator, operators, onChange, ...props }: OperatorSelectProps): JSX.Element {
     const operatorOptions = operators.map((op) => ({
         label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
@@ -172,8 +167,7 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
             dropdownMatchSelectWidth={false}
             fullWidth
             onChange={(op) => {
-                const newOperator = op as typeof op & CustomOptionsType
-                onChange(newOperator.value)
+                op && onChange(op)
             }}
             className={props.className}
         />
