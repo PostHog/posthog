@@ -65,6 +65,12 @@ export function EditableField({
 
     const isSaveable = !minLength || tentativeValue.length >= minLength
 
+    const mouseDownOnCancelButton = (e: React.MouseEvent): void => {
+        // if saveOnBlur is set the onBlur handler of the input fires before the onClick event of the button
+        // this onMouseDown handler fires before the input can see the click and fire onBlur
+        e.preventDefault()
+    }
+
     const cancel = (): void => {
         setLocalIsEditing(false)
         setTentativeValue(value)
@@ -149,7 +155,13 @@ export function EditableField({
                             )}
                             {!mode && (
                                 <>
-                                    <LemonButton title="Cancel editing" size="small" onClick={cancel} type="secondary">
+                                    <LemonButton
+                                        title="Cancel editing"
+                                        size="small"
+                                        onClick={cancel}
+                                        type="secondary"
+                                        onMouseDown={mouseDownOnCancelButton}
+                                    >
                                         Cancel
                                     </LemonButton>
                                     <LemonButton
