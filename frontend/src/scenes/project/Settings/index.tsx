@@ -326,7 +326,7 @@ export function ProjectSettings(): JSX.Element {
                 </p>
                 <SessionRecording />
                 <h2 className="subtitle my-6" id="urls">
-                    Authorized domains for Recordings
+                    Authorized domains for recordings
                 </h2>
                 <p>
                     Use the settings below to restrict the domains where recordings will be captured. If no domains are

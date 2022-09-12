@@ -21,12 +21,12 @@ function EmptyState({
     numberOfResults,
     isSearching,
     isAddingEntry,
-    onlyAllowDomains,
+    type,
 }: {
     numberOfResults: number
     isSearching: boolean
     isAddingEntry: boolean
-    onlyAllowDomains: boolean
+    type: AuthorizedUrlListType
 }): JSX.Element | null {
     if (numberOfResults > 0) {
         return null
@@ -34,11 +34,14 @@ function EmptyState({
 
     return isSearching ? (
         <LemonRow outlined fullWidth size="large" className="AuthorizedUrlRow">
-            There are no authorized {onlyAllowDomains ? 'domains' : 'URLs'} that match your search.
+            There are no authorized {type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'domains' : 'URLs'} that match
+            your search.
         </LemonRow>
     ) : isAddingEntry ? null : (
         <LemonRow outlined fullWidth size="large" className="AuthorizedUrlRow">
-            There are no authorized {onlyAllowDomains ? 'domains' : 'URLs'}. Add one to get started.
+            {type === AuthorizedUrlListType.RECORDING_DOMAINS
+                ? 'No domains are specified, so recordings are authorized on all domains.'
+                : 'There are no authorized urls. Add one to get started.'}
         </LemonRow>
     )
 }
@@ -116,7 +119,7 @@ export function AuthorizedUrlList({ pageKey, actionId, type }: AuthorizedUrlList
                         numberOfResults={urlsKeyed.length}
                         isSearching={searchTerm.length > 0}
                         isAddingEntry={isAddUrlFormVisible}
-                        onlyAllowDomains
+                        type={type}
                     />
                     {urlsKeyed.map((keyedURL, index) => {
                         return (
