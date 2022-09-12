@@ -13,7 +13,7 @@ from posthog.tasks.calculate_event_property_usage import (
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.test.base import _create_event as create_event
 from posthog.test.base import _create_person as create_person
-from posthog.test.base import flush_persons_and_events, snapshot_postgres_queries
+from posthog.test.base import flush_persons_and_events
 
 
 class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
@@ -164,7 +164,6 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         self.assertEqual(empty_name_event.volume_30_day, 1)
         self.assertEqual(empty_name_property.query_usage_30_day, 1)
 
-    @snapshot_postgres_queries
     def test_calculate_usage(self) -> None:
         EventDefinition.objects.create(team=self.team, name="$pageview")
         EventDefinition.objects.create(team=self.team, name="custom event")
