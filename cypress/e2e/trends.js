@@ -59,7 +59,7 @@ describe('Trends', () => {
         // in the test that doesn't happen
         cy.get('body').then(($body) => {
             if ($body.find('[data-attr=prop-val-0]').length === 0) {
-                cy.get('.taxonomic-value-select').click()
+                cy.get('[data-attr=taxonomic-value-select]').click()
             }
         })
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
@@ -80,7 +80,7 @@ describe('Trends', () => {
         // in the test that doesn't happen
         cy.get('body').then(($body) => {
             if ($body.find('[data-attr=prop-val-0]').length === 0) {
-                cy.get('.taxonomic-value-select').click()
+                cy.get('[data-attr=taxonomic-value-select]').click()
             }
         })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
@@ -146,7 +146,7 @@ describe('Trends', () => {
         // in the test that doesn't happen
         cy.get('body').then(($body) => {
             if ($body.find('[data-attr=prop-val-0]').length === 0) {
-                cy.get('.taxonomic-value-select').click()
+                cy.get('[data-attr=taxonomic-value-select]').click()
             }
         })
 
