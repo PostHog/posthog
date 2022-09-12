@@ -28,7 +28,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { CorrelationConfig } from './CorrelationConfig'
 import { urls } from 'scenes/urls'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { AuthorizedUrls } from 'scenes/toolbar-launch/AuthorizedUrls'
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
 import { IconInfo, IconRefresh } from 'lib/components/icons'
 import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
@@ -36,7 +36,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { SlackIntegration } from './SlackIntegration'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
-import { AuthorizedURLFormType } from 'scenes/toolbar-launch/authorizedUrlsLogic'
+import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -263,7 +263,7 @@ export function ProjectSettings(): JSX.Element {
                     <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
                     However, wildcarded top-level domains cannot be used (for security reasons).
                 </p>
-                <AuthorizedUrls type={AuthorizedURLFormType.TOOLBAR_URLS} />
+                <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
                 <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="attributes">
                     Data attributes
@@ -336,7 +336,7 @@ export function ProjectSettings(): JSX.Element {
                     <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
                     However, wildcarded top-level domains cannot be used (for security reasons).
                 </p>
-                <AuthorizedUrls type={AuthorizedURLFormType.RECORDING_DOMAINS} />
+                <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} />
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />

@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { AuthorizedUrls } from 'scenes/toolbar-launch/AuthorizedUrls'
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IconEdit, IconMagnifier } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { useValues } from 'kea'
@@ -75,7 +76,7 @@ export function NewActionButton(): JSX.Element {
                     </div>
                 ) : (
                     <div style={{ maxWidth: '40rem' }}>
-                        <AuthorizedUrls />
+                        <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
                     </div>
                 )}
             </LemonModal>

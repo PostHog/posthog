@@ -6,7 +6,8 @@ import { SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { IconFlag, IconGroupedEvents, IconHeatmap } from 'lib/components/icons'
-import { AuthorizedUrls } from './AuthorizedUrls'
+import { AuthorizedUrlList } from '../../lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { AuthorizedUrlListType } from '../../lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { useActions, useValues } from 'kea'
@@ -70,7 +71,7 @@ function ToolbarLaunch(): JSX.Element {
                 Click on the URL to launch the toolbar.{' '}
                 {window.location.host === 'app.posthog.com' && 'Remember to disable your adblocker.'}
             </p>
-            <AuthorizedUrls pageKey="toolbar-launch" />
+            <AuthorizedUrlList pageKey="toolbar-launch" type={AuthorizedUrlListType.TOOLBAR_URLS} />
 
             <div className="footer-caption text-muted mt-4 text-center">
                 Make sure you're using the <Link to={`${urls.projectSettings()}#snippet`}>HTML snippet</Link> or the

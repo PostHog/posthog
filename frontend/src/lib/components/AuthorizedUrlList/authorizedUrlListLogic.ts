@@ -17,17 +17,18 @@ import { EditorProps, TrendResult } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import Fuse from 'fuse.js'
-import type { authorizedUrlsLogicType } from './authorizedUrlsLogicType'
 import { encodeParams, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 
+import type { authorizedUrlListLogicType } from './authorizedUrlListLogicType'
+
 export interface ProposeNewUrlFormType {
     url: string
 }
 
-export enum AuthorizedURLFormType {
+export enum AuthorizedUrlListType {
     TOOLBAR_URLS = 'TOOLBAR_URLS',
     RECORDING_DOMAINS = 'RECORDING_DOMAINS',
 }
@@ -50,7 +51,7 @@ export const validateProposedURL = (
     }
 
     if (onlyAllowDomains && !isDomain(proposedUrl)) {
-        return 'Please type a valid domain.'
+        return "Please type a valid domain (URLs with a path aren't allowed)."
     }
 
     if (currentUrls.indexOf(proposedUrl) > -1) {
@@ -78,22 +79,21 @@ export interface KeyedAppUrl {
     originalIndex: number
 }
 
-export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
-    path((key) => ['lib', 'components', 'AppEditorLink', 'appUrlsLogic', key]),
-    key((props) => `${props.pageKey}-${props.type}-${props.actionId}` || props.type),
-    props(
-        {} as {
-            actionId?: number
-            pageKey?: string
-            type: AuthorizedURLFormType
-        }
-    ),
+export interface AuthorizedUrlListProps {
+    actionId?: number
+    pageKey?: string
+    type: AuthorizedUrlListType
+}
+export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
+    path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
+    key((props) => `${props.pageKey}-${props.type}-${props.actionId}`),
+    props({} as AuthorizedUrlListProps),
     connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
         actions: [teamLogic, ['updateCurrentTeam']],
     }),
     actions(() => ({
-        setAppUrls: (appUrls: string[]) => ({ appUrls }),
+        setAuthorizedUrls: (authorizedUrls: string[]) => ({ authorizedUrls }),
         addUrl: (url: string, launch?: boolean) => ({ url, launch }),
         newUrl: true,
         removeUrl: (index: number) => ({ index }),
@@ -103,7 +103,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
         setEditUrlIndex: (originalIndex: number | null) => ({ originalIndex }),
         cancelProposingUrl: true,
     })),
-    loaders(({ values }) => ({
+    loaders(({ values, props }) => ({
         suggestions: {
             __default: [] as string[],
             loadSuggestions: async () => {
@@ -118,46 +118,54 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
                 if (result && result[0]?.count === 0) {
                     return []
                 }
-                const domainsSeen: string[] = []
-                return (result || [])
-                    .filter((item) => {
-                        if (!item.breakdown_value) {
-                            return false
-                        }
+                const suggestedDomains: string[] = []
+
+                result.forEach((item) => {
+                    if (item.breakdown_value && typeof item.breakdown_value === 'string') {
                         try {
-                            const domain = new URL(item.breakdown_value.toString()).hostname
-                            if (domainsSeen.indexOf(domain) > -1) {
+                            const parsedUrl = new URL(item.breakdown_value)
+                            const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
+                            // Have we already added this domain?
+                            if (suggestedDomains.indexOf(urlWithoutPath) > -1) {
                                 return
                             }
-                            if (values.appUrls.filter((url) => url.indexOf(domain) > -1).length > 0) {
+                            // Is this domain already in the list of urls?
+                            const existingUrls =
+                                props.type === AuthorizedUrlListType.RECORDING_DOMAINS
+                                    ? values.currentTeam?.recording_domains
+                                    : values.currentTeam?.app_urls
+                            if (
+                                existingUrls &&
+                                existingUrls.filter((url) => url.indexOf(urlWithoutPath) > -1).length > 0
+                            ) {
                                 return
                             }
-                            domainsSeen.push(domain)
-                            return true
+                            suggestedDomains.push(urlWithoutPath)
                         } catch (error) {
-                            return false
+                            return
                         }
-                    })
-                    .map((item) => item.breakdown_value)
-                    .slice(0, 20)
+                    }
+                })
+
+                return suggestedDomains.slice(0, 20)
             },
         },
     })),
     afterMount(({ actions, values, props }) => {
         actions.loadSuggestions()
         if (values.currentTeam) {
-            if (props.type === AuthorizedURLFormType.RECORDING_DOMAINS) {
-                actions.setAppUrls(values.currentTeam.recording_domains)
-            } else {
-                actions.setAppUrls(values.currentTeam.app_urls)
-            }
+            actions.setAuthorizedUrls(
+                (props.type === AuthorizedUrlListType.RECORDING_DOMAINS
+                    ? values.currentTeam.recording_domains
+                    : values.currentTeam.app_urls) || []
+            )
         }
     }),
-    forms(({ values, actions, props }) => ({
+    forms(({ values, actions }) => ({
         proposedUrl: {
             defaults: { url: '' } as ProposeNewUrlFormType,
             errors: ({ url }) => ({
-                url: validateProposedURL(url, values.appUrls, props.type === AuthorizedURLFormType.RECORDING_DOMAINS),
+                url: validateProposedURL(url, values.authorizedUrls, values.onlyAllowDomains),
             }),
             submit: async ({ url }) => {
                 if (values.editUrlIndex !== null && values.editUrlIndex >= 0) {
@@ -177,16 +185,16 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
                 cancelProposingUrl: () => false,
             },
         ],
-        appUrls: [
+        authorizedUrls: [
             [] as string[],
             {
-                setAppUrls: (_, { appUrls }) => appUrls,
+                setAuthorizedUrls: (_, { authorizedUrls }) => authorizedUrls,
                 addUrl: (state, { url }) => state.concat([url]),
                 updateUrl: (state, { index, url }) => Object.assign([...state], { [index]: url }),
                 removeUrl: (state, { index }) => {
-                    const newAppUrls = [...state]
-                    newAppUrls.splice(index, 1)
-                    return newAppUrls
+                    const newUrls = [...state]
+                    newUrls.splice(index, 1)
+                    return newUrls
                 },
             },
         ],
@@ -220,16 +228,15 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
         ],
     })),
     sharedListeners(({ values, props }) => ({
-        saveAppUrls: () => {
-            console.log('saveAppUrls', values, props)
-            if (props.type === AuthorizedURLFormType.RECORDING_DOMAINS) {
-                teamLogic.actions.updateCurrentTeam({ recording_domains: values.appUrls })
+        saveUrls: () => {
+            if (props.type === AuthorizedUrlListType.RECORDING_DOMAINS) {
+                teamLogic.actions.updateCurrentTeam({ recording_domains: values.authorizedUrls })
             } else {
-                teamLogic.actions.updateCurrentTeam({ app_urls: values.appUrls })
+                teamLogic.actions.updateCurrentTeam({ app_urls: values.authorizedUrls })
             }
         },
     })),
-    listeners(({ sharedListeners, values, actions }) => ({
+    listeners(({ sharedListeners, values, actions, props }) => ({
         setEditUrlIndex: () => {
             actions.setProposedUrlValue('url', values.urlToEdit)
         },
@@ -237,18 +244,22 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
             actions.setProposedUrlValue('url', NEW_URL)
         },
         addUrl: [
-            sharedListeners.saveAppUrls,
+            sharedListeners.saveUrls,
             async ({ url, launch }) => {
                 if (launch) {
                     actions.launchAtUrl(url)
                 }
             },
         ],
-        removeUrl: sharedListeners.saveAppUrls,
-        updateUrl: sharedListeners.saveAppUrls,
+        removeUrl: sharedListeners.saveUrls,
+        updateUrl: sharedListeners.saveUrls,
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: async ({ currentTeam }) => {
             if (currentTeam) {
-                actions.setAppUrls(currentTeam.app_urls)
+                actions.setAuthorizedUrls(
+                    props.type === AuthorizedUrlListType.RECORDING_DOMAINS
+                        ? currentTeam.recording_domains
+                        : currentTeam.app_urls
+                )
             }
         },
         launchAtUrl: ({ url }) => {
@@ -264,18 +275,18 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
     })),
     selectors(({ props }) => ({
         urlToEdit: [
-            (s) => [s.appUrls, s.editUrlIndex],
-            (appUrls, editUrlIndex) => {
+            (s) => [s.authorizedUrls, s.editUrlIndex],
+            (authorizedUrls, editUrlIndex) => {
                 if (editUrlIndex === null || editUrlIndex === -1) {
                     return NEW_URL
                 }
-                return appUrls[editUrlIndex]
+                return authorizedUrls[editUrlIndex]
             },
         ],
-        appUrlsKeyed: [
-            (s) => [s.appUrls, s.suggestions, s.searchTerm],
-            (appUrls, suggestions, searchTerm): KeyedAppUrl[] => {
-                const urls = appUrls
+        urlsKeyed: [
+            (s) => [s.authorizedUrls, s.suggestions, s.searchTerm],
+            (authorizedUrls, suggestions, searchTerm): KeyedAppUrl[] => {
+                const keyedUrls = authorizedUrls
                     .map((url, index) => ({
                         url,
                         type: 'authorized',
@@ -290,10 +301,10 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
                     ) as KeyedAppUrl[]
 
                 if (!searchTerm) {
-                    return urls
+                    return keyedUrls
                 }
 
-                return new Fuse(urls, {
+                return new Fuse(keyedUrls, {
                     keys: ['url'],
                     threshold: 0.3,
                 })
@@ -303,6 +314,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
         ],
         launchUrl: [() => [], () => (url: string) => appEditorUrl(url, props.actionId, !props.actionId)],
         isAddUrlFormVisible: [(s) => [s.editUrlIndex], (editUrlIndex) => editUrlIndex === -1],
+        onlyAllowDomains: [() => [], () => props.type === AuthorizedUrlListType.RECORDING_DOMAINS],
     })),
     urlToAction(({ actions }) => ({
         [urls.toolbarLaunch()]: (_, searchParams) => {

@@ -588,15 +588,15 @@ export function stripHTTP(url: string): string {
 }
 
 export function isDomain(url: string): boolean {
-    // TODO: Make this Work
     try {
         const parsedUrl = new URL(url)
         if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
             return true
         }
-    } finally {
+    } catch {
         return false
     }
+    return false
 }
 
 export function isURL(input: any): boolean {

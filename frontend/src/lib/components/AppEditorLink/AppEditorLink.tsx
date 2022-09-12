@@ -2,8 +2,8 @@ import React, { useState } from 'react'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { Modal, Button } from 'antd'
-import { AuthorizedUrls } from 'scenes/toolbar-launch/AuthorizedUrls'
-import { appEditorUrl } from 'scenes/toolbar-launch/authorizedUrlsLogic'
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 
 export function AppEditorLink({
     actionId,
@@ -40,7 +40,11 @@ export function AppEditorLink({
                 footer={<Button onClick={() => setModalOpen(false)}>Close</Button>}
                 onCancel={() => setModalOpen(false)}
             >
-                <AuthorizedUrls actionId={actionId} pageKey="app-editor-link" />
+                <AuthorizedUrlList
+                    actionId={actionId}
+                    pageKey="app-editor-link"
+                    type={AuthorizedUrlListType.TOOLBAR_URLS}
+                />
             </Modal>
         </>
     )

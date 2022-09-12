@@ -41,7 +41,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { AuthorizedURLFormType, authorizedUrlsLogic } from 'scenes/toolbar-launch/authorizedUrlsLogic'
+import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Tooltip } from 'lib/components/Tooltip'
 import Typography from 'antd/lib/typography'
@@ -57,7 +57,9 @@ function Pages(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
     const { frontendApps } = useValues(frontendAppsLogic)
-    const { appUrls, launchUrl } = useValues(authorizedUrlsLogic({ type: AuthorizedURLFormType.TOOLBAR_URLS }))
+    const { authorizedUrls, launchUrl } = useValues(
+        authorizedUrlListLogic({ type: AuthorizedUrlListType.TOOLBAR_URLS })
+    )
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
     const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
@@ -226,14 +228,14 @@ function Pages(): JSX.Element {
                                     <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">
                                         <h5>TOOLBAR URLS</h5>
                                         <LemonDivider />
-                                        {appUrls.map((appUrl, index) => (
+                                        {authorizedUrls.map((authorizedUrl, index) => (
                                             <LemonButton
                                                 className="LaunchToolbarButton"
                                                 status="stealth"
                                                 fullWidth
                                                 key={index}
                                                 onClick={() => setIsToolbarLaunchShown(false)}
-                                                to={launchUrl(appUrl)}
+                                                to={launchUrl(authorizedUrl)}
                                                 targetBlank
                                                 sideIcon={
                                                     <Tooltip title="Launch toolbar">
@@ -241,8 +243,8 @@ function Pages(): JSX.Element {
                                                     </Tooltip>
                                                 }
                                             >
-                                                <Typography.Text ellipsis={true} title={appUrl}>
-                                                    {appUrl}
+                                                <Typography.Text ellipsis={true} title={authorizedUrl}>
+                                                    {authorizedUrl}
                                                 </Typography.Text>
                                             </LemonButton>
                                         ))}

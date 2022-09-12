@@ -1,12 +1,12 @@
-import { appEditorUrl, authorizedUrlsLogic, validateProposedURL } from 'scenes/toolbar-launch/authorizedUrlsLogic'
+import { appEditorUrl, authorizedUrlListLogic, validateProposedURL } from './authorizedUrlListLogic'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { urls } from 'scenes/urls'
 
-describe('the authorized urls logic', () => {
-    let logic: ReturnType<typeof authorizedUrlsLogic.build>
+describe('the authorized urls list logic', () => {
+    let logic: ReturnType<typeof authorizedUrlListLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -20,7 +20,7 @@ describe('the authorized urls logic', () => {
             },
         })
         initKeaTests()
-        logic = authorizedUrlsLogic()
+        logic = authorizedUrlListLogic()
         logic.mount()
     })
 
@@ -77,18 +77,20 @@ describe('the authorized urls logic', () => {
 
         testCases.forEach((testCase) => {
             it(`a proposal of "${testCase.proposedUrl}" has validity message "${testCase.validityMessage}"`, () => {
-                expect(validateProposedURL(testCase.proposedUrl, [])).toEqual(testCase.validityMessage)
+                expect(validateProposedURL(testCase.proposedUrl, [], false)).toEqual(testCase.validityMessage)
             })
         })
 
         it('fails if the proposed URL is already authorized', () => {
-            expect(validateProposedURL('https://valid.*.example.com', ['https://valid.*.example.com'])).toBe(
+            expect(validateProposedURL('https://valid.*.example.com', ['https://valid.*.example.com'], false)).toBe(
                 'This URL is already registered.'
             )
             expect(
-                validateProposedURL('https://valid.and-not-already-authorized.example.com', [
-                    'https://valid.*.example.com',
-                ])
+                validateProposedURL(
+                    'https://valid.and-not-already-authorized.example.com',
+                    ['https://valid.*.example.com'],
+                    false
+                )
             ).toBe(undefined)
         })
     })
