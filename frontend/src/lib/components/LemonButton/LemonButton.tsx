@@ -194,7 +194,6 @@ export function LemonButtonWithPopup({
     className,
     ...buttonProps
 }: LemonButtonWithPopupProps): JSX.Element {
-    const parentPopupId = useContext(PopupContext)
     const [popupVisible, setPopupVisible] = useState(false)
 
     if (!buttonProps.children) {
