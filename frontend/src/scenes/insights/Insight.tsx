@@ -112,6 +112,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         value={insight.name || ''}
                         placeholder={summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)}
                         onSave={(value) => setInsightMetadata({ name: value })}
+                        saveOnBlur={true}
                         maxLength={400} // Sync with Insight model
                         mode={!canEditInsight ? 'view' : undefined}
                         data-attr="insight-name"
@@ -247,6 +248,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 value={insight.description || ''}
                                 placeholder="Description (optional)"
                                 onSave={(value) => setInsightMetadata({ description: value })}
+                                saveOnBlur={true}
                                 maxLength={400} // Sync with Insight model
                                 mode={!canEditInsight ? 'view' : undefined}
                                 data-attr="insight-description"

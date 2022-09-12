@@ -14,6 +14,7 @@ interface EditableFieldProps {
     value: string
     onChange?: (value: string) => void
     onSave?: (value: string) => void
+    saveOnBlur?: boolean
     placeholder?: string
     minLength?: number
     maxLength?: number
@@ -40,6 +41,7 @@ export function EditableField({
     value,
     onChange,
     onSave,
+    saveOnBlur = false,
     placeholder,
     minLength,
     maxLength,
@@ -120,6 +122,7 @@ export function EditableField({
                                         onChange?.(e.target.value)
                                         setTentativeValue(e.target.value)
                                     }}
+                                    onBlur={saveOnBlur ? save : undefined}
                                     onKeyDown={handleKeyDown}
                                     placeholder={placeholder}
                                     minLength={minLength}
@@ -134,6 +137,7 @@ export function EditableField({
                                         onChange?.(e.target.value)
                                         setTentativeValue(e.target.value)
                                     }}
+                                    onBlur={saveOnBlur ? save : undefined}
                                     onKeyDown={handleKeyDown}
                                     placeholder={placeholder}
                                     minLength={minLength}
