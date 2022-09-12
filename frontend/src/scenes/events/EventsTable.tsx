@@ -28,7 +28,7 @@ import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic
 import { urls } from 'scenes/urls'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { TableCellRepresentation } from 'lib/components/LemonTable/types'
-import { IconExport, IconSync } from 'lib/components/icons'
+import { IconExport, IconOpenInNew, IconSync } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
@@ -210,7 +210,17 @@ export function EventsTable({
                         return newEventsRender(item, tableWidth)
                     }
                     const { event } = item
-                    return <PropertyKeyInfo value={autoCaptureEventToDescription(event)} />
+                    const content = <PropertyKeyInfo value={autoCaptureEventToDescription(event)} />
+
+                    const url = event.properties.$sentry_url
+
+                    return url ? (
+                        <Link to={url} target="_blank">
+                            {content}
+                        </Link>
+                    ) : (
+                        content
+                    )
                 },
             },
             {
