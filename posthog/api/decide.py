@@ -158,7 +158,9 @@ def get_decide(request: HttpRequest):
                     ),
                 )
 
-            property_overrides = get_geoip_properties(get_ip_address(request))
+            property_overrides = (
+                get_geoip_properties(get_ip_address(request)) if team.geoip_property_overrides_enabled else {}
+            )
             all_property_overrides = {**property_overrides, **(data.get("person_properties") or {})}
 
             feature_flags, _ = get_active_feature_flags(
