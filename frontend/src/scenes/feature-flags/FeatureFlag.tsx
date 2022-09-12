@@ -9,7 +9,14 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconCopy, IconDelete, IconPlus, IconSubdirectoryArrowRight } from 'lib/components/icons'
+import {
+    IconOpenInNew,
+    IconCopy,
+    IconDelete,
+    IconPlus,
+    IconSubdirectoryArrowRight,
+    IconPlusMini,
+} from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -1263,8 +1270,14 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                         propertyFilters={group?.properties}
                                         logicalRowDivider
+                                        addButton={
+                                            <LemonButton icon={<IconPlusMini />} noPadding>
+                                                Add condition
+                                            </LemonButton>
+                                        }
                                         onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                         taxonomicGroupTypes={taxonomicGroupTypes}
+                                        hasRowOperator={false}
                                     />
                                 </div>
                             )}

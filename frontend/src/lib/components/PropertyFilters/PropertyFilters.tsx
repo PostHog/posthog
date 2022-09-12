@@ -23,6 +23,8 @@ interface PropertyFiltersProps {
     logicalRowDivider?: boolean
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
+    addButton?: JSX.Element | null
+    hasRowOperator?: boolean
 }
 
 export function PropertyFilters({
@@ -38,6 +40,8 @@ export function PropertyFilters({
     orFiltering = false,
     logicalRowDivider = false,
     propertyGroupType = null,
+    addButton = null,
+    hasRowOperator = true,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -82,6 +86,8 @@ export function PropertyFilters({
                                             eventNames={eventNames}
                                             propertyGroupType={propertyGroupType}
                                             disablePopover={disablePopover || orFiltering}
+                                            addButton={addButton}
+                                            hasRowOperator={hasRowOperator}
                                             selectProps={{
                                                 delayBeforeAutoOpen: 150,
                                                 placement: pageKey === 'insight-filters' ? 'bottomLeft' : undefined,
