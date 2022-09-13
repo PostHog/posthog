@@ -10,7 +10,6 @@ from rest_framework.response import Response
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import parse_bool
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import FeatureFlag
@@ -171,6 +170,22 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["filters"] = validated_data.pop("get_filters")
 
 
+class MinimalFeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
+    filters = serializers.DictField(source="get_filters", required=False)
+
+    class Meta:
+        model = FeatureFlag
+        fields = [
+            "id",
+            "name",
+            "key",
+            "filters",
+            "deleted",
+            "active",
+            "ensure_experience_continuity",
+        ]
+
+
 class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
@@ -190,12 +205,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        filters = self.request.GET.dict()
-        for key, value in filters.items():
-            if key == "active":
-                queryset = queryset.filter(active=parse_bool(value))
-            if key == "created_by":
-                queryset = queryset.filter(created_by=value)
+
         if self.action == "list":
             queryset = queryset.filter(deleted=False).prefetch_related("experiment_set")
 
@@ -233,25 +243,23 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     @action(methods=["GET"], detail=False)
     def local_evaluation(self, request: request.Request, **kwargs):
 
-        feature_flags = (
-            FeatureFlag.objects.filter(team=self.team, deleted=False)
-            .prefetch_related("experiment_set")
-            .select_related("created_by")
-            .order_by("-created_at")
-        )
+        feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(team=self.team, deleted=False)
 
         parsed_flags = []
         for feature_flag in feature_flags:
             filters = feature_flag.get_filters()
-            feature_flag.filters = filters
+            if len(feature_flag.cohort_ids) == 1:
+                feature_flag.filters = {
+                    **filters,
+                    "groups": feature_flag.transform_cohort_filters_for_easy_evaluation(),
+                }
+            else:
+                feature_flag.filters = filters
             parsed_flags.append(feature_flag)
-
-        # TODO: Handle cohorts the same way as feature evaluation would, by simplifying cohort properties to
-        # person properties
 
         return Response(
             {
-                "flags": [FeatureFlagSerializer(feature_flag).data for feature_flag in parsed_flags],
+                "flags": [MinimalFeatureFlagSerializer(feature_flag).data for feature_flag in parsed_flags],
                 "group_type_mapping": {
                     str(row.group_type_index): row.group_type
                     for row in GroupTypeMapping.objects.filter(team_id=self.team_id)

@@ -11,6 +11,7 @@ import { relatedFeatureFlagsLogic, RelatedFeatureFlag } from './relatedFeatureFl
 
 interface Props {
     distinctId: string
+    groups?: { [key: string]: string }
 }
 
 export enum FeatureFlagMatchReason {
@@ -29,11 +30,11 @@ const featureFlagMatchMapping = {
     [FeatureFlagMatchReason.Disabled]: 'Disabled',
 }
 
-export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
+export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element {
     const { filteredMappedFlags, relatedFeatureFlagsLoading, searchTerm, filters } = useValues(
-        relatedFeatureFlagsLogic({ distinctId })
+        relatedFeatureFlagsLogic({ distinctId, groups })
     )
-    const { setSearchTerm, setFilters } = useActions(relatedFeatureFlagsLogic({ distinctId }))
+    const { setSearchTerm, setFilters } = useActions(relatedFeatureFlagsLogic({ distinctId, groups }))
 
     const columns: LemonTableColumns<RelatedFeatureFlag> = [
         {

@@ -151,7 +151,7 @@ class PersonQuery:
         #   We use the result from column_optimizer to figure out counts of all properties to be filtered and queried.
         #   Here, we remove the ones only to be used for filtering.
         # The same property might be present for both querying and filtering, and hence the Counter.
-        properties_to_query = self._column_optimizer._used_properties_with_type("person")
+        properties_to_query = self._column_optimizer.used_properties_with_type("person")
         if self._inner_person_properties:
             properties_to_query -= extract_tables_and_properties(self._inner_person_properties.flat)
 
