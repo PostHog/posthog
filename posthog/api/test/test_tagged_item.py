@@ -42,7 +42,6 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
                 "name": "dashboard new name",
                 "creation_mode": "duplicate",
                 "tags": ["random", "hello"],
-                "description": "Internal system metrics.",
             },
         )
 
@@ -57,12 +56,13 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {"name": "dashboard new name", "description": "Internal system metrics."},
+            {
+                "name": "dashboard new name",
+            },
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "dashboard new name")
-        self.assertEqual(response.json()["description"], "Internal system metrics.")
 
     def test_empty_tags_does_not_delete_tags(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -73,7 +73,7 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {"name": "dashboard new name", "description": "Internal system metrics.", "tags": []},
+            {"name": "dashboard new name", "tags": []},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

@@ -1,145 +1,88 @@
-.taxonomic-property-filter {
+.TaxonomicPropertyFilter {
     width: 100%;
+    overflow: hidden;
 
-    &.in-dropdown {
+    &--in-dropdown {
         width: 900px;
+        max-width: 100%;
         min-width: 300px;
         background: white;
+
+        .TaxonomicPropertyFilter__row__items {
+            > :first-child {
+                width: 10rem;
+            }
+        }
     }
 
-    .taxonomic-filter-row {
-        display: grid;
-        grid-column-gap: 0.5rem;
-        grid-row-gap: 0.25rem;
-        grid-template-columns: 70px minmax(180px, 1fr) minmax(100px, auto);
+    .TaxonomicPropertyFilter__row {
+        display: flex;
+        gap: 0.5rem;
+        overflow: hidden;
 
-        align-items: center;
+        .TaxonomicPropertyFilter__row__operator {
+            flex-shrink: 0;
+            width: 4.5rem;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            height: 40px; // Matches typical row height
 
-        // only setting grid properties here, the rest are below
-        .taxonomic-where {
-            grid-row: 1;
-            grid-column: 1;
-        }
-        .taxonomic-button {
-            grid-row: 1;
-            grid-column: 2;
-        }
-        .taxonomic-operator {
-            grid-row: 1;
-            grid-column: 3;
-        }
-        .taxonomic-value-select {
-            grid-row: 1;
-            grid-column: 4;
-        }
-        .taxonomic-validation-error {
-            color: var(--danger);
-            grid-row: 2;
-            grid-column: 3 / 5;
-        }
-
-        &.logical-operator-filtering {
-            grid-template-columns: 16px minmax(160px, 1fr) minmax(100px, auto);
-        }
-
-        // tiny screens
-        // -> Each element other than the where indicator on its own row
-        &.width-tiny {
-            .taxonomic-where {
-                grid-row: 1;
-                grid-column: 1;
-            }
-            .taxonomic-button {
-                grid-row: 1;
-                grid-column: 2 / 4;
-            }
-            .taxonomic-operator {
-                grid-row: 2;
-                grid-column: 2 / 4;
-            }
-            .taxonomic-value-select {
-                grid-row: 3;
-                grid-column: 2 / 4;
-            }
-            .taxonomic-validation-error {
-                grid-row: 4;
-                grid-column: 2 / 4;
+            .arrow {
+                color: #c4c4c4;
+                font-size: 18px;
+                font-weight: bold;
+                position: relative;
+                user-select: none;
             }
         }
 
-        // small screens
-        // -> Final element "value-select" on its own row
-        &.width-tiny,
-        &.width-small {
-            // @media (max-width: 512px) {
-            grid-template-columns: 50px auto 140px;
+        .TaxonomicPropertyFilter__row__items {
+            flex: 1;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-start;
+            gap: 0.5rem;
+            overflow: hidden;
+        }
 
-            .taxonomic-where {
-                .arrow {
-                    display: none;
+        &.TaxonomicPropertyFilter__row--showing-operators {
+            // Mobile screen - columns
+            &.width-tiny {
+                .TaxonomicPropertyFilter__row__items {
+                    flex-direction: column;
+                    align-items: stretch;
                 }
             }
-            &.logical-operator-filtering {
-                grid-template-columns: 16px auto 140px;
+
+            // small size - force wrapping
+            &.width-small {
+                .TaxonomicPropertyFilter__row__items {
+                    > :first-child {
+                        flex: 1;
+                        min-width: 10rem;
+                    }
+
+                    > :last-child {
+                        width: 100%;
+                    }
+                }
+            }
+
+            &.width-medium {
+                .TaxonomicPropertyFilter__row__items {
+                    > :first-child {
+                        width: 30%;
+                        min-width: 10rem;
+                    }
+                }
             }
         }
 
-        &.width-small {
-            .taxonomic-value-select {
-                grid-row: 2;
-                grid-column: 2 / 4;
-            }
-            .taxonomic-validation-error {
-                grid-row: 3;
-                grid-column: 2 / 4;
+        &.TaxonomicPropertyFilter__row--or-filtering {
+            .TaxonomicPropertyFilter__row__operator {
+                width: 2rem;
             }
         }
-
-        // bigger screens
-        // -> All in a single row
-        &.width-medium,
-        &.width-large {
-            // @media (min-width: 1080px)
-            grid-template-columns: 70px minmax(140px, 160px) minmax(100px, 120px) auto;
-
-            &.logical-operator-filtering {
-                grid-template-columns: 16px minmax(140px, 160px) minmax(70px, 160px) auto;
-            }
-        }
-    }
-
-    .taxonomic-where {
-        height: 32px; // matches antd Select height
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-
-        .arrow {
-            color: #c4c4c4;
-            font-size: 18px;
-            font-weight: bold;
-            padding-left: 6px;
-            padding-right: 8px;
-            position: relative;
-            top: -4px;
-            user-select: none;
-        }
-    }
-
-    .taxonomic-button {
-        display: flex;
-        justify-content: space-between;
-        overflow: hidden;
-        &.add-filter {
-            width: max-content;
-        }
-    }
-
-    .taxonomic-operator {
-        overflow: hidden;
-    }
-
-    .taxonomic-value-select {
-        overflow: hidden;
     }
 }
