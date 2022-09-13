@@ -3,7 +3,7 @@ import dataclasses
 import gzip
 import json
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import DefaultDict, Dict, Generator, List, Optional
 
 from sentry_sdk.api import capture_exception, capture_message
@@ -19,8 +19,18 @@ WindowId = Optional[str]
 
 @dataclasses.dataclass
 class EventActivityData:
-    timestamp: datetime
+    timestamp: int
     is_active: bool
+    event_type: int
+    source_type: Optional[int]
+
+    def to_dict(self):
+        return dict(
+            timestamp=self.timestamp,
+            is_active=self.is_active,
+            event_type=self.event_type,
+            source_type=self.source_type,
+        )
 
 
 @dataclasses.dataclass
@@ -77,6 +87,7 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
                 **events[0]["properties"],
                 "$session_id": session_id,
                 "$window_id": window_id,
+                "$snapshot_events_summary": [x.to_dict() for x in get_events_summary_from_snapshot_data(data_list)],
                 "$snapshot_data": {
                     "chunk_id": id,
                     "chunk_index": index,
@@ -184,8 +195,7 @@ def decompress_chunked_snapshot_data(
         # This pares down the data returned, so we're not passing around a massive object
         if return_only_activity_data:
             events_with_only_activity_data = [
-                {"timestamp": recording_event.get("timestamp"), "is_active": is_active_event(recording_event)}
-                for recording_event in decompressed_data
+                x.to_dict() for x in get_events_summary_from_snapshot_data(decompressed_data)
             ]
             snapshot_data_by_window_id[chunks[0].window_id].extend(events_with_only_activity_data)
 
@@ -226,7 +236,8 @@ def get_active_segments_from_event_list(
 
     active_recording_segments: List[RecordingSegment] = []
     current_active_segment: Optional[RecordingSegment] = None
-    for current_timestamp in active_event_timestamps:
+    for current_timestamp_int in active_event_timestamps:
+        current_timestamp = datetime.fromtimestamp(current_timestamp_int / 1000, timezone.utc)
         # If the time since the last active event is less than the threshold, continue the existing segment
         if current_active_segment and (current_timestamp - current_active_segment.end_time) <= timedelta(
             seconds=activity_threshold_seconds
@@ -248,6 +259,26 @@ def get_active_segments_from_event_list(
         active_recording_segments.append(current_active_segment)
 
     return active_recording_segments
+
+
+def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> List[EventActivityData]:
+    """
+    Extract a minimal representation of the snapshot data events for easier querying
+    """
+    events_summary = [
+        EventActivityData(
+            timestamp=event.get("timestamp", 0),
+            event_type=event.get("type", 0),
+            source_type=event.get("data", {}).get("source"),
+            is_active=is_active_event(event),
+        )
+        for event in snapshot_data
+    ]
+
+    # Not sure why, but events are sometimes slightly out of order
+    events_summary.sort(key=lambda x: x.timestamp)
+
+    return events_summary
 
 
 def generate_inactive_segments_for_range(

@@ -1,6 +1,6 @@
 import dataclasses
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple, cast
 
 from rest_framework.request import Request
@@ -8,13 +8,13 @@ from rest_framework.request import Request
 from posthog.client import sync_execute
 from posthog.helpers.session_recording import (
     DecompressedRecordingData,
-    EventActivityData,
     RecordingSegment,
     SnapshotDataTaggedWithWindowId,
     WindowId,
     decompress_chunked_snapshot_data,
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
+    get_events_summary_from_snapshot_data,
 )
 from posthog.models import SessionRecordingEvent, Team
 
@@ -128,25 +128,14 @@ class SessionRecording:
         # Get the active segments for each window_id
         all_active_segments: List[RecordingSegment] = []
         for window_id, event_list in decompressed_recording_data.snapshot_data_by_window_id.items():
-            events_with_processed_timestamps = [
-                EventActivityData(
-                    timestamp=datetime.fromtimestamp(event.get("timestamp", 0) / 1000, timezone.utc),
-                    is_active=event.get("is_active", False),
-                )
-                for event in event_list
-            ]
-            # Not sure why, but events are sometimes slightly out of order
-            events_with_processed_timestamps.sort(key=lambda x: cast(datetime, x.timestamp))
-
-            active_segments_for_window_id = get_active_segments_from_event_list(
-                events_with_processed_timestamps, window_id
-            )
+            events_summary = get_events_summary_from_snapshot_data(event_list)
+            active_segments_for_window_id = get_active_segments_from_event_list(events_summary, window_id)
 
             all_active_segments.extend(active_segments_for_window_id)
 
             start_and_end_times_by_window_id[window_id] = {
-                "start_time": events_with_processed_timestamps[0].timestamp,
-                "end_time": events_with_processed_timestamps[-1].timestamp,
+                "start_time": events_summary[0].timestamp,
+                "end_time": events_summary[-1].timestamp,
             }
 
         # Sort the active segments by start time. This will interleave active segments

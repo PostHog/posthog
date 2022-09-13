@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     session_id VARCHAR,
     window_id VARCHAR,
     snapshot_data VARCHAR,
+    events_summary VARCHAR,
     created_at DateTime64(6, 'UTC')
     {materialized_columns}
     {extra_fields}
@@ -78,6 +79,7 @@ distinct_id,
 session_id,
 window_id,
 snapshot_data,
+events_summary,
 created_at,
 _timestamp,
 _offset
@@ -116,8 +118,8 @@ DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENT
 
 INSERT_SESSION_RECORDING_EVENT_SQL = (
     lambda: f"""
-INSERT INTO {SESSION_RECORDING_EVENTS_DATA_TABLE()} (uuid, timestamp, team_id, distinct_id, session_id, window_id, snapshot_data, created_at, _timestamp, _offset)
-SELECT %(uuid)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(session_id)s, %(window_id)s, %(snapshot_data)s, %(created_at)s, now(), 0
+INSERT INTO {SESSION_RECORDING_EVENTS_DATA_TABLE()} (uuid, timestamp, team_id, distinct_id, session_id, window_id, snapshot_data, events_summary, created_at, _timestamp, _offset)
+SELECT %(uuid)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(session_id)s, %(window_id)s, %(snapshot_data)s, %(events_summary)s, %(created_at)s, now(), 0
 """
 )
 

@@ -17,6 +17,14 @@ from posthog.helpers.session_recording import (
     preprocess_session_recording_events_for_clickhouse,
 )
 
+MILLISECOND_TIMESTAMP = round(datetime(2019, 1, 1).timestamp() * 1000)
+
+
+def create_activity_data(timestamp: datetime, is_active: bool):
+    return EventActivityData(
+        is_active=is_active, event_type=1, source_type=None, timestamp=round(timestamp.timestamp() * 1000)
+    )
+
 
 def test_preprocess_with_no_recordings():
     events = [{"event": "$pageview"}, {"event": "$pageleave"}]
@@ -88,6 +96,10 @@ def test_compression_and_chunking(raw_snapshot_events, mocker: MockerFixture):
                     "data": "H4sIAAAAAAAC//v/L5qhmkGJoYShkqGAIRXIsmJQYDBi0AGSSgxpDPlACBFTYkhiSGQoAtK1YFlMXcZYdVUB5UuAOkH6YhkAxKw6nnAAAAA=",
                     "has_full_snapshot": True,
                 },
+                "$snapshot_events_summary": [
+                    {"timestamp": 0, "is_active": False, "event_type": 2, "source_type": None},
+                    {"timestamp": 0, "is_active": False, "event_type": 3, "source_type": None},
+                ],
                 "distinct_id": "abc123",
             },
         }
@@ -227,12 +239,12 @@ def test_decompress_data_returning_only_activity_info(chunked_and_compressed_sna
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, return_only_activity_data=True)
     assert paginated_events.snapshot_data_by_window_id == {
         None: [
-            {"timestamp": "2019-01-01T00:00:00.000Z", "is_active": False},
-            {"timestamp": "2019-01-01T00:00:00.000Z", "is_active": False},
+            {"timestamp": 1546300800000, "is_active": False, "event_type": 4, "source_type": None},
+            {"timestamp": 1546300800000, "is_active": False, "event_type": 2, "source_type": None},
         ],
         "1": [
-            {"timestamp": "2019-01-01T00:00:00.000Z", "is_active": False},
-            {"timestamp": "2019-01-01T00:00:00.000Z", "is_active": True},
+            {"timestamp": 1546300800000, "is_active": False, "event_type": 3, "source_type": None},
+            {"timestamp": 1546300800000, "is_active": True, "event_type": 3, "source_type": 2},
         ],
     }
 
@@ -247,17 +259,17 @@ def test_is_active_event():
 def test_get_active_segments_from_event_list():
     base_time = datetime(2019, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     events = [
-        EventActivityData(is_active=False, timestamp=base_time + timedelta(seconds=0)),
-        EventActivityData(is_active=True, timestamp=base_time + timedelta(seconds=10)),
-        EventActivityData(is_active=True, timestamp=base_time + timedelta(seconds=10)),
-        EventActivityData(is_active=True, timestamp=base_time + timedelta(seconds=40)),
-        EventActivityData(is_active=False, timestamp=base_time + timedelta(seconds=60)),
-        EventActivityData(is_active=False, timestamp=base_time + timedelta(seconds=100)),
-        EventActivityData(is_active=True, timestamp=base_time + timedelta(seconds=110)),
-        EventActivityData(is_active=False, timestamp=base_time + timedelta(seconds=120)),
-        EventActivityData(is_active=True, timestamp=base_time + timedelta(seconds=170)),
-        EventActivityData(is_active=True, timestamp=base_time + timedelta(seconds=180)),
-        EventActivityData(is_active=False, timestamp=base_time + timedelta(seconds=200)),
+        create_activity_data(is_active=False, timestamp=(base_time + timedelta(seconds=0))),
+        create_activity_data(is_active=True, timestamp=(base_time + timedelta(seconds=10))),
+        create_activity_data(is_active=True, timestamp=(base_time + timedelta(seconds=10))),
+        create_activity_data(is_active=True, timestamp=(base_time + timedelta(seconds=40))),
+        create_activity_data(is_active=False, timestamp=(base_time + timedelta(seconds=60))),
+        create_activity_data(is_active=False, timestamp=(base_time + timedelta(seconds=100))),
+        create_activity_data(is_active=True, timestamp=(base_time + timedelta(seconds=110))),
+        create_activity_data(is_active=False, timestamp=(base_time + timedelta(seconds=120))),
+        create_activity_data(is_active=True, timestamp=(base_time + timedelta(seconds=170))),
+        create_activity_data(is_active=True, timestamp=(base_time + timedelta(seconds=180))),
+        create_activity_data(is_active=False, timestamp=(base_time + timedelta(seconds=200))),
     ]
     active_segments = get_active_segments_from_event_list(events, window_id="1", activity_threshold_seconds=60)
     assert active_segments == [
@@ -278,7 +290,7 @@ def test_get_active_segments_from_event_list():
 
 def test_get_active_segments_from_single_event():
     base_time = datetime(2019, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    events = [EventActivityData(is_active=True, timestamp=base_time)]
+    events = [create_activity_data(is_active=True, timestamp=base_time)]
     active_segments = get_active_segments_from_event_list(events, window_id="1", activity_threshold_seconds=60)
     assert active_segments == [
         RecordingSegment(start_time=base_time, end_time=base_time, window_id="1", is_active=True)
@@ -288,8 +300,8 @@ def test_get_active_segments_from_single_event():
 def test_get_active_segments_from_no_active_events():
     base_time = datetime(2019, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     events = [
-        EventActivityData(is_active=False, timestamp=base_time),
-        EventActivityData(is_active=False, timestamp=base_time + timedelta(seconds=110)),
+        create_activity_data(is_active=False, timestamp=base_time),
+        create_activity_data(is_active=False, timestamp=base_time + timedelta(seconds=110)),
     ]
     active_segments = get_active_segments_from_event_list(events, window_id="1", activity_threshold_seconds=60)
     assert active_segments == []
@@ -419,7 +431,7 @@ def chunked_and_compressed_snapshot_events():
             "event": "$snapshot",
             "properties": {
                 "$session_id": "1234",
-                "$snapshot_data": {"type": 4, "foo": "bar", "timestamp": "2019-01-01T00:00:00.000Z"},
+                "$snapshot_data": {"type": 4, "foo": "bar", "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -427,7 +439,7 @@ def chunked_and_compressed_snapshot_events():
             "event": "$snapshot",
             "properties": {
                 "$session_id": "1234",
-                "$snapshot_data": {"type": 2, "foo": "bar", "timestamp": "2019-01-01T00:00:00.000Z"},
+                "$snapshot_data": {"type": 2, "foo": "bar", "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -438,7 +450,7 @@ def chunked_and_compressed_snapshot_events():
             "properties": {
                 "$session_id": "1234",
                 "$window_id": "1",
-                "$snapshot_data": {"type": 3, "foo": "bar", "timestamp": "2019-01-01T00:00:00.000Z"},
+                "$snapshot_data": {"type": 3, "foo": "bar", "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -450,7 +462,7 @@ def chunked_and_compressed_snapshot_events():
                 "$snapshot_data": {
                     "type": 3,
                     "foo": "bar",
-                    "timestamp": "2019-01-01T00:00:00.000Z",
+                    "timestamp": MILLISECOND_TIMESTAMP,
                     "data": {"source": 2},
                 },
                 "distinct_id": "abc123",

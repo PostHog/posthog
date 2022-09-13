@@ -857,6 +857,7 @@ export interface RawSessionRecordingEvent {
     session_id: string
     window_id: string
     snapshot_data: string
+    events_summary: string
     created_at: string
 }
 
