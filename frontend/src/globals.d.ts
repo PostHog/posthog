@@ -14,6 +14,7 @@ declare global {
         POSTHOG_EXPORTED_DATA: ExportedData
         BOOTSTRAP?: {
             distinctID: string
+            isIdentifiedID: boolean
             featureFlags: Record<string, boolean | string>
         }
     }

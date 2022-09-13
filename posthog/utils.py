@@ -303,6 +303,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     posthog_bootstrap: Dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
+    is_identified_id: bool = False
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
@@ -323,6 +324,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             user_serialized = UserSerializer(request.user, context={"request": request}, many=False)
             posthog_app_context["current_user"] = user_serialized.data
             posthog_distinct_id = user_serialized.data.get("distinct_id")
+            is_identified_id = True
             team = cast(User, request.user).team
             if team:
                 team_serialized = TeamSerializer(team, context={"request": request}, many=False)
@@ -337,6 +339,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     feature_flags = posthoganalytics.get_all_flags(posthog_distinct_id, only_evaluate_locally=True)
     posthog_bootstrap["distinctID"] = posthog_distinct_id
     posthog_bootstrap["featureFlags"] = feature_flags
+    posthog_bootstrap["isIdentifiedID"] = is_identified_id
 
     context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
