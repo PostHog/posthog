@@ -1,7 +1,7 @@
 import hashlib
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from django.core.cache import cache
 from django.db import models
@@ -12,13 +12,14 @@ from django.db.models.signals import pre_delete
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
+from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex, GroupTypeName
-from posthog.models.property.property import Property
+from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
 from posthog.queries.base import match_property, properties_to_Q
 
@@ -33,6 +34,24 @@ class FeatureFlagMatchReason(str, Enum):
     NO_CONDITION_MATCH = "no_condition_match"
     OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
     NO_GROUP_TYPE = "no_group_type"
+
+    def score(self):
+        if self == FeatureFlagMatchReason.CONDITION_MATCH:
+            return 3
+        if self == FeatureFlagMatchReason.NO_GROUP_TYPE:
+            return 2
+        if self == FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
+            return 1
+        if self == FeatureFlagMatchReason.NO_CONDITION_MATCH:
+            return 0
+
+        return -1
+
+    def __lt__(self, other):
+        if self.__class__ is other.__class__:
+            return self.score() < other.score()
+
+        raise NotImplementedError(f"Cannot compare {self.__class__} and {other.__class__}")
 
 
 @dataclass(frozen=True)
@@ -110,14 +129,119 @@ class FeatureFlag(models.Model):
                 ]
             }
 
+    def transform_cohort_filters_for_easy_evaluation(self):
+        """
+        Expands cohort filters into person property filters when possible.
+        This allows for easy local flag evaluation.
+        """
+        # Expansion depends on number of conditions on the flag.
+        # If flag has only the cohort condition, we get more freedom to maneuver in the cohort expansion.
+        # If flag has multiple conditions, we can only expand the cohort condition if it's a single property group.
+        # Also support only a single cohort expansion. i.e. a flag with multiple cohort conditions will not be expanded.
+        # Few more edge cases are possible here, where expansion is possible, but it doesn't seem
+        # worth it trying to catch all of these.
+
+        if len(self.cohort_ids) != 1:
+            return self.conditions
+
+        cohort_group_rollout = None
+        cohort: Optional[Cohort] = None
+
+        parsed_conditions = []
+        for condition in self.conditions:
+            cohort_condition = False
+            props = condition.get("properties", [])
+            cohort_group_rollout = condition.get("rollout_percentage")
+            for prop in props:
+                if prop.get("type") == "cohort":
+                    cohort_condition = True
+                    cohort_id = prop.get("value")
+                    if cohort_id:
+                        if len(props) > 1:
+                            # We cannot expand this cohort condition if it's not the only property in its group.
+                            return self.conditions
+                        try:
+                            cohort = Cohort.objects.get(pk=cohort_id)
+                        except Cohort.DoesNotExist:
+                            return self.conditions
+            if not cohort_condition:
+                # flag group without a cohort filter, let it be as is.
+                parsed_conditions.append(condition)
+
+        if not cohort or len(cohort.properties.flat) == 0:
+            return self.conditions
+
+        if not all(property.type == "person" for property in cohort.properties.flat):
+            return self.conditions
+
+        # all person properties, so now if we can express the cohort as feature flag groups, we'll be golden.
+
+        # If there's only one effective property group, we can always express this as feature flag groups.
+        # A single ff group, if cohort properties are AND'ed together.
+        # Multiple ff groups, if cohort properties are OR'ed together.
+        from posthog.models.property.util import clear_excess_levels
+
+        target_properties = clear_excess_levels(cohort.properties)
+
+        if isinstance(target_properties, Property):
+            # cohort was effectively a single property.
+            parsed_conditions.append(
+                {
+                    "properties": [target_properties.to_dict()],
+                    "rollout_percentage": cohort_group_rollout,
+                }
+            )
+
+        elif isinstance(target_properties.values[0], Property):
+            # Property Group of properties
+            if target_properties.type == PropertyOperatorType.AND:
+                parsed_conditions.append(
+                    {
+                        "properties": [prop.to_dict() for prop in target_properties.values],
+                        "rollout_percentage": cohort_group_rollout,
+                    }
+                )
+            else:
+                # cohort OR requires multiple ff group
+                for prop in target_properties.values:
+                    parsed_conditions.append(
+                        {
+                            "properties": [prop.to_dict()],
+                            "rollout_percentage": cohort_group_rollout,
+                        }
+                    )
+        else:
+            # If there's nested property groups, we need to express that as OR of ANDs.
+            # Being a bit dumb here, and not trying to apply De Morgan's law to coerce AND of ORs into OR of ANDs.
+            if target_properties.type == PropertyOperatorType.AND:
+                return self.conditions
+
+            for prop_group in cast(List[PropertyGroup], target_properties.values):
+                if (
+                    len(prop_group.values) == 0
+                    or not isinstance(prop_group.values[0], Property)
+                    or (prop_group.type == PropertyOperatorType.OR and len(prop_group.values) > 1)
+                ):
+                    # too nested or invalid, bail out
+                    return self.conditions
+
+                parsed_conditions.append(
+                    {
+                        "properties": [prop.to_dict() for prop in prop_group.values],
+                        "rollout_percentage": cohort_group_rollout,
+                    }
+                )
+
+        return parsed_conditions
+
     @property
     def cohort_ids(self) -> List[int]:
         cohort_ids = []
         for condition in self.conditions:
             props = condition.get("properties", [])
             for prop in props:
-                if prop.get("type", None) == "cohort":
-                    cohort_id = prop.get("value", None)
+                if prop.get("type") == "cohort":
+                    cohort_id = prop.get("value")
                     if cohort_id:
                         cohort_ids.append(cohort_id)
         return cohort_ids
@@ -196,8 +320,8 @@ class FeatureFlagMatcher:
         if self.hashed_identifier(feature_flag) is None:
             return FeatureFlagMatch(match=False, reason=FeatureFlagMatchReason.NO_GROUP_TYPE)
 
-        last_seen_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
-        last_index = 0
+        highest_priority_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
+        highest_priority_index = 0
         for index, condition in enumerate(feature_flag.conditions):
             is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, index)
             if is_match:
@@ -208,10 +332,13 @@ class FeatureFlagMatcher:
                     condition_index=index,
                 )
 
-            last_seen_evaluation_reason = evaluation_reason
-            last_index = index
+            highest_priority_evaluation_reason, highest_priority_index = self.get_highest_priority_match_evaluation(
+                highest_priority_evaluation_reason, highest_priority_index, evaluation_reason, index
+            )
 
-        return FeatureFlagMatch(match=False, reason=last_seen_evaluation_reason, condition_index=last_index)
+        return FeatureFlagMatch(
+            match=False, reason=highest_priority_evaluation_reason, condition_index=highest_priority_index
+        )
 
     def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
         flags_enabled = {}
@@ -402,6 +529,18 @@ class FeatureFlagMatcher:
             if property.operator == "is_not_set":
                 return False
         return True
+
+    def get_highest_priority_match_evaluation(
+        self,
+        current_match: FeatureFlagMatchReason,
+        current_index: int,
+        new_match: FeatureFlagMatchReason,
+        new_index: int,
+    ):
+        if current_match <= new_match:
+            return new_match, new_index
+
+        return current_match, current_index
 
 
 def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:

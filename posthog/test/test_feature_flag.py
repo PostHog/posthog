@@ -19,6 +19,428 @@ from posthog.models.group import Group
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
+class TestFeatureFlagCohortExpansion(BaseTest):
+
+    maxDiff = None
+
+    def test_cohort_expansion(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {"properties": [{"key": "email", "value": ["@posthog.com"], "type": "person", "operator": "icontains"}]}
+            ],
+        )
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
+        )
+        self.assertEqual(
+            flag.transform_cohort_filters_for_easy_evaluation(),
+            [
+                {
+                    "properties": [
+                        {"key": "email", "operator": "icontains", "type": "person", "value": ["@posthog.com"]}
+                    ],
+                    "rollout_percentage": None,
+                }
+            ],
+        )
+
+    def test_cohort_expansion_multiple_properties(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {"key": "email", "value": ["@posthog.com"], "type": "person", "operator": "icontains"},
+                        {"key": "name", "value": ["posthog"], "type": "person", "operator": "icontains"},
+                    ]
+                }
+            ],
+        )
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
+        )
+        self.assertEqual(
+            flag.transform_cohort_filters_for_easy_evaluation(),
+            [
+                {
+                    "properties": [
+                        {"key": "email", "operator": "icontains", "type": "person", "value": ["@posthog.com"]},
+                        {"key": "name", "value": ["posthog"], "type": "person", "operator": "icontains"},
+                    ],
+                    "rollout_percentage": None,
+                }
+            ],
+        )
+
+    def test_cohort_property_group(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50}
+                ]
+            },
+        )
+        self.assertEqual(
+            flag.transform_cohort_filters_for_easy_evaluation(),
+            [
+                {
+                    "properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}],
+                    "rollout_percentage": 50,
+                },
+                {
+                    "properties": [{"key": "$some_prop2", "value": "nomatchihope2", "type": "person"}],
+                    "rollout_percentage": 50,
+                },
+            ],
+        )
+
+    def test_behavioral_cohorts(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 1,
+                                    "time_interval": "week",
+                                    "value": "performed_event",
+                                    "type": "behavioral",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50}
+                ]
+            },
+        )
+        self.assertEqual(
+            flag.transform_cohort_filters_for_easy_evaluation(),
+            [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50}],
+        )
+
+    def test_multiple_cohorts(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort2",
+        )
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50},
+                    {"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}], "rollout_percentage": 50},
+                ]
+            },
+        )
+
+        # even though it's technically possible to express this specific case in feature flag terms,
+        # the effort isn't worth it. Complexity here leads to bugs, where correctness is paramount.
+        self.assertEqual(flag.transform_cohort_filters_for_easy_evaluation(), flag.conditions)
+
+    def test_cohort_thats_impossible_to_expand(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "$some_prop3", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop4", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        },
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50},
+                ]
+            },
+        )
+
+        self.assertEqual(flag.transform_cohort_filters_for_easy_evaluation(), flag.conditions)
+
+    def test_feature_flag_preventing_simple_cohort_expansion(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "id", "value": cohort.pk, "type": "cohort"},
+                            {"key": "name", "value": "name", "type": "person"},
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                ]
+            },
+        )
+
+        self.assertEqual(flag.transform_cohort_filters_for_easy_evaluation(), flag.conditions)
+
+    def test_feature_flag_with_additional_conditions_playing_well_with_complex_cohort_expansion(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "$name", "value": "nomatchihope", "type": "person"},
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "$email", "value": "nomatchihope", "type": "person"},
+                            ],
+                        },
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "name_above", "value": "name", "type": "person"}],
+                        "rollout_percentage": 50,
+                    },
+                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50},
+                    {"properties": [{"key": "name", "value": "name", "type": "person"}], "rollout_percentage": 50},
+                ]
+            },
+        )
+
+        self.assertEqual(
+            flag.transform_cohort_filters_for_easy_evaluation(),
+            [
+                {"properties": [{"key": "name_above", "value": "name", "type": "person"}], "rollout_percentage": 50},
+                {"properties": [{"key": "name", "value": "name", "type": "person"}], "rollout_percentage": 50},
+                {
+                    "properties": [
+                        {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                        {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                    ],
+                    "rollout_percentage": 50,
+                },
+                {
+                    "properties": [
+                        {"key": "$name", "value": "nomatchihope", "type": "person"},
+                    ],
+                    "rollout_percentage": 50,
+                },
+                {
+                    "properties": [
+                        {"key": "$email", "value": "nomatchihope", "type": "person"},
+                    ],
+                    "rollout_percentage": 50,
+                },
+            ],
+        )
+
+    def test_complex_cohort_expansion_that_is_simplified_via_clearing_excess_levels(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                            ],
+                        },
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$name", "value": "nomatchihope", "type": "person"},
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "$email", "value": "nomatchihope", "type": "person"},
+                            ],
+                        },
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50},
+                    {"properties": [{"key": "name", "value": "name", "type": "person"}], "rollout_percentage": 50},
+                ]
+            },
+        )
+
+        self.assertEqual(
+            flag.transform_cohort_filters_for_easy_evaluation(),
+            [
+                {"properties": [{"key": "name", "value": "name", "type": "person"}], "rollout_percentage": 50},
+                {
+                    "properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}],
+                    "rollout_percentage": 50,
+                },
+                {"properties": [{"key": "$name", "value": "nomatchihope", "type": "person"}], "rollout_percentage": 50},
+                {
+                    "properties": [{"key": "$email", "value": "nomatchihope", "type": "person"}],
+                    "rollout_percentage": 50,
+                },
+            ],
+        )
+
+
 class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
     maxDiff = None
 
@@ -597,6 +1019,77 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
+
+    def test_cohort_expansion_returns_same_result_as_regular_flag(self):
+        Person.objects.create(team=self.team, distinct_ids=["example_id_4"], properties={"$some_prop1": "something1"})
+        Person.objects.create(team=self.team, distinct_ids=["example_id_5"], properties={"$some_prop2": "something2"})
+        Person.objects.create(team=self.team, distinct_ids=["example_id_6"], properties={"$some_prop": "something"})
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop1", "value": "something1", "type": "person"},
+                                {"key": "$some_prop2", "value": "something2", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        cohort.calculate_people_ch(pending_version=0)
+
+        ff_key = "cohort-exp"
+
+        feature_flag: FeatureFlag = self.create_feature_flag(
+            key=ff_key,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 28}
+                ]
+            },
+        )
+
+        feature_flag.update_cohorts()
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id_4").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id_5").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+        matches = []
+        for i in range(1, 7):
+            distinct_id = f"example_id_{i}"
+            match = FeatureFlagMatcher([feature_flag], distinct_id).get_match(feature_flag)
+            matches.append((match.match, match.reason))
+
+        expanded_filters = feature_flag.transform_cohort_filters_for_easy_evaluation()
+        feature_flag.delete()
+
+        feature_flag_expanded: FeatureFlag = self.create_feature_flag(key=ff_key, filters={"groups": expanded_filters})
+
+        expanded_matches = []
+        for i in range(1, 7):
+            distinct_id = f"example_id_{i}"
+            match = FeatureFlagMatcher([feature_flag_expanded], distinct_id).get_match(feature_flag_expanded)
+            expanded_matches.append((match.match, match.reason))
+
+        self.assertEqual(matches, expanded_matches)
 
     def test_user_in_static_cohort(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["example_id_1"])

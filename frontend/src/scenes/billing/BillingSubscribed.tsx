@@ -28,7 +28,7 @@ export function BillingSubscribedTheme({ children }: PropsWithChildren<unknown>)
 }
 
 export function BillingSubscribed(): JSX.Element {
-    const { billing } = useValues(billingLogic)
+    const { billing, billingSuccessRedirect } = useValues(billingLogic)
 
     return (
         <BillingSubscribedTheme>
@@ -56,7 +56,7 @@ export function BillingSubscribed(): JSX.Element {
                 Please reach out to <a href="mailto:hey@posthog.com">hey@posthog.com</a> if you have any billing
                 questions.
             </p>
-            <LemonButton className="cta-button" type="primary" center={true} fullWidth to="/">
+            <LemonButton className="cta-button" type="primary" center={true} fullWidth to={billingSuccessRedirect}>
                 Finish
             </LemonButton>
         </BillingSubscribedTheme>
