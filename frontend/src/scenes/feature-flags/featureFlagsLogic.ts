@@ -69,7 +69,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     searchedFlags = searchedFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
                 }
                 if (created_by) {
-                    searchedFlags = searchedFlags.filter(flag => flag.created_by.id === parseInt(created_by))
+                    searchedFlags = searchedFlags.filter((flag) => flag.created_by.id === parseInt(created_by))
                 }
                 return searchedFlags
             },
