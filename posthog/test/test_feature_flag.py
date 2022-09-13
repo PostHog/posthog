@@ -2,7 +2,6 @@ from typing import cast
 
 from django.db import connection
 from django.utils import timezone
-from rest_framework import status
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import (
