@@ -689,6 +689,7 @@ export enum PersonsTabType {
     COHORTS = 'cohorts',
     RELATED = 'related',
     HISTORY = 'history',
+    FEATURE_FLAGS = 'featureFlags',
 }
 
 export enum LayoutView {
@@ -759,7 +760,7 @@ export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean
     plan: PlanInterface | null
-    billing_period_ends: string
+    billing_period_ends: string | null
     event_allocation: number | null
     current_usage: number | null
     subscription_url: string
@@ -768,7 +769,7 @@ export interface BillingType {
     should_display_current_bill: boolean
     billing_limit: number | null
     billing_limit_exceeded: boolean | null
-    current_bill_cycle: CurrentBillCycleType
+    current_bill_cycle: CurrentBillCycleType | null
     tiers: BillingTierType[] | null
 }
 
@@ -1572,7 +1573,7 @@ export interface PropertyDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null
+    volume_30_day?: number | null // TODO: Deprecated, replace or remove
     query_usage_30_day?: number | null
     updated_at?: string
     updated_by?: UserBasicType | null
@@ -2044,4 +2045,9 @@ export interface SessionRecordingPlayerProps {
     sessionRecordingId: SessionRecordingId
     playerKey: string
     includeMeta?: boolean
+}
+
+export enum FeatureFlagReleaseType {
+    ReleaseToggle = 'Release toggle',
+    Variants = 'Multiple variants',
 }

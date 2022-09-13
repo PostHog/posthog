@@ -63,7 +63,7 @@ export const insightsModel = kea<insightsModelType>({
             const updatedItem = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`, {
                 dashboards,
             })
-            dashboardsModel.actions.updateDashboardItem(updatedItem, [fromDashboard, toDashboard])
+            dashboardsModel.actions.updateDashboardInsight(updatedItem, [fromDashboard])
 
             lemonToast.success(
                 <>
@@ -83,7 +83,7 @@ export const insightsModel = kea<insightsModelType>({
                                 }
                             )
                             lemonToast.success('Panel move reverted')
-                            dashboardsModel.actions.updateDashboardItem(restoredItem, [fromDashboard, toDashboard])
+                            dashboardsModel.actions.updateDashboardInsight(restoredItem, [toDashboard])
                         },
                     },
                 }

@@ -1040,22 +1040,6 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
         return None
 
 
-def should_write_recordings_to_object_storage(team_id: Optional[int]) -> bool:
-    return (
-        team_id is not None
-        and settings.OBJECT_STORAGE_ENABLED
-        and team_id == settings.WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM
-    )
-
-
-def should_read_recordings_from_object_storage(team_id: Optional[int]) -> bool:
-    return (
-        team_id is not None
-        and settings.OBJECT_STORAGE_ENABLED
-        and team_id == settings.READ_RECORDINGS_FROM_OBJECT_STORAGE_FOR_TEAM
-    )
-
-
 def generate_short_id():
     """Generate securely random 8 characters long alphanumeric ID."""
     return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))

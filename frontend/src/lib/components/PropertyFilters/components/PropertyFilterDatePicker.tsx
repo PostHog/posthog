@@ -20,7 +20,6 @@ interface PropertyFilterDatePickerProps {
     operator: PropertyOperator
     setValue: (newValue: PropertyValueProps['value']) => void
     value: string | number | (string | number)[] | null | undefined
-    style: Partial<React.CSSProperties>
 }
 
 const dateAndTimeFormat = 'YYYY-MM-DD HH:mm:ss'
@@ -31,7 +30,6 @@ export function PropertyFilterDatePicker({
     operator,
     setValue,
     value,
-    style,
 }: PropertyFilterDatePickerProps): JSX.Element {
     // if ten characters then value is YYYY-MM-DD not YYYY-MM-DD HH:mm:ss
     const valueIsYYYYMMDD = narrowToString(value) && value?.length === 10
@@ -47,12 +45,10 @@ export function PropertyFilterDatePicker({
 
     return (
         <DatePicker
-            style={style}
             autoFocus={autoFocus}
             open={datePickerOpen}
             inputReadOnly={false}
-            className={'filter-date-picker'}
-            dropdownClassName={'filter-date-picker-dropdown'}
+            className={'filter-date-picker w-full h-10'}
             format={dateFormat}
             showTime={includeTimeInFilter}
             showNow={false}

@@ -79,7 +79,7 @@ describe('Dashboard', () => {
         cy.get('button').contains('Create').click()
 
         cy.contains('New Dashboard').should('exist')
-        cy.get('.empty-state').should('exist')
+        cy.get('.EmptyDashboard').should('exist')
 
         // Check that dashboard is not pinned by default
         cy.get('.page-buttons [data-attr="dashboard-three-dots-options-menu"]').click()

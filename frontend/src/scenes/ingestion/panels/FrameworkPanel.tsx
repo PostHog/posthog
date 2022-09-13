@@ -7,12 +7,12 @@ import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 
 export function FrameworkPanel(): JSX.Element {
-    const { setPlatform, setFramework } = useActions(ingestionLogic)
-    const { platform, index } = useValues(ingestionLogic)
+    const { setFramework } = useActions(ingestionLogic)
+    const { platform } = useValues(ingestionLogic)
     const frameworks = platform === BACKEND ? webFrameworks : mobileFrameworks
 
     return (
-        <CardContainer index={index} onBack={() => setPlatform(null)}>
+        <CardContainer>
             <div className="FrameworkPanel">
                 <h1 className="ingestion-title">
                     {platform === BACKEND ? 'Choose the framework your app is built in' : 'Pick a mobile platform'}
