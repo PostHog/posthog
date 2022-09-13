@@ -1,5 +1,5 @@
 import random
-from typing import Dict
+from typing import Dict, List, Optional, Union
 
 from rest_framework import status
 
@@ -13,12 +13,12 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     demo_team: Team = None  # type: ignore
 
-    EXPECTED_PROPERTY_DEFINITIONS = [
+    EXPECTED_PROPERTY_DEFINITIONS: List[Dict[str, Union[str, Optional[int], bool]]] = [
         {"name": "$browser", "query_usage_30_day": None, "is_numerical": False},
-        {"name": "$current_url", "query_usage_30_day": None, "is_numerical": False},
+        {"name": "$current_url", "query_usage_30_day": 3, "is_numerical": False},
         {"name": "is_first_movie", "query_usage_30_day": None, "is_numerical": False},
-        {"name": "app_rating", "query_usage_30_day": None, "is_numerical": True},
-        {"name": "plan", "query_usage_30_day": None, "is_numerical": False},
+        {"name": "app_rating", "query_usage_30_day": 1, "is_numerical": True},
+        {"name": "plan", "query_usage_30_day": 1, "is_numerical": False},
         {"name": "purchase", "query_usage_30_day": None, "is_numerical": True},
         {"name": "purchase_value", "query_usage_30_day": None, "is_numerical": True},
         {"name": "first_visit", "query_usage_30_day": None, "is_numerical": False},
@@ -29,11 +29,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         random.seed(900)
         super().setUpTestData()
         cls.demo_team = create_demo_team(cls.organization)
-        calculate_event_property_usage_for_team(cls.demo_team.pk)
         cls.user.current_team = cls.demo_team
         cls.user.save()
         EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="$browser")
         EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="first_visit")
+        calculate_event_property_usage_for_team(cls.demo_team.pk)
 
     def test_individual_property_formats(self):
         property = PropertyDefinition.objects.create(
@@ -52,7 +52,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         for item in self.EXPECTED_PROPERTY_DEFINITIONS:
             response_item: Dict = next((_i for _i in response.json()["results"] if _i["name"] == item["name"]), {})
-            self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"])
+            self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"], item)
             self.assertEqual(response_item["is_numerical"], item["is_numerical"])
 
     def test_list_numerical_property_definitions(self):
@@ -74,7 +74,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 308)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
-        self.assertEqual(response.json()["results"][0]["name"], "$browser")  # Order by name (ascending)
+        self.assertEqual(
+            response.json()["results"][0]["name"], "$current_url", [r["name"] for r in response.json()["results"]]
+        )
 
         property_checkpoints = [
             182,
@@ -137,7 +139,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             "/api/projects/@current/property_definitions/?search=%24&event_names=%5B%22%24pageview%22%5D"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["count"], 2, response.json()["results"])
         self.assertEqual(response.json()["results"][0]["name"], "$browser")
         self.assertEqual(response.json()["results"][0]["is_event_property"], True)
         self.assertEqual(response.json()["results"][1]["name"], "$current_url")

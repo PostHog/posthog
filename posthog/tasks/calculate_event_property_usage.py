@@ -165,6 +165,13 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
 
         events_volume = _get_events_volume(team_id, since)
         for event, (volume, last_seen_at) in events_volume.items():
+            if event not in event_definitions:
+                logger.info(
+                    "calculate_event_property_usage_for_team.event_volume_found_for_event_with_no_definition",
+                    team_id=team_id,
+                    event_name=event,
+                )
+                continue
             event_definitions[event].volume_30_day = volume
             event_definitions[event].last_seen_at = last_seen_at
 
