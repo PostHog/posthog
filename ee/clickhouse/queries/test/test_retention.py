@@ -61,7 +61,7 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [[1, 1, 0, 1, 1, 0, 1], [1, 0, 1, 1, 0, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [1, 0, 1], [0, 0], [1],],
+            [[1, 1, 0, 1, 1, 0, 1], [1, 0, 1, 1, 0, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [1, 0, 1], [0, 0], [1]],
         )
 
         result = Retention().run(
@@ -81,7 +81,7 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
+            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
         )
 
     # TODO: Delete this test when moved to person-on-events
@@ -101,7 +101,7 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
         result = Retention().run(filter, self.team)
         self.assertEqual(
             pluck(result, "values", "count"),
-            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
+            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
         )
 
         actor_result = Retention().actors(filter.with_data({"selected_interval": 0}), self.team)
@@ -121,7 +121,7 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
         result = Retention().run(filter, self.team)
         self.assertEqual(
             pluck(result, "values", "count"),
-            [[1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [1, 0, 0, 1], [0, 0, 0], [0, 0], [1],],
+            [[1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [1, 0, 0, 1], [0, 0, 0], [0, 0], [1]],
         )
 
     # TODO: Delete this test when moved to person-on-events
@@ -172,7 +172,7 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
 
             self.assertEqual(
                 pluck(result, "values", "count"),
-                [[1, 1, 0, 1, 1, 0, 1], [1, 0, 1, 1, 0, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [1, 0, 1], [0, 0], [1],],
+                [[1, 1, 0, 1, 1, 0, 1], [1, 0, 1, 1, 0, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [1, 0, 1], [0, 0], [1]],
             )
 
             result = Retention().run(
@@ -198,7 +198,7 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
 
             self.assertEqual(
                 pluck(result, "values", "count"),
-                [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
+                [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
             )
 
     @test_with_materialized_columns(group_properties=[(0, "industry")])
@@ -221,7 +221,7 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
             result = Retention().run(filter, self.team)
             self.assertEqual(
                 pluck(result, "values", "count"),
-                [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
+                [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
             )
 
             actor_result = Retention().actors(filter.with_data({"selected_interval": 0}), self.team)
@@ -241,7 +241,7 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
             result = Retention().run(filter, self.team)
             self.assertEqual(
                 pluck(result, "values", "count"),
-                [[1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [1, 0, 0, 1], [0, 0, 0], [0, 0], [1],],
+                [[1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [1, 0, 0, 1], [0, 0, 0], [0, 0], [1]],
             )
 
     @test_with_materialized_columns(group_properties=[(0, "industry")])

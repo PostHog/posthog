@@ -158,22 +158,20 @@ def get_decide(request: HttpRequest):
                     ),
                 )
 
-            property_overrides = (
-                get_geoip_properties(get_ip_address(request)) if team.geoip_property_overrides_enabled else {}
-            )
+            property_overrides = get_geoip_properties(get_ip_address(request))
+            all_property_overrides = {**property_overrides, **(data.get("person_properties") or {})}
 
-            feature_flags = get_active_feature_flags(
+            feature_flags, _ = get_active_feature_flags(
                 team.pk,
                 data["distinct_id"],
-                data.get("groups", {}),
+                data.get("groups") or {},
                 hash_key_override=data.get("$anon_distinct_id"),
-                property_value_overrides=property_overrides,
+                property_value_overrides=all_property_overrides,
+                group_property_value_overrides=(data.get("group_properties") or {}),
             )
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
-    statsd.incr(
-        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide",},
-    )
+    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))

@@ -61,7 +61,6 @@ export class JobQueueManager implements JobQueue {
     async enqueue(jobName: string, job: EnqueuedJob, instrumentationContext?: InstrumentationContext): Promise<void> {
         const jobType = 'type' in job ? job.type : 'buffer'
         const jobPayload = 'payload' in job ? job.payload : job.eventPayload
-        const pluginServerMode = this.pluginsServer.PLUGIN_SERVER_MODE ?? 'full'
         await instrument(
             this.pluginsServer.statsd,
             {
@@ -76,9 +75,11 @@ export class JobQueueManager implements JobQueue {
                     hub: this.pluginsServer,
                     metricName: 'job_queues_enqueue',
                     metricTags: {
-                        pluginServerMode,
                         jobName,
                     },
+                    maxAttempts: 10,
+                    retryBaseMs: 6000,
+                    retryMultiplier: 2,
                     tryFn: async () => this._enqueue(jobName, job),
                     catchFn: () => status.error('🔴', 'Exhausted attempts to enqueue job.'),
                     payload: job,

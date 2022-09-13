@@ -32,7 +32,7 @@ def saml_metadata_view(request, *args, **kwargs):
         raise PermissionDenied("You need to be an administrator or owner to access this resource.")
 
     complete_url = reverse("social:complete", args=("saml",))
-    saml_backend = load_backend(load_strategy(request), "saml", redirect_uri=complete_url,)
+    saml_backend = load_backend(load_strategy(request), "saml", redirect_uri=complete_url)
     metadata, errors = saml_backend.generate_metadata_xml()
 
     if not errors:

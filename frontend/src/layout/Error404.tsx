@@ -1,10 +1,11 @@
 import React from 'react'
-import { PageHeader } from 'lib/components/PageHeader'
+
+import { NotFound } from 'lib/components/NotFound'
 
 export function Error404(): JSX.Element {
     return (
-        <PageHeader
-            title="Page not found"
+        <NotFound
+            object="page"
             caption="The page you were looking for is not here. Please use the navigation and try again."
         />
     )

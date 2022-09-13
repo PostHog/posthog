@@ -4,10 +4,6 @@ import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/T
 import React, { useEffect, useState } from 'react'
 import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from 'lib/components/LemonButton'
 import { IconArrowDropDown, IconClose } from 'lib/components/icons'
-import clsx from 'clsx'
-import { Button } from 'antd'
-import { Popup } from 'lib/components/Popup/Popup'
-import { DownOutlined } from '@ant-design/icons'
 
 export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {
@@ -46,41 +42,39 @@ export function TaxonomicPopup({
     dataAttr,
     eventNames = [],
     placeholder = 'Please select',
-    style,
     fullWidth = true,
 }: TaxonomicPopupProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
     return (
-        <Popup
-            overlay={
-                <TaxonomicFilter
-                    groupType={groupType}
-                    value={value}
-                    onChange={({ type }, payload) => {
-                        onChange?.(payload, type)
-                        setVisible(false)
-                    }}
-                    taxonomicGroupTypes={groupTypes ?? [groupType]}
-                    eventNames={eventNames}
-                />
-            }
-            visible={visible}
-            onClickOutside={() => setVisible(false)}
+        <LemonButtonWithPopup
+            data-attr={dataAttr}
+            status="stealth"
+            popup={{
+                onClickOutside: () => setVisible(false),
+                overlay: (
+                    <TaxonomicFilter
+                        groupType={groupType}
+                        value={value}
+                        onChange={({ type }, payload) => {
+                            onChange?.(payload, type)
+                            setVisible(false)
+                        }}
+                        taxonomicGroupTypes={groupTypes ?? [groupType]}
+                        eventNames={eventNames}
+                    />
+                ),
+                visible: visible,
+            }}
+            onClick={() => setVisible(!visible)}
+            fullWidth={fullWidth}
+            type={'secondary'}
         >
-            <Button
-                data-attr={dataAttr}
-                onClick={() => setVisible(!visible)}
-                className={clsx('TaxonomicPopup__button', { 'w-full': fullWidth })}
-                style={style}
-            >
-                <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                    {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
-                </span>
-                <div style={{ flexGrow: 1 }} />
-                <DownOutlined style={{ marginLeft: '8px', fontSize: 10 }} />
-            </Button>
-        </Popup>
+            <span className="TaxonomicPopup__button__label text-overflow">
+                {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
+            </span>
+            <div style={{ flexGrow: 1 }} />
+        </LemonButtonWithPopup>
     )
 }
 

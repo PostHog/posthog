@@ -6,7 +6,12 @@ export const jobQueues: JobQueueExport[] = [
     {
         type: JobQueueType.Graphile,
         persistence: JobQueuePersistence.Concurrent,
-        getQueue: (serverConfig) => new GraphileQueue(serverConfig),
+        getQueue: (serverConfig) => {
+            const config = serverConfig.JOB_QUEUE_GRAPHILE_URL
+                ? { ...serverConfig, DATABASE_URL: serverConfig.JOB_QUEUE_GRAPHILE_URL }
+                : serverConfig
+            return new GraphileQueue(config)
+        },
     },
     {
         type: JobQueueType.FS,

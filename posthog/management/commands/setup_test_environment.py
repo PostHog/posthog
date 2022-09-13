@@ -32,7 +32,7 @@ class Command(BaseCommand):
         test_runner.setup_databases()
         test_runner.setup_test_environment()
 
-        print("\nCreating test ClickHouse database...")  # noqa: T001
+        print("\nCreating test ClickHouse database...")  # noqa: T201
         database = Database(
             CLICKHOUSE_DATABASE,
             db_url=CLICKHOUSE_HTTP_URL,
@@ -43,10 +43,10 @@ class Command(BaseCommand):
             autocreate=False,
         )
         if database.db_exists:
-            print(  # noqa: T001
+            print(  # noqa: T201
                 f'Got an error creating the test ClickHouse database: database "{CLICKHOUSE_DATABASE}" already exists\n'
             )
-            print("Destroying old test ClickHouse database...")  # noqa: T001
+            print("Destroying old test ClickHouse database...")  # noqa: T201
             database.drop_database()
         database.create_database()
         create_clickhouse_schema_in_parallel(CREATE_MERGETREE_TABLE_QUERIES + CREATE_KAFKA_TABLE_QUERIES)

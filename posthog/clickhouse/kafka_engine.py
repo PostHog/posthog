@@ -28,9 +28,7 @@ KAFKA_COLUMNS = """
 """
 
 
-def kafka_engine(
-    topic: str, kafka_host=None, group="group1",
-):
+def kafka_engine(topic: str, kafka_host=None, group="group1"):
     if kafka_host is None:
         kafka_host = settings.KAFKA_HOSTS_FOR_CLICKHOUSE
     return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization="JSONEachRow")

@@ -70,7 +70,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                             "event": "sign up",
                             "timestamp": datetime(2020, 1, 2, 14),
                             "properties": {"$group_0": "org:6", "$browser": "Safari"},
-                        },
+                        }
                     ],
                 },
                 self.team,
@@ -175,7 +175,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                             "event": "buy",
                             "timestamp": datetime(2020, 1, 2, 18),
                             "properties": {"$group_0": "org:6", "$browser": "Safari"},
-                        },
+                        }
                     ],
                 },
                 self.team,
@@ -281,7 +281,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                             "event": "buy",
                             "timestamp": datetime(2020, 1, 2, 18),
                             "properties": {"$group_0": "org:6", "$browser": "Safari"},
-                        },
+                        }
                     ],
                 },
                 self.team,

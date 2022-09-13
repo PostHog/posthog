@@ -30,6 +30,8 @@ import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/SessionRecordingsPlaylist'
+import { NotFound } from 'lib/components/NotFound'
+import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
 const { TabPane } = Tabs
 
@@ -97,14 +99,7 @@ export function Person(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (!person) {
-        return personLoading ? (
-            <SpinnerOverlay />
-        ) : (
-            <PageHeader
-                title="Person not found"
-                caption={urlId ? `There's no person matching distinct ID "${urlId}".` : undefined}
-            />
-        )
+        return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
     }
 
     return (
@@ -211,6 +206,14 @@ export function Person(): JSX.Element | null {
                         key={PersonsTabType.RELATED}
                     >
                         <RelatedGroups id={person.uuid} groupTypeIndex={null} />
+                    </TabPane>
+                )}
+                {person.uuid && (
+                    <TabPane
+                        tab={<span data-attr="persons-related-flags-tab">Feature flags</span>}
+                        key={PersonsTabType.FEATURE_FLAGS}
+                    >
+                        <RelatedFeatureFlags distinctId={person.distinct_ids[0]} />
                     </TabPane>
                 )}
 

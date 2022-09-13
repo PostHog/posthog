@@ -1,6 +1,6 @@
 .LemonBubble {
-    --lemon-counter-size: 1.2rem;
-    --lemon-counter-font-size: 0.6rem;
+    --lemon-counter-size: 1.25rem;
+    --lemon-counter-font-size: 0.75rem;
     --scale-small: 0.8;
     --scale-large: 1.2;
     --position-offset: 0.5rem;
@@ -16,12 +16,14 @@
     height: var(--lemon-counter-size);
     font-size: var(--lemon-counter-font-size);
     line-height: var(--lemon-counter-size);
+    padding: 0;
     border-radius: 100%;
     box-sizing: content-box;
     user-select: none;
     pointer-events: none;
     position: absolute;
     font-weight: 700;
+    z-index: 1; // Make sure it is at least in front of non-absolute items
 
     &.LemonBubble--position-none {
         position: relative;
@@ -76,7 +78,7 @@
     &.LemonBubble--enter-active {
         transform: scale(1);
         opacity: 1;
-        transition: all 150ms ease-out;
+        transition: all 200ms ease-out;
     }
 
     &.LemonBubble--exit {
@@ -87,6 +89,6 @@
     &.LemonBubble--exit-active {
         transform: scale(0.5);
         opacity: 0;
-        transition: all 150ms ease-in;
+        transition: all 200ms ease-in;
     }
 }

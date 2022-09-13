@@ -72,7 +72,7 @@ export function InsightsTable({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
-    const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
+    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const { insightMode } = useValues(insightSceneLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
@@ -238,39 +238,6 @@ export function InsightsTable({
         }
     }
 
-    if (indexedResults?.length > 0 && indexedResults[0].data) {
-        const previousResult = !!filters.compare
-            ? indexedResults.find((r) => r.compare_label === 'previous')
-            : undefined
-        const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = indexedResults[0].data.map(
-            (__, index: number) => ({
-                title: (
-                    <DateDisplay
-                        interval={(filters.interval as IntervalType) || 'day'}
-                        date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
-                        secondaryDate={
-                            !!previousResult ? (previousResult.dates || previousResult.days)[index] : undefined
-                        } // previous
-                        hideWeekRange
-                    />
-                ),
-                render: function RenderPeriod(_, item: IndexedTrendResult) {
-                    return formatAggregationValue(
-                        item.action?.math_property,
-                        item.data[index],
-                        (value) => formatAggregationAxisValue(filters.aggregation_axis_format || 'numeric', value),
-                        formatPropertyValueForDisplay
-                    )
-                },
-                key: `data-${index}`,
-                sorter: (a, b) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
-                align: 'right',
-            })
-        )
-
-        columns.push(...valueColumns)
-    }
-
     if (showTotalCount) {
         columns.push({
             title: calcColumnMenu ? (
@@ -308,11 +275,44 @@ export function InsightsTable({
         })
     }
 
+    if (indexedResults?.length > 0 && indexedResults[0].data) {
+        const previousResult = !!filters.compare
+            ? indexedResults.find((r) => r.compare_label === 'previous')
+            : undefined
+        const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = indexedResults[0].data.map(
+            (__, index: number) => ({
+                title: (
+                    <DateDisplay
+                        interval={(filters.interval as IntervalType) || 'day'}
+                        date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
+                        secondaryDate={
+                            !!previousResult ? (previousResult.dates || previousResult.days)[index] : undefined
+                        } // previous
+                        hideWeekRange
+                    />
+                ),
+                render: function RenderPeriod(_, item: IndexedTrendResult) {
+                    return formatAggregationValue(
+                        item.action?.math_property,
+                        item.data[index],
+                        (value) => formatAggregationAxisValue(filters.aggregation_axis_format || 'numeric', value),
+                        formatPropertyValueForDisplay
+                    )
+                },
+                key: `data-${index}`,
+                sorter: (a, b) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
+                align: 'right',
+            })
+        )
+
+        columns.push(...valueColumns)
+    }
+
     const useURLForSorting = insightMode !== ItemMode.Edit
 
     return (
         <LemonTable
-            id={isViewedOnDashboard ? insight.short_id : undefined}
+            id={isInDashboardContext ? insight.short_id : undefined}
             dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
             embedded={embedded}
             columns={columns}

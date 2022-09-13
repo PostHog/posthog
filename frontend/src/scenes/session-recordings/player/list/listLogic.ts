@@ -15,6 +15,7 @@ export enum RowStatus {
     Match = 'match',
 }
 export const DEFAULT_ROW_HEIGHT = 40 + 4 // Default height + padding
+export const DEFAULT_EXPANDED_ROW_HEIGHT = 360 + 4 // Default expanded height + padding
 export const OVERSCANNED_ROW_COUNT = 25
 const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
@@ -46,6 +47,8 @@ export const listLogic = kea<listLogicType>([
         disablePositionFinder: true,
         scrollTo: (rowIndex?: number) => ({ rowIndex }),
         handleRowClick: (playerPosition: PlayerPosition) => ({ playerPosition }),
+        expandRow: (rowIndex?: number) => ({ rowIndex }),
+        collapseRow: (rowIndex?: number) => ({ rowIndex }),
     })),
     reducers(() => ({
         renderedRows: [
@@ -57,6 +60,15 @@ export const listLogic = kea<listLogicType>([
             } as RenderedRows,
             {
                 setRenderedRows: (_, { renderMeta }) => renderMeta,
+            },
+        ],
+        expandedRows: [
+            new Set<number>(),
+            {
+                expandRow: (state, { rowIndex }) =>
+                    rowIndex === undefined ? state : new Set([...Array.from(state), rowIndex]),
+                collapseRow: (state, { rowIndex }) =>
+                    rowIndex === undefined ? state : new Set(Array.from(state).filter((index) => index !== rowIndex)),
             },
         ],
         list: [

@@ -10,5 +10,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="cohort", name="count", field=models.IntegerField(blank=True, null=True),),
+        migrations.AddField(
+            model_name="cohort",
+            name="count",
+            field=models.IntegerField(blank=True, null=True),
+        ),
     ]

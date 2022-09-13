@@ -76,7 +76,5 @@ export function getGraphColors(): Record<string, string | null> {
         tooltipBackground: '#1dc9b7',
         tooltipTitle: '#fff',
         tooltipBody: '#fff',
-        annotationColor: null,
-        annotationAccessoryColor: null,
     }
 }

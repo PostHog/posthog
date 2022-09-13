@@ -34,33 +34,33 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 300, "location": "Paris", "$session_id": "1",},
+                properties={"session duration": 300, "location": "Paris", "$session_id": "1"},
             )
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 400, "location": "London", "$session_id": "1",},
+                properties={"session duration": 400, "location": "London", "$session_id": "1"},
             )
         with freeze_time("2020-01-03T13:01:01Z"):
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 400, "location": "London", "$session_id": "1",},
+                properties={"session duration": 400, "location": "London", "$session_id": "1"},
             )
         with freeze_time("2020-01-03T13:04:01Z"):
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 500, "location": "London", "$session_id": "1",},
+                properties={"session duration": 500, "location": "London", "$session_id": "1"},
             )
             _create_event(
                 team=self.team,
                 event="session end",
                 distinct_id="blabla",
-                properties={"session duration": 500, "location": "London", "$session_id": "1",},
+                properties={"session duration": 500, "location": "London", "$session_id": "1"},
             )
 
     def _run(self, extra: Dict = {}, run_at: Optional[str] = None):
@@ -260,7 +260,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     def test_breakdown_mismatching_sizes(self):
         response = self._run(
-            {"events": [{"id": "session start"}, {"id": "session end"},], "breakdown": "location", "formula": "A + B",}
+            {"events": [{"id": "session start"}, {"id": "session end"}], "breakdown": "location", "formula": "A + B"}
         )
 
         self.assertEqual(response[0]["label"], "London")

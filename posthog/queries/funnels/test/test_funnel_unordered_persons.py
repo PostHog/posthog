@@ -29,7 +29,7 @@ def _create_session_recording_event(team_id, distinct_id, session_id, timestamp,
         timestamp=timestamp,
         session_id=session_id,
         window_id=window_id,
-        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot,},
+        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot},
     )
 
 
@@ -193,6 +193,4 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         )
         _, results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(
-            results[0]["matched_recordings"], [],
-        )
+        self.assertEqual(results[0]["matched_recordings"], [])

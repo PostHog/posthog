@@ -89,6 +89,12 @@
     }
 }
 
+@each $space in $spaces {
+    .leading-#{$space} {
+        line-height: #{$space/4}rem;
+    }
+}
+
 .space-y-px {
     & > * + * {
         margin-top: 1px;
@@ -269,6 +275,37 @@
     .max-#{$char}-screen {
         min-#{$kind}: unquote('100v' + $char);
     }
+
+    .#{$char}-1\/2 {
+        #{$kind}: 50%;
+    }
+    .#{$char}-1\/3 {
+        #{$kind}: 33.333333%;
+    }
+    .#{$char}-2\/3 {
+        #{$kind}: 66.666667%;
+    }
+    .#{$char}-1\/4 {
+        #{$kind}: 25%;
+    }
+    .#{$char}-2\/4 {
+        #{$kind}: 50%;
+    }
+    .#{$char}-3\/4 {
+        #{$kind}: 75%;
+    }
+    .#{$char}-1\/5 {
+        #{$kind}: 20%;
+    }
+    .#{$char}-2\/5 {
+        #{$kind}: 40%;
+    }
+    .#{$char}-3\/5 {
+        #{$kind}: 60%;
+    }
+    .#{$char}-4\/5 {
+        #{$kind}: 80%;
+    }
 }
 
 // One-off utilities
@@ -355,6 +392,39 @@
     flex-grow: 0;
 }
 
+.inset-0 {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+}
+
+.inset-x-0 {
+    left: 0;
+    right: 0;
+}
+
+.inset-y-0 {
+    top: 0;
+    bottom: 0;
+}
+
+.top-0 {
+    top: 0;
+}
+
+.bottom-0 {
+    bottom: 0;
+}
+
+.right-0 {
+    right: 0;
+}
+
+.left-0 {
+    left: 0;
+}
+
 .justify-start {
     justify-content: flex-start;
 }
@@ -416,6 +486,25 @@
 }
 .font-black {
     font-weight: 900;
+}
+.italic {
+    font-style: italic;
+}
+.not-italic {
+    font-style: normal;
+}
+
+.break-normal {
+    overflow-wrap: normal;
+    word-break: normal;
+}
+
+.break-words {
+    overflow-wrap: break-word;
+}
+
+.break-all {
+    word-break: break-all;
 }
 
 .whitespace-normal {
@@ -528,6 +617,9 @@
 .rounded-3xl {
     border-radius: 1.5rem; /* 24px */
 }
+.rounded-full {
+    border-radius: 9999px;
+}
 
 .overflow-auto {
     overflow: auto;
@@ -543,6 +635,12 @@
 }
 .overflow-scroll {
     overflow: scroll;
+}
+.overflow-x-scroll {
+    overflow-x: scroll;
+}
+.overflow-y-scroll {
+    overflow-y: scroll;
 }
 .overflow-x-auto {
     overflow-x: auto;
@@ -615,6 +713,18 @@
     pointer-events: auto;
 }
 
+.truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.text-ellipsis {
+    text-overflow: ellipsis;
+}
+.text-clip {
+    text-overflow: clip;
+}
+
 @each $cursor in $cursors {
     .cursor-#{$cursor} {
         cursor: #{$cursor};
@@ -622,7 +732,11 @@
 }
 
 @each $list_style_type in $list_style_types {
-    .list-#{list_style_type} {
+    .list-#{$list_style_type} {
         list-style-type: #{$list_style_type};
     }
+}
+
+.shadow {
+    box-shadow: var(--shadow-elevation);
 }

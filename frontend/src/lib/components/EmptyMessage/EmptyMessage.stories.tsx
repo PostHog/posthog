@@ -14,7 +14,7 @@ export function EmptyMessage_(): JSX.Element {
             title="The data is not here"
             description="It really could be anywhere. Nobody knows where it is."
             buttonText="Check the map"
-            buttonHref="https://www.google.com/maps"
+            buttonTo="https://www.google.com/maps"
         />
     )
 }

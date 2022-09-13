@@ -30,7 +30,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             if team is None:
                 team = self.team
             event_factory(
-                team=team, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties,
+                team=team, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties
             )
 
         @property
@@ -158,7 +158,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
                             "properties": [
                                 {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event"}
                             ],
-                        },
+                        }
                     ]
                 },
             )
@@ -179,7 +179,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
                             "properties": [
                                 {"key": "$browser", "value": ["Firefox"], "operator": "exact", "type": "event"}
                             ],
-                        },
+                        }
                     ]
                 },
             )
@@ -246,7 +246,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             # An action with properties
             filter = SessionRecordingsFilter(
                 team=self.team,
-                data={"actions": [{"id": action1.id, "type": "actions", "order": 1, "name": "custom-event",}]},
+                data={"actions": [{"id": action1.id, "type": "actions", "order": 1, "name": "custom-event"}]},
             )
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
@@ -255,7 +255,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             # An action without properties
             filter = SessionRecordingsFilter(
                 team=self.team,
-                data={"actions": [{"id": action2.id, "type": "actions", "order": 1, "name": "custom-event",}]},
+                data={"actions": [{"id": action2.id, "type": "actions", "order": 1, "name": "custom-event"}]},
             )
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
@@ -442,7 +442,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
                 team_id=self.team.id,
             )
 
-            filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid),})
+            filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid)})
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 2)
@@ -482,7 +482,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
                     "date_from": (self.base_time - relativedelta(days=10)).strftime("%Y-%m-%d"),
                     "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
                     "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
-                    "actions": [{"id": action2.id, "type": "actions", "order": 1, "name": "custom-event",}],
+                    "actions": [{"id": action2.id, "type": "actions", "order": 1, "name": "custom-event"}],
                 },
             )
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
@@ -507,7 +507,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
                 team_id=self.team.id,
             )
 
-            filter = SessionRecordingsFilter(team=self.team, data={"limit": 2,})
+            filter = SessionRecordingsFilter(team=self.team, data={"limit": 2})
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, more_recordings_available) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 2)

@@ -12,48 +12,29 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 const HELP_UTM_TAGS = '?utm_medium=in-product-onboarding&utm_campaign=help-button-sidebar'
 
 export function Sidebar(): JSX.Element {
-    const { currentIndex, platform } = useValues(ingestionLogic)
-    const { setVerify, setPlatform } = useActions(ingestionLogic)
+    const { currentStep, sidebarSteps } = useValues(ingestionLogic)
+    const { sidebarStepClick } = useActions(ingestionLogic)
     const { reportIngestionHelpClicked, reportIngestionSidebarButtonClicked } = useActions(eventUsageLogic)
+
+    const currentIndex = sidebarSteps.findIndex((x) => x === currentStep)
 
     return (
         <div className="IngestionSidebar">
             <div className="IngestionSidebar__content">
                 <div className="IngestionSidebar__steps">
-                    <LemonButton
-                        active={currentIndex === 0}
-                        onClick={() => {
-                            setPlatform(null)
-                            reportIngestionSidebarButtonClicked('Get started')
-                        }}
-                    >
-                        Get started
-                    </LemonButton>
-                    <LemonButton
-                        active={currentIndex === 1}
-                        disabled={!platform}
-                        onClick={() => {
-                            if (platform) {
-                                setVerify(false)
-                                setPlatform(platform)
-                            }
-                            reportIngestionSidebarButtonClicked('Connect your product')
-                        }}
-                    >
-                        Connect your product
-                    </LemonButton>
-                    <LemonButton
-                        active={currentIndex === 2}
-                        disabled={currentIndex !== 2}
-                        onClick={() => {
-                            if (platform) {
-                                setVerify(true)
-                            }
-                            reportIngestionSidebarButtonClicked('Listen for events')
-                        }}
-                    >
-                        Listen for events
-                    </LemonButton>
+                    {sidebarSteps.map((step: string, index: number) => (
+                        <LemonButton
+                            key={index}
+                            active={currentStep === step}
+                            disabled={index > currentIndex}
+                            onClick={() => {
+                                sidebarStepClick(step)
+                                reportIngestionSidebarButtonClicked(step)
+                            }}
+                        >
+                            {step}
+                        </LemonButton>
+                    ))}
                 </div>
                 <div className="IngestionSidebar__bottom">
                     <InviteMembersButton center={true} type="primary" />

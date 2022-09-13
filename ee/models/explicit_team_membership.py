@@ -36,7 +36,7 @@ class ExplicitTeamMembership(UUIDModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "parent_membership"], name="unique_explicit_team_membership"),
+            models.UniqueConstraint(fields=["team", "parent_membership"], name="unique_explicit_team_membership")
         ]
 
     def __str__(self):
@@ -44,8 +44,7 @@ class ExplicitTeamMembership(UUIDModel):
 
     @property
     def effective_level(self) -> "OrganizationMembership.Level":
-        """If organization level is higher than project level, then that takes precedence over explicit project level.
-        """
+        """If organization level is higher than project level, then that takes precedence over explicit project level."""
         return max(self.level, self.parent_membership.level)
 
     __repr__ = sane_repr("team", "parent_membership", "level")

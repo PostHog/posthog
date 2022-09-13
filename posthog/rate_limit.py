@@ -10,9 +10,7 @@ class PassThroughThrottle(UserRateThrottle):
         if not request_would_be_allowed:
             try:
                 scope = getattr(self, "scope", None)
-                incr(
-                    "rate_limit_exceeded", tags={"team_id": getattr(view, "team_id", None), "scope": scope},
-                )
+                incr("rate_limit_exceeded", tags={"team_id": getattr(view, "team_id", None), "scope": scope})
             except Exception as e:
                 capture_exception(e)
         return True

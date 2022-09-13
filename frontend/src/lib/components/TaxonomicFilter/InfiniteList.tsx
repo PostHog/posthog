@@ -1,7 +1,7 @@
 import './InfiniteList.scss'
 import '../Popup/Popup.scss'
 import React from 'react'
-import { Empty, Skeleton, Tag } from 'antd'
+import { Empty, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -23,6 +23,7 @@ import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionP
 import { ControlledDefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { pluralize } from 'lib/utils'
 import { flip, offset, shift, size, useFloating } from '@floating-ui/react-dom-interactions'
+import { LemonSkeleton } from '../LemonSkeleton'
 
 enum ListTooltip {
     None = 0,
@@ -120,7 +121,7 @@ const renderItemContents = ({
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
                 {icon}
-                <PropertyKeyInfo value={item.name ?? ''} disablePopover disableIcon style={{ maxWidth: '100%' }} />
+                <PropertyKeyInfo value={item.name ?? ''} disablePopover disableIcon className="w-full" />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
             {isUnusedEventProperty && unusedIndicator(eventNames)}
@@ -128,11 +129,13 @@ const renderItemContents = ({
     ) : (
         <div className="taxonomic-list-row-contents">
             {listGroupType === TaxonomicFilterGroupType.Elements ? (
-                <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
+                <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover className="w-full" />
             ) : (
                 <>
                     {group.getIcon ? icon : null}
-                    {group.getName(item) || item.name || ''}
+                    <span className="truncate" title={group.getName(item) || item.name || ''}>
+                        {group.getName(item) || item.name || ''}
+                    </span>
                 </>
             )}
         </div>
@@ -264,16 +267,13 @@ export function InfiniteList(): JSX.Element {
                 className={`${commonDivProps.className} skeleton-row`}
                 data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
             >
-                <Skeleton active title={false} paragraph={{ rows: 1 }} />
+                <LemonSkeleton />
             </div>
         )
     }
 
     return (
-        <div
-            className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}
-            style={{ flexGrow: 1 }}
-        >
+        <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}>
             {showEmptyState ? (
                 <div className="no-infinite-results">
                     <Empty

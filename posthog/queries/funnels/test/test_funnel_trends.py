@@ -38,8 +38,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"event": "step one", "timestamp": datetime(2021, 5, 2)},
                     {"event": "step two", "timestamp": datetime(2021, 5, 4)},
                 ],
-                "user_three": [{"event": "step one", "timestamp": datetime(2021, 5, 6)},],
-                "user_four": [{"event": "step none", "timestamp": datetime(2021, 5, 6)},],
+                "user_three": [{"event": "step one", "timestamp": datetime(2021, 5, 6)}],
+                "user_four": [{"event": "step none", "timestamp": datetime(2021, 5, 6)}],
                 "user_five": [
                     {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
                     {"event": "step two", "timestamp": datetime(2021, 5, 1, 2)},
@@ -159,11 +159,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             filter, "2021-06-07 00:00:00", True
         )
 
+        self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            len(funnel_trends_persons_existent_dropped_off_results), 1,
-        )
-        self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user a"]],
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user a"]]
         )
 
         # No users converted 2021-06-07
@@ -171,18 +169,14 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             filter, "2021-06-07 00:00:00", False
         )
 
-        self.assertEqual(
-            len(funnel_trends_persons_nonexistent_converted_results), 0,
-        )
+        self.assertEqual(len(funnel_trends_persons_nonexistent_converted_results), 0)
 
         # No users dropped off 2021-06-08
         funnel_trends_persons_nonexistent_converted_results = self._get_actors_at_step(
             filter, "2021-06-08 00:00:00", True
         )
 
-        self.assertEqual(
-            len(funnel_trends_persons_nonexistent_converted_results), 0,
-        )
+        self.assertEqual(len(funnel_trends_persons_nonexistent_converted_results), 0)
 
     # minute, hour, day, week, month
     def test_hour_interval(self):
@@ -237,9 +231,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         persons = self._get_actors_at_step(filter, "2021-05-01 00:00:00", False)
 
-        self.assertEqual(
-            [person["distinct_ids"] for person in persons], [["user_one"]],
-        )
+        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
     def test_week_interval(self):
         filter = Filter(
@@ -273,9 +265,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         persons = self._get_actors_at_step(filter, "2021-04-25 00:00:00", False)
 
         self.assertEqual(2, len(results))
-        self.assertEqual(
-            [person["distinct_ids"] for person in persons], [["user_one"]],
-        )
+        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
     def test_month_interval(self):
         filter = Filter(
@@ -355,9 +345,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         persons = self._get_actors_at_step(filter, "2020-05-01 00:00:00", False)
 
-        self.assertEqual(
-            [person["distinct_ids"] for person in persons], [["user_one"]],
-        )
+        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
     def test_all_date_range(self):
         filter = Filter(
@@ -392,9 +380,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         persons = self._get_actors_at_step(filter, "2021-05-01 00:00:00", False)
 
-        self.assertEqual(
-            [person["distinct_ids"] for person in persons], [["user_one"]],
-        )
+        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
     def test_all_results_for_day_interval(self):
         self._create_sample_data()
@@ -651,7 +637,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "user_two": [
                     # 2nd user's incomplete run
-                    {"event": "step one", "timestamp": datetime(2021, 5, 4, 18)},
+                    {"event": "step one", "timestamp": datetime(2021, 5, 4, 18)}
                 ],
             },
             self.team,
@@ -701,11 +687,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             filter, "2021-05-04 00:00:00", True
         )
 
+        self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            len(funnel_trends_persons_existent_dropped_off_results), 1,
-        )
-        self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_two"]],
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_two"]]
         )
 
         # 1 user who converted starting # 2021-05-04
@@ -713,11 +697,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             filter, "2021-05-04 00:00:00", False
         )
 
+        self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            len(funnel_trends_persons_existent_dropped_off_results), 1,
-        )
-        self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_one"]],
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_one"]]
         )
 
     def test_from_second_step(self):
@@ -731,7 +713,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "user_two": [
                     # 2nd user's incomplete run - should not count at all since not reaching 2nd step
-                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)}
                 ],
                 "user_three": [
                     # 3rd user's incomplete run - should not count at all since reaching 2nd step BUT not the 1st one
@@ -788,7 +770,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "user_two": [
                     # 2nd user's incomplete run - should count as incomplete
-                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)}
                 ],
                 "user_three": [
                     # 3rd user's incomplete run - should not count at all since reaching 2nd step BUT not the 1st one
@@ -852,7 +834,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "user_two": [
                     # 2nd user's incomplete run
-                    {"event": "step one", "timestamp": datetime(2021, 5, 4, 18)},
+                    {"event": "step one", "timestamp": datetime(2021, 5, 4, 18)}
                 ],
             },
             self.team,
@@ -903,11 +885,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             filter, "2021-05-04 00:00:00", True
         )
 
+        self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            len(funnel_trends_persons_existent_dropped_off_results), 1,
-        )
-        self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_two"]],
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_two"]]
         )
 
         # 1 user who converted starting # 2021-05-04
@@ -915,11 +895,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             filter, "2021-05-04 00:00:00", False
         )
 
+        self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            len(funnel_trends_persons_existent_dropped_off_results), 1,
-        )
-        self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_one"]],
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_one"]]
         )
 
     def test_one_person_in_multiple_periods_and_windows_in_strict_funnel(self):
@@ -1045,15 +1023,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 self.fail(msg="Invalid breakdown value")
 
     def test_funnel_step_breakdown_person(self):
-        _create_person(
-            distinct_ids=["user_one"], team=self.team, properties={"$browser": "Chrome"},
-        )
-        _create_person(
-            distinct_ids=["user_two"], team=self.team, properties={"$browser": "Chrome"},
-        )
-        _create_person(
-            distinct_ids=["user_three"], team=self.team, properties={"$browser": "Safari"},
-        )
+        _create_person(distinct_ids=["user_one"], team=self.team, properties={"$browser": "Chrome"})
+        _create_person(distinct_ids=["user_two"], team=self.team, properties={"$browser": "Chrome"})
+        _create_person(distinct_ids=["user_three"], team=self.team, properties={"$browser": "Safari"})
         journeys_for(
             {
                 "user_one": [
@@ -1106,15 +1078,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 self.fail(msg="Invalid breakdown value")
 
     def test_funnel_trend_cohort_breakdown(self):
-        _create_person(
-            distinct_ids=["user_one"], team=self.team, properties={"key": "value"},
-        )
-        _create_person(
-            distinct_ids=["user_two"], team=self.team, properties={"key": "value"},
-        )
-        _create_person(
-            distinct_ids=["user_three"], team=self.team, properties={"$browser": "Safari"},
-        )
+        _create_person(distinct_ids=["user_one"], team=self.team, properties={"key": "value"})
+        _create_person(distinct_ids=["user_two"], team=self.team, properties={"key": "value"})
+        _create_person(distinct_ids=["user_three"], team=self.team, properties={"$browser": "Safari"})
 
         journeys_for(
             {
