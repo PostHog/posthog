@@ -170,6 +170,22 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["filters"] = validated_data.pop("get_filters")
 
 
+class MinimalFeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
+    filters = serializers.DictField(source="get_filters", required=False)
+
+    class Meta:
+        model = FeatureFlag
+        fields = [
+            "id",
+            "name",
+            "key",
+            "filters",
+            "deleted",
+            "active",
+            "ensure_experience_continuity",
+        ]
+
+
 class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
@@ -227,12 +243,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     @action(methods=["GET"], detail=False)
     def local_evaluation(self, request: request.Request, **kwargs):
 
-        feature_flags: QuerySet[FeatureFlag] = (
-            FeatureFlag.objects.filter(team=self.team, deleted=False)
-            .prefetch_related("experiment_set")
-            .select_related("created_by")
-            .order_by("-created_at")
-        )
+        feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(team=self.team, deleted=False)
 
         parsed_flags = []
         for feature_flag in feature_flags:
@@ -248,7 +259,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         return Response(
             {
-                "flags": [FeatureFlagSerializer(feature_flag).data for feature_flag in parsed_flags],
+                "flags": [MinimalFeatureFlagSerializer(feature_flag).data for feature_flag in parsed_flags],
                 "group_type_mapping": {
                     str(row.group_type_index): row.group_type
                     for row in GroupTypeMapping.objects.filter(team_id=self.team_id)
