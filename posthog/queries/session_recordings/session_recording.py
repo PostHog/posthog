@@ -118,6 +118,7 @@ class SessionRecording:
                 events_summary_by_window_id[snapshot.window_id].extend(
                     [cast(EventActivityData, x) for x in snapshot.events_summary]
                 )
+                events_summary_by_window_id[snapshot.window_id].sort(key=lambda x: x["timestamp"])
 
         return events_summary_by_window_id
 

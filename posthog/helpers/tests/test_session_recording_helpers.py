@@ -314,9 +314,24 @@ def test_generate_inactive_segments_for_range():
         base_time + timedelta(seconds=60),
         "2",
         {
-            "1": {"start_time": base_time - timedelta(seconds=30), "end_time": base_time + timedelta(seconds=40)},
-            "2": {"start_time": base_time, "end_time": base_time + timedelta(seconds=20)},
-            "3": {"start_time": base_time + timedelta(seconds=35), "end_time": base_time + timedelta(seconds=80)},
+            "1": {
+                "start_time": base_time - timedelta(seconds=30),
+                "end_time": base_time + timedelta(seconds=40),
+                "window_id": "2",
+                "is_active": False,
+            },
+            "2": {
+                "start_time": base_time,
+                "end_time": base_time + timedelta(seconds=20),
+                "window_id": "2",
+                "is_active": False,
+            },
+            "3": {
+                "start_time": base_time + timedelta(seconds=35),
+                "end_time": base_time + timedelta(seconds=80),
+                "window_id": "2",
+                "is_active": False,
+            },
         },
     )
     millisecond = timedelta(milliseconds=1)
@@ -349,8 +364,18 @@ def test_generate_inactive_segments_for_range_that_cannot_be_filled():
         base_time + timedelta(seconds=60),
         "2",
         {
-            "2": {"start_time": base_time, "end_time": base_time + timedelta(seconds=20)},
-            "3": {"start_time": base_time + timedelta(seconds=35), "end_time": base_time + timedelta(seconds=80)},
+            "2": {
+                "start_time": base_time,
+                "end_time": base_time + timedelta(seconds=20),
+                "window_id": "2",
+                "is_active": False,
+            },
+            "3": {
+                "start_time": base_time + timedelta(seconds=35),
+                "end_time": base_time + timedelta(seconds=80),
+                "window_id": "2",
+                "is_active": False,
+            },
         },
     )
     millisecond = timedelta(milliseconds=1)
@@ -376,7 +401,14 @@ def test_generate_inactive_segments_for_last_segment():
         base_time,
         base_time + timedelta(seconds=60),
         "2",
-        {"2": {"start_time": base_time, "end_time": base_time + timedelta(seconds=70)}},
+        {
+            "2": {
+                "start_time": base_time,
+                "end_time": base_time + timedelta(seconds=70),
+                "window_id": "2",
+                "is_active": False,
+            }
+        },
         is_last_segment=True,
     )
     millisecond = timedelta(milliseconds=1)
