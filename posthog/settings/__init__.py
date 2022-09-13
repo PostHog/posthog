@@ -114,11 +114,6 @@ KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
     "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", KAFKA_EVENTS_PLUGIN_INGESTION
 )
 
-# Topic to write recording events to before they are uploaded to object storage
-KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC: str = os.getenv(
-    "KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC", KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION
-)
-
 
 # Schedule to run asynchronous data deletion on. Follows crontab syntax.
 # Use empty string to prevent this

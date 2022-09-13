@@ -460,6 +460,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionTryWithBookmarkletClicked: true,
         reportIngestionContinueWithoutVerifying: true,
         reportIngestionContinueWithoutBilling: true,
+        reportIngestionBillingCancelled: true,
         reportIngestionThirdPartyAboutClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
@@ -1093,6 +1094,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportIngestionContinueWithoutBilling: () => {
             posthog.capture('ingestion continue without adding billing details')
+        },
+        reportIngestionBillingCancelled: () => {
+            posthog.capture('ingestion billing cancelled')
         },
         reportIngestionThirdPartyAboutClicked: ({ name }) => {
             posthog.capture('ingestion third party about clicked', {
