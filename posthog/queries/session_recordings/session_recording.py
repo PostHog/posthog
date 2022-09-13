@@ -9,7 +9,6 @@ from statshog.defaults.django import statsd
 from posthog.client import sync_execute
 from posthog.helpers.session_recording import (
     DecompressedRecordingData,
-    EventActivityData,
     RecordingSegment,
     SnapshotDataTaggedWithWindowId,
     WindowId,
@@ -18,7 +17,8 @@ from posthog.helpers.session_recording import (
     get_active_segments_from_event_list,
     parse_snapshot_timestamp,
 )
-from posthog.models import SessionRecordingEvent, Team
+from posthog.models import Team
+from posthog.models.session_recording_event import SessionRecordingEvent, SessionRecordingEventSummary
 
 
 @dataclasses.dataclass
@@ -101,12 +101,12 @@ class SessionRecording:
 
     def _get_events_summary_by_window_id(
         self, snapshots: List[SessionRecordingEvent]
-    ) -> Optional[Dict[WindowId, List[EventActivityData]]]:
+    ) -> Optional[Dict[WindowId, List[SessionRecordingEventSummary]]]:
         """
         For a list of snapshots, group all the events_summary by window_id.
         If any of them are missing this field, we return empty to fallback to old parsing method
         """
-        events_summary_by_window_id: Dict[WindowId, List[EventActivityData]] = {}
+        events_summary_by_window_id: Dict[WindowId, List[SessionRecordingEventSummary]] = {}
 
         for snapshot in snapshots:
             if snapshot.snapshot_data["chunk_index"] == 0:
@@ -118,7 +118,7 @@ class SessionRecording:
                     events_summary_by_window_id[snapshot.window_id] = []
 
                 events_summary_by_window_id[snapshot.window_id].extend(
-                    [cast(EventActivityData, x) for x in snapshot.events_summary]
+                    [cast(SessionRecordingEventSummary, x) for x in snapshot.events_summary]
                 )
                 events_summary_by_window_id[snapshot.window_id].sort(key=lambda x: x["timestamp"])
 
@@ -142,14 +142,14 @@ class SessionRecording:
         )
 
         events_summary_by_window_id = {
-            window_id: cast(List[EventActivityData], event_list)
+            window_id: cast(List[SessionRecordingEventSummary], event_list)
             for window_id, event_list in decompressed_recording_data.snapshot_data_by_window_id.items()
         }
 
         return self._get_recording_segments_from_events_summary(events_summary_by_window_id)
 
     def _get_recording_segments_from_events_summary(
-        self, events_summary_by_window_id: Dict[WindowId, List[EventActivityData]]
+        self, events_summary_by_window_id: Dict[WindowId, List[SessionRecordingEventSummary]]
     ) -> Tuple[List[RecordingSegment], Dict[WindowId, RecordingSegment]]:
         """
         This function processes the recording events into metadata.

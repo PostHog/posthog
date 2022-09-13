@@ -5,7 +5,6 @@ import pytest
 from pytest_mock import MockerFixture
 
 from posthog.helpers.session_recording import (
-    EventActivityData,
     PaginatedList,
     RecordingSegment,
     SnapshotData,
@@ -18,12 +17,13 @@ from posthog.helpers.session_recording import (
     paginate_list,
     preprocess_session_recording_events_for_clickhouse,
 )
+from posthog.models.session_recording_event import SessionRecordingEventSummary
 
 MILLISECOND_TIMESTAMP = round(datetime(2019, 1, 1).timestamp() * 1000)
 
 
 def create_activity_data(timestamp: datetime, is_active: bool):
-    return EventActivityData(
+    return SessionRecordingEventSummary(
         is_active=is_active, event_type=1, source_type=None, timestamp=round(timestamp.timestamp() * 1000)
     )
 

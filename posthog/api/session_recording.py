@@ -1,4 +1,3 @@
-import dataclasses
 from typing import Any, Union
 
 from rest_framework import exceptions, request, response, serializers, viewsets

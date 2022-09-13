@@ -9,19 +9,13 @@ from typing import DefaultDict, Dict, Generator, List, Optional, TypedDict, Unio
 from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
+from posthog.models.session_recording_event import SessionRecordingEventSummary
 
 FULL_SNAPSHOT = 2
 
 Event = Dict
 SnapshotData = Dict
 WindowId = Optional[str]
-
-
-class EventActivityData(TypedDict):
-    timestamp: int
-    is_active: bool
-    event_type: int
-    source_type: Optional[int]
 
 
 class RecordingSegment(TypedDict):
@@ -40,7 +34,7 @@ class SnapshotDataTaggedWithWindowId:
 @dataclasses.dataclass
 class DecompressedRecordingData:
     has_next: bool
-    snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, EventActivityData]]]
+    snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, SessionRecordingEventSummary]]]
 
 
 def preprocess_session_recording_events_for_clickhouse(events: List[Event]) -> List[Event]:
@@ -218,7 +212,9 @@ ACTIVITY_THRESHOLD_SECONDS = 10
 
 
 def get_active_segments_from_event_list(
-    event_list: List[EventActivityData], window_id: WindowId, activity_threshold_seconds=ACTIVITY_THRESHOLD_SECONDS
+    event_list: List[SessionRecordingEventSummary],
+    window_id: WindowId,
+    activity_threshold_seconds=ACTIVITY_THRESHOLD_SECONDS,
 ) -> List[RecordingSegment]:
     """
     Processes a list of events for a specific window_id to determine
@@ -254,12 +250,12 @@ def get_active_segments_from_event_list(
     return active_recording_segments
 
 
-def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> List[EventActivityData]:
+def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> List[SessionRecordingEventSummary]:
     """
     Extract a minimal representation of the snapshot data events for easier querying
     """
     events_summary = [
-        EventActivityData(
+        SessionRecordingEventSummary(
             timestamp=event.get("timestamp", 0),
             event_type=event.get("type", 0),
             source_type=event.get("data", {}).get("source"),
