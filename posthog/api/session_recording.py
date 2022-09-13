@@ -120,7 +120,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         session_recording_serializer = SessionRecordingMetadataSerializer(
             data={
-                "segments": [dataclasses.asdict(segment) for segment in session_recording_meta_data.segments],
+                "segments": session_recording_meta_data.segments,
                 "start_and_end_times_by_window_id": session_recording_meta_data.start_and_end_times_by_window_id,
                 "session_id": session_recording_id,
                 "viewed": viewed_session_recording,
