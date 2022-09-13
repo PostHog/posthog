@@ -1213,7 +1213,8 @@
                                AND event IN ['buy', 'play movie', 'sign up']
                                AND timestamp >= toDateTime('2020-01-01 00:00:00')
                                AND timestamp <= toDateTime('2020-01-08 23:59:59')
-                               AND (NOT has([''], "$group_0")) ) events
+                               AND (NOT has([''], "$group_0"))
+                               AND e.person_id != toUUIDOrZero('') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
@@ -1348,7 +1349,8 @@
                                AND event IN ['buy', 'play movie', 'sign up']
                                AND timestamp >= toDateTime('2020-01-01 00:00:00')
                                AND timestamp <= toDateTime('2020-01-08 23:59:59')
-                               AND (NOT has([''], "$group_0")) ) events
+                               AND (NOT has([''], "$group_0"))
+                               AND e.person_id != toUUIDOrZero('') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
