@@ -53,7 +53,7 @@ def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None)
     import structlog
 
     if task:
-        structlog.contextvars.bind_contextvars(name=task.name)
+        structlog.contextvars.bind_contextvars(task_name=task.name)
 
 
 @worker_process_init.connect
