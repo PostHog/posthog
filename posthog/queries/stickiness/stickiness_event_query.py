@@ -41,6 +41,10 @@ class StickinessEventsQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
+        null_person_filter = (
+            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
+        )
+
         query = f"""
             SELECT
                 {self.aggregation_target()} AS aggregation_target,
@@ -53,6 +57,7 @@ class StickinessEventsQuery(EventQuery):
             {date_query}
             AND {actions_query}
             {prop_query}
+            {null_person_filter}
             GROUP BY aggregation_target
         """
 

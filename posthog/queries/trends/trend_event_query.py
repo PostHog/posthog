@@ -93,6 +93,10 @@ class TrendsEventQuery(EventQuery):
         session_query, session_params = self._get_sessions_query()
         self.params.update(session_params)
 
+        null_person_filter = (
+            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
+        )
+
         query = f"""
             SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
@@ -103,6 +107,7 @@ class TrendsEventQuery(EventQuery):
             {entity_query}
             {date_query}
             {prop_query}
+            {null_person_filter}
         """
 
         return query, self.params
