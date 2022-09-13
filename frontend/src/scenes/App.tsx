@@ -67,7 +67,6 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
 
@@ -75,13 +74,6 @@ export function App(): JSX.Element | null {
         return (
             <>
                 {user && currentTeamId ? <Models /> : null}
-                {!!featureFlags['www'] ? (
-                    <div>
-                        <h1>'HELLS YEAH!'</h1>
-                    </div>
-                ) : (
-                    <div>'NOPE'</div>
-                )}
                 <LoadedSceneLogics />
                 <AppScene />
             </>

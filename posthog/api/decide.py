@@ -169,9 +169,6 @@ def get_decide(request: HttpRequest):
                 property_value_overrides=all_property_overrides,
                 group_property_value_overrides=(data.get("group_properties") or {}),
             )
-            feature_flags = {}
-            # import time
-            # time.sleep(10)
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):

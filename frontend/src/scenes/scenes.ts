@@ -4,8 +4,6 @@ import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
 import { InsightShortId } from '~/types'
-import posthog from 'posthog-js'
-import { loadPostHogJS } from '~/loadPostHogJS'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -226,10 +224,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
 }
 
-loadPostHogJS()
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
-    '/': posthog.isFeatureEnabled('redirect-to-insights') ? urls.dashboards() : urls.projectHomepage(),
+    '/': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.projectApps(),
