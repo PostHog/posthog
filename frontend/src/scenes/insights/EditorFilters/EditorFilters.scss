@@ -33,6 +33,10 @@
             flex-direction: column;
             gap: 0rem;
 
+            .EditorFilterGroup {
+                width: auto;
+            }
+
             > * + * {
                 margin-top: 1rem;
             }

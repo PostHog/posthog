@@ -182,6 +182,12 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 return ''
             },
         ],
+        isTestingOnboardingBilling: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => {
+                return featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING] === 'test'
+            },
+        ],
     })),
 
     actionToUrl(({ values }) => ({
@@ -193,8 +199,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         updateCurrentTeamSuccess: () => {
             const isBillingPage = router.values.location.pathname == '/ingestion/billing'
             const isVerifyPage =
-                !values.featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING] &&
-                router.values.location.pathname == '/ingestion/verify'
+                !values.isTestingOnboardingBilling && router.values.location.pathname == '/ingestion/verify'
             if (isBillingPage || isVerifyPage) {
                 return urls.events()
             }
@@ -323,10 +328,8 @@ export const ingestionLogic = kea<ingestionLogicType>([
         },
     })),
     subscriptions(({ actions, values }) => ({
-        featureFlags: (featureFlags) => {
-            const steps = featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING]
-                ? INGESTION_STEPS
-                : INGESTION_STEPS_WITHOUT_BILLING
+        isTestingOnboardingBilling: (value) => {
+            const steps = value ? INGESTION_STEPS : INGESTION_STEPS_WITHOUT_BILLING
             actions.setSidebarSteps(Object.values(steps))
         },
         billing: (billing: BillingType) => {
@@ -335,11 +338,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
             }
         },
         currentTeam: (currentTeam: TeamType) => {
-            if (
-                currentTeam?.ingested_event &&
-                values.verify &&
-                !values.featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING]
-            ) {
+            if (currentTeam?.ingested_event && values.verify && !values.isTestingOnboardingBilling) {
                 actions.setCurrentStep(INGESTION_STEPS.DONE)
             }
         },

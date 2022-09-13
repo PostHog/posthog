@@ -47,7 +47,7 @@ export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: Aggre
         <LemonSelect
             value={aggregationGroupTypeIndex === undefined ? UNIQUE_USERS : aggregationGroupTypeIndex}
             onChange={(value) => {
-                if (value) {
+                if (value !== null) {
                     const groupTypeIndex = value === UNIQUE_USERS ? undefined : value
                     onChange(groupTypeIndex)
                 }
