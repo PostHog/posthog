@@ -16,12 +16,12 @@ export function BillingAlerts(): JSX.Element | null {
     let isWarning = false
     let isAlert = false
 
-    if (alertToShow === BillingAlertType.FreeUsageNearLimit) {
+    if (percentage && alertToShow === BillingAlertType.FreeUsageNearLimit) {
         isWarning = true
         message = (
             <p>
-                <b>Warning!</b> You have already used <b className="text-warning">{percentage && percentage * 100}%</b>{' '}
-                of your 1 million free events this month.{' '}
+                <b>Warning!</b> You have already used <b className="text-warning">{percentage * 100}%</b> of your 1
+                million free events this month.{' '}
                 <Link to="/organization/billing" data-attr="alert_free_usage_near_limit">
                     {billing?.plan?.custom_setup_billing_message ||
                         'To avoid losing data or access to it, upgrade your billing plan now.'}
@@ -30,12 +30,12 @@ export function BillingAlerts(): JSX.Element | null {
         )
     }
 
-    if (alertToShow === BillingAlertType.SetupBilling) {
+    if (billing?.subscription_url && alertToShow === BillingAlertType.SetupBilling) {
         isWarning = true
         message = (
             <p>
                 <b>Action needed!&nbsp;</b>
-                <Link to={billing?.subscription_url} data-attr="alert_setup_billing">
+                <Link to={billing.subscription_url} data-attr="alert_setup_billing">
                     {billing?.plan?.custom_setup_billing_message ||
                         'Please finish setting up your billing information.'}
                 </Link>
@@ -43,13 +43,13 @@ export function BillingAlerts(): JSX.Element | null {
         )
     }
 
-    if (alertToShow === BillingAlertType.UsageNearLimit) {
+    if (percentage && alertToShow === BillingAlertType.UsageNearLimit) {
         isWarning = true
         message = (
             <p>
                 <b>Warning!</b> You have already used {/* eslint-disable-next-line react/forbid-dom-props */}
                 <b style={{ color: typeof strokeColor === 'string' ? strokeColor : 'inherit' }}>
-                    {percentage && percentage * 100}%
+                    {percentage * 100}%
                 </b>{' '}
                 of your event allocation this month.{' '}
                 <Link to="/organization/billing" data-attr="alert_usage_near_limit">

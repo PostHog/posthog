@@ -32,8 +32,8 @@ export const billingLogic = kea<billingLogicType>([
     actions({
         registerInstrumentationProps: true,
         toggleUsageTiers: true,
-        setBillingSuccessRedirect: (url: string) => ({ url }),
         setPlans: (plans: PlanInterface[]) => ({ plans }),
+        referer: (referer: string) => ({ referer }),
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
@@ -48,7 +48,13 @@ export const billingLogic = kea<billingLogicType>([
         billingSuccessRedirect: [
             urls.projectHomepage() as string,
             {
-                setBillingSuccessRedirect: (_, { url }) => url,
+                referer: (_, { referer }) => {
+                    if (referer === 'ingestion') {
+                        return urls.events()
+                    } else {
+                        return urls.projectHomepage()
+                    }
+                },
             },
         ],
     }),
@@ -223,11 +229,7 @@ export const billingLogic = kea<billingLogicType>([
             }
         },
         '/organization/billing/subscribed': (_, { referer }) => {
-            let successRedirect = urls.projectHomepage()
-            if (referer === 'ingestion') {
-                successRedirect = urls.events()
-            }
-            actions.setBillingSuccessRedirect(successRedirect)
+            actions.referer(referer)
         },
     })),
 ])

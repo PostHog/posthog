@@ -229,11 +229,17 @@ describe('billingLogic', () => {
     it('correctly sets redirect depending on flow', async () => {
         // onboarding flow
         router.actions.push('/organization/billing/subscribed?s=success&referer=ingestion')
-        await expectLogic(logic).toDispatchActions([logic.actionCreators.setBillingSuccessRedirect(urls.events())])
+        await expectLogic(logic)
+            .toDispatchActions([logic.actionCreators.referer('ingestion')])
+            .toMatchValues({
+                billingSuccessRedirect: urls.events(),
+            })
         // onboarding flow
         router.actions.push('/organization/billing/subscribed?s=success&referer=billing')
-        await expectLogic(logic).toDispatchActions([
-            logic.actionCreators.setBillingSuccessRedirect(urls.projectHomepage()),
-        ])
+        await expectLogic(logic)
+            .toDispatchActions([logic.actionCreators.referer('billing')])
+            .toMatchValues({
+                billingSuccessRedirect: urls.projectHomepage(),
+            })
     })
 })
