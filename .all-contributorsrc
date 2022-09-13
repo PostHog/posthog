@@ -2097,6 +2097,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "bobeagan",
+      "name": "Bob Eagan",
+      "avatar_url": "https://avatars.githubusercontent.com/u/100226?v=4",
+      "profile": "http://bobeagan.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
