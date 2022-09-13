@@ -6,12 +6,7 @@ import { range, toParams } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import {
-    RetentionTablePayload,
-    RetentionTablePeoplePayload,
-    RetentionTrendPayload,
-    RetentionTrendPeoplePayload,
-} from 'scenes/retention/types'
+import { RetentionTablePayload, RetentionTablePeoplePayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { ActionType, FilterType, InsightLogicProps, InsightType } from '~/types'
@@ -71,7 +66,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     }),
     loaders: ({ values }) => ({
         people: {
-            __default: {} as RetentionTablePeoplePayload | RetentionTrendPeoplePayload,
+            __default: {} as RetentionTablePeoplePayload,
             loadPeople: async (rowIndex: number) => {
                 const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
                 const res = await api.get(`api/person/retention/?${urlParams}`)

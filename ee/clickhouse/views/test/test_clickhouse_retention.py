@@ -111,7 +111,8 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
             people = people_response.json()["result"]
             # person1 and another one are the same person
             assert len(people) == 1
-            assert people[0]["id"] == str(p1.uuid)
+            assert people[0]["person"]["id"] == str(p1.uuid)
+            assert people[0]["appearances"] == [1, 1, 1]
 
             people_url = retention["result"][1]["values"][0]["people_url"]
             people_response = self.client.get(people_url)
@@ -119,7 +120,8 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
 
             people = people_response.json()["result"]
             assert len(people) == 1
-            assert people[0]["id"] == str(p2.uuid)
+            assert people[0]["person"]["id"] == str(p2.uuid)
+            assert people[0]["appearances"] == [1, 0, 0]
 
 
 class BreakdownTests(TestCase, ClickhouseTestMixin):
@@ -383,8 +385,9 @@ class BreakdownTests(TestCase, ClickhouseTestMixin):
         assert people_response.status_code == 200
 
         people = people_response.json()["result"]
+        assert [distinct_id for person in people for distinct_id in person["person"]["distinct_ids"]] == ["person 1"]
 
-        assert [distinct_id for person in people for distinct_id in person["distinct_ids"]] == ["person 1"]
+    # TODO: write a test to check stable sort order with pagination limit
 
 
 class IntervalTests(TestCase, ClickhouseTestMixin):

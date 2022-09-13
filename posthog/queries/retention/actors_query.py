@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 from posthog.client import substitute_params, sync_execute
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -20,25 +20,6 @@ class AppearanceRow:
     appearance_count: int
     # This is actually the number of days from first event to the current event.
     appearances: List[float]
-
-
-class RetentionActors(ActorBaseQuery):
-    _filter: RetentionFilter
-    _retention_events_query = RetentionEventsQuery
-
-    def __init__(self, team: Team, filter: RetentionFilter):
-        super().__init__(team, filter)
-
-    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
-        actor_query = _build_actor_query(
-            filter=self._filter,
-            team=self._team,
-            filter_by_breakdown=self._filter.breakdown_values or (0,),
-            selected_interval=self._filter.selected_interval,
-            retention_events_query=self._retention_events_query,
-        )
-
-        return actor_query, {}
 
 
 # Note: This class does not respect the entire flor from ActorBaseQuery because the result shape differs from other actor queries
@@ -87,18 +68,20 @@ class RetentionActorsByPeriod(ActorBaseQuery):
             [(actor_appearance.actor_id,) for actor_appearance in actor_appearances]
         )
 
-        actors_lookup = {str(actor["id"]): actor for actor in serialized_actors}
+        actors_appearance_lookup = {
+            str(actor_appearance.actor_id): actor_appearance.appearances for actor_appearance in actor_appearances
+        }
 
         return [
             {
-                "person": actors_lookup.get(actor.actor_id, {"id": actor.actor_id, "distinct_ids": []}),
+                "person": actor,
                 "appearances": [
-                    1 if interval_number in actor.appearances else 0
+                    1 if interval_number in actors_appearance_lookup.get(str(actor["id"]), []) else 0
                     for interval_number in range(self._filter.total_intervals - (self._filter.selected_interval or 0))
                 ],
             }
-            for actor in sorted(actor_appearances, key=lambda x: (x.appearance_count, x.actor_id), reverse=True)
-        ]
+            for actor in serialized_actors
+        ], len(actor_appearances)
 
 
 def build_actor_activity_query(
@@ -175,14 +158,14 @@ def _build_actor_query(
 
         -- make sure we have stable ordering/pagination
         -- NOTE: relies on ids being monotonic
-        ORDER BY actor_id
+        ORDER BY actor_id, length(appearances)
 
-        LIMIT 100
+        LIMIT %(limit)s
         OFFSET %(offset)s
     """
 
-    actor_query = substitute_params(actor_query_template, {"offset": filter.offset}).format(
-        actor_activity_query=actor_activity_query
-    )
+    actor_query = substitute_params(
+        actor_query_template, {"offset": filter.offset, "limit": filter.limit or 100}
+    ).format(actor_activity_query=actor_activity_query)
 
     return actor_query

@@ -30,15 +30,7 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import PKorUUIDViewSet, StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.client import sync_execute
-from posthog.constants import (
-    CSV_EXPORT_LIMIT,
-    INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
-    LIMIT,
-    OFFSET,
-    TRENDS_TABLE,
-    FunnelVizType,
-)
+from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User
@@ -573,7 +565,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request) -> response.Response:
-        display = request.GET.get("display", None)
         team = cast(User, request.user).team
         if not team:
             return response.Response(
@@ -584,14 +575,11 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         filter = prepare_actor_query_filter(filter)
         base_uri = request.build_absolute_uri("/")
 
-        if display == TRENDS_TABLE:
-            people = self.retention_class(base_uri=base_uri).actors_in_period(filter, team)
-        else:
-            people = self.retention_class(base_uri=base_uri).actors(filter, team)
+        people, raw_count = self.retention_class(base_uri=base_uri).actors_in_period(filter, team)
 
-        next_url = paginated_result(request, len(people), filter.offset, filter.limit)
+        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
 
-        return response.Response({"result": people, "next": next_url})
+        return response.Response({"result": people, "next": next_url, "missing_persons": raw_count - len(people)})
 
     @action(methods=["GET"], detail=False)
     def stickiness(self, request: request.Request) -> response.Response:
