@@ -20,6 +20,26 @@ logger = structlog.get_logger(__name__)
 CALCULATED_PROPERTIES_FOR_TEAMS_KEY = "CALCULATED_PROPERTIES_FOR_TEAMS_KEY"
 
 
+class CountFromZero:
+    def __init__(self) -> None:
+        self.seen_events: Set[str] = set()
+        self.seen_properties: Set[str] = set()
+
+    def incr_event(self, event: EventDefinition) -> int:
+        if event.name in self.seen_events:
+            return event.query_usage_30_day + 1
+        else:
+            self.seen_events.add(event.name)
+            return 1
+
+    def incr_property(self, property: PropertyDefinition) -> int:
+        if property.name in self.seen_properties:
+            return property.query_usage_30_day + 1
+        else:
+            self.seen_properties.add(property.name)
+            return 1
+
+
 @timed("calculate_event_property_usage")
 def calculate_event_property_usage() -> None:
     teams_to_exclude = recently_calculated_teams(now_in_seconds_since_epoch=time.time())
@@ -72,6 +92,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
     data comes preloaded, necessitating complete inference."""
 
     try:
+        count_from_zero = CountFromZero()
 
         event_definitions: Dict[str, EventDefinition] = {
             known_event.name: known_event for known_event in EventDefinition.objects.filter(team_id=team_id)
@@ -122,9 +143,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
                 )
                 continue
             event_definition = event_definitions[series_event]
-            event_definition.query_usage_30_day = (
-                event_definition.query_usage_30_day + 1 if event_definition.query_usage_30_day else 1
-            )
+            event_definition.query_usage_30_day = count_from_zero.incr_event(event_definition)
 
         for property in insight_properties:
             if property not in property_definitions:
@@ -135,9 +154,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
                 )
                 continue
             property_definition = property_definitions[property]
-            property_definition.query_usage_30_day = (
-                property_definition.query_usage_30_day + 1 if property_definition.query_usage_30_day else 1
-            )
+            property_definition.query_usage_30_day = count_from_zero.incr_property(property_definition)
 
         events_volume = _get_events_volume(team_id, since)
         for event, (volume, last_seen_at) in events_volume.items():
