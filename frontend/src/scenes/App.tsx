@@ -67,7 +67,6 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
-
     useMountedLogic(sceneLogic({ scenes: appScenes }))
 
     if (showApp) {

@@ -224,7 +224,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
 }
 
-
 export const redirects: Record<string, string | ((params: Params) => string)> = {
     '/': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),

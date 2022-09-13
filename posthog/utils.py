@@ -341,6 +341,9 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     posthog_bootstrap["featureFlags"] = feature_flags
     posthog_bootstrap["isIdentifiedID"] = is_identified_id
 
+    # This allows immediate flag availability on the frontend, atleast for flags
+    # that don't depend on any person properties. To get these flags, add person properties to the
+    # `get_all_flags` call above.
     context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
     html = template.render(context, request=request)
