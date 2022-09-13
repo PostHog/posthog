@@ -19,7 +19,7 @@ import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { combineUrl, router } from 'kea-router'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonTag } from '@posthog/lemon-ui'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -138,7 +138,7 @@ export function Cohorts(): JSX.Element {
                                         tooltip="Export specific columns for users belonging to this cohort in CSV format. Includes distinct id, internal id, email, and name"
                                         fullWidth
                                     >
-                                        Export important columns for users
+                                        Export important columns for users <LemonTag type="warning">Beta</LemonTag>
                                     </LemonButton>
                                 )}
                                 <LemonButton
