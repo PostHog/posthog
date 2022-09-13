@@ -268,6 +268,6 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
         for item_filter_event in item_filters.events:
             event_usage.append(str(item_filter_event.id))
 
-        counted_properties.update(FOSSColumnOptimizer(item_filters, team_id).properties_used_in_filter)
+        counted_properties.update(FOSSColumnOptimizer(item_filters, team_id).used_properties_with_type("event"))
 
     return event_usage, counted_properties

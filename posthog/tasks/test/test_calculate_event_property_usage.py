@@ -203,6 +203,8 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         PropertyDefinition.objects.create(team=self.team, name="team_id")
         PropertyDefinition.objects.create(team=self.team, name="used property")
         PropertyDefinition.objects.create(team=self.team, name="unused property")
+        # an event property definition for something that is queried below as a person property
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_continent_code")
         team2 = Organization.objects.bootstrap(None)[2]
         with freeze_time("2020-08-01"):
             # ignore stuff older than 30 days
@@ -242,6 +244,13 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
                                         "value": "https://posthog2.com",
                                         "operator": "exact",
                                         "type": "event",
+                                    },
+                                    # should not include this person property
+                                    {
+                                        "key": "$geoip_continent_code",
+                                        "value": ["NA"],
+                                        "operator": "exact",
+                                        "type": "person",
                                     },
                                 ],
                             },
@@ -346,6 +355,10 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             2, PropertyDefinition.objects.get(team=self.team, name="used property").query_usage_30_day
         )  # in a property group and in an events series filter
         self.assertIsNone(PropertyDefinition.objects.get(team=self.team, name="unused property").query_usage_30_day)
+
+        self.assertEqual(
+            None, PropertyDefinition.objects.get(team=self.team, name="$geoip_continent_code").query_usage_30_day
+        )
 
     def test_complete_inference(self) -> None:
         assert EventDefinition.objects.count() == 0
