@@ -19,7 +19,7 @@ export function BillingPanel(): JSX.Element {
 
     return (
         <CardContainer>
-            {!billing?.plan && (
+            {(!billing?.plan || billing.should_setup_billing) && (
                 <div className="text-left flex flex-col space-y-4">
                     <h1 className="ingestion-title">Add payment method</h1>
                     <p>
@@ -66,7 +66,7 @@ export function BillingPanel(): JSX.Element {
                     </LemonButton>
                 </div>
             )}
-            {billing?.plan && (
+            {billing?.plan && !billing?.should_setup_billing && (
                 <div className="flex flex-col space-y-4">
                     <h1 className="ingestion-title">You're good to go!</h1>
                     <Plan plan={billing.plan} currentPlan canHideDetails={false} primaryCallToAction={false} />

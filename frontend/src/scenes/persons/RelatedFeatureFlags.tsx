@@ -70,9 +70,11 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
         {
             title: 'Value',
             dataIndex: 'value',
-            width: 100,
+            width: 150,
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
-                return <div>{capitalizeFirstLetter(featureFlag.value.toString())}</div>
+                return (
+                    <div style={{ wordBreak: 'break-word' }}>{capitalizeFirstLetter(featureFlag.value.toString())}</div>
+                )
             },
         },
         {
@@ -83,15 +85,7 @@ export function RelatedFeatureFlags({ distinctId }: Props): JSX.Element {
                 const matchesSet = featureFlag.evaluation.reason === FeatureFlagMatchReason.ConditionMatch
                 return (
                     <div>
-                        {featureFlag.active ? (
-                            <>
-                                {matchesSet
-                                    ? featureFlagMatchMapping[FeatureFlagMatchReason.ConditionMatch]
-                                    : featureFlagMatchMapping[FeatureFlagMatchReason.NoConditionMatch]}
-                            </>
-                        ) : (
-                            '--'
-                        )}
+                        {featureFlag.active ? <>{featureFlagMatchMapping[featureFlag.evaluation.reason]}</> : '--'}
 
                         {matchesSet && (
                             <span className="simple-tag ml-2" style={{ background: 'var(--primary-highlight)' }}>

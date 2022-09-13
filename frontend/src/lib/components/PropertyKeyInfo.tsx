@@ -589,6 +589,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Touch Y',
             description: 'The location of a Touch event on the Y axis',
         },
+        $exception: {
+            label: 'Exception',
+            description: 'Automatically captured exceptions from the client Sentry integration',
+        },
     },
     element: {
         tag_name: {
