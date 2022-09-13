@@ -16,7 +16,7 @@ interface InsightRowProps {
     insight: InsightModel
 }
 
-function InsightRow({ insight }: InsightRowProps): JSX.Element {
+export function InsightRow({ insight }: InsightRowProps): JSX.Element {
     const { reportInsightOpenedFromRecentInsightList } = useActions(eventUsageLogic)
 
     return (
