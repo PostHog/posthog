@@ -21,16 +21,17 @@ import professorHog from 'public/hedgehog/professor-hog.png'
 import supportHeroHog from 'public/hedgehog/support-hero-hog.png'
 import xRayHog2 from 'public/hedgehog/x-ray-hogs-02.png'
 import laptopHog3 from 'public/hedgehog/laptop-hog-03.png'
+import detectiveHog from 'public/hedgehog/detective-hog.png'
 
 type HedgehogProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>
 
-// w200 x h200
+// w400 x h400
 const SquaredHedgehog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={props.src} width={200} height={200} {...props} />
+    return <img src={props.src} width={400} height={400} {...props} />
 }
-// any width x h200
+// any width x h400
 const RectangularHedgehog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={props.src} height={200} {...props} />
+    return <img src={props.src} height={400} {...props} />
 }
 
 export const SurprisedHog = (props: HedgehogProps): JSX.Element => {
@@ -95,4 +96,7 @@ export const ProfessorHog = (props: HedgehogProps): JSX.Element => {
 }
 export const SupportHeroHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={supportHeroHog} {...props} />
+}
+export const DetectiveHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={detectiveHog} {...props} />
 }
