@@ -1,7 +1,7 @@
 import json
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Counter, Dict, List, Optional, Set, Tuple
 
 import structlog
 from django.db.models import Sum
@@ -11,7 +11,9 @@ from posthog.internal_metrics import incr
 from posthog.logging.timing import timed
 from posthog.models import EventDefinition, EventProperty, Insight, PropertyDefinition, Team
 from posthog.models.filters.filter import Filter
+from posthog.models.property.property import PropertyIdentifier
 from posthog.models.property_definition import PropertyType
+from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
 from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
@@ -32,12 +34,12 @@ class CountFromZero:
             self.seen_events.add(event.name)
             return 1
 
-    def incr_property(self, property: PropertyDefinition) -> int:
+    def incr_property(self, property: PropertyDefinition, count: int = 1) -> int:
         if property.name in self.seen_properties:
-            return property.query_usage_30_day + 1
+            return property.query_usage_30_day + count
         else:
             self.seen_properties.add(property.name)
-            return 1
+            return count
 
 
 @timed("calculate_event_property_usage")
@@ -132,7 +134,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
                 property_definitions[property_key].property_type = property_type
                 property_definitions[property_key].is_numerical = property_type == PropertyType.Numeric
 
-        insight_series_events, insight_properties = _get_insight_query_usage(team_id, since)
+        insight_series_events, counted_properties = _get_insight_query_usage(team_id, since)
 
         for series_event in insight_series_events:
             if series_event not in event_definitions:
@@ -145,16 +147,21 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
             event_definition = event_definitions[series_event]
             event_definition.query_usage_30_day = count_from_zero.incr_event(event_definition)
 
-        for property in insight_properties:
-            if property not in property_definitions:
+        for counted_property in counted_properties:
+            property_name, _, _ = counted_property
+            count_for_property = counted_properties[counted_property]
+
+            if property_name not in property_definitions:
                 logger.info(
                     "calculate_event_property_usage_for_team.insight_uses_property_with_no_definition",
                     team=team_id,
-                    property=property,
+                    property=property_name,
                 )
                 continue
-            property_definition = property_definitions[property]
-            property_definition.query_usage_30_day = count_from_zero.incr_property(property_definition)
+            property_definition = property_definitions[property_name]
+            property_definition.query_usage_30_day = count_from_zero.incr_property(
+                property_definition, count_for_property
+            )
 
         events_volume = _get_events_volume(team_id, since)
         for event, (volume, last_seen_at) in events_volume.items():
@@ -232,9 +239,9 @@ def _get_event_properties(team_id: int, since: timezone.datetime) -> List[Tuple[
     return sync_execute(GET_EVENT_PROPERTIES, {"team_id": team_id, "timestamp": since})
 
 
-def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], List[str]]:
+def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], Counter[PropertyIdentifier]]:
     event_usage: List[str] = []
-    property_usage: List[str] = []
+    counted_properties: Counter[PropertyIdentifier] = Counter()
 
     insight_filters = [
         (id, Filter(data=filters) if filters else None)
@@ -253,10 +260,7 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
 
         for item_filter_event in item_filters.events:
             event_usage.append(str(item_filter_event.id))
-            property_usage.extend([p.key for p in item_filter_event.property_groups.flat])
 
-        property_usage.extend([p.key for p in item_filters.property_groups.flat])
+        counted_properties.update(FOSSColumnOptimizer(item_filters, team_id).properties_used_in_filter)
 
-        # todo are there more usages of properties? e.g. math aggregations?
-
-    return event_usage, property_usage
+    return event_usage, counted_properties
