@@ -1244,6 +1244,7 @@
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
                    AND timestamp <= toDateTime('2012-02-01 23:59:59')
                    AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+                   AND e.person_id != toUUIDOrZero('')
                  ORDER BY e.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1319,6 +1320,7 @@
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
                    AND timestamp <= toDateTime('2012-02-01 23:59:59')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+                   AND e.person_id != toUUIDOrZero('')
                  ORDER BY e.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1394,6 +1396,7 @@
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
                    AND timestamp <= toDateTime('2012-02-01 23:59:59')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group1_properties, 'industry'), '^"|"$', '')))
+                   AND e.person_id != toUUIDOrZero('')
                  ORDER BY e.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1469,6 +1472,7 @@
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
                    AND timestamp <= toDateTime('2012-02-01 23:59:59')
                    AND (has(['finance'], "mat_gp0_industry"))
+                   AND e.person_id != toUUIDOrZero('')
                  ORDER BY e.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1544,6 +1548,7 @@
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
                    AND timestamp <= toDateTime('2012-02-01 23:59:59')
                    AND (has(['technology'], "mat_gp0_industry"))
+                   AND e.person_id != toUUIDOrZero('')
                  ORDER BY e.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1619,6 +1624,7 @@
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
                    AND timestamp <= toDateTime('2012-02-01 23:59:59')
                    AND (has(['technology'], "mat_gp1_industry"))
+                   AND e.person_id != toUUIDOrZero('')
                  ORDER BY e.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
