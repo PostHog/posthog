@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple, cast
 
 from rest_framework.request import Request
+from statshog.defaults.django import statsd
 
 from posthog.client import sync_execute
 from posthog.helpers.session_recording import (
@@ -15,7 +16,6 @@ from posthog.helpers.session_recording import (
     decompress_chunked_snapshot_data,
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
-    get_events_summary_from_snapshot_data,
     parse_snapshot_timestamp,
 )
 from posthog.models import SessionRecordingEvent, Team
@@ -84,11 +84,13 @@ class SessionRecording:
 
         if events_summary_by_window_id:
             # If all snapshots contain the new events_summary field...
+            statsd.incr("session_recordings.metadata_parsed_from_events_summary")
             segments, start_and_end_times_by_window_id = self._get_recording_segments_from_events_summary(
                 events_summary_by_window_id
             )
         else:
             # ... otherwise use the legacy method
+            statsd.incr("session_recordings.metadata_parsed_from_snapshot_data")
             segments, start_and_end_times_by_window_id = self._get_recording_segments_from_snapshot(snapshots)
 
         return RecordingMetadata(
@@ -140,7 +142,7 @@ class SessionRecording:
         )
 
         events_summary_by_window_id = {
-            window_id: get_events_summary_from_snapshot_data(event_list)
+            window_id: cast(List[EventActivityData], event_list)
             for window_id, event_list in decompressed_recording_data.snapshot_data_by_window_id.items()
         }
 

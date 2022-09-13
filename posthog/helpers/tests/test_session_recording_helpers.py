@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 import pytest
 from pytest_mock import MockerFixture
@@ -7,6 +8,7 @@ from posthog.helpers.session_recording import (
     EventActivityData,
     PaginatedList,
     RecordingSegment,
+    SnapshotData,
     SnapshotDataTaggedWithWindowId,
     compress_and_chunk_snapshots,
     decompress_chunked_snapshot_data,
@@ -178,7 +180,6 @@ def test_decompress_ignores_if_not_enough_chunks(raw_snapshot_events):
 
 
 def test_paginate_decompression(chunked_and_compressed_snapshot_events):
-
     snapshot_data = [
         SnapshotDataTaggedWithWindowId(
             snapshot_data=event["properties"]["$snapshot_data"], window_id=event["properties"].get("$window_id")
@@ -189,13 +190,13 @@ def test_paginate_decompression(chunked_and_compressed_snapshot_events):
     # Get the first chunk
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 1, 0)
     assert paginated_events.has_next is True
-    assert paginated_events.snapshot_data_by_window_id[None][0]["type"] == 4
+    assert cast(SnapshotData, paginated_events.snapshot_data_by_window_id[None][0])["type"] == 4
     assert len(paginated_events.snapshot_data_by_window_id[None]) == 2  # 2 events in a chunk
 
     # Get the second chunk
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 1, 1)
     assert paginated_events.has_next is False
-    assert paginated_events.snapshot_data_by_window_id["1"][0]["type"] == 3
+    assert cast(SnapshotData, paginated_events.snapshot_data_by_window_id["1"][0])["type"] == 3
     assert len(paginated_events.snapshot_data_by_window_id["1"]) == 2  # 2 events in a chunk
 
     # Limit exceeds the length

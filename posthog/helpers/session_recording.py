@@ -4,7 +4,7 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import DefaultDict, Dict, Generator, List, Optional, TypedDict
+from typing import DefaultDict, Dict, Generator, List, Optional, TypedDict, Union
 
 from sentry_sdk.api import capture_exception, capture_message
 
@@ -40,7 +40,7 @@ class SnapshotDataTaggedWithWindowId:
 @dataclasses.dataclass
 class DecompressedRecordingData:
     has_next: bool
-    snapshot_data_by_window_id: Dict[WindowId, List[SnapshotData]]
+    snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, EventActivityData]]]
 
 
 def preprocess_session_recording_events_for_clickhouse(events: List[Event]) -> List[Event]:
@@ -321,7 +321,7 @@ def generate_inactive_segments_for_range(
             segment["start_time"] = segment["start_time"] + timedelta(milliseconds=1)
 
         if index == len(inactive_segments) - 1 and segment["end_time"] == range_end_time and not is_last_segment:
-            segment["end_time"] = segment["end_time"] + timedelta(milliseconds=1)
+            segment["end_time"] = segment["end_time"] - timedelta(milliseconds=1)
 
     return inactive_segments
 

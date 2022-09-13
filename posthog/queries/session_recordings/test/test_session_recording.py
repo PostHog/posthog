@@ -346,10 +346,14 @@ def factory_session_recording_test(session_recording: SessionRecording):
                             "1": {
                                 "start_time": now(),
                                 "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4 - 2),
+                                "window_id": "1",
+                                "is_active": False,
                             },
                             "2": {
                                 "start_time": now(),
                                 "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4),
+                                "window_id": "2",
+                                "is_active": False,
                             },
                         },
                     ),
@@ -397,6 +401,6 @@ def factory_session_recording_test(session_recording: SessionRecording):
                 recording: RecordingMetadata = session_recording(  # type: ignore
                     team=self.team, session_recording_id="1", request=req
                 ).get_metadata()
-                self.assertNotEqual(recording.segments[0].start_time, now())
+                self.assertNotEqual(recording.segments[0]["start_time"], now())
 
     return TestSessionRecording
