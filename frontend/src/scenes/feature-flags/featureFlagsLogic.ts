@@ -14,8 +14,8 @@ export enum FeatureFlagsTabs {
 }
 
 export interface FeatureFlagsFilters {
-    active?: string
-    created_by?: string
+    active: string
+    created_by: string
 }
 
 interface FeatureFlagCreators {
@@ -124,7 +124,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             },
         ],
         filters: [
-            {} as Partial<FeatureFlagsFilters> | null,
+            {} as Partial<FeatureFlagsFilters>,
             {
                 setFeatureFlagsFilters: (state, { filters, replace }) => {
                     if (replace) {
