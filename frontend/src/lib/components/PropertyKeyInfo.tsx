@@ -591,7 +591,7 @@ export const keyMapping: KeyMappingInterface = {
         },
         $exception: {
             label: 'Exception',
-            description: 'Automatically captured exceptions via the client Sentry integration',
+            description: 'Automatically captured exceptions from the client Sentry integration',
         },
     },
     element: {
