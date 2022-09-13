@@ -7,6 +7,7 @@ from pytest_mock import MockerFixture
 from posthog.helpers.session_recording import (
     PaginatedList,
     RecordingSegment,
+    SessionRecordingEventSummary,
     SnapshotData,
     SnapshotDataTaggedWithWindowId,
     compress_and_chunk_snapshots,
@@ -17,7 +18,6 @@ from posthog.helpers.session_recording import (
     paginate_list,
     preprocess_session_recording_events_for_clickhouse,
 )
-from posthog.models.session_recording_event import SessionRecordingEventSummary
 
 MILLISECOND_TIMESTAMP = round(datetime(2019, 1, 1).timestamp() * 1000)
 

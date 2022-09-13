@@ -4,7 +4,16 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, DefaultDict, Dict, Generator, List, Optional, TypedDict, Union
+from typing import (
+    Any,
+    DefaultDict,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    TypedDict,
+    Union,
+)
 
 from sentry_sdk.api import capture_exception, capture_message
 
