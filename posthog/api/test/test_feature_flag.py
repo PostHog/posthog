@@ -1164,10 +1164,7 @@ class TestFeatureFlag(APIBaseTest):
                 },
                 "deleted": False,
                 "active": True,
-                "is_simple_flag": False,
-                "rollout_percentage": None,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[0],
         )
