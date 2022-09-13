@@ -210,7 +210,17 @@ export function EventsTable({
                         return newEventsRender(item, tableWidth)
                     }
                     const { event } = item
-                    return <PropertyKeyInfo value={autoCaptureEventToDescription(event)} />
+                    const content = <PropertyKeyInfo value={autoCaptureEventToDescription(event)} />
+
+                    const url = event.properties.$sentry_url
+
+                    return url ? (
+                        <Link to={url} target="_blank">
+                            {content}
+                        </Link>
+                    ) : (
+                        content
+                    )
                 },
             },
             {
