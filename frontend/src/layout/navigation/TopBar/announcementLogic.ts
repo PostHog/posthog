@@ -39,7 +39,6 @@ export const announcementLogic = kea<announcementLogicType>([
     }),
     actions({
         hideAnnouncement: (type: AnnouncementType | null) => ({ type }),
-        setCanShowAnnouncements: (state: boolean) => ({ state }),
     }),
     reducers({
         persistedClosedAnnouncements: [
@@ -119,6 +118,7 @@ export const announcementLogic = kea<announcementLogicType>([
         cloudAnnouncement: [
             (s) => [s.featureFlags],
             (featureFlags): string | null => {
+                console.log(featureFlags)
                 const flagValue = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
                 return !!flagValue && typeof flagValue === 'string'
                     ? String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]).replace(/_/g, ' ')
