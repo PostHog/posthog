@@ -29,7 +29,6 @@ def create_session_recording_event(
     snapshot_data: dict,
 ) -> str:
     timestamp = cast_timestamp_or_now(timestamp)
-
     snapshot_data_json = json.dumps(snapshot_data)
     data = {
         "uuid": str(uuid),
@@ -38,6 +37,7 @@ def create_session_recording_event(
         "session_id": session_id,
         "window_id": window_id,
         "snapshot_data": snapshot_data_json,
+        "events_summary": "",
         "timestamp": timestamp,
         "created_at": timestamp,
     }

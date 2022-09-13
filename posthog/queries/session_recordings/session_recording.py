@@ -1,4 +1,3 @@
-import dataclasses
 import json
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, cast
@@ -9,7 +8,10 @@ from statshog.defaults.django import statsd
 from posthog.client import sync_execute
 from posthog.helpers.session_recording import (
     DecompressedRecordingData,
+    RecordingMetadata,
     RecordingSegment,
+    SessionRecordingEvent,
+    SessionRecordingEventSummary,
     SnapshotDataTaggedWithWindowId,
     WindowId,
     decompress_chunked_snapshot_data,
@@ -18,14 +20,6 @@ from posthog.helpers.session_recording import (
     parse_snapshot_timestamp,
 )
 from posthog.models import Team
-from posthog.models.session_recording_event import SessionRecordingEvent, SessionRecordingEventSummary
-
-
-@dataclasses.dataclass
-class RecordingMetadata:
-    distinct_id: str
-    segments: List[RecordingSegment]
-    start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
 
 
 class SessionRecording:
@@ -109,7 +103,7 @@ class SessionRecording:
         events_summary_by_window_id: Dict[WindowId, List[SessionRecordingEventSummary]] = {}
 
         for snapshot in snapshots:
-            if snapshot.snapshot_data["chunk_index"] == 0:
+            if snapshot.snapshot_data.get("chunk_index") == 0:
                 if snapshot.events_summary is None:
                     # NOTE: Old snapshots could be missing this field in which case we ditch the whole session
                     return None

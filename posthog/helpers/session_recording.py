@@ -4,12 +4,11 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import DefaultDict, Dict, Generator, List, Optional, TypedDict, Union
+from typing import Any, DefaultDict, Dict, Generator, List, Optional, TypedDict, Union
 
 from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
-from posthog.models.session_recording_event import SessionRecordingEventSummary
 
 FULL_SNAPSHOT = 2
 
@@ -29,6 +28,30 @@ class RecordingSegment(TypedDict):
 class SnapshotDataTaggedWithWindowId:
     window_id: WindowId
     snapshot_data: SnapshotData
+
+
+class SessionRecordingEventSummary(TypedDict):
+    timestamp: int
+    is_active: bool
+    event_type: int
+    source_type: Optional[int]
+
+
+@dataclasses.dataclass
+class SessionRecordingEvent:
+    timestamp: datetime
+    distinct_id: str
+    session_id: str
+    window_id: str
+    snapshot_data: Dict[str, Any]
+    events_summary: Optional[List[SessionRecordingEventSummary]]
+
+
+@dataclasses.dataclass
+class RecordingMetadata:
+    distinct_id: str
+    segments: List[RecordingSegment]
+    start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
 
 
 @dataclasses.dataclass
