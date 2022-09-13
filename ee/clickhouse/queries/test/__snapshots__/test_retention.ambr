@@ -371,7 +371,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))) ),
+          AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+          AND e.person_id != toUUIDOrZero('') ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.event AS event,
@@ -388,9 +389,10 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))) ) SELECT DISTINCT breakdown_values,
-                                                                                                                                    intervals_from_base,
-                                                                                                                                    actor_id
+          AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
+                                                                intervals_from_base,
+                                                                actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -431,7 +433,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (JSONHas(group0_properties, 'industry')) ),
+          AND (JSONHas(group0_properties, 'industry'))
+          AND e.person_id != toUUIDOrZero('') ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.event AS event,
@@ -448,9 +451,10 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (JSONHas(group0_properties, 'industry')) ) SELECT DISTINCT breakdown_values,
-                                                                         intervals_from_base,
-                                                                         actor_id
+          AND (JSONHas(group0_properties, 'industry'))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
+                                                                intervals_from_base,
+                                                                actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -491,7 +495,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (has(['technology'], "mat_gp0_industry")) ),
+          AND (has(['technology'], "mat_gp0_industry"))
+          AND e.person_id != toUUIDOrZero('') ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.event AS event,
@@ -508,9 +513,10 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (has(['technology'], "mat_gp0_industry")) ) SELECT DISTINCT breakdown_values,
-                                                                          intervals_from_base,
-                                                                          actor_id
+          AND (has(['technology'], "mat_gp0_industry"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
+                                                                intervals_from_base,
+                                                                actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -551,7 +557,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (notEmpty("mat_gp0_industry")) ),
+          AND (notEmpty("mat_gp0_industry"))
+          AND e.person_id != toUUIDOrZero('') ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.event AS event,
@@ -568,9 +575,10 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (notEmpty("mat_gp0_industry")) ) SELECT DISTINCT breakdown_values,
-                                                               intervals_from_base,
-                                                               actor_id
+          AND (notEmpty("mat_gp0_industry"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
+                                                                intervals_from_base,
+                                                                actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -614,7 +622,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (NOT has([''], "$group_0")) ),
+          AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('') ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.event AS event,
@@ -631,9 +640,10 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
-                                                            intervals_from_base,
-                                                            actor_id
+          AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
+                                                                intervals_from_base,
+                                                                actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -673,7 +683,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (NOT has([''], "$group_0")) ),
+          AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('') ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
                         e.event AS event,
@@ -690,9 +701,10 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-          AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
-                                                            intervals_from_base,
-                                                            actor_id
+          AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
+                                                                intervals_from_base,
+                                                                actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
