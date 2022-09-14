@@ -52,6 +52,8 @@ export interface PopupProps {
      * **/
     additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
     style?: React.CSSProperties
+    /** Whether the parent popup should be closed as well on click. Useful for menus  */
+    closeParentPopupOnClickInside?: boolean
     getPopupContainer?: () => HTMLElement
     /** Whether to show an arrow pointing to a reference element */
     showArrow?: boolean
@@ -85,6 +87,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
             sameWidth = false,
             maxContentWidth = false,
             additionalRefs = [],
+            closeParentPopupOnClickInside = false,
             style,
             getPopupContainer,
             showArrow,
@@ -182,7 +185,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
         const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
             onClickInside?.(e)
             // If we are not the top level popup, set a flag so that other popups know that.
-            if (parentPopupId !== 0) {
+            if (parentPopupId !== 0 && !closeParentPopupOnClickInside) {
                 nestedPopupReceivedClick = true
                 setTimeout(() => {
                     nestedPopupReceivedClick = false
