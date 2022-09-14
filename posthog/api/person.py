@@ -453,12 +453,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         if not results_package:
             return response.Response(data=[])
 
-        # NOTE: Since missing_persons was added some cached results may be missing this value
-        if len(results_package["result"]) > 3:
-            actors, next_url, initial_url, missing_persons = results_package["result"]
-        else:
-            actors, next_url, initial_url = results_package["result"]  # type: ignore
-            missing_persons = 0
+        actors, next_url, initial_url, missing_persons = results_package["result"]
 
         return response.Response(
             data={

@@ -133,7 +133,9 @@ const renderItemContents = ({
             ) : (
                 <>
                     {group.getIcon ? icon : null}
-                    {group.getName(item) || item.name || ''}
+                    <span className="truncate" title={group.getName(item) || item.name || ''}>
+                        {group.getName(item) || item.name || ''}
+                    </span>
                 </>
             )}
         </div>

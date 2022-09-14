@@ -248,6 +248,7 @@ export interface JobQueue {
 export enum JobQueueType {
     FS = 'fs',
     Graphile = 'graphile',
+    GraphileBackup = 'graphile-backup',
 }
 
 export enum JobQueuePersistence {

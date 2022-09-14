@@ -6,7 +6,7 @@ import React from 'react'
 import { BOOKMARKLET } from '../constants'
 import { ingestionLogic, INGESTION_STEPS } from '../ingestionLogic'
 import './Panels.scss'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import { IconArrowLeft } from 'lib/components/icons'
 
 export function PanelFooter(): JSX.Element {
     const { platform } = useValues(ingestionLogic)
@@ -79,8 +79,8 @@ export function PanelHeader(): JSX.Element | null {
     }
 
     return (
-        <div className="flex items-center" data-attr="wizard-step-counter">
-            <LemonButton type="tertiary" status="primary" onClick={onBack} icon={<ArrowLeftOutlined />}>
+        <div className="flex items-center mb-2" data-attr="wizard-step-counter">
+            <LemonButton type="tertiary" status="primary" onClick={onBack} icon={<IconArrowLeft />} size="small">
                 {isSmallScreen ? '' : previousStep}
             </LemonButton>
         </div>

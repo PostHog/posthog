@@ -22,12 +22,12 @@ class TestEventDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
     EXPECTED_EVENT_DEFINITIONS: List[Dict[str, Any]] = [
-        {"name": "installed_app", "volume_30_day": 1, "query_usage_30_day": 0},
-        {"name": "rated_app", "volume_30_day": 2, "query_usage_30_day": 0},
-        {"name": "purchase", "volume_30_day": 3, "query_usage_30_day": 0},
-        {"name": "entered_free_trial", "volume_30_day": 7, "query_usage_30_day": 0},
-        {"name": "watched_movie", "volume_30_day": 8, "query_usage_30_day": 0},
-        {"name": "$pageview", "volume_30_day": 9, "query_usage_30_day": 0},
+        {"name": "installed_app", "volume_30_day": 1, "query_usage_30_day": None},
+        {"name": "rated_app", "volume_30_day": 2, "query_usage_30_day": None},
+        {"name": "purchase", "volume_30_day": 3, "query_usage_30_day": None},
+        {"name": "entered_free_trial", "volume_30_day": 7, "query_usage_30_day": None},
+        {"name": "watched_movie", "volume_30_day": 8, "query_usage_30_day": None},
+        {"name": "$pageview", "volume_30_day": 9, "query_usage_30_day": None},
     ]
 
     @classmethod
