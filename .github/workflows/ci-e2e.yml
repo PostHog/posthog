@@ -334,9 +334,10 @@ jobs:
             - name: Archive visual regression tests on failure
               uses: actions/upload-artifact@v3
               with:
-                  name: visual-regression-tests
+                  name: visual-regression-tests-{{env.GITHUB_JOB}}
                   path: 'cypress-visual-screenshots/'
                   if-no-files-found: 'ignore'
+              if: ${{ failure() }}
 
             - name: Show logs on failure
               # use artefact here, as I think the output will be too large for display in an action
