@@ -9,12 +9,16 @@ function applyFilter() {
     cy.get('[data-attr=prop-val-0]').click({ force: true })
 }
 
-function createANewInsight() {
+function createANewInsight(insightName) {
     cy.visit('/saved_insights/') // Should work with trailing slash just like without it
     cy.get('[data-attr=saved-insights-new-insight-dropdown]').click()
     cy.get('[data-attr-insight-type="TRENDS"').click()
 
     applyFilter()
+
+    if (insightName) {
+        cy.get('[data-attr="insight-name"] input').type(insightName)
+    }
 
     cy.get('[data-attr="insight-save-button"]').click()
 }
@@ -43,6 +47,17 @@ describe('Insights', () => {
         cy.get('[data-attr="insight-save-as-new-insight"]').click()
         cy.get('.ant-modal-content .ant-btn-primary').click()
         cy.get('[data-attr="insight-name"]').should('contain', 'Pageview count (copy)')
+    })
+
+    it('Can change insight name', () => {
+        createANewInsight('starting value')
+        cy.get('[data-attr="insight-name"]').should('contain', 'edited value')
+
+        cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
+        cy.get('[data-attr="insight-name"] input').type('edited value')
+        cy.get('[data-attr="insight-name"] [title="Save"]').click()
+
+        cy.get('[data-attr="insight-name"]').should('contain', 'edited value')
     })
 
     it('Create new insight and save and continue editing', () => {
