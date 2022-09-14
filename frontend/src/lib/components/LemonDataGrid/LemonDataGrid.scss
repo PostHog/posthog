@@ -1,0 +1,24 @@
+.LemonDataGrid {
+    position: relative;
+    width: 100%;
+    background: #fff;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    overflow: hidden;
+
+    &--cell {
+        display: flex;
+        align-items: center;
+        border-top: 1px solid var(--border);
+        padding: 0.5rem 1rem;
+    }
+    &--header {
+        background: var(--bg-mid);
+        font-size: 0.75rem;
+        letter-spacing: 0.03125rem;
+        text-transform: uppercase;
+        font-weight: 700;
+        text-align: left;
+        border-top: none;
+    }
+}
