@@ -1,8 +1,9 @@
+import datetime
 import re
 from typing import Any, Callable, Dict, List, Union, cast
 
-from dateutil.relativedelta import relativedelta
 from dateutil import parser
+from dateutil.relativedelta import relativedelta
 from django.db.models import Exists, OuterRef, Q
 from rest_framework.exceptions import ValidationError
 
@@ -124,30 +125,33 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
 
     if operator == "lte":
         return type(override_value) == type(value) and override_value <= value
-    
+
     if operator in ["is_date_before", "is_date_after"]:
         try:
-            parsed_date = parser.parse(value)
+            parsed_date = parser.parse(str(value), ignoretz=True)
         except Exception:
-            raise ValidationError("The date set on the flag is not a valid format")
+            return False
 
-        import datetime
-        if isinstance(override_value, datetime.date):
+        if isinstance(override_value, datetime.datetime):
+            override_date = override_value.replace(tzinfo=None)
             if operator == "is_date_before":
-                return override_value < parsed_date
+                return override_date < parsed_date
             else:
-                return override_value > parsed_date
+                return override_date > parsed_date
+        elif isinstance(override_value, datetime.date):
+            if operator == "is_date_before":
+                return override_value < parsed_date.date()
+            else:
+                return override_value > parsed_date.date()
         elif isinstance(override_value, str):
             try:
-                override_date = parser.parse(override_value)
+                override_date = parser.parse(override_value).replace(tzinfo=None)
                 if operator == "is_date_before":
                     return override_date < parsed_date
                 else:
                     return override_date > parsed_date
             except Exception:
-                raise ValidationError("The date provided is not a valid format")
-        else:
-            raise ValidationError("The date provided must be a string or date object")
+                return False
 
     return False
 
