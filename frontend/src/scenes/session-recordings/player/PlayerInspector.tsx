@@ -102,10 +102,22 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                             }
                             return RowStatus.Information
                         },
-                        content: function renderContent(record) {
+                        content: function renderContent(record, _, expanded) {
                             if (currentTab === SessionRecordingTab.CONSOLE) {
                                 return (
-                                    <div className="font-mono text-xs w-full text-ellipsis">
+                                    <div
+                                        className="font-mono text-xs w-full text-ellipsis"
+                                        style={{
+                                            lineHeight: '1.5rem',
+                                            ...(expanded && {
+                                                display: '-webkit-box',
+                                                '-webkit-line-clamp': '6',
+                                                '-webkit-box-orient': 'vertical',
+                                                overflow: 'hidden',
+                                                whiteSpace: 'normal',
+                                            }),
+                                        }}
+                                    >
                                         {interleave(record.previewContent, ' ')}
                                     </div>
                                 )
@@ -135,16 +147,15 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                                 return null
                             }
                             if (currentTab === SessionRecordingTab.CONSOLE) {
-                                console.log('record', record.fullContent)
                                 return (
-                                    <>
+                                    <div className="py-2 pr-2 pl-18 font-mono text-xs" style={{ lineHeight: '1.5rem' }}>
                                         {record.fullContent?.map((content: JSX.Element, i: number) => (
                                             <React.Fragment key={i}>
                                                 {content}
                                                 <br />
                                             </React.Fragment>
                                         ))}
-                                    </>
+                                    </div>
                                 )
                             }
                             return (

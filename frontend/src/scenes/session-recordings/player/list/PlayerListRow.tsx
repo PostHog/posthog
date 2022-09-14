@@ -1,5 +1,4 @@
-import React, { CSSProperties, ReactNode, useMemo } from 'react'
-import { ExpandableConfig } from 'lib/components/LemonTable'
+import React, { CSSProperties, ReactElement, useMemo } from 'react'
 import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 import clsx from 'clsx'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
@@ -7,6 +6,7 @@ import { IconEllipsis, IconUnfoldLess, IconUnfoldMore } from 'lib/components/ico
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { boxToSections } from 'lib/components/LemonSelect'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import { PlayerListExpandableConfig } from 'scenes/session-recordings/player/list/PlayerList'
 
 export interface ListRowOption<T> {
     label: string | JSX.Element
@@ -25,7 +25,7 @@ export type ListRowOptions<T> = ListRowSection<T>[] | ListRowOption<T>[]
 export interface PlayerListRowProps<T extends Record<string, any>> {
     record: T
     recordIndex: number
-    expandable: ExpandableConfig<T> | undefined
+    expandable: PlayerListExpandableConfig<T> | undefined
     style: CSSProperties | undefined
     keyDetermined: string | null | undefined
     classNameDetermined: string | null | undefined
@@ -33,8 +33,8 @@ export interface PlayerListRowProps<T extends Record<string, any>> {
     expandedDetermined: boolean | null | undefined
     /** If row is current, row will be highlighted with border and prominent ribbon */
     currentDetermined: boolean
-    contentDetermined: ReactNode
-    sideContentDetermined: ReactNode
+    contentDetermined: ReactElement | null | undefined
+    sideContentDetermined: ReactElement | null | undefined
     onClick: (record: T) => void
     optionsDetermined: ListRowOptions<T>
     /** Used to pause any interactions while player list is still loading **/
@@ -58,6 +58,7 @@ function PlayerListRowRaw<T extends Record<string, any>>({
     loading,
 }: PlayerListRowProps<T>): JSX.Element {
     const [sections, allOptions] = useMemo(() => boxToSections(optionsDetermined), [optionsDetermined])
+    const isExpanded = expandable && expandedDetermined
 
     return (
         <div
@@ -80,12 +81,14 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                 <div
                     className={clsx(
                         'PlayerList__item__content__header',
-                        'cursor-pointer h-10 shrink-0 flex flex-row gap-3 items-center justify-between px-2 bg-light',
+                        'cursor-pointer shrink-0 flex flex-row gap-3 items-start justify-between px-2 py-2',
                         {
                             'text-warning-dark bg-warning-highlight': statusDetermined === RowStatus.Warning,
                             'text-danger-dark bg-danger-highlight': statusDetermined === RowStatus.Error,
                             'text-indigo bg-purple-light': statusDetermined === RowStatus.Match,
-                        }
+                            'text-black bg-light': !statusDetermined || statusDetermined === RowStatus.Information,
+                        },
+                        !isExpanded && 'h-10'
                     )}
                 >
                     <div className="flex flex-row items-center">
@@ -115,8 +118,11 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                             <IconWindow value="1" className="text-muted shrink-0" />
                         </div>
                     </div>
-                    <div className="grow overflow-hidden">{contentDetermined}</div>
-                    <div className="flex shrink-0 flex-row gap-3 items-center text-muted">
+                    <div className={clsx('grow h-full', !isExpanded && 'overflow-hidden')}>{contentDetermined}</div>
+                    <div
+                        className="flex shrink-0 flex-row gap-3 items-center text-muted"
+                        style={{ lineHeight: '1.5rem' }}
+                    >
                         {sideContentDetermined}
                         <div style={{ fontSize: 11 }}>{record.colonTimestamp}</div>
                         {allOptions.length > 0 && (
@@ -157,13 +163,13 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                         )}
                     </div>
                 </div>
-                {expandable && expandedDetermined && (
+                {isExpanded && (
                     <>
                         <LemonDivider className="my-0" />
                         <div
                             className={clsx(
                                 'PlayerList__item__content__expandable',
-                                'bg-light overflow-y-scroll w-full'
+                                'bg-light overflow-y-scroll w-full h-full'
                             )}
                         >
                             {expandable.expandedRowRender(record, recordIndex)}
