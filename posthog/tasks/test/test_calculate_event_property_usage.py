@@ -354,6 +354,8 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             2, PropertyDefinition.objects.get(team=self.team, name="used property").query_usage_30_day
         )  # in a property group and in an events series filter
+
+        # unused property stays as None because no update is issued against it
         self.assertIsNone(PropertyDefinition.objects.get(team=self.team, name="unused property").query_usage_30_day)
 
         self.assertEqual(

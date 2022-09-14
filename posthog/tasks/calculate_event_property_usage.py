@@ -95,6 +95,10 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
 
     try:
         count_from_zero = CountFromZero()
+        # django orm doesn't track if a model has been changed
+        # between count from zero and these two sets we manually track which models have changed
+        altered_events: Set[str] = set()
+        altered_properties: Set[str] = set()
 
         event_definitions: Dict[str, EventDefinition] = {
             known_event.name: known_event for known_event in EventDefinition.objects.filter(team_id=team_id)
@@ -133,6 +137,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
 
                 property_definitions[property_key].property_type = property_type
                 property_definitions[property_key].is_numerical = property_type == PropertyType.Numeric
+                altered_properties.add(property_key)
 
         insight_series_events, counted_properties = _get_insight_query_usage(team_id, since)
 
@@ -174,15 +179,28 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
                 continue
             event_definitions[event].volume_30_day = volume
             event_definitions[event].last_seen_at = last_seen_at
+            altered_events.add(event)
 
+        altered_events.update(count_from_zero.seen_events)
         EventDefinition.objects.bulk_update(
-            event_definitions.values(), fields=["volume_30_day", "query_usage_30_day", "last_seen_at"], batch_size=5000
+            [
+                event_definition
+                for event_definition in event_definitions.values()
+                if event_definition.name in altered_events
+            ],
+            fields=["volume_30_day", "query_usage_30_day", "last_seen_at"],
+            batch_size=1000,
         )
 
+        altered_properties.update(count_from_zero.seen_properties)
         PropertyDefinition.objects.bulk_update(
-            property_definitions.values(),
+            [
+                property_definition
+                for property_definition in property_definitions.values()
+                if property_definition.name in altered_properties
+            ],
             fields=["property_type", "query_usage_30_day", "is_numerical"],
-            batch_size=5000,
+            batch_size=1000,
         )
 
         incr("calculate_event_property_usage_for_team_success", tags={"team": team_id})
