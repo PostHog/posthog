@@ -176,13 +176,13 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
             event_definitions[event].last_seen_at = last_seen_at
 
         EventDefinition.objects.bulk_update(
-            event_definitions.values(), fields=["volume_30_day", "query_usage_30_day", "last_seen_at"], batch_size=5000
+            event_definitions.values(), fields=["volume_30_day", "query_usage_30_day", "last_seen_at"], batch_size=1000
         )
 
         PropertyDefinition.objects.bulk_update(
             property_definitions.values(),
             fields=["property_type", "query_usage_30_day", "is_numerical"],
-            batch_size=5000,
+            batch_size=1000,
         )
 
         incr("calculate_event_property_usage_for_team_success", tags={"team": team_id})
