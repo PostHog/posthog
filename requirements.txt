@@ -235,7 +235,7 @@ pexpect==4.7.0
     # via -r requirements.in
 pickleshare==0.7.5
     # via -r requirements.in
-posthoganalytics==2.1.0
+posthoganalytics==2.1.1
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus

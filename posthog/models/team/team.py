@@ -204,14 +204,19 @@ class Team(UUIDClassicModel):
     @property
     def actor_on_events_querying_enabled(self) -> bool:
         # on PostHog Cloud, use the feature flag
-        if settings.MULTI_TENANCY:
-            return posthoganalytics.feature_enabled(
-                "person-on-events-enabled",
-                str(self.uuid),
-                groups={"project": str(self.uuid)},
-                group_properties={"project": {"id": str(self.pk)}},
-                only_evaluate_locally=True,
-            )
+        # if not settings.MULTI_TENANCY:
+        print('evaluating flag locally:')
+        posthoganalytics.debug = True
+        print(self.organization.created_at)
+        val =  posthoganalytics.feature_enabled(
+            "person-on-events-enabled",
+            str(self.uuid),
+            groups={"organization": str(self.organization.id)},
+            group_properties={"organization": {"id": str(self.organization.id), "created_at": self.organization.created_at.replace(tzinfo=None)}},
+            only_evaluate_locally=True,
+        )
+        print('flag value:  ', val)
+        return val
 
         # If the async migration is not complete, don't enable actor on events querying.
         if not person_on_events_ready():
