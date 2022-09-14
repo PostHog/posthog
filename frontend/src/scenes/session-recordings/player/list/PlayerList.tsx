@@ -152,8 +152,6 @@ export function PlayerList<T extends Record<string, any>>({
                                                 ? row.options(record, index)
                                                 : row?.options
 
-                                        console.log('ROW STATUS', rowStatusDetermined)
-
                                         return (
                                             <PlayerListRow
                                                 key={`PlayerList-Row-${rowKeyDetermined}`}
