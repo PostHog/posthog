@@ -331,6 +331,13 @@ jobs:
                   path: '**/a11y/'
                   if-no-files-found: 'ignore'
 
+            - name: Archive visual regression tests on failure
+              uses: actions/upload-artifact@v3
+              with:
+                  name: visual-regression-tests
+                  path: 'cypress-visual-screenshots/'
+                  if-no-files-found: 'ignore'
+
             - name: Show logs on failure
               # use artefact here, as I think the output will be too large for display in an action
               uses: actions/upload-artifact@v3
