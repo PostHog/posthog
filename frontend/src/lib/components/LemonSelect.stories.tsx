@@ -59,7 +59,15 @@ SectionedOptions.args = {
                     <div className="text-muted mx-2 mb-2">I can put whatever I want here</div>
                 </div>
             ),
-            options: [{ value: 'tomato', label: 'Tomato??' }],
+            options: [{ value: 'tomato', label: 'Tomato??', disabled: true }],
+            footer: (
+                <div className="bg-side rounded p-2">
+                    <p className="text-muted" style={{ maxWidth: '15rem' }}>
+                        I am a custom footer! <br />
+                        This might be a good time to tell you about our premium features...
+                    </p>
+                </div>
+            ),
         },
     ] as LemonSelectOptions<string>,
 }

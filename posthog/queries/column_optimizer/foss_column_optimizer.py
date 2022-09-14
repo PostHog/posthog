@@ -31,19 +31,19 @@ class FOSSColumnOptimizer:
     def event_columns_to_query(self) -> Set[ColumnName]:
         "Returns a list of event table columns containing materialized properties that this query needs"
 
-        return self.columns_to_query("events", set(self._used_properties_with_type("event")))
+        return self.columns_to_query("events", set(self.used_properties_with_type("event")))
 
     @cached_property
     def person_on_event_columns_to_query(self) -> Set[ColumnName]:
         "Returns a list of event table person columns containing materialized properties that this query needs"
 
-        return self.columns_to_query("events", set(self._used_properties_with_type("person")), "person_properties")
+        return self.columns_to_query("events", set(self.used_properties_with_type("person")), "person_properties")
 
     @cached_property
     def person_columns_to_query(self) -> Set[ColumnName]:
         "Returns a list of person table columns containing materialized properties that this query needs"
 
-        return self.columns_to_query("person", set(self._used_properties_with_type("person")))
+        return self.columns_to_query("person", set(self.used_properties_with_type("person")))
 
     def columns_to_query(
         self, table: TableWithProperties, used_properties: Set[PropertyIdentifier], table_column: str = "properties"
@@ -58,11 +58,11 @@ class FOSSColumnOptimizer:
 
     @cached_property
     def is_using_person_properties(self) -> bool:
-        return len(self._used_properties_with_type("person")) > 0
+        return len(self.used_properties_with_type("person")) > 0
 
     @cached_property
     def is_using_cohort_propertes(self) -> bool:
-        return len(self._used_properties_with_type("cohort")) > 0
+        return len(self.used_properties_with_type("cohort")) > 0
 
     @cached_property
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
@@ -142,7 +142,7 @@ class FOSSColumnOptimizer:
 
         return counter
 
-    def _used_properties_with_type(self, property_type: PropertyType) -> Counter[PropertyIdentifier]:
+    def used_properties_with_type(self, property_type: PropertyType) -> Counter[PropertyIdentifier]:
         return Counter(
             {
                 (name, type, group_type_index): count

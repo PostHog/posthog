@@ -1033,10 +1033,7 @@ class TestFeatureFlag(APIBaseTest):
                 },
                 "deleted": False,
                 "active": True,
-                "is_simple_flag": True,
-                "rollout_percentage": 20,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[0],
         )
@@ -1051,10 +1048,7 @@ class TestFeatureFlag(APIBaseTest):
                 },
                 "deleted": False,
                 "active": True,
-                "is_simple_flag": False,
-                "rollout_percentage": None,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[1],
         )
@@ -1065,10 +1059,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filters": {"groups": [{"rollout_percentage": 21}], "aggregation_group_type_index": 0},
                 "deleted": False,
                 "active": True,
-                "is_simple_flag": False,
-                "rollout_percentage": None,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[2],
         )
@@ -1079,15 +1070,104 @@ class TestFeatureFlag(APIBaseTest):
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "deleted": False,
                 "active": False,
-                "is_simple_flag": True,
-                "rollout_percentage": 100,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[3],
         )
 
         self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company"})
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_local_evaluation_for_cohorts(self, mock_capture):
+        FeatureFlag.objects.all().delete()
+
+        cohort_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 20,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                        }
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+
+        key = PersonalAPIKey(label="Test", user=self.user)
+        key.save()
+        personal_api_key = key.value
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
+        self.assertEqual(len(response_data["flags"]), 1)
+
+        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}],
+                            "rollout_percentage": 20,
+                        },
+                        {
+                            "properties": [{"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}],
+                            "rollout_percentage": 20,
+                        },
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+                "deleted": False,
+                "active": True,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[0],
+        )
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_evaluation_reasons(self, mock_capture):
