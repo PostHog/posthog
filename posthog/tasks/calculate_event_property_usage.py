@@ -7,7 +7,7 @@ import structlog
 from django.db.models import Sum
 from django.utils import timezone
 
-from posthog.internal_metrics import incr
+from posthog.internal_metrics import gauge, incr
 from posthog.logging.timing import timed
 from posthog.models import EventDefinition, EventProperty, Insight, PropertyDefinition, Team
 from posthog.models.filters.filter import Filter
@@ -72,8 +72,6 @@ def recently_calculated_teams(now_in_seconds_since_epoch: float) -> Set[int]:
 
 
 def gauge_event_property_usage() -> None:
-    from posthog.internal_metrics import gauge
-
     event_query_usage_30_day_sum: int = EventDefinition.objects.aggregate(sum=Sum("query_usage_30_day"))["sum"]
     event_volume_30_day_sum: int = EventDefinition.objects.aggregate(sum=Sum("volume_30_day"))["sum"]
     property_query_usage_30_day_sum: int = PropertyDefinition.objects.aggregate(sum=Sum("query_usage_30_day"))["sum"]
@@ -182,6 +180,11 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
             altered_events.add(event)
 
         altered_events.update(count_from_zero.seen_events)
+        gauge(
+            "calculate_event_property_usage_for_team.events_to_update",
+            value=len(altered_events),
+            tags={"team": team_id},
+        )
         EventDefinition.objects.bulk_update(
             [
                 event_definition
@@ -193,6 +196,11 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
         )
 
         altered_properties.update(count_from_zero.seen_properties)
+        gauge(
+            "calculate_event_property_usage_for_team.event_properties_to_update",
+            value=len(altered_properties),
+            tags={"team": team_id},
+        )
         PropertyDefinition.objects.bulk_update(
             [
                 property_definition
