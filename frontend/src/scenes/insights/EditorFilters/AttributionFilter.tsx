@@ -16,7 +16,7 @@ export function Attribution({ filters, insightProps }: EditorFilterProps): JSX.E
             options={[
                 { value: BreakdownAttributionType.FirstTouch, label: 'First touchpoint' },
                 { value: BreakdownAttributionType.LastTouch, label: 'Last touchpoint' },
-                { value: BreakdownAttributionType.AllSteps, label: 'All Steps' },
+                { value: BreakdownAttributionType.AllSteps, label: 'All steps' },
                 filters.funnel_order_type === StepOrderValue.UNORDERED
                     ? { value: BreakdownAttributionType.Step, label: 'Any step' }
                     : {

@@ -7,6 +7,7 @@
     flex-direction: column;
     flex: 1;
     overflow: hidden;
+    min-height: 100vh;
 
     .BridgePage__main {
         display: flex;
@@ -52,7 +53,7 @@
         display: none;
 
         img {
-            width: 390px;
+            height: 300px;
         }
 
         .BridgePage__art__message {

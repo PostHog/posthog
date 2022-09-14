@@ -454,13 +454,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportInsightOpenedFromRecentInsightList: true,
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
-        reportTeamHasIngestedEvents: true,
         reportIngestionSelectPlatformType: (platform: PlatformType) => ({ platform }),
         reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
         reportIngestionContinueWithoutVerifying: true,
         reportIngestionContinueWithoutBilling: true,
+        reportIngestionBillingCancelled: true,
         reportIngestionThirdPartyAboutClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
@@ -1071,9 +1071,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportPersonOpenedFromNewlySeenPersonsList: () => {
             posthog.capture('person opened from newly seen persons list')
         },
-        reportTeamHasIngestedEvents: () => {
-            posthog.capture('team has ingested events')
-        },
         reportIngestionSelectPlatformType: ({ platform }) => {
             posthog.capture('ingestion select platform type', {
                 platform: platform,
@@ -1097,6 +1094,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportIngestionContinueWithoutBilling: () => {
             posthog.capture('ingestion continue without adding billing details')
+        },
+        reportIngestionBillingCancelled: () => {
+            posthog.capture('ingestion billing cancelled')
         },
         reportIngestionThirdPartyAboutClicked: ({ name }) => {
             posthog.capture('ingestion third party about clicked', {

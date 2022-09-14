@@ -8,7 +8,9 @@ from celery.schedules import crontab
 from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
 from django.conf import settings
 from django.db import connection
+from django.dispatch import receiver
 from django.utils import timezone
+from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
 
 from posthog.redis import get_client
@@ -44,6 +46,14 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
     # mypy thinks that there is no `logging.config` but there is ¯\_(ツ)_/¯
     logging.config.dictConfig(logs.LOGGING)  # type: ignore
+
+
+@receiver(signals.bind_extra_task_metadata)
+def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None):
+    import structlog
+
+    if task:
+        structlog.contextvars.bind_contextvars(task_name=task.name)
 
 
 @worker_process_init.connect

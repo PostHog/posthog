@@ -25,20 +25,11 @@ body strong {
     font-weight: 600;
 }
 
-// Disable default styling for ul...
+// Disable default styling for ul
 ul {
     margin-bottom: 0;
     list-style: none;
     padding-left: 0;
-}
-
-// ... unless in a <p> element
-p {
-    ul {
-        margin-bottom: 1rem;
-        list-style: initial;
-        padding-left: 1.5rem;
-    }
 }
 
 // This may look odd but sets up our utility classes
@@ -77,6 +68,11 @@ p {
     @extend .text-sm;
     max-width: 48rem;
     margin-bottom: 1rem;
+}
+
+.page-description {
+    font-style: italic;
+    color: var(--muted);
 }
 
 .page-buttons {
@@ -564,7 +560,7 @@ input::-ms-clear {
     padding: 2px 6px;
 
     &.tag-light-blue {
-        background-color: var(--blue-lightest);
+        background-color: var(--primary-highlight);
     }
 }
 

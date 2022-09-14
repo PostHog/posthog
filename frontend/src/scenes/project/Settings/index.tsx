@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { Skeleton } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { SessionRecording } from './SessionRecording'
@@ -36,6 +35,7 @@ import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SlackIntegration } from './SlackIntegration'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -79,7 +79,12 @@ export function ProjectSettings(): JSX.Element {
 
     useAnchor(location.hash)
 
-    const loadingComponent = <Skeleton active />
+    const loadingComponent = (
+        <div className="space-y-4">
+            <LemonSkeleton className="w-1/2" />
+            <LemonSkeleton repeat={3} />
+        </div>
+    )
 
     return (
         <div>
@@ -195,18 +200,16 @@ export function ProjectSettings(): JSX.Element {
                     So, if you apply a cohort, it means you will only match users in that cohort.
                 </p>
                 <strong>Example filters</strong>
-                <p>
-                    <ul>
-                        <li>
-                            "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all
-                            events from your company's team members.
-                        </li>
-                        <li>
-                            "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude all events
-                            from local development environments.
-                        </li>
-                    </ul>
-                </p>
+                <ul className="list-disc pl-4 mb-2">
+                    <li>
+                        "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all events
+                        from your company's team members.
+                    </li>
+                    <li>
+                        "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude all events from
+                        local development environments.
+                    </li>
+                </ul>
                 <TestAccountFiltersConfig />
                 <LemonDivider className="my-6" />
                 <CorrelationConfig />
