@@ -12,7 +12,10 @@ export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
 }
 export interface LemonButtonPropsBase
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
-    extends Pick<React.ButtonHTMLAttributes<HTMLElement>, 'title' | 'onClick' | 'id' | 'tabIndex' | 'form'> {
+    extends Pick<
+        React.ButtonHTMLAttributes<HTMLElement>,
+        'title' | 'onClick' | 'id' | 'tabIndex' | 'form' | 'onMouseDown'
+    > {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     /** What color scheme the button should follow */
