@@ -26,6 +26,10 @@ import { useMocks } from '~/mocks/jest'
 import { useAvailableFeatures } from '~/mocks/features'
 import api from 'lib/api'
 
+jest.mock('scenes/trends/persons-modal/PersonsModal')
+
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+
 const Insight12 = '12' as InsightShortId
 const Insight123 = '123' as InsightShortId
 
@@ -542,39 +546,37 @@ describe('funnelLogic', () => {
         })
     })
 
-    describe('it is connected with personsModalLogic', () => {
+    describe('it opens the PersonsModal', () => {
         const props = { dashboardItemId: Insight123 }
         beforeEach(async () => {
             await initFunnelLogic(props)
         })
 
-        it('setFilters calls personsModalLogic.loadPeople', async () => {
-            throw new Error('TODO: This test')
+        it('setFilters calls openPersonsModal', async () => {
             await expectLogic().toDispatchActions(preflightLogic, ['loadPreflightSuccess'])
             await expectLogic(() => {
                 router.actions.push(urls.insightEdit(Insight123))
             })
 
-            await expectLogic(logic, () => {
-                logic.actions.openPersonsModalForStep({
-                    step: {
-                        action_id: '$pageview',
-                        average_conversion_time: 0,
-                        median_conversion_time: 0,
-                        count: 1,
-                        name: '$pageview',
-                        order: 0,
-                        type: 'events',
-                        converted_people_url: '/some/people/url',
-                        dropped_people_url: '/some/people/url',
-                    },
-                    converted: true,
-                })
-            }).toDispatchActions([
-                (action) => {
-                    return action.type === 'NOPE' && action.payload?.label === '$pageview'
+            logic.actions.openPersonsModalForStep({
+                step: {
+                    action_id: '$pageview',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    count: 1,
+                    name: '$pageview',
+                    order: 0,
+                    type: 'events',
+                    converted_people_url: '/some/people/url',
+                    dropped_people_url: '/some/people/url',
                 },
-            ])
+                converted: true,
+            })
+
+            expect(openPersonsModal).toHaveBeenCalledWith({
+                title: expect.any(Object),
+                url: '/some/people/url',
+            })
         })
     })
 
