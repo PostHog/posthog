@@ -24,7 +24,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { userLogic } from 'scenes/userLogic'
-import { AvailableFeature } from '~/types'
+import { AnyPropertyFilter, AvailableFeature } from '~/types'
 import { Link } from 'lib/components/Link'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
@@ -1133,6 +1133,20 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
     } = useActions(featureFlagLogic)
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
+    const instantProperties = [
+        '$geoip_city_name',
+        '$geoip_country_name',
+        '$geoip_country_code',
+        '$geoip_continent_name',
+        '$geoip_continent_code',
+        '$geoip_postal_code',
+        '$geoip_time_zone',
+    ]
+    const hasNonInstantProperty = (properties: AnyPropertyFilter[]): boolean => {
+        return !!properties.find(
+            (property) => property.type === 'cohort' || !instantProperties.includes(property.key || '')
+        )
+    }
     return (
         <>
             <div className="feature-flag-form-row">
@@ -1233,6 +1247,21 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 )}
                             </Row>
                             <LemonDivider className="my-3" />
+                            {!readOnly && hasNonInstantProperty(group.properties) && (
+                                <AlertMessage type="info" className="mt-3 mb-3">
+                                    These properties aren't immediately available on first page load for unidentified
+                                    persons. This feature flag requires that at least one event is sent prior to
+                                    becoming available to your product or website.{' '}
+                                    <a
+                                        href="https://posthog.com/manual/feature-flags#persisting-feature-flags-across-authentication-steps"
+                                        target="_blank"
+                                    >
+                                        {' '}
+                                        Learn more about how to make feature flags available instantly.
+                                    </a>
+                                </AlertMessage>
+                            )}
+
                             {readOnly ? (
                                 <>
                                     {group.properties.map((property, idx) => (
