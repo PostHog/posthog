@@ -1,3 +1,6 @@
+const compareSnapshotCommand = require('cypress-image-diff-js/dist/command')
+compareSnapshotCommand()
+
 const patternHandler = {}
 
 Cypress.Commands.add('interceptLazy', (pattern, handler) => {

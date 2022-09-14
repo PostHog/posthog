@@ -33,6 +33,17 @@ describe('Insights', () => {
         cy.visit(urls.insightNew())
     })
 
+    it('can compare screenshot of insight trends view mode', () => {
+        createANewInsight()
+        cy.compareSnapshot('insight-trends-view')
+    })
+
+    it('can compare screenshot of insight trends edit mode', () => {
+        createANewInsight()
+        cy.get('[data-attr="insight-edit-button"]').click()
+        cy.compareSnapshot('insight-trends-edit')
+    })
+
     it('Saving an insight sets breadcrumbs', () => {
         createANewInsight()
 

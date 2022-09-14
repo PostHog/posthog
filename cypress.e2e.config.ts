@@ -5,6 +5,7 @@ import pixelmatch from 'pixelmatch'
 import fs from 'fs'
 import path from 'path'
 import { createEntry } from './webpack.config'
+import getCompareSnapshotsPlugin from 'cypress-image-diff-js/dist/plugin'
 
 const downloadDirectory = path.join(__dirname, '..', 'downloads')
 
@@ -38,6 +39,8 @@ export default defineConfig({
                 webpackOptions: createEntry('cypress'),
                 watchOptions: {},
             }
+
+            getCompareSnapshotsPlugin(on, config)
 
             // @ts-expect-error -- ignore errors in options type
             on('file:preprocessor', webpackPreprocessor(options))
