@@ -23,6 +23,8 @@ function createANewInsight(insightName) {
     }
 
     cy.get('[data-attr="insight-save-button"]').click()
+    // wait for save to complete and URL to change and include short id
+    cy.url().should('not.include', '/new')
 }
 
 // For tests related to trends please check trendsElements.js
