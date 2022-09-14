@@ -7813,10 +7813,10 @@ cypress-axe@^1.0.0:
   resolved "https://registry.yarnpkg.com/cypress-axe/-/cypress-axe-1.0.0.tgz#ab4e9486eaa3bb956a90a1ae40d52df42827b4f0"
   integrity sha512-QBlNMAd5eZoyhG8RGGR/pLtpHGkvgWXm2tkP68scJ+AjYiNNOlJihxoEwH93RT+rWOLrefw4iWwEx8kpEcrvJA==
 
-cypress-html-validate@^5.0.4:
-  version "5.0.4"
-  resolved "https://registry.yarnpkg.com/cypress-html-validate/-/cypress-html-validate-5.0.4.tgz#db737a787a1a1710cb5802d24a2bc1ce2788b25c"
-  integrity sha512-Hq9b/lYhKFurz1kh37U1eysmbh8ZJU6vZnYU2xp9k+gUBn506SvyR3WtQbuzH4siBccaU3rGFuQQ4mmYZ/vazQ==
+cypress-html-validate@^5.0.5:
+  version "5.0.5"
+  resolved "https://registry.yarnpkg.com/cypress-html-validate/-/cypress-html-validate-5.0.5.tgz#26d47037be762545dda224ff1ba54f26bdb85f9d"
+  integrity sha512-f4mrFzhJ1EbjRzIr8N8ea7EBQ9oYP6I7PfNKyAfD2BC9HpGhPG9z2e8pMzZ2Qv0d7X5JMwqjJc0DcRYWjWRGpQ==
 
 cypress-terminal-report@^4.1.2:
   version "4.1.2"
@@ -10717,10 +10717,10 @@ html-to-react@^1.3.4:
     lodash.camelcase "^4.3.0"
     ramda "^0.27.1"
 
-html-validate@^7.3.3:
-  version "7.3.3"
-  resolved "https://registry.yarnpkg.com/html-validate/-/html-validate-7.3.3.tgz#9186aad1bbf894b6ec506a1b5be33a45bda89dc6"
-  integrity sha512-nABzmBHUb+TbiqLb3ggoC7uEN5mKgZSwbB/LpGyXbrI+ajVBnyYyRMscLFOZGYpw5gacBZtqkK6VzFU7jbXObg==
+html-validate@^7.4.1:
+  version "7.4.1"
+  resolved "https://registry.yarnpkg.com/html-validate/-/html-validate-7.4.1.tgz#7f5171906f2840e191ab2f427b3a867dd0bb9f22"
+  integrity sha512-HJQQVmD2TWkwniaKonQo2BWQ7gWICSjumDFLG+DAY0TJM2oqqPMX9KJFXCpTsNorTuJAOR5kQss4HNjDZCvz6w==
   dependencies:
     "@babel/code-frame" "^7.10.0"
     "@html-validate/stylish" "^3.0.0"
