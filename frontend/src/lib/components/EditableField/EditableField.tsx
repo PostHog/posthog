@@ -128,7 +128,7 @@ export function EditableField({
                                         onChange?.(e.target.value)
                                         setTentativeValue(e.target.value)
                                     }}
-                                    onBlur={saveOnBlur ? save : undefined}
+                                    onBlur={saveOnBlur ? (tentativeValue !== value ? save : cancel) : undefined}
                                     onKeyDown={handleKeyDown}
                                     placeholder={placeholder}
                                     minLength={minLength}
@@ -143,7 +143,7 @@ export function EditableField({
                                         onChange?.(e.target.value)
                                         setTentativeValue(e.target.value)
                                     }}
-                                    onBlur={saveOnBlur ? save : undefined}
+                                    onBlur={saveOnBlur ? (tentativeValue !== value ? save : cancel) : undefined}
                                     onKeyDown={handleKeyDown}
                                     placeholder={placeholder}
                                     minLength={minLength}
