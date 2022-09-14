@@ -1,4 +1,3 @@
-import { Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -6,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonDialog } from 'lib/components/LemonDialog'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 export function TimezoneConfig(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -13,7 +13,7 @@ export function TimezoneConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
 
     if (!preflight?.available_timezones || !currentTeam) {
-        return <Skeleton paragraph={{ rows: 0 }} active />
+        return <LemonSkeleton className="w-1/2" />
     }
     function onChange(val: string): void {
         LemonDialog.open({

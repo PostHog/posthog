@@ -104,9 +104,7 @@ export class GraphileQueue extends JobQueueBase {
     async createPool(): Promise<Pool> {
         return await new Promise(async (resolve, reject) => {
             let resolved = false
-            const configOrDatabaseUrl = this.serverConfig.JOB_QUEUE_GRAPHILE_URL
-                ? this.serverConfig.JOB_QUEUE_GRAPHILE_URL
-                : this.serverConfig
+
             const onError = (error: Error) => {
                 if (resolved) {
                     this.onConnectionError(error)
@@ -114,7 +112,7 @@ export class GraphileQueue extends JobQueueBase {
                     reject(error)
                 }
             }
-            const pool = createPostgresPool(configOrDatabaseUrl, onError)
+            const pool = createPostgresPool(this.serverConfig, onError)
             try {
                 await pool.query('select 1')
             } catch (error) {

@@ -12,6 +12,7 @@ import { Sorting } from 'lib/components/LemonTable'
 import { urls } from 'scenes/urls'
 import { lemonToast } from 'lib/components/lemonToast'
 import { PaginationManual } from 'lib/components/PaginationControl'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -252,6 +253,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.setInsight(item)
         },
+        // include params to help kea typegen
+        [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
     }),
     actionToUrl: ({ values }) => {
         const changeUrl = ():

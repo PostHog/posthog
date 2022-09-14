@@ -53,8 +53,9 @@ class Dashboard(models.Model):
 
     @property
     def is_sharing_enabled(self):
-        sharing = self.sharingconfiguration_set.first()
-        return sharing.enabled if sharing else False
+        # uses .all and not .first so that prefetching in serializers can be used
+        sharing_configurations = self.sharingconfiguration_set.all()
+        return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
 
     @property
     def url(self):

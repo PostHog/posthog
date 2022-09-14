@@ -11,12 +11,17 @@
     cursor: text;
     color: var(--default);
     border: 1px solid var(--border);
+    background-color: var(--bg-light);
     align-items: center;
     justify-content: center;
     gap: 0.25rem;
 
     &:not(.LemonInput--focused):not(.LemonInput--disabled):hover {
         border: 1px solid var(--primary-light);
+    }
+
+    &.LemonInput--transparent-background {
+        background-color: inherit;
     }
 
     .LemonInput__input {

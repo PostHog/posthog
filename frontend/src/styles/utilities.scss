@@ -270,10 +270,10 @@
     }
 
     .max-#{$char}-full {
-        min-#{$kind}: 100%;
+        max-#{$kind}: 100%;
     }
     .max-#{$char}-screen {
-        min-#{$kind}: unquote('100v' + $char);
+        max-#{$kind}: unquote('100v' + $char);
     }
 
     .#{$char}-1\/2 {
@@ -617,6 +617,9 @@
 .rounded-3xl {
     border-radius: 1.5rem; /* 24px */
 }
+.rounded-full {
+    border-radius: 9999px;
+}
 
 .overflow-auto {
     overflow: auto;
@@ -732,4 +735,12 @@
     .list-#{$list_style_type} {
         list-style-type: #{$list_style_type};
     }
+}
+
+.shadow {
+    box-shadow: var(--shadow-elevation);
+}
+
+.object-contain {
+    object-fit: contain;
 }

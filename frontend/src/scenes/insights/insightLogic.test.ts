@@ -25,6 +25,7 @@ import { useMocks } from '~/mocks/jest'
 import { useAvailableFeatures } from '~/mocks/features'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 const API_FILTERS = {
     insight: InsightType.TRENDS as InsightType,
@@ -37,6 +38,30 @@ const Insight42 = '42' as InsightShortId
 const Insight43 = '43' as InsightShortId
 const Insight44 = '44' as InsightShortId
 const Insight500 = '500' as InsightShortId
+
+const partialInsight43 = {
+    id: 43,
+    short_id: Insight43,
+    result: ['result 43'],
+    filters: API_FILTERS,
+}
+
+const patchResponseFor = (
+    payload: Record<string, any>,
+    id: string,
+    filters: Record<string, any>
+): Record<string, any> => {
+    return {
+        result: id === '42' ? ['result from api'] : null,
+        id: id === '42' ? 42 : 43,
+        short_id: id === '42' ? Insight42 : Insight43,
+        filters: filters || API_FILTERS,
+        name: id === '42' ? undefined : 'Foobar 43',
+        description: id === '42' ? undefined : 'Lorem ipsum.',
+        tags: id === '42' ? undefined : ['good'],
+        dashboards: payload['dashboards'],
+    }
+}
 
 describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
@@ -55,12 +80,7 @@ describe('insightLogic', () => {
                 '/api/projects/:team/insights/path': { result: ['result from api'] },
                 '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
                 '/api/projects/:team/insights/retention/': { result: ['result from api'] },
-                '/api/projects/:team/insights/43/': {
-                    id: 43,
-                    short_id: Insight43,
-                    result: ['result 43'],
-                    filters: API_FILTERS,
-                },
+                '/api/projects/:team/insights/43/': partialInsight43,
                 '/api/projects/:team/insights/44/': {
                     id: 44,
                     short_id: Insight44,
@@ -120,19 +140,14 @@ describe('insightLogic', () => {
                 ],
             },
             patch: {
-                '/api/projects/:team/insights/:id': (req) => {
-                    return [
-                        200,
-                        {
-                            result: req.params['id'] === '42' ? ['result from api'] : null,
-                            id: req.params['id'] === '42' ? 42 : 43,
-                            short_id: req.params['id'] === '42' ? Insight42 : Insight43,
-                            filters: JSON.parse(req.url.searchParams.get('filters') || 'false') || API_FILTERS,
-                            name: req.params['id'] === '42' ? undefined : 'Foobar 43',
-                            description: req.params['id'] === '42' ? undefined : 'Lorem ipsum.',
-                            tags: req.params['id'] === '42' ? undefined : ['good'],
-                        },
-                    ]
+                '/api/projects/:team/insights/:id': async (req) => {
+                    const payload = await req.json()
+                    const response = patchResponseFor(
+                        payload,
+                        req.params['id'] as string,
+                        JSON.parse(req.url.searchParams.get('filters') || 'false')
+                    )
+                    return [200, response]
                 },
             },
         })
@@ -712,10 +727,32 @@ describe('insightLogic', () => {
         logic.mount()
 
         logic.actions.saveInsight()
-        await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights'])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.loadInsights])
 
         logic.actions.updateInsight({ filters: { insight: InsightType.FUNNELS } })
-        await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights'])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.loadInsights])
+    })
+
+    test('saveInsight updates dashboards', async () => {
+        savedInsightsLogic.mount()
+        logic = insightLogic({
+            dashboardItemId: Insight43,
+        })
+        logic.mount()
+
+        logic.actions.saveInsight()
+        await expectLogic(dashboardsModel).toDispatchActions(['updateDashboardInsight'])
+    })
+
+    test('updateInsight updates dashboards', async () => {
+        savedInsightsLogic.mount()
+        logic = insightLogic({
+            dashboardItemId: Insight43,
+        })
+        logic.mount()
+
+        logic.actions.updateInsight({ name: 'updated name' })
+        await expectLogic(dashboardsModel).toDispatchActions(['updateDashboardInsight'])
     })
 
     test('save as new insight', async () => {

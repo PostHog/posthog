@@ -1,9 +1,9 @@
-import { kea } from 'kea'
+import { kea, connect, path, actions, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '../navigationLogic'
 
@@ -20,9 +20,9 @@ export enum AnnouncementType {
 const ShowNewFeatureAnnouncement = false
 const ShowAttentionRequiredBanner = false
 
-export const announcementLogic = kea<announcementLogicType>({
-    path: ['layout', 'navigation', 'TopBar', 'announcementLogic'],
-    connect: {
+export const announcementLogic = kea<announcementLogicType>([
+    path(['layout', 'navigation', 'TopBar', 'announcementLogic']),
+    connect({
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -32,16 +32,15 @@ export const announcementLogic = kea<announcementLogicType>({
             ['user'],
             navigationLogic,
             ['asyncMigrationsOk'],
-            teamLogic,
-            ['currentTeam'],
             billingLogic,
             ['alertToShow'],
         ],
-    },
-    actions: {
+    }),
+    actions({
         hideAnnouncement: (type: AnnouncementType | null) => ({ type }),
-    },
-    reducers: {
+        setCanShowAnnouncements: (state: boolean) => ({ state }),
+    }),
+    reducers({
         persistedClosedAnnouncements: [
             {} as Record<AnnouncementType, boolean>,
             { persist: true },
@@ -61,8 +60,14 @@ export const announcementLogic = kea<announcementLogicType>({
                 hideAnnouncement: () => true,
             },
         ],
-    },
-    selectors: {
+        canShowAnnouncements: [
+            true,
+            {
+                setCanShowAnnouncements: (_, { state }) => state,
+            },
+        ],
+    }),
+    selectors({
         closable: [
             (s) => [s.relevantAnnouncementType],
             // The demo announcement is persistent
@@ -89,15 +94,15 @@ export const announcementLogic = kea<announcementLogicType>({
             },
         ],
         relevantAnnouncementType: [
-            (s) => [s.currentTeam, s.cloudAnnouncement, s.preflight, s.user, s.asyncMigrationsOk],
-            (currentTeam, cloudAnnouncement, preflight, user, asyncMigrationsOk): AnnouncementType | null => {
+            (s) => [s.canShowAnnouncements, s.cloudAnnouncement, s.preflight, s.user, s.asyncMigrationsOk],
+            (canShowAnnouncements, cloudAnnouncement, preflight, user, asyncMigrationsOk): AnnouncementType | null => {
+                if (!canShowAnnouncements) {
+                    return null
+                }
                 if (preflight?.demo) {
                     return AnnouncementType.Demo
                 } else if (cloudAnnouncement) {
                     return AnnouncementType.CloudFlag
-                } else if (!currentTeam || !currentTeam.completed_snippet_onboarding) {
-                    // Hide announcements during onboarding
-                    return null
                 } else if (
                     ShowAttentionRequiredBanner &&
                     !asyncMigrationsOk &&
@@ -119,5 +124,14 @@ export const announcementLogic = kea<announcementLogicType>({
                     : null
             },
         ],
-    },
-})
+    }),
+    urlToAction(({ values, actions }) => ({
+        '*': ({ pathname }) => {
+            if (values.canShowAnnouncements && pathname?.startsWith('/ingestion')) {
+                actions.setCanShowAnnouncements(false)
+            } else if (!values.canShowAnnouncements) {
+                actions.setCanShowAnnouncements(true)
+            }
+        },
+    })),
+])

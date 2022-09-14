@@ -1,5 +1,6 @@
 .taxonomic-infinite-list {
     min-height: 200px;
+    flex-grow: 1;
 
     &.empty-infinite-list {
         width: 100%;

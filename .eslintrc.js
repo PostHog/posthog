@@ -106,6 +106,14 @@ module.exports = {
                         element: 'Input',
                         message: 'use <LemonInput> instead',
                     },
+                    {
+                        element: 'Skeleton',
+                        message: 'use <LemonSkeleton> instead',
+                    },
+                    {
+                        element: 'a',
+                        message: 'use <Link> instead',
+                    },
                 ],
             },
         ],
