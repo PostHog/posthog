@@ -1,0 +1,3 @@
+{
+    "extends": ["html-validate:standard"]
+}
