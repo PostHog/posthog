@@ -17,7 +17,6 @@ import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/type
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FilterLogicalOperator } from '~/types'
-import { IconPlus } from 'lib/components/icons'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonButtonWithPopup } from '@posthog/lemon-ui'
 
@@ -32,6 +31,8 @@ export function TaxonomicPropertyFilter({
     eventNames,
     propertyGroupType,
     orFiltering,
+    addButton,
+    hasRowOperator,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -106,36 +107,38 @@ export function TaxonomicPropertyFilter({
                         'TaxonomicPropertyFilter__row--showing-operators': showOperatorValueSelect,
                     })}
                 >
-                    <div className="TaxonomicPropertyFilter__row__operator">
-                        {orFiltering ? (
-                            <>
-                                {propertyGroupType && index !== 0 && filter?.key && (
-                                    <div>
-                                        {propertyGroupType === FilterLogicalOperator.And ? (
-                                            <span className="text-sm">
-                                                <strong>{'&'}</strong>
-                                            </span>
-                                        ) : (
-                                            <span className="text-xs">
-                                                <strong>{propertyGroupType}</strong>
-                                            </span>
-                                        )}
-                                    </div>
-                                )}
-                            </>
-                        ) : (
-                            <div className="flex items-center gap-1">
-                                {index === 0 ? (
-                                    <>
-                                        <span className="arrow">&#8627;</span>
-                                        <span>where</span>
-                                    </>
-                                ) : (
-                                    <span className="stateful-badge and text-xs">AND</span>
-                                )}
-                            </div>
-                        )}
-                    </div>
+                    {hasRowOperator && (
+                        <div className="TaxonomicPropertyFilter__row__operator">
+                            {orFiltering ? (
+                                <>
+                                    {propertyGroupType && index !== 0 && filter?.key && (
+                                        <div>
+                                            {propertyGroupType === FilterLogicalOperator.And ? (
+                                                <span className="text-sm">
+                                                    <strong>{'&'}</strong>
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs">
+                                                    <strong>{propertyGroupType}</strong>
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="flex items-center gap-1">
+                                    {index === 0 ? (
+                                        <>
+                                            <span className="arrow">&#8627;</span>
+                                            <span>where</span>
+                                        </>
+                                    ) : (
+                                        <span className="stateful-badge and text-xs">AND</span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
                     <div className="TaxonomicPropertyFilter__row__items">
                         <LemonButtonWithPopup
                             popup={{
@@ -147,6 +150,7 @@ export function TaxonomicPropertyFilter({
                             status="stealth"
                             onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                             type="secondary"
+                            sideIcon={addButton ? null : undefined}
                             data-attr={'property-select-toggle-' + index}
                         >
                             {filter?.type === 'cohort' ? (
@@ -154,16 +158,7 @@ export function TaxonomicPropertyFilter({
                             ) : filter?.key ? (
                                 <PropertyKeyInfo value={filter.key} disablePopover ellipsis />
                             ) : (
-                                <>
-                                    {orFiltering && propertyGroupType ? (
-                                        <div className="text-primary flex items-center">
-                                            <IconPlus style={{ color: 'var(--primary)' }} className="mr-2" />
-                                            Add filter
-                                        </div>
-                                    ) : (
-                                        <div>Add filter</div>
-                                    )}
-                                </>
+                                <>{addButton || <div>Add filter</div>}</>
                             )}
                         </LemonButtonWithPopup>
                         {showOperatorValueSelect ? (

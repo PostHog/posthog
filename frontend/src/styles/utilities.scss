@@ -270,10 +270,10 @@
     }
 
     .max-#{$char}-full {
-        min-#{$kind}: 100%;
+        max-#{$kind}: 100%;
     }
     .max-#{$char}-screen {
-        min-#{$kind}: unquote('100v' + $char);
+        max-#{$kind}: unquote('100v' + $char);
     }
 
     .#{$char}-1\/2 {
@@ -739,4 +739,8 @@
 
 .shadow {
     box-shadow: var(--shadow-elevation);
+}
+
+.object-contain {
+    object-fit: contain;
 }

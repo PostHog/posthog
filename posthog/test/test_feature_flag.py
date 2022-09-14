@@ -2,7 +2,6 @@ from typing import cast
 
 from django.db import connection
 from django.utils import timezone
-from rest_framework import status
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import (
@@ -16,26 +15,7 @@ from posthog.models.feature_flag import (
     set_feature_flag_hash_key_overrides,
 )
 from posthog.models.group import Group
-from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
-
-
-class TestFeatureFlag(APIBaseTest):
-    def test_get_filtered_flags(self):
-        user2 = self._create_user("newtest@posthog.com")
-
-        active_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, active=True, key="active-flag")
-        user_2_flag = FeatureFlag.objects.create(team=self.team, created_by=user2, active=True, key="user-2-flag")
-        inactive_flag = FeatureFlag.objects.create(
-            team=self.team, created_by=self.user, active=False, key="inactive-flag"
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?active=true&created_by={self.user.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual((response.json()["results"][0]["id"]), active_flag.id)
-        self.assertNotContains(response, user_2_flag.key)
-        self.assertNotContains(response, inactive_flag.key)
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
 class TestFeatureFlagCohortExpansion(BaseTest):

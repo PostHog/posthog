@@ -155,6 +155,8 @@ def get_distinct_id(data: Dict[str, Any]) -> str:
             except KeyError:
                 statsd.incr("invalid_event", tags={"error": "missing_distinct_id"})
                 raise ValueError('All events must have the event field "distinct_id"!')
+        except TypeError:
+            raise ValueError(f'Properties must be a JSON object, received {type(data["properties"]).__name__}!')
     if not raw_value:
         statsd.incr("invalid_event", tags={"error": "invalid_distinct_id"})
         raise ValueError('Event field "distinct_id" should not be blank!')
