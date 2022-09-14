@@ -3,9 +3,8 @@
 #
 # Please take a look at https://posthog.com/docs/self-host/deploy/hobby
 # for more info.
-#
-version: '3'
 
+version: '3'
 services:
     db:
         image: postgres:12-alpine
@@ -16,6 +15,48 @@ services:
             POSTGRES_PASSWORD: posthog
         volumes:
             - postgres-data:/var/lib/postgresql/data
+
+    web:
+        image: &image posthog/posthog:release-1.39.1
+        command:
+            - /bin/sh
+            - -c
+            - |
+              until [[ "$$(wget -O - http://clickhouse:8123/ping -q)" == "Ok." ]]; do sleep 5; done
+              ./bin/migrate
+              ./bin/docker-server
+              ./bin/docker-frontend
+        restart: on-failure
+        environment: &env
+            SITE_URL: http://localhost:8000
+            DISABLE_SECURE_SSL_REDIRECT: 'true'
+            SECRET_KEY: $SECRET_KEY
+            IS_BEHIND_PROXY: 'true'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_DATABASE: 'posthog'
+            CLICKHOUSE_SECURE: 'false'
+            CLICKHOUSE_VERIFY: 'false'
+            REDIS_URL: 'redis://redis:6379/'
+            DEPLOYMENT: hobby
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
+
+    caddy:
+        image: caddy
+        restart: unless-stopped
+        ports:
+            - '80:80'
+            - '443:443'
+        volumes:
+            - ./Caddyfile:/etc/caddy/Caddyfile
+        depends_on:
+            - web
+
     redis:
         image: redis:6.2.7-alpine
         restart: on-failure
@@ -25,7 +66,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:22.3}
+        image: clickhouse/clickhouse-server:22.3
         restart: on-failure
         depends_on:
             - kafka
@@ -36,6 +77,7 @@ services:
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
             - clickhouse-data:/var/lib/clickhouse
+
     zookeeper:
         image: zookeeper:3.7.0
         restart: on-failure
@@ -56,58 +98,23 @@ services:
             KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
 
-    worker: &worker
-        image: posthog/posthog:$POSTHOG_APP_TAG
+    worker:
+        image: *image
         command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
-        environment:
-            SENTRY_DSN: $SENTRY_DSN
-            SITE_URL: https://$DOMAIN
-            DISABLE_SECURE_SSL_REDIRECT: 'true'
-            IS_BEHIND_PROXY: 'true'
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            CLICKHOUSE_HOST: 'clickhouse'
-            CLICKHOUSE_DATABASE: 'posthog'
-            CLICKHOUSE_SECURE: 'false'
-            CLICKHOUSE_VERIFY: 'false'
-            KAFKA_URL: 'kafka://kafka'
-            REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: $POSTHOG_SECRET
-            PGHOST: db
-            PGUSER: posthog
-            PGPASSWORD: posthog
-            DEPLOYMENT: hobby
+        environment: *env
         depends_on:
             - db
             - redis
             - clickhouse
             - kafka
             - object_storage
-    web:
-        <<: *worker
-        command: /compose/start
-        restart: on-failure
-        volumes:
-            - ./compose:/compose
-    caddy:
-        image: caddy
-        restart: unless-stopped
-        ports:
-            - '80:80'
-            - '443:443'
-        volumes:
-            - ./Caddyfile:/etc/caddy/Caddyfile
-        depends_on:
-            - web
+
     plugins:
-        image: posthog/posthog:$POSTHOG_APP_TAG
+        image: *image
         command: ./bin/plugin-server --no-restart-loop
         restart: on-failure
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_HOSTS: 'kafka:9092'
-            REDIS_URL: 'redis://redis:6379/'
-            CLICKHOUSE_HOST: 'clickhouse'
+        environment: *env
         depends_on:
             - db
             - redis
@@ -127,10 +134,18 @@ services:
         command: -c 'mkdir -p /data/posthog && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' bucket before starting the service
 
     asyncmigrationscheck:
-        <<: *worker
+        image: *image
         command: python manage.py run_async_migrations --check
+        environment: *env
         restart: 'no'
-        scale: 0
+        deploy:
+            replicas: 0
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
 
 volumes:
     zookeeper-data:
