@@ -248,6 +248,7 @@ export const insightLogic = kea<insightLogicType>({
                     lemonToast.success(`Updated insight`, {
                         button: {
                             label: 'Undo',
+                            dataAttr: 'edit-insight-undo',
                             action: async () => {
                                 const response = await api.update(
                                     `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,

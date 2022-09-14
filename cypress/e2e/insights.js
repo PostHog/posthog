@@ -17,7 +17,9 @@ function createANewInsight(insightName) {
     applyFilter()
 
     if (insightName) {
+        cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
         cy.get('[data-attr="insight-name"] input').type(insightName)
+        cy.get('[data-attr="insight-name"] [title="Save"]').click()
     }
 
     cy.get('[data-attr="insight-save-button"]').click()
@@ -51,13 +53,30 @@ describe('Insights', () => {
 
     it('Can change insight name', () => {
         createANewInsight('starting value')
-        cy.get('[data-attr="insight-name"]').should('contain', 'edited value')
+        cy.get('[data-attr="insight-name"]').should('contain', 'starting value')
 
         cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
         cy.get('[data-attr="insight-name"] input').type('edited value')
         cy.get('[data-attr="insight-name"] [title="Save"]').click()
 
         cy.get('[data-attr="insight-name"]').should('contain', 'edited value')
+    })
+
+    it('Can undo a change of insight name', () => {
+        createANewInsight('starting value')
+        cy.get('[data-attr="insight-name"]').should('contain', 'starting value')
+
+        cy.get('[data-attr="insight-name"]').scrollIntoView()
+        cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click({ force: true })
+        cy.get('[data-attr="insight-name"] input').type('edited value')
+        cy.get('[data-attr="insight-name"] [title="Save"]').click()
+
+        cy.get('[data-attr="insight-name"]').should('contain', 'edited value')
+
+        cy.get('[data-attr="edit-insight-undo"]').click()
+
+        cy.get('[data-attr="insight-name"]').should('not.contain', 'edited value')
+        cy.get('[data-attr="insight-name"]').should('contain', 'starting value')
     })
 
     it('Create new insight and save and continue editing', () => {
