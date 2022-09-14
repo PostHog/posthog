@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Dict, List
 from unittest.mock import MagicMock, call, patch
 
+from django.test.utils import CaptureQueriesContext
 from freezegun import freeze_time
 
 from posthog.models import EventDefinition, EventProperty, Insight, Organization, PropertyDefinition, Team
@@ -376,7 +377,9 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         )
         self.assert_unchanged_models_are_excluded_from_update(capture_query_context, mock_gauge)
 
-    def assert_unchanged_models_are_excluded_from_update(self, capture_query_context, mock_gauge) -> None:
+    def assert_unchanged_models_are_excluded_from_update(
+        self, capture_query_context: CaptureQueriesContext, mock_gauge: MagicMock
+    ) -> None:
         self.maxDiff = None
         seen_sql = [q["sql"] for q in capture_query_context.captured_queries]
         event_property_update = next(
