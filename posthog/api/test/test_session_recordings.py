@@ -222,6 +222,8 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                     "": {
                         "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                         "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                        "is_active": False,
+                        "window_id": "",
                     }
                 },
             )
@@ -333,6 +335,8 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                             "end_time": (
                                 now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
                             ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "is_active": False,
+                            "window_id": "",
                         }
                     },
                 )

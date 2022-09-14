@@ -173,7 +173,11 @@ def decompress_chunked_snapshot_data(
     if "chunk_id" not in all_recording_events[0].snapshot_data:
         paginated_list = paginate_list(all_recording_events, limit, offset)
         for event in paginated_list.paginated_list:
-            snapshot_data_by_window_id[event.window_id].append(event.snapshot_data)
+            snapshot_data_by_window_id[event.window_id].append(
+                get_events_summary_from_snapshot_data([event.snapshot_data])[0]
+                if return_only_activity_data
+                else event.snapshot_data
+            )
         return DecompressedRecordingData(
             has_next=paginated_list.has_next, snapshot_data_by_window_id=snapshot_data_by_window_id
         )
@@ -213,7 +217,6 @@ def decompress_chunked_snapshot_data(
         if return_only_activity_data:
             events_with_only_activity_data = get_events_summary_from_snapshot_data(decompressed_data)
             snapshot_data_by_window_id[chunks[0].window_id].extend(events_with_only_activity_data)
-
         else:
             snapshot_data_by_window_id[chunks[0].window_id].extend(decompressed_data)
     return DecompressedRecordingData(has_next=has_next, snapshot_data_by_window_id=snapshot_data_by_window_id)
