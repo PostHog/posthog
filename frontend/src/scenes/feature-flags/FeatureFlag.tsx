@@ -46,9 +46,10 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { FeatureFlagsTabs } from './featureFlagsLogic'
 import { flagActivityDescriber } from './activityDescriptions'
-import { genericOperatorToHumanName } from 'lib/components/DefinitionPopup/utils'
+import { allOperatorsToHumanName } from 'lib/components/DefinitionPopup/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
+import { cohortsModel } from '~/models/cohortsModel'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -1131,6 +1132,8 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
         removeConditionSet,
         addConditionSet,
     } = useActions(featureFlagLogic)
+    const { cohortsById } = useValues(cohortsModel)
+
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
     const instantProperties = [
@@ -1266,27 +1269,31 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 <>
                                     {group.properties.map((property, idx) => (
                                         <>
-                                            <Row align="middle" className="gap-2 mt-1">
+                                            <div className="feature-flag-property-display">
                                                 {idx === 0 ? (
                                                     <IconSubdirectoryArrowRight />
                                                 ) : (
                                                     <span style={{ width: 14 }}>&</span>
                                                 )}
                                                 <span className="simple-tag tag-light-blue text-primary-alt">
-                                                    {property.key}{' '}
+                                                    {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
                                                 </span>
-                                                <span>{genericOperatorToHumanName(property.operator)} </span>
-                                                {[...(Array.isArray(property.value) ? property.value : [])].map(
-                                                    (val, idx) => (
-                                                        <span
-                                                            key={idx}
-                                                            className="simple-tag tag-light-blue text-primary-alt"
-                                                        >
-                                                            {val}
-                                                        </span>
-                                                    )
-                                                )}
-                                            </Row>
+                                                <span>{allOperatorsToHumanName(property.operator)} </span>
+                                                {[
+                                                    ...(Array.isArray(property.value)
+                                                        ? property.value
+                                                        : [property.value]),
+                                                ].map((val, idx) => (
+                                                    <span
+                                                        key={idx}
+                                                        className="simple-tag tag-light-blue text-primary-alt"
+                                                    >
+                                                        {property.type === 'cohort'
+                                                            ? (val && cohortsById[val]?.name) || `ID ${val}`
+                                                            : val}
+                                                    </span>
+                                                ))}
+                                            </div>
                                         </>
                                     ))}
                                 </>
