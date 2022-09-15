@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import DefaultDict, Dict, Generator, List, Optional
 
+from django.utils import timezone
 from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
@@ -43,14 +44,32 @@ class DecompressedRecordingData:
     snapshot_data_by_window_id: Dict[WindowId, List[SnapshotData]]
 
 
+def should_drop_recording_event(event: Event) -> bool:
+    # Drop events that don't have a timestamp or the timestamp is > 1 day in the future or < 1 year in the past
+    # If these events are not dropped, it leads to too many partitions on the session_recording_events table, and Clickhouse gets mad
+    timestamp_string = event.get("timestamp")
+    if not timestamp_string:
+        return True
+    try:
+        parsed_timestamp = datetime.fromtimestamp(timestamp_string, timezone.utc)
+        if parsed_timestamp > timezone.now() + timedelta(days=1) or parsed_timestamp < timezone.now() - timedelta(
+            days=365
+        ):
+            return True
+    except ValueError:
+        return True
+    return False
+
+
 def preprocess_session_recording_events_for_clickhouse(events: List[Event]) -> List[Event]:
     result = []
     snapshots_by_session_and_window_id = defaultdict(list)
     for event in events:
         if is_unchunked_snapshot(event):
-            session_id = event["properties"]["$session_id"]
-            window_id = event["properties"].get("$window_id")
-            snapshots_by_session_and_window_id[(session_id, window_id)].append(event)
+            if not should_drop_recording_event(event):
+                session_id = event["properties"]["$session_id"]
+                window_id = event["properties"].get("$window_id")
+                snapshots_by_session_and_window_id[(session_id, window_id)].append(event)
         else:
             result.append(event)
 

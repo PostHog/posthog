@@ -1,6 +1,7 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import pytest
+from django.utils import timezone
 from pytest_mock import MockerFixture
 
 from posthog.helpers.session_recording import (
@@ -27,14 +28,17 @@ def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_i
     events = [
         {
             "event": "$snapshot",
+            "timestamp": timezone.now().timestamp(),
             "properties": {"$session_id": "1234", "$snapshot_data": {"type": 2, "foo": "bar"}, "distinct_id": "abc123"},
         },
         {
             "event": "$snapshot",
+            "timestamp": timezone.now().timestamp(),
             "properties": {"$session_id": "1234", "$snapshot_data": {"type": 1, "foo": "bar"}, "distinct_id": "abc123"},
         },
         {
             "event": "$snapshot",
+            "timestamp": timezone.now().timestamp(),
             "properties": {
                 "$session_id": "5678",
                 "$window_id": "1",
@@ -44,6 +48,7 @@ def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_i
         },
         {
             "event": "$snapshot",
+            "timestamp": timezone.now().timestamp(),
             "properties": {
                 "$session_id": "5678",
                 "$window_id": "2",
@@ -68,6 +73,23 @@ def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_i
 
     # it does not rechunk already chunked events
     assert preprocess_session_recording_events_for_clickhouse(preprocessed) == preprocessed
+
+
+def test_preprocess_recording_event_drops_really_old_and_really_future_data():
+    events = [
+        {
+            "event": "$snapshot",
+            "timestamp": (timezone.now() - timedelta(days=366)).timestamp(),
+            "properties": {"$session_id": "1234", "$snapshot_data": {"type": 2, "foo": "bar"}, "distinct_id": "abc123"},
+        },
+        {
+            "event": "$snapshot",
+            "timestamp": (timezone.now() + timedelta(hours=25)).timestamp(),
+            "properties": {"$session_id": "1234", "$snapshot_data": {"type": 1, "foo": "bar"}, "distinct_id": "abc123"},
+        },
+    ]
+    preprocessed = preprocess_session_recording_events_for_clickhouse(events)
+    assert len(preprocessed) == 0
 
 
 def test_compression_and_chunking(raw_snapshot_events, mocker: MockerFixture):
