@@ -14,6 +14,7 @@ from posthog.helpers.session_recording import (
     decompress_chunked_snapshot_data,
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
+    get_events_summary_from_snapshot_data,
     is_active_event,
     paginate_list,
     preprocess_session_recording_events_for_clickhouse,
@@ -24,7 +25,7 @@ MILLISECOND_TIMESTAMP = round(datetime(2019, 1, 1).timestamp() * 1000)
 
 def create_activity_data(timestamp: datetime, is_active: bool):
     return SessionRecordingEventSummary(
-        is_active=is_active, event_type=1, source_type=None, timestamp=round(timestamp.timestamp() * 1000)
+        event_type=3, source_type=1 if is_active else None, timestamp=round(timestamp.timestamp() * 1000)
     )
 
 
@@ -248,13 +249,6 @@ def test_decompress_data_returning_only_activity_info(chunked_and_compressed_sna
             {"timestamp": 1546300800000, "is_active": True, "event_type": 3, "source_type": 2},
         ],
     }
-
-
-def test_is_active_event():
-    assert is_active_event({}) is False
-    assert is_active_event({"type": 3}) is False
-    assert is_active_event({"type": 2, "data": {"source": 3}}) is False
-    assert is_active_event({"type": 3, "data": {"source": 3}}) is True
 
 
 def test_get_active_segments_from_event_list():
@@ -515,3 +509,26 @@ def compress_decompress_and_extract(events, chunk_size):
         snapshot_list.append(SnapshotDataTaggedWithWindowId(window_id=window_id, snapshot_data=snapshot_data))
 
     return decompress_chunked_snapshot_data(2, "someid", snapshot_list).snapshot_data_by_window_id[window_id]
+
+
+def test_get_events_summary_from_snapshot_data():
+    timestamp = round(datetime.now().timestamp() * 1000)
+    snapshot_events = [
+        {"type": 2, "foo": "bar", "timestamp": timestamp},
+        {"type": 1, "foo": "bar", "timestamp": timestamp},
+        {"type": 1, "foo": "bar", "timestamp": timestamp, "data": {"source": 3}},
+    ]
+
+    data = get_events_summary_from_snapshot_data(snapshot_events)
+    assert get_events_summary_from_snapshot_data(snapshot_events) == [
+        {"timestamp": timestamp, "event_type": 2, "source_type": None},
+        {"timestamp": timestamp, "event_type": 1, "source_type": None},
+        {"timestamp": timestamp, "event_type": 1, "source_type": 3},
+    ]
+
+
+def test_is_active_event():
+    timestamp = round(datetime.now().timestamp() * 1000)
+    assert is_active_event({"timestamp": timestamp, "event_type": 3, "source_type": None}) is False
+    assert is_active_event({"timestamp": timestamp, "event_type": 2, "source_type": 3}) is False
+    assert is_active_event({"timestamp": timestamp, "event_type": 3, "source_type": 3}) is True

@@ -41,7 +41,6 @@ class SnapshotDataTaggedWithWindowId:
 
 class SessionRecordingEventSummary(TypedDict):
     timestamp: int
-    is_active: bool
     event_type: int
     source_type: Optional[int]
 
@@ -222,7 +221,7 @@ def decompress_chunked_snapshot_data(
     return DecompressedRecordingData(has_next=has_next, snapshot_data_by_window_id=snapshot_data_by_window_id)
 
 
-def is_active_event(event: SnapshotData) -> bool:
+def is_active_event(event: SessionRecordingEventSummary) -> bool:
     """
     Determines which rr-web events are "active" - meaning user generated
     """
@@ -236,7 +235,7 @@ def is_active_event(event: SnapshotData) -> bool:
         7,  # "MediaInteraction"
         12,  # "Drag"
     ]
-    return event.get("type") == 3 and event.get("data", {}).get("source") in active_rr_web_sources
+    return event["event_type"] == 3 and event["source_type"] in active_rr_web_sources
 
 
 def parse_snapshot_timestamp(timestamp: int):
@@ -256,7 +255,7 @@ def get_active_segments_from_event_list(
     the segments of the recording where the user is "active". And active segment ends
     when there isn't another active event for activity_threshold_seconds seconds
     """
-    active_event_timestamps = [event["timestamp"] for event in event_list if event["is_active"]]
+    active_event_timestamps = [event["timestamp"] for event in event_list if is_active_event(event)]
 
     active_recording_segments: List[RecordingSegment] = []
     current_active_segment: Optional[RecordingSegment] = None
@@ -291,10 +290,9 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
     """
     events_summary = [
         SessionRecordingEventSummary(
-            timestamp=event.get("timestamp", 0),
-            event_type=event.get("type", 0),
+            timestamp=event["timestamp"],
+            event_type=event["type"],
             source_type=event.get("data", {}).get("source"),
-            is_active=is_active_event(event),
         )
         for event in snapshot_data
     ]
