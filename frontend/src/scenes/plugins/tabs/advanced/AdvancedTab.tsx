@@ -16,7 +16,7 @@ export function AdvancedTab(): JSX.Element {
     return (
         <>
             <Alert
-                message="Advanced Features Ahead"
+                message="Advanced features ahead"
                 description={
                     <>
                         Create and install your <b>own apps</b> or apps from <b>third-parties</b>. If you're looking for

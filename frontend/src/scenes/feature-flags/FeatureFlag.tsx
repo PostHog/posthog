@@ -9,14 +9,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import {
-    IconOpenInNew,
-    IconCopy,
-    IconDelete,
-    IconPlus,
-    IconSubdirectoryArrowRight,
-    IconPlusMini,
-} from 'lib/components/icons'
+import { IconOpenInNew, IconCopy, IconDelete, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -24,7 +17,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { userLogic } from 'scenes/userLogic'
-import { AvailableFeature } from '~/types'
+import { AnyPropertyFilter, AvailableFeature } from '~/types'
 import { Link } from 'lib/components/Link'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
@@ -46,9 +39,10 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { FeatureFlagsTabs } from './featureFlagsLogic'
 import { flagActivityDescriber } from './activityDescriptions'
-import { genericOperatorToHumanName } from 'lib/components/DefinitionPopup/utils'
+import { allOperatorsToHumanName } from 'lib/components/DefinitionPopup/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
+import { cohortsModel } from '~/models/cohortsModel'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -1131,8 +1125,24 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
         removeConditionSet,
         addConditionSet,
     } = useActions(featureFlagLogic)
+    const { cohortsById } = useValues(cohortsModel)
+
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
+    const instantProperties = [
+        '$geoip_city_name',
+        '$geoip_country_name',
+        '$geoip_country_code',
+        '$geoip_continent_name',
+        '$geoip_continent_code',
+        '$geoip_postal_code',
+        '$geoip_time_zone',
+    ]
+    const hasNonInstantProperty = (properties: AnyPropertyFilter[]): boolean => {
+        return !!properties.find(
+            (property) => property.type === 'cohort' || !instantProperties.includes(property.key || '')
+        )
+    }
     return (
         <>
             <div className="feature-flag-form-row">
@@ -1233,31 +1243,58 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 )}
                             </Row>
                             <LemonDivider className="my-3" />
+                            {!readOnly && hasNonInstantProperty(group.properties) && (
+                                <AlertMessage type="info" className="mt-3 mb-3">
+                                    These properties aren't immediately available on first page load for unidentified
+                                    persons. This feature flag requires that at least one event is sent prior to
+                                    becoming available to your product or website.{' '}
+                                    <a
+                                        href="https://posthog.com/docs/integrate/client/js#bootstrapping-flags"
+                                        target="_blank"
+                                    >
+                                        {' '}
+                                        Learn more about how to make feature flags available instantly.
+                                    </a>
+                                </AlertMessage>
+                            )}
+
                             {readOnly ? (
                                 <>
                                     {group.properties.map((property, idx) => (
                                         <>
-                                            <Row align="middle" className="gap-2 mt-1">
+                                            <div className="feature-flag-property-display">
                                                 {idx === 0 ? (
-                                                    <IconSubdirectoryArrowRight />
+                                                    <LemonButton
+                                                        icon={<IconSubArrowRight className="arrow-right" />}
+                                                        status="muted"
+                                                        size="small"
+                                                    />
                                                 ) : (
-                                                    <span style={{ width: 14 }}>&</span>
+                                                    <LemonButton
+                                                        icon={<span className="text-sm">&</span>}
+                                                        status="muted"
+                                                        size="small"
+                                                    />
                                                 )}
                                                 <span className="simple-tag tag-light-blue text-primary-alt">
-                                                    {property.key}{' '}
+                                                    {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
                                                 </span>
-                                                <span>{genericOperatorToHumanName(property.operator)} </span>
-                                                {[...(Array.isArray(property.value) ? property.value : [])].map(
-                                                    (val, idx) => (
-                                                        <span
-                                                            key={idx}
-                                                            className="simple-tag tag-light-blue text-primary-alt"
-                                                        >
-                                                            {val}
-                                                        </span>
-                                                    )
-                                                )}
-                                            </Row>
+                                                <span>{allOperatorsToHumanName(property.operator)} </span>
+                                                {[
+                                                    ...(Array.isArray(property.value)
+                                                        ? property.value
+                                                        : [property.value]),
+                                                ].map((val, idx) => (
+                                                    <span
+                                                        key={idx}
+                                                        className="simple-tag tag-light-blue text-primary-alt"
+                                                    >
+                                                        {property.type === 'cohort'
+                                                            ? (val && cohortsById[val]?.name) || `ID ${val}`
+                                                            : val}
+                                                    </span>
+                                                ))}
+                                            </div>
                                         </>
                                     ))}
                                 </>

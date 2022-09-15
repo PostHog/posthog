@@ -46,7 +46,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             show: show || false,
         }),
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         rawDashboards: [
             {} as Record<string, DashboardType>,
             {
@@ -74,11 +74,14 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
             __default: null as null | DashboardType,
-            updateDashboard: async ({ id, ...payload }, breakpoint) => {
+            updateDashboard: async ({ id, allowUndo, ...payload }, breakpoint) => {
                 if (!Object.entries(payload).length) {
                     return
                 }
-                await breakpoint(700)
+                breakpoint()
+
+                const beforeChange = { ...values.rawDashboards[id] }
+
                 const response = (await api.update(
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
@@ -90,6 +93,21 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
                         payload[updatedAttribute].length
                     )
+                }
+                if (allowUndo) {
+                    lemonToast.success('Dashboard updated', {
+                        button: {
+                            label: 'Undo',
+                            action: async () => {
+                                const reverted = (await api.update(
+                                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                                    beforeChange
+                                )) as DashboardType
+                                actions.updateDashboardSuccess(reverted)
+                                lemonToast.success('Dashboard change reverted')
+                            },
+                        },
+                    })
                 }
                 return response
             },

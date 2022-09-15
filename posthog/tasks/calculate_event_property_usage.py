@@ -7,7 +7,7 @@ import structlog
 from django.db.models import Sum
 from django.utils import timezone
 
-from posthog.internal_metrics import incr
+from posthog.internal_metrics import gauge, incr
 from posthog.logging.timing import timed
 from posthog.models import EventDefinition, EventProperty, Insight, PropertyDefinition, Team
 from posthog.models.filters.filter import Filter
@@ -72,8 +72,6 @@ def recently_calculated_teams(now_in_seconds_since_epoch: float) -> Set[int]:
 
 
 def gauge_event_property_usage() -> None:
-    from posthog.internal_metrics import gauge
-
     event_query_usage_30_day_sum: int = EventDefinition.objects.aggregate(sum=Sum("query_usage_30_day"))["sum"]
     event_volume_30_day_sum: int = EventDefinition.objects.aggregate(sum=Sum("volume_30_day"))["sum"]
     property_query_usage_30_day_sum: int = PropertyDefinition.objects.aggregate(sum=Sum("query_usage_30_day"))["sum"]
@@ -95,6 +93,10 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
 
     try:
         count_from_zero = CountFromZero()
+        # django orm doesn't track if a model has been changed
+        # between count from zero and these two sets we manually track which models have changed
+        altered_events: Set[str] = set()
+        altered_properties: Set[str] = set()
 
         event_definitions: Dict[str, EventDefinition] = {
             known_event.name: known_event for known_event in EventDefinition.objects.filter(team_id=team_id)
@@ -133,6 +135,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
 
                 property_definitions[property_key].property_type = property_type
                 property_definitions[property_key].is_numerical = property_type == PropertyType.Numeric
+                altered_properties.add(property_key)
 
         insight_series_events, counted_properties = _get_insight_query_usage(team_id, since)
 
@@ -174,15 +177,38 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
                 continue
             event_definitions[event].volume_30_day = volume
             event_definitions[event].last_seen_at = last_seen_at
+            altered_events.add(event)
 
+        altered_events.update(count_from_zero.seen_events)
+        gauge(
+            "calculate_event_property_usage_for_team.events_to_update",
+            value=len(altered_events),
+            tags={"team": team_id},
+        )
         EventDefinition.objects.bulk_update(
-            event_definitions.values(), fields=["volume_30_day", "query_usage_30_day", "last_seen_at"], batch_size=5000
+            [
+                event_definition
+                for event_definition in event_definitions.values()
+                if event_definition.name in altered_events
+            ],
+            fields=["volume_30_day", "query_usage_30_day", "last_seen_at"],
+            batch_size=1000,
         )
 
+        altered_properties.update(count_from_zero.seen_properties)
+        gauge(
+            "calculate_event_property_usage_for_team.event_properties_to_update",
+            value=len(altered_properties),
+            tags={"team": team_id},
+        )
         PropertyDefinition.objects.bulk_update(
-            property_definitions.values(),
+            [
+                property_definition
+                for property_definition in property_definitions.values()
+                if property_definition.name in altered_properties
+            ],
             fields=["property_type", "query_usage_30_day", "is_numerical"],
-            batch_size=5000,
+            batch_size=1000,
         )
 
         incr("calculate_event_property_usage_for_team_success", tags={"team": team_id})

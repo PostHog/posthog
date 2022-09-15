@@ -11,6 +11,7 @@ export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): J
 interface ToastButton {
     label: string
     action: () => void
+    dataAttr?: string
 }
 
 interface ToastOptionsWithButton extends ToastOptions {
@@ -43,6 +44,7 @@ export function ToastContent({ type, message, button, id }: ToastContentProps): 
                     }}
                     type="secondary"
                     size="small"
+                    data-attr={button.dataAttr}
                 >
                     {button.label}
                 </LemonButton>
