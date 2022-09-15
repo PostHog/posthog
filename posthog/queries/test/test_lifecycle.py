@@ -244,9 +244,15 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     data={
                         "date_from": "2020-01-12T00:00:00Z",
                         "date_to": "2020-01-19T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [{"key": "name", "value": "p1", "type": "person"}],
+                            }
+                        ],
                         "shown_as": TRENDS_LIFECYCLE,
-                        "properties": [{"key": "name", "value": "p1", "type": "person"}],
                     }
                 ),
                 self.team,
