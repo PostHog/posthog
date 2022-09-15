@@ -75,9 +75,9 @@ export function parseEntry(entry?: string): ParsedEntry {
                 shortenedURL = `:${lineNumbers}`
             }
             const link = (
-                <a href={baseURL} target="_blank">
+                <Link to={baseURL} target="_blank">
                     {shortenedURL}
-                </a>
+                </Link>
             )
             if (!traceUrl) {
                 traceUrl = link
