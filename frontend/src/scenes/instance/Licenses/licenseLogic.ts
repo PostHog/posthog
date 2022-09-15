@@ -28,7 +28,7 @@ export const licenseLogic = kea<licenseLogicType>({
             [] as LicenseType[],
             {
                 loadLicenses: async () => {
-                    return values.preflight?.cloud ? [] : (await api.licenses.list()).results
+                    return (await api.licenses.list()).results
                 },
                 createLicense: async ({ key }: { key: string }) => {
                     try {

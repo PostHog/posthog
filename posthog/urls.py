@@ -25,6 +25,7 @@ from posthog.api import (
     user,
 )
 from posthog.api.decide import hostname_in_app_urls
+from posthog.cloud_utils import is_cloud
 from posthog.demo import demo_route
 from posthog.models import User
 
@@ -51,9 +52,7 @@ else:
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 admin_urlpatterns = (
-    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
-    if settings.MULTI_TENANCY or settings.DEMO
-    else []
+    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)] if is_cloud() or settings.DEMO else []
 )
 
 

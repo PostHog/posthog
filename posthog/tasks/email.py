@@ -12,6 +12,7 @@ from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available
 from posthog.event_usage import report_first_ingestion_reminder_email_sent, report_second_ingestion_reminder_email_sent
 from posthog.models import Organization, OrganizationInvite, OrganizationMembership, Plugin, PluginConfig, Team, User
+from posthog.cloud_utils import is_cloud
 
 logger = structlog.get_logger(__name__)
 
@@ -73,7 +74,7 @@ def send_password_reset(user_id: int) -> None:
         template_context={
             "preheader": "Please follow the link inside to reset your password.",
             "link": f"/reset/{user.uuid}/{token}",
-            "cloud": settings.MULTI_TENANCY,
+            "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
             "social_providers": list(user.social_auth.values_list("provider", flat=True)),
         },

@@ -14,6 +14,7 @@ from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
 from posthog.utils import absolute_uri, mask_email_address
+from posthog.cloud_utils import is_cloud
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -85,7 +86,7 @@ class Organization(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
+        default=PluginsAccessLevel.CONFIG,
         choices=PluginsAccessLevel.choices,
     )
     available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
@@ -162,6 +163,9 @@ class Organization(UUIDModel):
 def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
     if instance._state.adding:
         instance.update_available_features()
+        # TODO: TEST THIS
+        if not is_cloud():
+            instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
 class OrganizationMembership(UUIDModel):

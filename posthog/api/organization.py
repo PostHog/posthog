@@ -20,6 +20,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     extract_organization,
 )
+from posthog.cloud_utils import is_cloud
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -31,7 +32,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
         user = cast(User, request.user)
         if (
             # Make multiple orgs only premium on self-hosted, since enforcement of this wouldn't make sense on Cloud
-            not settings.MULTI_TENANCY
+            not is_cloud()
             and request.method in CREATE_METHODS
             and (
                 user.organization is None

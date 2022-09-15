@@ -28,6 +28,7 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
+from posthog.cloud_utils import is_cloud
 from posthog.version import VERSION
 
 
@@ -75,9 +76,7 @@ def stats(request):
 
 
 def robots_txt(request):
-    ROBOTS_TXT_CONTENT = (
-        "User-agent: *\nDisallow: /shared_dashboard/" if settings.MULTI_TENANCY else "User-agent: *\nDisallow: /"
-    )
+    ROBOTS_TXT_CONTENT = "User-agent: *\nDisallow: /shared_dashboard/" if is_cloud() else "User-agent: *\nDisallow: /"
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
 
 
@@ -103,7 +102,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "kafka": is_kafka_connected() or settings.TEST,
         "db": is_postgres_alive(),
         "initiated": Organization.objects.exists(),
-        "cloud": settings.MULTI_TENANCY,
+        "cloud": is_cloud(),
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "available_social_auth_providers": get_instance_available_sso_providers(),

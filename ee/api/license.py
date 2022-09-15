@@ -1,11 +1,11 @@
 import posthoganalytics
 import requests
-from django.conf import settings
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import mixins, request, serializers, viewsets
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 
 from ee.models.license import License, LicenseError
 from posthog.event_usage import groups
@@ -60,14 +60,12 @@ class LicenseViewSet(
     queryset = License.objects.all()
     serializer_class = LicenseSerializer
 
-    def get_queryset(self) -> QuerySet:
-        if getattr(settings, "MULTI_TENANCY", False):
-            return License.objects.none()
-
-        return super().get_queryset()
-
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:
         license = get_object_or_404(License, pk=pk)
+        # TODO: Test this
+        if license.plan == "cloud":
+            raise ValidationError({"plan": "Cloud plans cannot be deleted."})
+
         validation = requests.post("https://license.posthog.com/licenses/deactivate", data={"key": license.key})
         validation.raise_for_status()
 

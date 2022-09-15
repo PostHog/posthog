@@ -295,17 +295,15 @@ export function SitePopover(): JSX.Element {
                     </SitePopoverSection>
                     <SitePopoverSection title="Current organization">
                         {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
-                        {preflight?.cloud && (
-                            <LemonButton
-                                onClick={closeSitePopover}
-                                to={urls.organizationBilling()}
-                                icon={<IconBill />}
-                                fullWidth
-                                data-attr="top-menu-item-billing"
-                            >
-                                Billing
-                            </LemonButton>
-                        )}
+                        <LemonButton
+                            onClick={closeSitePopover}
+                            to={urls.organizationBilling()}
+                            icon={<IconBill />}
+                            fullWidth
+                            data-attr="top-menu-item-billing"
+                        >
+                            Billing
+                        </LemonButton>
                         <InviteMembersButton />
                     </SitePopoverSection>
                     {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
@@ -322,7 +320,7 @@ export function SitePopover(): JSX.Element {
                     )}
                     {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
                         <SitePopoverSection title="PostHog instance">
-                            {!preflight?.cloud && <License license={relevantLicense} expired={expired} />}
+                            <License license={relevantLicense} expired={expired} />
                             <SystemStatus />
                             {!preflight?.cloud && <Version />}
                             <AsyncMigrations />

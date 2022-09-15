@@ -8,6 +8,8 @@ from rest_framework import status
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
 
+from posthog.cloud_utils import is_cloud
+
 logger = structlog.get_logger(__name__)
 
 
@@ -25,7 +27,7 @@ class EnterpriseFeatureException(APIException):
                 f"{feature.capitalize() if feature else 'This feature'} is part of the premium PostHog offering. "
                 + (
                     "To use it, subscribe to PostHog Cloud with a generous free tier: https://app.posthog.com/organization/billing"
-                    if settings.MULTI_TENANCY
+                    if is_cloud()
                     else "To use it, get a self-hosted license: https://license.posthog.com"
                 )
             )

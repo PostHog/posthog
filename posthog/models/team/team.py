@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING, Any, List, Optional
 
 import posthoganalytics
 import pytz
-from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
@@ -16,6 +15,7 @@ from posthog.models.team.util import person_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
+from posthog.cloud_utils import is_cloud
 
 if TYPE_CHECKING:
     from posthog.models.organization import OrganizationMembership
@@ -204,7 +204,7 @@ class Team(UUIDClassicModel):
     @property
     def actor_on_events_querying_enabled(self) -> bool:
         # on PostHog Cloud, use the feature flag
-        if settings.MULTI_TENANCY:
+        if is_cloud():
             return posthoganalytics.feature_enabled(
                 "person-on-events-enabled",
                 str(self.uuid),

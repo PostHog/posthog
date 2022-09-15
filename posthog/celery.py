@@ -78,6 +78,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s()  # check twice a week
     )
 
+    # TODO: BW This will now be that every instance, cloud included sends reports
     # Send weekly status report on self-hosted instances
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
@@ -648,10 +649,10 @@ def clickhouse_mark_all_materialized():
 @app.task(ignore_result=True)
 def clickhouse_send_license_usage():
     try:
-        if not settings.MULTI_TENANCY:
-            from ee.tasks.send_license_usage import send_license_usage
+        # if not settings.MULTI_TENANCY:
+        from ee.tasks.send_license_usage import send_license_usage
 
-            send_license_usage()
+        send_license_usage()
     except ImportError:
         pass
 

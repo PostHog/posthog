@@ -10,6 +10,7 @@ from rest_framework.viewsets import ModelViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import OrganizationDomain
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.cloud_utils import is_cloud
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
 
@@ -48,7 +49,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         validated_data.pop("sso_enforcement", None)  # can never be set on creation because domain must be verified
         instance = super().create(validated_data)
 
-        if not getattr(settings, "MULTI_TENANCY", False):
+        if not is_cloud():
             instance, _ = instance.attempt_verification()
 
         return instance
