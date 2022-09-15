@@ -81,7 +81,7 @@ class Migration(AsyncMigrationDefinition):
         "TEAM_ID": (
             None,
             "The team_id of team to run backfill for. If unset the backfill will run for all teams.",
-            str,
+            int,
         ),
     }
 
