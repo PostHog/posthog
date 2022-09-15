@@ -1,4 +1,5 @@
 import React from 'react'
+import { Link } from 'lib/components/Link'
 
 const STRING_INCLUDES_URL = new RegExp(
     '([a-zA-Z0-9]+://)?([a-zA-Z0-9_]+:[a-zA-Z0-9_]+@)?([a-zA-Z0-9.-]+\\.[A-Za-z]{2,4})(:[0-9]+)?(/.*)?'
@@ -16,7 +17,8 @@ export interface ParsedEntry {
 //  - If object is detected in string, parse it and make it pretty
 //  - If array is detected in string, parse it and make it pretty
 export function parseEntry(entry?: string): ParsedEntry {
-    if (!entry) {
+    console.log('ENTRY', entry)
+    if (!entry?.replace(/\s+/g, '')?.trim()) {
         return {
             type: 'string',
             parsed: null,
@@ -89,7 +91,13 @@ export function parseEntry(entry?: string): ParsedEntry {
     })
 
     return {
-        parsed: <>{finalStringBuilder.map((s) => s)}</>,
+        parsed: (
+            <>
+                {finalStringBuilder.map((s, i) => (
+                    <React.Fragment key={i}>{s}</React.Fragment>
+                ))}
+            </>
+        ),
         type: 'string',
         size: -1,
         traceUrl,
