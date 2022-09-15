@@ -49,8 +49,16 @@ export const validateProposedURL = (proposedUrl: string, currentUrls: string[]):
 
 /** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
 export function appEditorUrl(appUrl?: string, actionId?: number, defaultIntent?: boolean): string {
+    // See
+    // https://github.com/PostHog/posthog-js/blob/f7119c7542c940354719a9ba8120a08ba25b5ae8/src/extensions/toolbar.ts#L52
+    // for where these params are passed.
     const params: EditorProps = {
         userIntent: defaultIntent ? undefined : actionId ? 'edit-action' : 'add-action',
+        // Make sure to pass the app url, otherwise the api_host will be used by
+        // the toolbar, which isn't correct when used behind a reverse proxy as
+        // we require e.g. SSO login to the app, which will not work when placed
+        // behind a proxy unless we register each domain with the OAuth2 client.
+        apiURL: window.location.origin,
         ...(actionId ? { actionId } : {}),
         ...(appUrl ? { appUrl } : {}),
     }
