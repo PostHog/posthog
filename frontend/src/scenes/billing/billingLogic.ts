@@ -184,9 +184,7 @@ export const billingLogic = kea<billingLogicType>([
     }),
     events(({ actions }) => ({
         afterMount: () => {
-            if (preflightLogic.values.preflight?.cloud) {
-                actions.loadBilling()
-            }
+            actions.loadBilling()
         },
     })),
     listeners(({ values }) => ({
