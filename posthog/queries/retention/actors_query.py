@@ -68,19 +68,18 @@ class RetentionActorsByPeriod(ActorBaseQuery):
             [(actor_appearance.actor_id,) for actor_appearance in actor_appearances]
         )
 
-        actors_appearance_lookup = {
-            str(actor_appearance.actor_id): actor_appearance.appearances for actor_appearance in actor_appearances
-        }
+        actors_lookup = {str(actor["id"]): actor for actor in serialized_actors}
 
         return [
             {
-                "person": actor,
+                "person": actors_lookup[actor.actor_id],
                 "appearances": [
-                    1 if interval_number in actors_appearance_lookup.get(str(actor["id"]), []) else 0
+                    1 if interval_number in actor.appearances else 0
                     for interval_number in range(self._filter.total_intervals - (self._filter.selected_interval or 0))
                 ],
             }
-            for actor in serialized_actors
+            for actor in actor_appearances
+            if actor.actor_id in actors_lookup
         ], len(actor_appearances)
 
 
@@ -158,7 +157,7 @@ def _build_actor_query(
 
         -- make sure we have stable ordering/pagination
         -- NOTE: relies on ids being monotonic
-        ORDER BY actor_id, length(appearances)
+        ORDER BY length(appearances) DESC, actor_id
 
         LIMIT %(limit)s
         OFFSET %(offset)s
