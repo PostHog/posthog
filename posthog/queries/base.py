@@ -67,14 +67,6 @@ def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
     return entities_list
 
 
-TIME_IN_SECONDS: Dict[str, Any] = {
-    "hour": 3600,
-    "day": 3600 * 24,
-    "week": 3600 * 24 * 7,
-    "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
-}
-
-
 def match_property(property: Property, override_property_values: Dict[str, Any]) -> bool:
     # only looks for matches where key exists in override_property_values
     # doesn't support operator is_not_set
