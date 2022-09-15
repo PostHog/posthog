@@ -879,14 +879,20 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
         <>
             {readOnly ? (
                 <>
-                    <div className="font-medium border rounded p-2 pl-3 mb-4">
-                        Served value:{' '}
+                    <div className="flex flex-col mb-4">
+                        <span className="card-secondary">Type</span>
                         <b>
                             {featureFlag.filters.multivariate
                                 ? 'Multiple variants with rollout percentages (A/B test)'
                                 : 'Release toggle (boolean)'}
                         </b>
+                        <span className="card-secondary mt-4">Flag persistence</span>
+                        <b>
+                            This flag {featureFlag.ensure_experience_continuity ? 'persists' : 'does not persist'}{' '}
+                            across authentication events.
+                        </b>
                     </div>
+                    <LemonDivider className="my-3" />
                     {featureFlag.filters.multivariate && (
                         <>
                             <div className="mb-2">
