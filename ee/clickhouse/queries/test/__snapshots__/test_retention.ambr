@@ -112,8 +112,7 @@
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
   GROUP BY actor_id
-  ORDER BY actor_id,
-           length(appearances)
+  ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
   '
@@ -292,8 +291,7 @@
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
   GROUP BY actor_id
-  ORDER BY actor_id,
-           length(appearances)
+  ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
   '
@@ -652,8 +650,7 @@
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
   GROUP BY actor_id
-  ORDER BY actor_id,
-           length(appearances)
+  ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
   '
@@ -712,8 +709,7 @@
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
   GROUP BY actor_id
-  ORDER BY actor_id,
-           length(appearances)
+  ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
   '
