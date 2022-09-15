@@ -96,7 +96,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             calculate_event_property_usage()
 
             # mock will have had three calls, one for the autocreated team from the test class, one for `team`, and one for `team_two`
-            self.assertEqual(
+            self.assertCountEqual(
                 patched_calculate_for_team.call_args_list,
                 [call(team_id=self.team.id), call(team_id=team.id), call(team_id=team_two.id)],
             )
@@ -107,13 +107,15 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             calculate_event_property_usage()  # new team isn't in recency check and will run
 
             # mock will only have had one call, for `team_created_after_first_run`
-            self.assertEqual(patched_calculate_for_team.call_args_list, [call(team_id=team_created_after_first_run.id)])
+            self.assertCountEqual(
+                patched_calculate_for_team.call_args_list, [call(team_id=team_created_after_first_run.id)]
+            )
             patched_calculate_for_team.reset_mock()
 
             frozen_datetime.tick(delta=timedelta(days=1, minutes=1))
 
             calculate_event_property_usage()  # a day has passed all teams will run
-            self.assertEqual(
+            self.assertCountEqual(
                 patched_calculate_for_team.call_args_list,
                 [
                     call(team_id=self.team.id),
