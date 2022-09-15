@@ -14,6 +14,7 @@ import {
     InteractionItem,
     registerables,
     TickOptions,
+    Tooltip,
     TooltipModel,
     TooltipOptions,
 } from 'chart.js'
@@ -38,6 +39,11 @@ if (registerables) {
 }
 Chart.register(CrosshairPlugin)
 Chart.defaults.animation['duration'] = 0
+
+// Create positioner to put tooltip at cursor position
+Tooltip.positioners.cursor = function (_, coordinates) {
+    return coordinates
+}
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
@@ -73,6 +79,21 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
             {props.type === GraphType.Pie ? <DoughnutChart {...props} /> : <LineGraph_ {...props} />}
         </ErrorBoundary>
     )
+}
+
+let timer: NodeJS.Timeout | null = null
+
+function setTooltipPosition(chart: Chart, tooltipEl: HTMLElement): void {
+    if (timer) {
+        clearTimeout(timer)
+    }
+    timer = setTimeout(() => {
+        const position = chart.canvas.getBoundingClientRect()
+
+        tooltipEl.style.position = 'absolute'
+        tooltipEl.style.left = position.left + window.pageXOffset + (chart.tooltip?.caretX || 0) + 8 + 'px'
+        tooltipEl.style.top = position.top + window.pageYOffset + (chart.tooltip?.caretY || 0) + 8 + 'px'
+    }, 25)
 }
 
 export function LineGraph_({
@@ -258,29 +279,27 @@ export function LineGraph_({
                             })
 
                             ReactDOM.render(
-                                <>
-                                    <InsightTooltip
-                                        date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
-                                        timezone={timezone}
-                                        seriesData={seriesData}
-                                        hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
-                                        renderCount={
-                                            tooltipConfig?.renderCount ||
-                                            ((value: number): string =>
-                                                formatAggregationAxisValue(aggregationAxisFormat, value))
-                                        }
-                                        forceEntitiesAsColumns={isHorizontal}
-                                        hideInspectActorsSection={!onClick || !showPersonsModal}
-                                        groupTypeLabel={
-                                            labelGroupType === 'people'
-                                                ? 'people'
-                                                : labelGroupType === 'none'
-                                                ? ''
-                                                : aggregationLabel(labelGroupType).plural
-                                        }
-                                        {...tooltipConfig}
-                                    />
-                                </>,
+                                <InsightTooltip
+                                    date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
+                                    timezone={timezone}
+                                    seriesData={seriesData}
+                                    hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                    renderCount={
+                                        tooltipConfig?.renderCount ||
+                                        ((value: number): string =>
+                                            formatAggregationAxisValue(aggregationAxisFormat, value))
+                                    }
+                                    forceEntitiesAsColumns={isHorizontal}
+                                    hideInspectActorsSection={!onClick || !showPersonsModal}
+                                    groupTypeLabel={
+                                        labelGroupType === 'people'
+                                            ? 'people'
+                                            : labelGroupType === 'none'
+                                            ? ''
+                                            : aggregationLabel(labelGroupType).plural
+                                    }
+                                    {...tooltipConfig}
+                                />,
                                 tooltipEl
                             )
                         }
@@ -509,18 +528,75 @@ export function LineGraph_({
                     },
                     crosshair: false as CrosshairOptions,
                     tooltip: {
-                        callbacks: {
-                            label: function (context) {
-                                const label: string = context.label
-                                const currentValue = context.raw as number
-                                // @ts-expect-error - _metasets is not officially exposed
-                                const total: number = context.chart._metasets[context.datasetIndex].total
-                                const percentageLabel: number = parseFloat(((currentValue / total) * 100).toFixed(1))
-                                return `${label}: ${formatAggregationAxisValue(
-                                    aggregationAxisFormat,
-                                    currentValue
-                                )} (${percentageLabel}%)`
-                            },
+                        position: 'cursor',
+                        enabled: false,
+                        intersect: true,
+                        external({ chart, tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
+                            if (!canvasRef.current) {
+                                return
+                            }
+
+                            const tooltipEl = ensureTooltipElement()
+                            if (tooltip.opacity === 0) {
+                                tooltipEl.style.opacity = '0'
+                                return
+                            }
+
+                            // Set caret position
+                            // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
+                            tooltipEl.classList.remove('above', 'below', 'no-transform')
+                            tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
+                            tooltipEl.style.opacity = '1'
+
+                            if (tooltip.body) {
+                                const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
+                                const dataset = datasets[referenceDataPoint.datasetIndex]
+                                const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
+                                    const hasDotted =
+                                        datasets.some((d) => d.dotted) &&
+                                        dp.dataIndex - datasets?.[dp.datasetIndex]?.data?.length >=
+                                            incompletenessOffsetFromEnd
+                                    return (
+                                        dp.datasetIndex >= (hasDotted ? _datasets.length : 0) &&
+                                        dp.datasetIndex < (hasDotted ? _datasets.length * 2 : _datasets.length)
+                                    )
+                                })
+
+                                ReactDOM.render(
+                                    <InsightTooltip
+                                        date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
+                                        timezone={timezone}
+                                        seriesData={seriesData}
+                                        hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                        renderCount={
+                                            tooltipConfig?.renderCount ||
+                                            ((value: number): string => {
+                                                const total = dataset.data.reduce((a: number, b: number) => a + b, 0)
+                                                const percentageLabel: number = parseFloat(
+                                                    ((value / total) * 100).toFixed(1)
+                                                )
+                                                return `${formatAggregationAxisValue(
+                                                    aggregationAxisFormat,
+                                                    value
+                                                )} (${percentageLabel}%)`
+                                            })
+                                        }
+                                        forceEntitiesAsColumns={isHorizontal}
+                                        hideInspectActorsSection={!onClick || !showPersonsModal}
+                                        groupTypeLabel={
+                                            labelGroupType === 'people'
+                                                ? 'people'
+                                                : labelGroupType === 'none'
+                                                ? ''
+                                                : aggregationLabel(labelGroupType).plural
+                                        }
+                                        {...tooltipConfig}
+                                    />,
+                                    tooltipEl
+                                )
+                            }
+
+                            setTooltipPosition(chart, tooltipEl)
                         },
                     },
                 },
