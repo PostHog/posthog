@@ -81,7 +81,7 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                 <div
                     className={clsx(
                         'PlayerList__item__content__header',
-                        'cursor-pointer shrink-0 flex flex-row gap-3 items-start justify-between px-2 py-2',
+                        'cursor-pointer shrink-0 flex gap-3 items-start justify-between p-2',
                         {
                             'text-warning-dark bg-warning-highlight': statusDetermined === RowStatus.Warning,
                             'text-danger-dark bg-danger-highlight': statusDetermined === RowStatus.Error,
