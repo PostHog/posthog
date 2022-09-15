@@ -1249,7 +1249,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                     persons. This feature flag requires that at least one event is sent prior to
                                     becoming available to your product or website.{' '}
                                     <a
-                                        href="https://posthog.com/manual/feature-flags#persisting-feature-flags-across-authentication-steps"
+                                        href="https://posthog.com/docs/integrate/client/js#bootstrapping-flags"
                                         target="_blank"
                                     >
                                         {' '}
