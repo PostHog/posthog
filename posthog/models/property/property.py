@@ -318,7 +318,6 @@ class Property:
                 | Q(**{f"{column}__{self.key}": None})
             )
 
-        # TODO: add a test for this
         if self.operator in ("is_date_after", "is_date_before"):
             effective_operator = "gt" if self.operator == "is_date_after" else "lt"
             return Q(**{f"{column}__{self.key}__{effective_operator}": value})

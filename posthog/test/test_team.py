@@ -1,4 +1,3 @@
-from datetime import timezone
 from unittest import mock
 
 from posthog.models import Dashboard, DashboardTile, Organization, PluginConfig, Team, User
@@ -80,7 +79,7 @@ class TestTeam(BaseTest):
                     group_properties={
                         "organization": {
                             "id": str(self.organization.id),
-                            "created_at": self.organization.created_at.replace(tzinfo=timezone.utc),
+                            "created_at": self.organization.created_at,
                         }
                     },
                     only_evaluate_locally=True,

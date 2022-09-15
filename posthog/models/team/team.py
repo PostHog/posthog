@@ -1,5 +1,4 @@
 import re
-from datetime import timezone
 from typing import TYPE_CHECKING, Any, List, Optional
 
 import posthoganalytics
@@ -213,7 +212,7 @@ class Team(UUIDClassicModel):
                 group_properties={
                     "organization": {
                         "id": str(self.organization.id),
-                        "created_at": self.organization.created_at.replace(tzinfo=timezone.utc),
+                        "created_at": self.organization.created_at,
                     }
                 },
                 only_evaluate_locally=True,
