@@ -61,6 +61,9 @@ def query_events() -> List[Dict]:
 @pytest.mark.async_migrations
 class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
+        definition = get_async_migration_definition(MIGRATION_NAME)
+        definition.parameters["TEAM_ID"] = (None, "", int)
+
         self.clear_tables()
         super().setUp()
 
@@ -72,6 +75,8 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         run_clickhouse_statement_in_parallel(
             [
                 "TRUNCATE TABLE sharded_events",
+                "TRUNCATE TABLE person",
+                "TRUNCATE TABLE person_distinct_id",
                 "DROP TABLE IF EXISTS tmp_person_0006",
                 "DROP TABLE IF EXISTS tmp_person_distinct_id2_0006",
                 "DROP TABLE IF EXISTS tmp_groups_0006",
@@ -83,6 +88,14 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
     def test_is_required(self):
         create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
+        create_person(
+            team_id=self.team.pk,
+            version=0,
+            uuid=str(uuid1),
+            properties={"personprop": 2},
+            timestamp="2022-01-02T00:00:00Z",
+        )
+        create_person_distinct_id(self.team.pk, "1", str(uuid1))
 
         definition = get_async_migration_definition(MIGRATION_NAME)
         self.assertTrue(definition.is_required())
@@ -281,8 +294,155 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         migration = get_async_migration_definition(MIGRATION_NAME)
 
+        old_fn = migration.operations[-1].fn
         migration.operations[-1].fn = lambda _: 0 / 0  # type: ignore
 
         migration_successful = run_migration()
         self.assertFalse(migration_successful)
         self.assertEqual(AsyncMigration.objects.get(name=MIGRATION_NAME).status, MigrationStatus.RolledBack)
+
+        migration.operations[-1].fn = old_fn
+
+    def test_timestamp_boundaries(self):
+        _uuid1, _uuid2, _uuid3 = [UUIDT() for _ in range(3)]
+        create_event(
+            event_uuid=_uuid1,
+            team=self.team,
+            distinct_id="1_outside_lower",
+            event="$pageview",
+            timestamp="2019-01-01T00:00:00Z",
+        )
+        create_event(
+            event_uuid=_uuid2,
+            team=self.team,
+            distinct_id="2_outside_upper",
+            event="$pageview",
+            timestamp="2090-01-01T00:00:00Z",
+        )
+        create_event(
+            event_uuid=_uuid3,
+            team=self.team,
+            distinct_id="3_in_range",
+            event="$pageview",
+            timestamp="2022-01-01T00:00:00Z",
+        )
+
+        create_person_distinct_id(self.team.pk, "1_outside_lower", str(_uuid1))
+        create_person_distinct_id(self.team.pk, "2_outside_upper", str(_uuid2))
+        create_person_distinct_id(self.team.pk, "3_in_range", str(_uuid3))
+
+        create_person(
+            team_id=self.team.pk,
+            version=1,
+            uuid=str(_uuid1),
+            properties={"personprop": 1},
+            timestamp="2022-01-01T00:00:00Z",
+        )
+        create_person(
+            team_id=self.team.pk,
+            version=0,
+            uuid=str(_uuid2),
+            properties={"personprop": 2},
+            timestamp="2022-01-01T00:00:00Z",
+        )
+        create_person(
+            team_id=self.team.pk,
+            version=0,
+            uuid=str(_uuid3),
+            properties={"personprop": 3},
+            timestamp="2022-01-01T00:00:00Z",
+        )
+
+        self.assertTrue(run_migration())
+
+        events = query_events()
+        self.assertEqual(len(events), 3)
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "1_outside_lower",
+                "person_id": ZERO_UUID,
+                "person_properties": "",
+                "person_created_at": ZERO_DATE,
+            },
+            events[0],
+        )
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "2_outside_upper",
+                "person_id": ZERO_UUID,
+                "person_properties": "",
+                "person_created_at": ZERO_DATE,
+            },
+            events[1],
+        )
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "3_in_range",
+                "person_id": _uuid3,
+                "person_properties": json.dumps({"personprop": 3}),
+                "person_created_at": "2022-01-01T00:00:00Z",
+            },
+            events[2],
+        )
+
+    def test_team_id_filter_event_not_in_team(self):
+        _uuid1 = UUIDT()
+        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
+        create_person_distinct_id(self.team.pk, "1", str(uuid1))
+
+        create_person(
+            team_id=self.team.pk,
+            version=0,
+            uuid=str(_uuid1),
+            properties={"personprop": 1},
+            timestamp="2022-01-01T00:00:00Z",
+        )
+
+        migration = get_async_migration_definition(MIGRATION_NAME)
+        migration.parameters["TEAM_ID"] = (99999, "", int)
+
+        self.assertTrue(run_migration())
+
+        events = query_events()
+
+        self.assertEqual(len(events), 1)
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "1",
+                "person_id": ZERO_UUID,
+                "person_properties": "",
+                "person_created_at": ZERO_DATE,
+            },
+            events[0],
+        )
+
+    def test_team_id_filter_event_in_team(self):
+        _uuid1 = UUIDT()
+        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
+        create_person_distinct_id(self.team.pk, "1", str(_uuid1))
+
+        create_person(
+            team_id=self.team.pk,
+            version=0,
+            uuid=str(_uuid1),
+            properties={"personprop": 1},
+            timestamp="2022-01-01T00:00:00Z",
+        )
+
+        migration = get_async_migration_definition(MIGRATION_NAME)
+        migration.parameters["TEAM_ID"] = (self.team.pk, "", int)
+
+        self.assertTrue(run_migration())
+
+        events = query_events()
+
+        self.assertEqual(len(events), 1)
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "1",
+                "person_id": _uuid1,
+                "person_properties": json.dumps({"personprop": 1}),
+                "person_created_at": "2022-01-01T00:00:00Z",
+            },
+            events[0],
+        )
