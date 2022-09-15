@@ -8,9 +8,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.cloud_utils import is_cloud
 from posthog.models import OrganizationDomain
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
-from posthog.cloud_utils import is_cloud
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
 

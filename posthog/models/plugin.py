@@ -14,6 +14,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec, Version
 
+from posthog.cloud_utils import is_cloud
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
@@ -26,7 +27,6 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from posthog.cloud_utils import is_cloud
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr

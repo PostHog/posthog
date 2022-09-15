@@ -4,8 +4,8 @@ from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import mixins, request, serializers, viewsets
-from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
 
 from ee.models.license import License, LicenseError
 from posthog.event_usage import groups

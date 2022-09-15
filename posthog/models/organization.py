@@ -10,11 +10,11 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
+from posthog.cloud_utils import is_cloud
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
 from posthog.utils import absolute_uri, mask_email_address
-from posthog.cloud_utils import is_cloud
 
 if TYPE_CHECKING:
     from posthog.models import Team, User

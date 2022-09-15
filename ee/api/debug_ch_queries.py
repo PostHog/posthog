@@ -8,9 +8,9 @@ from rest_framework import exceptions, viewsets
 from rest_framework.response import Response
 
 from posthog.client import sync_execute
+from posthog.cloud_utils import is_cloud
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
-from posthog.cloud_utils import is_cloud
 
 
 class DebugCHQueries(viewsets.ViewSet):

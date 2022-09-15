@@ -6,11 +6,11 @@ import structlog
 from django.db import models
 from django.utils import timezone
 
+from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.utils import UUIDModel
 from posthog.utils import get_instance_available_sso_providers
-from posthog.cloud_utils import is_cloud
 
 logger = structlog.get_logger(__name__)
 

@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
+from posthog.cloud_utils import is_cloud
 from posthog.models.instance_setting import get_instance_setting as get_instance_setting_raw
 from posthog.models.instance_setting import set_instance_setting as set_instance_setting_raw
 from posthog.permissions import IsStaffUser
@@ -13,7 +14,6 @@ from posthog.settings import (
     SKIP_ASYNC_MIGRATIONS_SETUP,
 )
 from posthog.utils import str_to_bool
-from posthog.cloud_utils import is_cloud
 
 
 def cast_str_to_desired_type(str_value: str, target_type: type) -> Any:

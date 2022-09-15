@@ -7,6 +7,7 @@ from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
 from posthog.api.shared import TeamBasicSerializer
+from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
@@ -20,7 +21,6 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     extract_organization,
 )
-from posthog.cloud_utils import is_cloud
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):

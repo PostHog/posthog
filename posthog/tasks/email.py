@@ -9,10 +9,10 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils import timezone
 
 from posthog.celery import app
+from posthog.cloud_utils import is_cloud
 from posthog.email import EmailMessage, is_email_available
 from posthog.event_usage import report_first_ingestion_reminder_email_sent, report_second_ingestion_reminder_email_sent
 from posthog.models import Organization, OrganizationInvite, OrganizationMembership, Plugin, PluginConfig, Team, User
-from posthog.cloud_utils import is_cloud
 
 logger = structlog.get_logger(__name__)
 
