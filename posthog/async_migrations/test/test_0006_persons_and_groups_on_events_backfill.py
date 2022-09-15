@@ -61,6 +61,9 @@ def query_events() -> List[Dict]:
 @pytest.mark.async_migrations
 class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
+        definition = get_async_migration_definition(MIGRATION_NAME)
+        definition.parameters["TEAM_ID"] = (None, "", int)
+
         self.clear_tables()
         super().setUp()
 
@@ -283,11 +286,14 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         migration = get_async_migration_definition(MIGRATION_NAME)
 
+        old_fn = migration.operations[-1].fn
         migration.operations[-1].fn = lambda _: 0 / 0  # type: ignore
 
         migration_successful = run_migration()
         self.assertFalse(migration_successful)
         self.assertEqual(AsyncMigration.objects.get(name=MIGRATION_NAME).status, MigrationStatus.RolledBack)
+
+        migration.operations[-1].fn = old_fn
 
     def test_timestamp_boundaries(self):
         _uuid1, _uuid2, _uuid3 = [UUIDT() for _ in range(3)]

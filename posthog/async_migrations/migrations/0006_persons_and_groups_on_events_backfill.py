@@ -96,7 +96,7 @@ class Migration(AsyncMigrationDefinition):
             """
             SELECT count()
             FROM events
-            WHERE person_id = toUUIDOrZero('')
+            WHERE empty(person_id) OR person_created_at = toDateTime(0)
             """
         )[0][0]
 
