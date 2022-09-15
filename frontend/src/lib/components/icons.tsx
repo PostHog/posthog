@@ -532,6 +532,14 @@ export function IconSubdirectoryArrowRight(props: SvgIconProps): JSX.Element {
     )
 }
 
+export function IconSubArrowRight(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path d="M2 0H0V10H12.01V13L16 9L12.01 5V8H2V0Z" fill="currentColor" />{' '}
+        </SvgIcon>
+    )
+}
+
 export function IconGroupedEvents(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>

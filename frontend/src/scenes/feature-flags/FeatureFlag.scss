@@ -21,6 +21,20 @@
     }
 }
 
+.feature-flag-property-display {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+
+    .arrow-right {
+        margin-right: -8px;
+        margin-top: 0.25rem;
+    }
+}
+
 .condition-set-separator {
     color: var(--primary-alt);
     font-size: 12px;
