@@ -407,7 +407,12 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         self.assertEqual(len(events), 1)
         self.assertDictContainsSubset(
-            {"distinct_id": "1", "person_id": ZERO_UUID, "person_properties": "", "person_created_at": ZERO_DATE,},
+            {
+                "distinct_id": "1",
+                "person_id": ZERO_UUID,
+                "person_properties": "",
+                "person_created_at": ZERO_DATE,
+            },
             events[0],
         )
 
