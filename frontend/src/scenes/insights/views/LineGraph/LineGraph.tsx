@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { BindLogic, useValues } from 'kea'
 import {
-    registerables,
     ActiveElement,
     Chart,
     ChartDataset,
@@ -13,6 +12,7 @@ import {
     ChartType,
     Color,
     InteractionItem,
+    registerables,
     TickOptions,
     TooltipModel,
     TooltipOptions,
@@ -28,8 +28,9 @@ import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { formatAggregationAxisValue, AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { AggregationAxisFormat, formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { DoughnutChart } from 'scenes/insights/views/LineGraph/DoughnutChart'
 
 if (registerables) {
     // required for storybook to work, not found in esbuild
@@ -69,7 +70,7 @@ export function ensureTooltipElement(): HTMLElement {
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     return (
         <ErrorBoundary>
-            <LineGraph_ {...props} />
+            {props.type === GraphType.Pie ? <DoughnutChart {...props} /> : <LineGraph_ {...props} />}
         </ErrorBoundary>
     )
 }
