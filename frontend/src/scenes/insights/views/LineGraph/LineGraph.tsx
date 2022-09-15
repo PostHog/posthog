@@ -80,6 +80,21 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
     )
 }
 
+let timer: NodeJS.Timeout | null = null
+
+function setTooltipPosition(chart: Chart, tooltipEl: HTMLElement): void {
+    if (timer) {
+        clearTimeout(timer)
+    }
+    timer = setTimeout(() => {
+        const position = chart.canvas.getBoundingClientRect()
+
+        tooltipEl.style.position = 'absolute'
+        tooltipEl.style.left = position.left + window.pageXOffset + (chart.tooltip?.caretX || 0) + 8 + 'px'
+        tooltipEl.style.top = position.top + window.pageYOffset + (chart.tooltip?.caretY || 0) + 8 + 'px'
+    }, 25)
+}
+
 export function LineGraph_({
     datasets: _datasets,
     hiddenLegendKeys,
@@ -263,29 +278,27 @@ export function LineGraph_({
                             })
 
                             ReactDOM.render(
-                                <>
-                                    <InsightTooltip
-                                        date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
-                                        timezone={timezone}
-                                        seriesData={seriesData}
-                                        hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
-                                        renderCount={
-                                            tooltipConfig?.renderCount ||
-                                            ((value: number): string =>
-                                                formatAggregationAxisValue(aggregationAxisFormat, value))
-                                        }
-                                        forceEntitiesAsColumns={isHorizontal}
-                                        hideInspectActorsSection={!onClick || !showPersonsModal}
-                                        groupTypeLabel={
-                                            labelGroupType === 'people'
-                                                ? 'people'
-                                                : labelGroupType === 'none'
-                                                ? ''
-                                                : aggregationLabel(labelGroupType).plural
-                                        }
-                                        {...tooltipConfig}
-                                    />
-                                </>,
+                                <InsightTooltip
+                                    date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
+                                    timezone={timezone}
+                                    seriesData={seriesData}
+                                    hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                    renderCount={
+                                        tooltipConfig?.renderCount ||
+                                        ((value: number): string =>
+                                            formatAggregationAxisValue(aggregationAxisFormat, value))
+                                    }
+                                    forceEntitiesAsColumns={isHorizontal}
+                                    hideInspectActorsSection={!onClick || !showPersonsModal}
+                                    groupTypeLabel={
+                                        labelGroupType === 'people'
+                                            ? 'people'
+                                            : labelGroupType === 'none'
+                                            ? ''
+                                            : aggregationLabel(labelGroupType).plural
+                                    }
+                                    {...tooltipConfig}
+                                />,
                                 tooltipEl
                             )
                         }
@@ -516,6 +529,7 @@ export function LineGraph_({
                     tooltip: {
                         position: 'cursor',
                         enabled: false,
+                        intersect: true,
                         external({ chart, tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
                             if (!canvasRef.current) {
                                 return
@@ -548,49 +562,40 @@ export function LineGraph_({
                                 })
 
                                 ReactDOM.render(
-                                    <>
-                                        <InsightTooltip
-                                            date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
-                                            timezone={timezone}
-                                            seriesData={seriesData}
-                                            hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
-                                            renderCount={
-                                                tooltipConfig?.renderCount ||
-                                                ((value: number): string => {
-                                                    const total = dataset.data.reduce(
-                                                        (a: number, b: number) => a + b,
-                                                        0
-                                                    )
-                                                    const percentageLabel: number = parseFloat(
-                                                        ((value / total) * 100).toFixed(1)
-                                                    )
-                                                    return `${formatAggregationAxisValue(
-                                                        aggregationAxisFormat,
-                                                        value
-                                                    )} (${percentageLabel}%)`
-                                                })
-                                            }
-                                            forceEntitiesAsColumns={isHorizontal}
-                                            hideInspectActorsSection={!onClick || !showPersonsModal}
-                                            groupTypeLabel={
-                                                labelGroupType === 'people'
-                                                    ? 'people'
-                                                    : labelGroupType === 'none'
-                                                    ? ''
-                                                    : aggregationLabel(labelGroupType).plural
-                                            }
-                                            {...tooltipConfig}
-                                        />
-                                    </>,
+                                    <InsightTooltip
+                                        date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
+                                        timezone={timezone}
+                                        seriesData={seriesData}
+                                        hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                        renderCount={
+                                            tooltipConfig?.renderCount ||
+                                            ((value: number): string => {
+                                                const total = dataset.data.reduce((a: number, b: number) => a + b, 0)
+                                                const percentageLabel: number = parseFloat(
+                                                    ((value / total) * 100).toFixed(1)
+                                                )
+                                                return `${formatAggregationAxisValue(
+                                                    aggregationAxisFormat,
+                                                    value
+                                                )} (${percentageLabel}%)`
+                                            })
+                                        }
+                                        forceEntitiesAsColumns={isHorizontal}
+                                        hideInspectActorsSection={!onClick || !showPersonsModal}
+                                        groupTypeLabel={
+                                            labelGroupType === 'people'
+                                                ? 'people'
+                                                : labelGroupType === 'none'
+                                                ? ''
+                                                : aggregationLabel(labelGroupType).plural
+                                        }
+                                        {...tooltipConfig}
+                                    />,
                                     tooltipEl
                                 )
                             }
 
-                            const position = chart.canvas.getBoundingClientRect()
-
-                            tooltipEl.style.position = 'absolute'
-                            tooltipEl.style.left = position.left + (chart.tooltip?.caretX || 0) + 8 + 'px'
-                            tooltipEl.style.top = position.top + (chart.tooltip?.caretY || 0) + 8 + 'px'
+                            setTooltipPosition(chart, tooltipEl)
                         },
                     },
                 },
