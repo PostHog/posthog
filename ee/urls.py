@@ -8,6 +8,7 @@ from posthog.api.routing import DefaultRouterPlusPlus
 
 from .api import (
     authentication,
+    billing,
     dashboard_collaborator,
     debug_ch_queries,
     explicit_team_member,
@@ -23,6 +24,7 @@ def extend_api_router(
     projects_router: NestedRegistryItem,
     project_dashboards_router: NestedRegistryItem,
 ) -> None:
+    root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
