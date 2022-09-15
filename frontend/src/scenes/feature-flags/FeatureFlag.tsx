@@ -9,14 +9,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import {
-    IconOpenInNew,
-    IconCopy,
-    IconDelete,
-    IconPlus,
-    IconSubdirectoryArrowRight,
-    IconPlusMini,
-} from 'lib/components/icons'
+import { IconOpenInNew, IconCopy, IconDelete, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -1271,9 +1264,17 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         <>
                                             <div className="feature-flag-property-display">
                                                 {idx === 0 ? (
-                                                    <IconSubdirectoryArrowRight />
+                                                    <LemonButton
+                                                        icon={<IconSubArrowRight className="arrow-right" />}
+                                                        status="muted"
+                                                        size="small"
+                                                    />
                                                 ) : (
-                                                    <span style={{ width: 14 }}>&</span>
+                                                    <LemonButton
+                                                        icon={<span className="text-sm">&</span>}
+                                                        status="muted"
+                                                        size="small"
+                                                    />
                                                 )}
                                                 <span className="simple-tag tag-light-blue text-primary-alt">
                                                     {property.type === 'cohort' ? 'Cohort' : property.key}{' '}

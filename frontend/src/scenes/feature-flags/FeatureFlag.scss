@@ -28,6 +28,11 @@
     flex-wrap: wrap;
     gap: 0.5rem;
     margin-top: 0.5rem;
+
+    .arrow-right {
+        margin-right: -8px;
+        margin-top: 0.25rem;
+    }
 }
 
 .condition-set-separator {
