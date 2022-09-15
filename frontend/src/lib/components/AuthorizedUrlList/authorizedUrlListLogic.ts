@@ -81,12 +81,11 @@ export interface KeyedAppUrl {
 
 export interface AuthorizedUrlListProps {
     actionId?: number
-    pageKey?: string
     type: AuthorizedUrlListType
 }
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
-    key((props) => `${props.pageKey}-${props.type}-${props.actionId}`),
+    key((props) => `${props.type}-${props.actionId}`),
     props({} as AuthorizedUrlListProps),
     connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],

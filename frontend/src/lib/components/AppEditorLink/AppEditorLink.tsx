@@ -40,11 +40,7 @@ export function AppEditorLink({
                 footer={<Button onClick={() => setModalOpen(false)}>Close</Button>}
                 onCancel={() => setModalOpen(false)}
             >
-                <AuthorizedUrlList
-                    actionId={actionId}
-                    pageKey="app-editor-link"
-                    type={AuthorizedUrlListType.TOOLBAR_URLS}
-                />
+                <AuthorizedUrlList actionId={actionId} type={AuthorizedUrlListType.TOOLBAR_URLS} />
             </Modal>
         </>
     )

@@ -9,7 +9,6 @@ import {
     authorizedUrlListLogic,
     AuthorizedUrlListProps,
 } from './authorizedUrlListLogic'
-import { isMobile } from 'lib/utils'
 import { LemonRow } from 'lib/components/LemonRow'
 import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
@@ -46,14 +45,14 @@ function EmptyState({
     )
 }
 
-function AuthorizedUrlForm({ actionId, type, pageKey }: AuthorizedUrlListProps): JSX.Element {
-    const logic = authorizedUrlListLogic({ actionId, type, pageKey })
+function AuthorizedUrlForm({ actionId, type }: AuthorizedUrlListProps): JSX.Element {
+    const logic = authorizedUrlListLogic({ actionId, type })
     const { isProposedUrlSubmitting } = useValues(logic)
     const { cancelProposingUrl } = useActions(logic)
     return (
         <Form
             logic={authorizedUrlListLogic}
-            props={{ actionId, type, pageKey }}
+            props={{ actionId, type }}
             formKey="proposedUrl"
             enableFormOnSubmit
             className="w-full space-y-2"
@@ -77,8 +76,12 @@ function AuthorizedUrlForm({ actionId, type, pageKey }: AuthorizedUrlListProps):
     )
 }
 
-export function AuthorizedUrlList({ pageKey, actionId, type }: AuthorizedUrlListProps): JSX.Element {
-    const logic = authorizedUrlListLogic({ pageKey, actionId, type })
+export function AuthorizedUrlList({
+    actionId,
+    type,
+    addText = 'Add',
+}: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
+    const logic = authorizedUrlListLogic({ actionId, type })
     const {
         urlsKeyed,
         suggestionsLoading,
@@ -95,13 +98,12 @@ export function AuthorizedUrlList({ pageKey, actionId, type }: AuthorizedUrlList
             <div className="flex items-center mb-4 gap-2 justify-between">
                 <LemonInput
                     type="search"
-                    autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
                     placeholder={`Search for authorized ${onlyAllowDomains ? 'domains' : 'URLs'}`}
                     onChange={setSearchTerm}
                     value={searchTerm}
                 />
                 <LemonButton onClick={newUrl} type="secondary" icon={<IconPlus />} data-attr="toolbar-add-url">
-                    Add{pageKey === 'toolbar-launch' && ' authorized URL'}
+                    {addText}
                 </LemonButton>
             </div>
             {suggestionsLoading ? (
@@ -112,7 +114,7 @@ export function AuthorizedUrlList({ pageKey, actionId, type }: AuthorizedUrlList
                 <div className="space-y-2">
                     {isAddUrlFormVisible && (
                         <LemonRow outlined fullWidth size="large">
-                            <AuthorizedUrlForm type={type} actionId={actionId} pageKey={pageKey} />
+                            <AuthorizedUrlForm type={type} actionId={actionId} />
                         </LemonRow>
                     )}
                     <EmptyState
@@ -125,7 +127,7 @@ export function AuthorizedUrlList({ pageKey, actionId, type }: AuthorizedUrlList
                         return (
                             <div key={index} className={clsx('border rounded flex items-center py-2 px-4 min-h-14')}>
                                 {editUrlIndex === index ? (
-                                    <AuthorizedUrlForm type={type} actionId={actionId} pageKey={pageKey} />
+                                    <AuthorizedUrlForm type={type} actionId={actionId} />
                                 ) : (
                                     <>
                                         {keyedURL.type === 'suggestion' && (
