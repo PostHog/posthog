@@ -1,9 +1,10 @@
 import { kea, connect, path, actions, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '../navigationLogic'
 
@@ -38,7 +39,6 @@ export const announcementLogic = kea<announcementLogicType>([
     }),
     actions({
         hideAnnouncement: (type: AnnouncementType | null) => ({ type }),
-        setCanShowAnnouncements: (state: boolean) => ({ state }),
     }),
     reducers({
         persistedClosedAnnouncements: [
@@ -60,12 +60,6 @@ export const announcementLogic = kea<announcementLogicType>([
                 hideAnnouncement: () => true,
             },
         ],
-        canShowAnnouncements: [
-            true,
-            {
-                setCanShowAnnouncements: (_, { state }) => state,
-            },
-        ],
     }),
     selectors({
         closable: [
@@ -74,8 +68,16 @@ export const announcementLogic = kea<announcementLogicType>([
             (relevantAnnouncementType): boolean => relevantAnnouncementType !== AnnouncementType.Demo,
         ],
         shownAnnouncementType: [
-            (s) => [s.relevantAnnouncementType, s.closable, s.closed, s.persistedClosedAnnouncements, s.alertToShow],
+            (s) => [
+                router.selectors.location,
+                s.relevantAnnouncementType,
+                s.closable,
+                s.closed,
+                s.persistedClosedAnnouncements,
+                s.alertToShow,
+            ],
             (
+                { pathname },
                 relevantAnnouncementType,
                 closable,
                 closed,
@@ -85,8 +87,9 @@ export const announcementLogic = kea<announcementLogicType>([
                 if (
                     (closable &&
                         (closed ||
-                            (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))) ||
-                    alertToShow
+                            (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))) || // hide if already closed
+                    alertToShow || // hide if there is a billing alert
+                    pathname == urls.ingestion() // hide during the ingestion phase
                 ) {
                     return null
                 }
@@ -94,11 +97,8 @@ export const announcementLogic = kea<announcementLogicType>([
             },
         ],
         relevantAnnouncementType: [
-            (s) => [s.canShowAnnouncements, s.cloudAnnouncement, s.preflight, s.user, s.asyncMigrationsOk],
-            (canShowAnnouncements, cloudAnnouncement, preflight, user, asyncMigrationsOk): AnnouncementType | null => {
-                if (!canShowAnnouncements) {
-                    return null
-                }
+            (s) => [s.cloudAnnouncement, s.preflight, s.user, s.asyncMigrationsOk],
+            (cloudAnnouncement, preflight, user, asyncMigrationsOk): AnnouncementType | null => {
                 if (preflight?.demo) {
                     return AnnouncementType.Demo
                 } else if (cloudAnnouncement) {
@@ -118,6 +118,7 @@ export const announcementLogic = kea<announcementLogicType>([
         cloudAnnouncement: [
             (s) => [s.featureFlags],
             (featureFlags): string | null => {
+                console.log(featureFlags)
                 const flagValue = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
                 return !!flagValue && typeof flagValue === 'string'
                     ? String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]).replace(/_/g, ' ')
@@ -125,13 +126,4 @@ export const announcementLogic = kea<announcementLogicType>([
             },
         ],
     }),
-    urlToAction(({ values, actions }) => ({
-        '*': ({ pathname }) => {
-            if (values.canShowAnnouncements && pathname?.startsWith('/ingestion')) {
-                actions.setCanShowAnnouncements(false)
-            } else if (!values.canShowAnnouncements) {
-                actions.setCanShowAnnouncements(true)
-            }
-        },
-    })),
 ])
