@@ -38,8 +38,11 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                 hoverBackgroundColor: colorList,
                 hoverBorderColor: colorList,
                 borderColor: colorList,
-                hoverBorderWidth: 10,
-                borderWidth: 1,
+                hoverBorderWidth: 8,
+                borderWidth: 0,
+                borderRadius: 0,
+                borderJoinStyle: 'miter',
+                hoverBorderJoinStyle: 'miter',
             },
         ])
         setTotal(_data.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0))
@@ -113,8 +116,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                         }
                     />
                 </div>
-                <h1>
-                    <span className="label">Total: </span>
+                <h1 className="text-7xl text-center">
                     {formatAggregationAxisValue(insight.filters?.aggregation_axis_format, total)}
                 </h1>
             </div>
