@@ -10,6 +10,7 @@ from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.util import get_persons_by_uuids
+from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
@@ -136,13 +137,16 @@ class LifecycleEventQuery(EventQuery):
         )
         self.params.update(entity_params)
 
-        entity_prop_query, entity_prop_params = self._get_prop_groups(
-            self._filter.entities[0].property_groups,
+        entity_prop_query, entity_prop_params = parse_prop_grouped_clauses(
+            team_id=self._team_id,
+            property_group=self._filter.entities[0].property_groups,
+            prepend="entity_props",
+            table_name=self.EVENT_TABLE_ALIAS,
+            allow_denormalized_props=True,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self._using_person_on_events
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
-            prepend="entity_props",
         )
 
         self.params.update(entity_prop_params)
