@@ -87,7 +87,7 @@ class Migration(AsyncMigrationDefinition):
 
     def precheck(self):
         # Used to guard against self-hosted users running on `latest` while we make tweaks to the migration
-        if not settings.TEST and get_instance_setting("ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS"):
+        if not settings.TEST and not get_instance_setting("ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS"):
             return (False, "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS is set to False")
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 

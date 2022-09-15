@@ -286,3 +286,84 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         migration_successful = run_migration()
         self.assertFalse(migration_successful)
         self.assertEqual(AsyncMigration.objects.get(name=MIGRATION_NAME).status, MigrationStatus.RolledBack)
+
+    def test_timestamp_boundaries(self):
+        create_event(
+            event_uuid=uuid1,
+            team=self.team,
+            distinct_id="1_outside_lower",
+            event="$pageview",
+            timestamp="2019-01-01T00:00:00Z",
+        )
+        create_event(
+            event_uuid=uuid2,
+            team=self.team,
+            distinct_id="2_outside_upper",
+            event="$pageview",
+            timestamp="2090-01-01T00:00:00Z",
+        )
+        create_event(
+            event_uuid=uuid3,
+            team=self.team,
+            distinct_id="3_in_range",
+            event="$pageview",
+            timestamp="2022-01-01T00:00:00Z",
+        )
+
+        create_person_distinct_id(self.team.pk, "1_outside_lower", str(uuid1))
+        create_person_distinct_id(self.team.pk, "2_outside_upper", str(uuid2))
+        create_person_distinct_id(self.team.pk, "3_in_range", str(uuid3))
+
+        create_person(
+            team_id=self.team.pk,
+            version=1,
+            uuid=str(uuid1),
+            properties={"personprop": 1},
+            timestamp="2022-01-01T00:00:00Z",
+        )
+        create_person(
+            team_id=self.team.pk,
+            version=0,
+            uuid=str(uuid2),
+            properties={"personprop": 2},
+            timestamp="2022-01-01T00:00:00Z",
+        )
+        create_person(
+            team_id=self.team.pk,
+            version=0,
+            uuid=str(uuid3),
+            properties={"personprop": 3},
+            timestamp="2022-01-01T00:00:00Z",
+        )
+
+        self.assertTrue(run_migration())
+
+        events = query_events()
+        self.assertEqual(len(events), 3)
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "1_outside_lower",
+                "person_id": ZERO_UUID,
+                "person_properties": "",
+                "person_created_at": ZERO_DATE,
+            },
+            events[0],
+        )
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "2_outside_upper",
+                "person_id": ZERO_UUID,
+                "person_properties": "",
+                "person_created_at": ZERO_DATE,
+            },
+            events[1],
+        )
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "3_in_range",
+                "person_id": uuid3,
+                "person_properties": json.dumps({"personprop": 3}),
+                "person_created_at": "2022-01-01T00:00:00Z",
+            },
+            events[2],
+        )
