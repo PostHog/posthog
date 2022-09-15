@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest
 from rest_framework import serializers, viewsets, mixins
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.response import Response
@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from posthog.auth import PersonalAPIKeyAuthentication
 
 mock_billing_info = {
-    "stripe_customer_id": "cus_MNqOMLZWl2GgMZ",
+    "stripe_customer_id": "cus_12345",
     "should_setup_billing": True,
     "is_billing_active": False,
     "plan": {
@@ -50,6 +50,10 @@ class BillingViewset(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewset
     ]
 
     def list(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
+
+        # TODO: Ensure user is allowed to see billing info
+        print("ORG")
+        print(not self.request.user.is_anonymous and self.request.user.organization)
         # TODO: Get this from real billing service and not mock
 
         return Response(mock_billing_info)
