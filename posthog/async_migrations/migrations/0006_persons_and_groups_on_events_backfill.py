@@ -92,7 +92,7 @@ class Migration(AsyncMigrationDefinition):
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
-        zero_person_id_count = sync_execute(
+        rows_not_backfilled_count = sync_execute(
             """
             SELECT count()
             FROM events
@@ -100,7 +100,7 @@ class Migration(AsyncMigrationDefinition):
             """
         )[0][0]
 
-        return zero_person_id_count > 0
+        return rows_not_backfilled_count > 0
 
     @cached_property
     def operations(self):

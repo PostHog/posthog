@@ -88,6 +88,14 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
     def test_is_required(self):
         create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
+        create_person(
+            team_id=self.team.pk,
+            version=0,
+            uuid=str(uuid1),
+            properties={"personprop": 2},
+            timestamp="2022-01-02T00:00:00Z",
+        )
+        create_person_distinct_id(self.team.pk, "1", str(uuid1))
 
         definition = get_async_migration_definition(MIGRATION_NAME)
         self.assertTrue(definition.is_required())
