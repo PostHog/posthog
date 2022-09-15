@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Dict, List
 from unittest.mock import MagicMock, call, patch
 
+from django.test.utils import CaptureQueriesContext
 from freezegun import freeze_time
 
 from posthog.models import EventDefinition, EventProperty, Insight, Organization, PropertyDefinition, Team
@@ -14,6 +15,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.test.base import _create_event as create_event
 from posthog.test.base import _create_person as create_person
 from posthog.test.base import flush_persons_and_events
+from posthog.test.db_context_capturing import capture_db_queries
 
 
 class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
@@ -196,9 +198,11 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
             self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
 
-    def test_calculate_usage(self) -> None:
+    @patch("posthog.tasks.calculate_event_property_usage.gauge")
+    def test_calculate_usage(self, mock_gauge: MagicMock) -> None:
         EventDefinition.objects.create(team=self.team, name="$pageview")
         EventDefinition.objects.create(team=self.team, name="custom event")
+        EventDefinition.objects.create(team=self.team, name="unused event")
         PropertyDefinition.objects.create(team=self.team, name="$current_url")
         PropertyDefinition.objects.create(team=self.team, name="team_id")
         PropertyDefinition.objects.create(team=self.team, name="used property")
@@ -340,8 +344,10 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
 
             flush_persons_and_events()
 
-            with self.assertNumQueries(5):
+            with capture_db_queries() as capture_query_context:
                 calculate_event_property_usage_for_team(self.team.pk)
+
+        self.assertEqual(5, len(capture_query_context.captured_queries))
 
         self.assertEqual(4, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
         self.assertEqual(2, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
@@ -354,11 +360,57 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             2, PropertyDefinition.objects.get(team=self.team, name="used property").query_usage_30_day
         )  # in a property group and in an events series filter
+
+        # unused property stays as None because no update is issued against it
         self.assertIsNone(PropertyDefinition.objects.get(team=self.team, name="unused property").query_usage_30_day)
 
         self.assertEqual(
             None, PropertyDefinition.objects.get(team=self.team, name="$geoip_continent_code").query_usage_30_day
         )
+
+        # two property definition excluded
+        # $geoip_continent_code and "unused property"
+        mock_gauge.assert_any_call(
+            "calculate_event_property_usage_for_team.event_properties_to_update",
+            value=PropertyDefinition.objects.count() - 2,
+            tags={"team": self.team.id},
+        )
+        self.assert_unchanged_models_are_excluded_from_update(capture_query_context, mock_gauge)
+
+    def assert_unchanged_models_are_excluded_from_update(
+        self, capture_query_context: CaptureQueriesContext, mock_gauge: MagicMock
+    ) -> None:
+        self.maxDiff = None
+        seen_sql = [q["sql"] for q in capture_query_context.captured_queries]
+        event_property_update = next(
+            filter(
+                lambda sql: sql.find('UPDATE "posthog_propertydefinition"') >= 0,
+                seen_sql,
+            ),
+            "should always find it",
+        )
+        self.assertNotIn(
+            str(PropertyDefinition.objects.get(name="unused property").id),
+            event_property_update,
+        )
+        self.assertNotIn(
+            str(PropertyDefinition.objects.get(name="$geoip_continent_code").id),
+            event_property_update,
+        )
+        # only one event definition excluded
+        mock_gauge.assert_any_call(
+            "calculate_event_property_usage_for_team.events_to_update",
+            value=EventDefinition.objects.count() - 1,
+            tags={"team": self.team.id},
+        )
+        event_update = next(
+            filter(
+                lambda sql: sql.find('UPDATE "posthog_eventdefinition"') >= 0,
+                seen_sql,
+            ),
+            "should always find it",
+        )
+        self.assertNotIn(str(EventDefinition.objects.get(name="unused event").id), event_update)
 
     def test_complete_inference(self) -> None:
         assert EventDefinition.objects.count() == 0
