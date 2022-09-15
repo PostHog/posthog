@@ -12,6 +12,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property
 from posthog.models.team import Team
+from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates, is_valid_regex
 
 
@@ -128,12 +129,13 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
 
     if operator in ["is_date_before", "is_date_after"]:
         try:
-            parsed_date = parser.parse(str(value), ignoretz=True)
+            parsed_date = parser.parse(str(value))
+            parsed_date = convert_to_datetime_aware(parsed_date)
         except Exception:
             return False
 
         if isinstance(override_value, datetime.datetime):
-            override_date = override_value.replace(tzinfo=None)
+            override_date = convert_to_datetime_aware(override_value)
             if operator == "is_date_before":
                 return override_date < parsed_date
             else:
@@ -145,7 +147,8 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
                 return override_value > parsed_date.date()
         elif isinstance(override_value, str):
             try:
-                override_date = parser.parse(override_value).replace(tzinfo=None)
+                override_date = parser.parse(override_value)
+                override_date = convert_to_datetime_aware(override_date)
                 if operator == "is_date_before":
                     return override_date < parsed_date
                 else:

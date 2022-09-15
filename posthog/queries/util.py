@@ -171,3 +171,9 @@ def start_of_week_fix(filter: Filter) -> str:
     This function adds mode to the trunc_func, but only if the interval is week
     """
     return "0," if filter.interval == "week" else ""
+
+
+def convert_to_datetime_aware(date_obj):
+    if date_obj.tzinfo is None:
+        date_obj = date_obj.replace(tzinfo=timezone.utc)
+    return date_obj
