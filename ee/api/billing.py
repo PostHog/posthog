@@ -59,13 +59,17 @@ class BillingViewset(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewset
         org: Optional[Organization] = None if self.request.user.is_anonymous else self.request.user.organization
         # TODO: Ensure user is allowed to see billing info
 
-        # TODO: Get this from real billing service and not mock
-        billing_service_token = self._build_token(org)
+        license = License.objects.first_valid()
 
-        # res = requests.get(
-        #     f"https://billing.posthog.com/api/billing/{org}",
-        #     headers={"Authorization": f"bearer {billing_service_token}"},
-        # )
+        # if license:
+        #     # TODO: Get this from real billing service and not mock
+        #     billing_service_token = self._build_token(org)
+
+        #     # res = requests.get(
+        #     #     f"https://billing.posthog.com/api/billing/{org.id}",
+        #     #     headers={"Authorization": f"bearer {billing_service_token}"},
+        #     # )
+        #     return Response(mock_billing_info)
 
         return Response(mock_billing_info)
 
