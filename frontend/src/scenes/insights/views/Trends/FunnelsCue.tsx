@@ -1,15 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { IconLightBulb } from 'lib/components/icons'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
-import { Link } from 'lib/components/Link'
 import React from 'react'
 import clsx from 'clsx'
 import './FunnelsCue.scss'
-import { Button } from 'antd'
 import { funnelsCueLogic } from 'scenes/insights/views/Trends/funnelsCueLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { InsightType } from '~/types'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export function FunnelsCue({ tooltipPosition }: { tooltipPosition?: number }): JSX.Element | null {
     const { insightProps, filters } = useValues(insightLogic)
@@ -28,13 +27,12 @@ export function FunnelsCue({ tooltipPosition }: { tooltipPosition?: number }): J
                         Looks like you have multiple events. A funnel can help better visualize your user's progression
                         across each event.
                     </div>
-                    <Link
+                    <LemonButton
                         to={urls.insightNew({ ...filters, insight: InsightType.FUNNELS })}
                         data-attr="funnel-cue-7301"
-                        tag={<Button style={{ color: 'var(--primary)', fontWeight: 500 }} />}
                     >
                         Try this insight as a funnel
-                    </Link>
+                    </LemonButton>
                 </div>
             </InlineMessage>
             {tooltipPosition && (

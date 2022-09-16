@@ -8,6 +8,10 @@ asgiref==3.3.2
     # via
     #   -c requirements.txt
     #   django
+async-timeout==4.0.2
+    # via
+    #   -c requirements.txt
+    #   redis
 attrs==21.4.0
     # via
     #   -c requirements.txt
@@ -48,7 +52,11 @@ cryptography==37.0.2
     #   -c requirements.txt
     #   pyopenssl
     #   urllib3
-django==3.2.14
+deprecated==1.2.13
+    # via
+    #   -c requirements.txt
+    #   redis
+django==3.2.15
     # via
     #   -c requirements.txt
     #   django-stubs
@@ -63,7 +71,7 @@ djangorestframework-stubs==1.4.0
     # via -r requirements-dev.in
 docopt==0.6.2
     # via pytest-watch
-fakeredis==1.4.5
+fakeredis==1.9.1
     # via -r requirements-dev.in
 flake8==5.0.4
     # via
@@ -86,7 +94,7 @@ flake8-print==5.0.0
     # via -r requirements-dev.in
 flaky==3.7.0
     # via -r requirements-dev.in
-freezegun==0.3.15
+freezegun==1.2.2
     # via -r requirements-dev.in
 idna==2.8
     # via
@@ -125,6 +133,7 @@ packaging==21.3
     #   -c requirements.txt
     #   -r requirements-dev.in
     #   pytest
+    #   redis
 pathspec==0.9.0
     # via black
 pep517==0.12.0
@@ -190,7 +199,7 @@ pytz==2021.1
     # via
     #   -c requirements.txt
     #   django
-redis==3.4.1
+redis==4.3.4
     # via
     #   -c requirements.txt
     #   fakeredis
@@ -199,11 +208,10 @@ requests==2.25.1
     #   -c requirements.txt
     #   coreapi
     #   djangorestframework-stubs
-six==1.14.0
+six==1.16.0
     # via
     #   -c requirements.txt
     #   fakeredis
-    #   freezegun
     #   python-dateutil
 sortedcontainers==2.4.0
     # via
@@ -234,7 +242,7 @@ types-pytz==2021.3.2
     # via -r requirements-dev.in
 types-pyyaml==6.0.1
     # via -r requirements-dev.in
-types-redis==4.0.3
+types-redis==4.3.20
     # via -r requirements-dev.in
 types-requests==2.26.1
     # via -r requirements-dev.in
@@ -257,6 +265,10 @@ watchdog==2.1.8
     # via pytest-watch
 wheel==0.37.1
     # via pip-tools
+wrapt==1.14.1
+    # via
+    #   -c requirements.txt
+    #   deprecated
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip

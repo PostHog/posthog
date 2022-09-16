@@ -1,10 +1,10 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
 import { getRecordingListLimit, PLAYLIST_LIMIT, sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import './SessionRecordingPlaylist.scss'
+import './SessionRecordingsPlaylist.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
@@ -22,6 +22,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
     const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecordingId, offset } =
         useValues(sessionRecordingsTableLogicInstance)
     const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
+    const playlistRef = useRef<HTMLDivElement>(null)
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
@@ -47,8 +48,8 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
         },
     ]
     return (
-        <div className="SessionRecordingPlaylist" data-attr="session-recordings-playlist">
-            <div className="SessionRecordingPlaylist__left-column mr-4">
+        <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
+            <div className="SessionRecordingsPlaylist__left-column">
                 <LemonTable
                     dataSource={sessionRecordings}
                     columns={columns}
@@ -58,6 +59,11 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                             // Lets the link to the person open the person's page and not the session recording
                             if (!(e.target as HTMLElement).closest('a')) {
                                 openSessionPlayer(sessionRecording.id)
+                                window.scrollTo({
+                                    left: 0,
+                                    top: playlistRef?.current?.offsetTop ? playlistRef.current.offsetTop - 8 : 0,
+                                    behavior: 'smooth',
+                                })
                             }
                         },
                     })}
@@ -68,7 +74,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     emptyState="No matching recordings found"
                     loadingSkeletonRows={PLAYLIST_LIMIT}
                 />
-                <div className="SessionRecordingPlaylist__pagination-control">
+                <div className="flex justify-end items-center my-2">
                     <span>{`${offset + 1} - ${
                         offset +
                         (sessionRecordingsResponseLoading ? getRecordingListLimit(true) : sessionRecordings.length)
@@ -93,7 +99,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     />
                 </div>
             </div>
-            <div className="SessionRecordingPlaylist__right-column">
+            <div className="SessionRecordingsPlaylist__right-column">
                 {activeSessionRecordingId ? (
                     <div className="border rounded h-full">
                         <SessionRecordingPlayerV3 playerKey="playlist" sessionRecordingId={activeSessionRecordingId} />
@@ -103,7 +109,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                         title="No recording selected"
                         description="Please select a recording from the list on the left"
                         buttonText="Learn more about recordings"
-                        buttonHref="https://posthog.com/docs/user-guides/recordings"
+                        buttonTo="https://posthog.com/docs/user-guides/recordings"
                     />
                 )}
             </div>

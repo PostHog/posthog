@@ -421,7 +421,7 @@ class TestSignupAPI(APIBaseTest):
             response, "/login?error_code=no_new_organizations"
         )  # show the user an error; operation not permitted
 
-    def run_test_for_whitelisted_domain(self, mock_sso_providers, mock_request):
+    def run_test_for_whitelisted_domain(self, mock_sso_providers, mock_request, mock_capture):
         # Make sure Google Auth is valid for this test instance
         mock_sso_providers.return_value = {"google-oauth2": True}
 
@@ -456,19 +456,22 @@ class TestSignupAPI(APIBaseTest):
             cast(OrganizationMembership, user.organization_memberships.first()).level,
             OrganizationMembership.Level.MEMBER,
         )
+        self.assertFalse(mock_capture.call_args.kwargs["properties"]["is_organization_first_user"])
 
+    @patch("posthoganalytics.capture")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_social_signup_with_whitelisted_domain_on_self_hosted(self, mock_sso_providers, mock_request):
-        self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request)
+    def test_social_signup_with_whitelisted_domain_on_self_hosted(self, mock_sso_providers, mock_request, mock_capture):
+        self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request, mock_capture)
 
+    @patch("posthoganalytics.capture")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_social_signup_with_whitelisted_domain_on_cloud(self, mock_sso_providers, mock_request):
+    def test_social_signup_with_whitelisted_domain_on_cloud(self, mock_sso_providers, mock_request, mock_capture):
         with self.settings(MULTI_TENANCY=True):
-            self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request)
+            self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request, mock_capture)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -938,6 +941,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "org_current_invite_count": 0,
                 "org_current_project_count": 1,
                 "org_current_members_count": 1,
+                "$set": ANY,
             },
             groups={"instance": ANY, "organization": str(new_org.id)},
         )
@@ -995,6 +999,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "org_current_invite_count": 0,
                 "org_current_project_count": 1,
                 "org_current_members_count": 2,
+                "$set": ANY,
             },
             groups={"instance": ANY, "organization": str(new_org.id)},
         )

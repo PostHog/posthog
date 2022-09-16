@@ -9,6 +9,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { useValues } from 'kea'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import './PropertyValue.scss'
 
 type PropValue = {
     id?: number
@@ -28,7 +29,6 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     className?: string
-    style?: Partial<React.CSSProperties>
     bordered?: boolean
     onSet: CallableFunction
     value?: string | number | Array<string | number> | null
@@ -51,7 +51,6 @@ export function PropertyValue({
     endpoint = undefined,
     placeholder = undefined,
     className,
-    style = {},
     bordered = true,
     onSet,
     value,
@@ -144,7 +143,6 @@ export function PropertyValue({
 
     const commonInputProps = {
         className,
-        style: { width: '100%', ...style },
         onSearch: (newInput: string) => {
             setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -189,6 +187,7 @@ export function PropertyValue({
             loading={options[propertyKey]?.status === 'loading'}
             propertyKey={propertyKey}
             {...commonInputProps}
+            className="property-filters-property-value w-full"
             autoFocus={autoFocus}
             value={value === null ? [] : value}
             mode="multiple"
@@ -224,25 +223,15 @@ export function PropertyValue({
             })}
         </SelectGradientOverflow>
     ) : isDateTimeProperty ? (
-        <PropertyFilterDatePicker
-            autoFocus={autoFocus}
-            operator={operator}
-            value={value}
-            setValue={setValue}
-            style={commonInputProps.style}
-        />
+        <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
     ) : isDurationProperty ? (
-        <DurationPicker
-            style={commonInputProps.style}
-            autoFocus={autoFocus}
-            initialValue={value as number}
-            onChange={setValue}
-        />
+        <DurationPicker autoFocus={autoFocus} initialValue={value as number} onChange={setValue} />
     ) : (
         <AutoComplete
             {...commonInputProps}
             autoFocus={autoFocus}
             value={input}
+            className="h-10 w-full property-filters-property-value"
             onClear={() => {
                 setInput('')
                 setValue('')

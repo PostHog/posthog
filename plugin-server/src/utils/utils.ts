@@ -364,31 +364,22 @@ export function pluginDigest(plugin: Plugin, teamId?: number): string {
     return `plugin ${plugin.name} ID ${plugin.id} (${extras.join(' - ')})`
 }
 
-export function createPostgresPool(
-    configOrDatabaseUrl: PluginsServerConfig | string,
-    onError?: (error: Error) => any
-): Pool {
-    if (typeof configOrDatabaseUrl !== 'string') {
-        if (!configOrDatabaseUrl.DATABASE_URL && !configOrDatabaseUrl.POSTHOG_DB_NAME) {
-            throw new Error('Invalid configuration for Postgres: either DATABASE_URL or POSTHOG_DB_NAME required')
-        }
+export function createPostgresPool(config: PluginsServerConfig, onError?: (error: Error) => any): Pool {
+    if (!config.DATABASE_URL && !config.POSTHOG_DB_NAME) {
+        throw new Error('Invalid configuration for Postgres: either DATABASE_URL or POSTHOG_DB_NAME required')
     }
-    const credentials: Partial<PoolConfig> =
-        typeof configOrDatabaseUrl === 'string'
-            ? {
-                  connectionString: configOrDatabaseUrl,
-              }
-            : configOrDatabaseUrl.DATABASE_URL
-            ? {
-                  connectionString: configOrDatabaseUrl.DATABASE_URL,
-              }
-            : {
-                  database: configOrDatabaseUrl.POSTHOG_DB_NAME ?? undefined,
-                  user: configOrDatabaseUrl.POSTHOG_DB_USER,
-                  password: configOrDatabaseUrl.POSTHOG_DB_PASSWORD,
-                  host: configOrDatabaseUrl.POSTHOG_POSTGRES_HOST,
-                  port: configOrDatabaseUrl.POSTHOG_POSTGRES_PORT,
-              }
+
+    const credentials: Partial<PoolConfig> = config.DATABASE_URL
+        ? {
+              connectionString: config.DATABASE_URL,
+          }
+        : {
+              database: config.POSTHOG_DB_NAME ?? undefined,
+              user: config.POSTHOG_DB_USER,
+              password: config.POSTHOG_DB_PASSWORD,
+              host: config.POSTHOG_POSTGRES_HOST,
+              port: config.POSTHOG_POSTGRES_PORT,
+          }
 
     const pgPool = new Pool({
         ...credentials,

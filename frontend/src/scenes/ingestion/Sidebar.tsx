@@ -16,6 +16,8 @@ export function Sidebar(): JSX.Element {
     const { sidebarStepClick } = useActions(ingestionLogic)
     const { reportIngestionHelpClicked, reportIngestionSidebarButtonClicked } = useActions(eventUsageLogic)
 
+    const currentIndex = sidebarSteps.findIndex((x) => x === currentStep)
+
     return (
         <div className="IngestionSidebar">
             <div className="IngestionSidebar__content">
@@ -24,7 +26,7 @@ export function Sidebar(): JSX.Element {
                         <LemonButton
                             key={index}
                             active={currentStep === step}
-                            disabled={currentStep !== step}
+                            disabled={index > currentIndex}
                             onClick={() => {
                                 sidebarStepClick(step)
                                 reportIngestionSidebarButtonClicked(step)

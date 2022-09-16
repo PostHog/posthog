@@ -23,6 +23,7 @@
     pointer-events: none;
     position: absolute;
     font-weight: 700;
+    z-index: 1; // Make sure it is at least in front of non-absolute items
 
     &.LemonBubble--position-none {
         position: relative;

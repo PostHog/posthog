@@ -21,7 +21,7 @@ export function Plan({
     primaryCallToAction?: boolean
 }): JSX.Element {
     const [showDetails, setShowDetails] = useState(false)
-    const { planDetails, planDetailsLoading } = useValues(billingLogic)
+    const { planDetails, planDetailsLoading, billing } = useValues(billingLogic)
     const { loadPlanDetails } = useActions(billingLogic)
 
     useEffect(() => {
@@ -36,7 +36,7 @@ export function Plan({
                 <p>{plan.price_string}</p>
             </div>
             <div className="flex flex-col space-y-2">
-                {currentPlan && (
+                {currentPlan && !billing?.should_setup_billing && (
                     <LemonButton
                         data-attr="btn-manage-subscription"
                         data-plan={plan.key}

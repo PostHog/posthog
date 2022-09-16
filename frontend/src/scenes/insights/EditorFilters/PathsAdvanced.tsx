@@ -91,7 +91,7 @@ export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element 
                     >
                         Path Cleaning Rules
                     </LemonLabel>
-                    <Link style={{ flexGrow: 1, textAlign: 'right' }} to="/project/settings#path_cleaning_filtering">
+                    <Link className="grow-1 text-right" to="/project/settings#path_cleaning_filtering">
                         <SettingOutlined /> Configure Project Rules
                     </Link>
                 </div>

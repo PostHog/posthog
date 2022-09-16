@@ -472,7 +472,7 @@ class FOSSCohortQuery(EventQuery):
         # event subqueries
         self._should_join_persons = (
             self._column_optimizer.is_using_person_properties
-            or len(self._column_optimizer._used_properties_with_type("static-cohort")) > 0
+            or len(self._column_optimizer.used_properties_with_type("static-cohort")) > 0
         )
 
     @cached_property

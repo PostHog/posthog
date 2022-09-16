@@ -12,11 +12,10 @@ import { LemonButton } from '../LemonButton'
 import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
 import { annotationModalLogic } from 'scenes/annotations/annotationModalLogic'
 import { ProfilePicture } from '../ProfilePicture'
-import { CSSTransition } from 'react-transition-group'
 import { annotationsModel } from '~/models/annotationsModel'
 import { Chart } from 'chart.js'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
-import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+import { Popup } from '../Popup/Popup'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -45,20 +44,15 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
     '--annotations-overlay-chart-width': `${string}px`
     '--annotations-overlay-first-tick-left': `${string}px`
     '--annotations-overlay-tick-interval': `${string}px`
-    '--annotations-overlay-active-badge-left'?: `${string}px`
-    '--annotations-overlay-active-badge-top'?: `${string}px`
 }
 
 export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: AnnotationsOverlayProps): JSX.Element {
-    const { isPopoverShown, activeBadgeCoordinates } = useValues(annotationsOverlayLogic)
-    const { closePopover } = useActions(annotationsOverlayLogic)
+    const { activeBadgeElement } = useValues(annotationsOverlayLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
-    const overlayRef = useRef<HTMLDivElement>(null)
+    const overlayRef = useRef<HTMLDivElement | null>(null)
     const modalContentRef = useRef<HTMLDivElement | null>(null)
     const modalOverlayRef = useRef<HTMLDivElement | null>(null)
-
-    useOutsideClickHandler([overlayRef, modalContentRef, modalOverlayRef], () => closePopover())
 
     const tickPointIndices: number[] = chart.scales.x.ticks.map(({ value }) => value)
     const tickDates: dayjs.Dayjs[] = tickPointIndices.map((dateIndex) => dayjs(dates[dateIndex]))
@@ -74,12 +68,6 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: An
                     '--annotations-overlay-chart-width': `${chartWidth}px`,
                     '--annotations-overlay-first-tick-left': `${firstTickLeftPx}px`,
                     '--annotations-overlay-tick-interval': `${tickIntervalPx}px`,
-                    ...(activeBadgeCoordinates
-                        ? {
-                              '--annotations-overlay-active-badge-left': `${activeBadgeCoordinates[0]}px`,
-                              '--annotations-overlay-active-badge-top': `${activeBadgeCoordinates[1]}px`,
-                          }
-                        : {}),
                 } as AnnotationsOverlayCSSProperties
             }
             ref={overlayRef}
@@ -87,16 +75,7 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: An
             {tickDates?.map((date, index) => (
                 <AnnotationsBadge key={date.toISOString()} index={index} date={date} />
             ))}
-            {/* FIXME: Fix appear animation to be smooth too */}
-            <CSSTransition
-                in={isPopoverShown}
-                timeout={200}
-                classNames="AnnotationsPopover-"
-                mountOnEnter
-                unmountOnExit
-            >
-                <AnnotationsPopover />
-            </CSSTransition>
+            {activeBadgeElement && <AnnotationsPopover overlayRefs={[overlayRef, modalContentRef, modalOverlayRef]} />}
             <AnnotationModal
                 contentRef={(el) => (modalContentRef.current = el)}
                 overlayRef={(el) => (modalOverlayRef.current = el)}
@@ -143,8 +122,7 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
             onMouseEnter={() => {
                 setHovered(true)
                 if (!isDateLocked) {
-                    const button = buttonRef.current as HTMLButtonElement
-                    activateDate(date, [button.offsetLeft, button.offsetTop])
+                    activateDate(date, buttonRef.current as HTMLButtonElement)
                 }
             }}
             onMouseLeave={() => {
@@ -158,10 +136,7 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
                     ? lockDate
                     : active
                     ? unlockDate
-                    : () => {
-                          const button = buttonRef.current as HTMLButtonElement
-                          activateDate(date, [button.offsetLeft, button.offsetTop])
-                      }
+                    : () => activateDate(date, buttonRef.current as HTMLButtonElement)
             }
         >
             <LemonBubble
@@ -173,42 +148,62 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
     )
 })
 
-function AnnotationsPopover(): JSX.Element {
-    const { popoverAnnotations, activeDate, intervalUnit, isDateLocked, insightId } = useValues(annotationsOverlayLogic)
+function AnnotationsPopover({
+    overlayRefs,
+}: {
+    overlayRefs: React.MutableRefObject<HTMLDivElement | null>[]
+}): JSX.Element {
+    const {
+        popoverAnnotations,
+        activeDate,
+        intervalUnit,
+        isDateLocked,
+        insightId,
+        activeBadgeElement,
+        isPopoverShown,
+    } = useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
     return (
-        <div className="AnnotationsPopover">
-            <LemonModal
-                inline
-                title={`${pluralize(popoverAnnotations.length, 'annotation')} • ${activeDate?.format(
-                    INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT[intervalUnit]
-                )}`}
-                footer={
-                    <LemonButton
-                        type="primary"
-                        onClick={() => openModalToCreateAnnotation(activeDate, insightId)}
-                        disabled={!isDateLocked}
-                    >
-                        Add annotation
-                    </LemonButton>
-                }
-                closable={isDateLocked}
-                onClose={closePopover}
-                width="var(--annotations-popover-width)"
-            >
-                {popoverAnnotations.length > 0 ? (
-                    <ul className="flex flex-col gap-1 w-full overflow-y-auto">
-                        {popoverAnnotations.map((annotation) => (
-                            <AnnotationCard key={annotation.id} annotation={annotation} />
-                        ))}
-                    </ul>
-                ) : (
-                    'There are no annotations in this period.'
-                )}
-            </LemonModal>
-        </div>
+        <Popup
+            additionalRefs={overlayRefs}
+            className="AnnotationsPopover"
+            placement="top"
+            referenceElement={activeBadgeElement as HTMLElement}
+            visible={isPopoverShown}
+            onClickOutside={closePopover}
+            overlay={
+                <LemonModal
+                    inline
+                    title={`${pluralize(popoverAnnotations.length, 'annotation')} • ${activeDate?.format(
+                        INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT[intervalUnit]
+                    )}`}
+                    footer={
+                        <LemonButton
+                            type="primary"
+                            onClick={() => openModalToCreateAnnotation(activeDate, insightId)}
+                            disabled={!isDateLocked}
+                        >
+                            Add annotation
+                        </LemonButton>
+                    }
+                    closable={isDateLocked}
+                    onClose={closePopover}
+                    width="var(--annotations-popover-width)"
+                >
+                    {popoverAnnotations.length > 0 ? (
+                        <ul className="flex flex-col gap-1 w-full overflow-y-auto">
+                            {popoverAnnotations.map((annotation) => (
+                                <AnnotationCard key={annotation.id} annotation={annotation} />
+                            ))}
+                        </ul>
+                    ) : (
+                        'There are no annotations in this period.'
+                    )}
+                </LemonModal>
+            }
+        />
     )
 }
 
