@@ -471,11 +471,11 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         with self.assertRaisesRegex(
             Exception, "Backfill did not work succesfully. 100% of events did not get the correct data."
         ):
-            definition._postcheck("query_id", False)
+            definition._postcheck("query_id", False)  # type: ignore
 
         self.assertTrue(run_migration())
 
-        self.assertTrue(definition._postcheck("query_id", False))
+        definition._postcheck("query_id", False)  # type: ignore
 
     def test_postcheck_threshold(self):
         definition = get_async_migration_definition(MIGRATION_NAME)
@@ -498,7 +498,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         self.assertTrue(run_migration())
 
         # Test that we pass the postcheck when 1 out of 101 events is incomplete
-        self.assertTrue(definition._postcheck("query_id", False))
+        definition._postcheck("query_id", False)  # type: ignore
 
         create_event(event_uuid=UUIDT(), team=self.team, distinct_id="no_data_2", event="$pageview")
         create_event(event_uuid=UUIDT(), team=self.team, distinct_id="no_data_3", event="$pageview")
@@ -507,4 +507,4 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         with self.assertRaisesRegex(
             Exception, "Backfill did not work succesfully. 2% of events did not get the correct data."
         ):
-            definition._postcheck("query_id", False)
+            definition._postcheck("query_id", False)  # type: ignore

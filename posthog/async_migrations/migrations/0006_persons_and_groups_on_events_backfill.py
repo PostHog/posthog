@@ -221,7 +221,7 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(fn=self._run_backfill_mutation),
             AsyncMigrationOperation(fn=self._wait_for_mutation_done),
             AsyncMigrationOperation(fn=self._clear_temporary_tables),
-            AsyncMigrationOperation(fn=self._postcheck),
+            AsyncMigrationOperation(fn=lambda query_id: self._postcheck(query_id)),
         ]
 
     def _dictionary_connection_string(self):
@@ -248,11 +248,12 @@ class Migration(AsyncMigrationDefinition):
             )
 
     # TODO: Consider making postcheck a native component of the async migrations spec
-    def _postcheck(self, query_id, skip_on_tests=True) -> bool:
+    def _postcheck(self, query_id: str, skip_on_tests=True):
         if settings.TEST and skip_on_tests:
-            return True
+            return
         incomplete_events_ratio = sync_execute(
-            "SELECT countIf(empty(person_id) OR person_created_at = toDateTime(0)) / count() FROM events"
+            "SELECT countIf(empty(person_id) OR person_created_at = toDateTime(0)) / count() FROM events",
+            client_query_id=query_id,
         )[0][0]
 
         if incomplete_events_ratio > 0.01:
@@ -260,9 +261,6 @@ class Migration(AsyncMigrationDefinition):
             raise Exception(
                 f"Backfill did not work succesfully. {int(incomplete_events_percentage)}% of events did not get the correct data."
             )
-
-        # useful for tests
-        return True
 
     def _run_backfill_mutation(self, query_id):
         # If there's an ongoing backfill, skip enqueuing another and jump to the step where we wait for the mutation to finish
