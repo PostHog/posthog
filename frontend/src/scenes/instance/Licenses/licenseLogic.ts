@@ -1,10 +1,12 @@
 import api from 'lib/api'
-import { kea } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import type { licenseLogicType } from './licenseLogicType'
 import { APIErrorType, LicensePlan, LicenseType } from '~/types'
 import { preflightLogic } from '../../PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { dayjs } from 'lib/dayjs'
+import { loaders } from 'kea-loaders'
+import { forms } from 'kea-forms'
 
 export function isLicenseExpired(license: LicenseType): boolean {
     return new Date(license.valid_until) < new Date()
@@ -13,38 +15,22 @@ export function isLicenseExpired(license: LicenseType): boolean {
 /** The higher the plan, the higher its sorting value - sync with back-end License model */
 const PLAN_TO_SORTING_VALUE: Record<LicensePlan, number> = { [LicensePlan.Scale]: 10, [LicensePlan.Enterprise]: 20 }
 
-export const licenseLogic = kea<licenseLogicType>({
-    path: ['scenes', 'instance', 'Licenses', 'licenseLogic'],
-    connect: {
+export const licenseLogic = kea<licenseLogicType>([
+    path(['scenes', 'instance', 'Licenses', 'licenseLogic']),
+    connect({
         values: [preflightLogic, ['preflight']],
-    },
-    actions: {
+    }),
+    actions({
         setError: (error: APIErrorType | null) => ({ error }),
         addLicense: (license: LicenseType) => ({ license }),
         setShowConfirmCancel: (license: LicenseType | null) => ({ license }),
-    },
-    loaders: ({ values, actions }) => ({
+    }),
+    loaders(({ values, actions }) => ({
         licenses: [
             [] as LicenseType[],
             {
                 loadLicenses: async () => {
                     return (await api.licenses.list()).results
-                },
-                createLicense: async ({ key }: { key: string }) => {
-                    try {
-                        const license = await api.licenses.create(key)
-                        lemonToast.success(
-                            `Activated license – you can now use all features of the ${license.plan} plan. Refreshing the page...`
-                        )
-                        actions.setError(null)
-                        setTimeout(() => {
-                            window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
-                        }, 4000)
-                        return [license, ...values.licenses]
-                    } catch (response) {
-                        actions.setError(response as APIErrorType)
-                        return values.licenses
-                    }
                 },
                 deleteLicense: async ({ id }: LicenseType) => {
                     try {
@@ -66,8 +52,36 @@ export const licenseLogic = kea<licenseLogicType>({
                 },
             },
         ],
-    }),
-    reducers: {
+    })),
+    forms(({ actions, values }) => ({
+        activateLicense: {
+            defaults: { key: '' } as { key: string },
+            errors: ({ key }) => ({
+                key: !key ? 'Please enter your license key' : undefined,
+            }),
+            submit: async ({ key }, breakpoint) => {
+                breakpoint(500)
+                try {
+                    const license = await api.licenses.create(key)
+                    lemonToast.success(
+                        `Activated license - you can now use all features of the ${license.plan} plan. Refreshing the page...`
+                    )
+                    actions.setError(null)
+                    setTimeout(() => {
+                        window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
+                    }, 4000)
+
+                    actions.loadLicensesSuccess([license, ...values.licenses])
+                } catch (e: any) {
+                    actions.setActivateLicenseManualErrors({
+                        key: e.detail || 'License could not be activated. Please contact support.',
+                    })
+                    throw e
+                }
+            },
+        },
+    })),
+    reducers({
         licenses: {
             addLicense: (state, { license }) => [license, ...state],
         },
@@ -83,8 +97,8 @@ export const licenseLogic = kea<licenseLogicType>({
                 setShowConfirmCancel: (_, { license }) => license,
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         relevantLicense: [
             (s) => [s.licenses],
             (licenses): LicenseType | null => {
@@ -104,10 +118,8 @@ export const licenseLogic = kea<licenseLogicType>({
                 return expiredLicenses.sort((a, b) => dayjs(b.valid_until).diff(dayjs(a.valid_until)))[0]
             },
         ],
-    },
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadLicenses()
-        },
     }),
-})
+    afterMount(({ actions }) => {
+        actions.loadLicenses()
+    }),
+])

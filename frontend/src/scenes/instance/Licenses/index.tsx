@@ -1,6 +1,5 @@
 import React from 'react'
 import { More } from 'lib/components/LemonButton/More'
-import { Alert, Form, Button, Input } from 'antd'
 import { isLicenseExpired, licenseLogic } from './licenseLogic'
 import { useValues, useActions } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -15,6 +14,9 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { dayjs } from 'lib/dayjs'
 import { LemonModal } from 'lib/components/LemonModal'
+import { Form } from 'kea-forms'
+import { LemonInput } from '@posthog/lemon-ui'
+import { Field } from 'lib/forms/Field'
 
 export const scene: SceneExport = {
     component: Licenses,
@@ -98,9 +100,15 @@ function ConfirmCancelModal({
 }
 
 export function Licenses(): JSX.Element {
-    const [form] = Form.useForm()
-    const { licenses, licensesLoading, error, showConfirmCancel } = useValues(licenseLogic)
-    const { createLicense, deleteLicense, setShowConfirmCancel } = useActions(licenseLogic)
+    const {
+        licenses,
+        licensesLoading,
+        activateLicense,
+        activateLicenseAllErrors,
+        isActivateLicenseSubmitting,
+        showConfirmCancel,
+    } = useValues(licenseLogic)
+    const { deleteLicense, setShowConfirmCancel } = useActions(licenseLogic)
 
     const columns: LemonTableColumns<LicenseType> = [
         {
@@ -168,6 +176,8 @@ export function Licenses(): JSX.Element {
         },
     ]
 
+    console.log(activateLicense, activateLicenseAllErrors)
+
     return (
         <div>
             <ConfirmCancelModal
@@ -187,39 +197,20 @@ export function Licenses(): JSX.Element {
                     </>
                 }
             />
-            {error && (
-                <Alert
-                    message={
-                        error.detail || <span>Could not validate license key. Please try again or contact us.</span>
-                    }
-                    type="error"
-                    style={{ marginBottom: '1em' }}
-                />
-            )}
+
             <Form
-                form={form}
-                name="horizontal_login"
-                layout="inline"
-                onFinish={(values) => createLicense({ key: values.key })}
-                style={{ marginBottom: '1rem' }}
+                logic={licenseLogic}
+                formKey="activateLicense"
+                className="flex flex-row gap-2 my-4 items-start"
+                enableFormOnSubmit
             >
-                <Form.Item name="key" rules={[{ required: true, message: 'Please input a license key!' }]}>
-                    <Input placeholder="License key" style={{ minWidth: 400 }} />
-                </Form.Item>
-                <Form.Item shouldUpdate={true}>
-                    {() => (
-                        <Button
-                            type="primary"
-                            htmlType="submit"
-                            disabled={
-                                !form.isFieldsTouched(true) ||
-                                !!form.getFieldsError().filter(({ errors }) => errors.length).length
-                            }
-                        >
-                            Activate License Key
-                        </Button>
-                    )}
-                </Form.Item>
+                <Field name="key">
+                    <LemonInput placeholder="License key" fullWidth />
+                </Field>
+
+                <LemonButton type="primary" htmlType="submit" loading={isActivateLicenseSubmitting}>
+                    Activate license key
+                </LemonButton>
             </Form>
             <LemonTable
                 data-attr="license-table"
