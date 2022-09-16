@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Counter, Dict, List, Optional, Set, Tuple
 
 import structlog
-from django.db.models import Sum
 from django.utils import timezone
 
 from posthog.internal_metrics import gauge, incr
@@ -69,18 +68,6 @@ def recently_calculated_teams(now_in_seconds_since_epoch: float) -> Set[int]:
             byscore=True,
         )
     }
-
-
-def gauge_event_property_usage() -> None:
-    event_query_usage_30_day_sum: int = EventDefinition.objects.aggregate(sum=Sum("query_usage_30_day"))["sum"]
-    event_volume_30_day_sum: int = EventDefinition.objects.aggregate(sum=Sum("volume_30_day"))["sum"]
-    property_query_usage_30_day_sum: int = PropertyDefinition.objects.aggregate(sum=Sum("query_usage_30_day"))["sum"]
-    property_volume_30_day_sum: int = PropertyDefinition.objects.aggregate(sum=Sum("volume_30_day"))["sum"]
-
-    gauge("calculate_event_property_usage.event_query_usage_30_day_sum", value=event_query_usage_30_day_sum or 0)
-    gauge("calculate_event_property_usage.event_volume_30_day_sum", value=event_volume_30_day_sum or 0)
-    gauge("calculate_event_property_usage.property_query_usage_30_day_sum", value=property_query_usage_30_day_sum or 0)
-    gauge("calculate_event_property_usage.property_volume_30_day_sum", value=property_volume_30_day_sum or 0)
 
 
 @timed("calculate_event_property_usage_for_team")
