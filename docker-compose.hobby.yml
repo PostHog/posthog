@@ -28,7 +28,9 @@ services:
                 ./bin/docker-frontend
         restart: on-failure
         environment: &env
-            SITE_URL: http://localhost:8000
+            DEPLOYMENT: hobby
+            # replace with https://<your-domain> if you're setting up SSL with LetsEncrypt
+            SITE_URL: http://localhost
             DISABLE_SECURE_SSL_REDIRECT: 'true'
             SECRET_KEY: $POSTHOG_SECRET
             IS_BEHIND_PROXY: 'true'
@@ -38,7 +40,6 @@ services:
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
             REDIS_URL: 'redis://redis:6379/'
-            DEPLOYMENT: hobby
         depends_on:
             - db
             - redis
