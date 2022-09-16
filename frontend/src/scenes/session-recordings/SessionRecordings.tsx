@@ -9,7 +9,7 @@ import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRe
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
-import { SessionRecordingsFilters } from './SessionRecordingFilters'
+import { SessionRecordingsFilters } from './filters/SessionRecordingFilters'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { Link } from '@posthog/lemon-ui'
 

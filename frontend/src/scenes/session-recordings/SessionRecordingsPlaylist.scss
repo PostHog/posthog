@@ -13,7 +13,9 @@
         flex-shrink: 0;
 
         @include screen($md) {
-            width: 300px;
+            width: 30%;
+            min-width: 350px;
+            max-width: 500px;
         }
 
         .SessionRecordingsPlaylist__pagination-control {
