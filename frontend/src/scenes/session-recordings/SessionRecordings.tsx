@@ -12,6 +12,7 @@ import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
 import { SessionRecordingsFilters } from './filters/SessionRecordingFilters'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { Link } from '@posthog/lemon-ui'
+import { SessionRecordingsEventFilters } from './filters/SessionRecordingEventFilters'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -31,7 +32,12 @@ export function SessionsRecordings(): JSX.Element {
             {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST] ? (
                 <SessionRecordingsPlaylist key="global" />
             ) : (
-                <SessionRecordingsTable key="global" />
+                <div className="space-y-4">
+                    <div style={{ maxWidth: 700 }}>
+                        <SessionRecordingsEventFilters />
+                    </div>
+                    <SessionRecordingsTable key="global" />
+                </div>
             )}
         </div>
     )

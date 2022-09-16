@@ -6,9 +6,7 @@ import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
-import { SessionRecordingsEventFilters, SessionRecordingsEventFiltersToggle } from './SessionRecordingEventFilters'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { SessionRecordingsEventFiltersToggle } from './SessionRecordingEventFilters'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -25,15 +23,9 @@ export function SessionRecordingsFilters({
         sessionRecordingsTableLogicInstance
     )
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
     return (
         <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
-            {!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST] ? (
-                <SessionRecordingsEventFilters personUUID={personUUID} isPersonPage={isPersonPage} />
-            ) : (
-                <SessionRecordingsEventFiltersToggle personUUID={personUUID} isPersonPage={isPersonPage} />
-            )}
+            <SessionRecordingsEventFiltersToggle personUUID={personUUID} isPersonPage={isPersonPage} />
 
             <div className="flex items-center gap-4">
                 <DateFilter

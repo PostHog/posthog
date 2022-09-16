@@ -100,6 +100,7 @@ export function SessionRecordingsEventFiltersToggle({
     return (
         <LemonButton
             type="secondary"
+            size="small"
             icon={
                 <IconWithCount count={totalFilters}>
                     <IconFilter />
