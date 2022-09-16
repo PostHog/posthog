@@ -10,8 +10,6 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { windowValues } from 'kea-window-values'
-import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -56,9 +54,6 @@ export const billingLogic = kea<billingLogicType>([
                 },
             },
         ],
-    }),
-    windowValues({
-        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
     }),
     loaders(({ actions, values }) => ({
         billing: [

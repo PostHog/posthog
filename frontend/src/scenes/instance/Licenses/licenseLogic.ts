@@ -10,6 +10,7 @@ import { forms } from 'kea-forms'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isEmail, toParams } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
+import { router, urlToAction } from 'kea-router'
 
 export function isLicenseExpired(license: LicenseType): boolean {
     return new Date(license.valid_until) < new Date()
@@ -24,9 +25,9 @@ export const licenseLogic = kea<licenseLogicType>([
         values: [preflightLogic, ['preflight'], organizationLogic, ['currentOrganization'], userLogic, ['user']],
     }),
     actions({
-        setError: (error: APIErrorType | null) => ({ error }),
         addLicense: (license: LicenseType) => ({ license }),
         setShowConfirmCancel: (license: LicenseType | null) => ({ license }),
+        setShowLicenseDirectInput: (show: boolean) => ({ show }),
     }),
     loaders(({ values, actions }) => ({
         licenses: [
@@ -40,7 +41,6 @@ export const licenseLogic = kea<licenseLogicType>([
                         await api.licenses.delete(id)
                         actions.setShowConfirmCancel(null)
                         lemonToast.success(`Your license was deactivated. Refreshing the page...`)
-                        actions.setError(null)
                         setTimeout(() => {
                             window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
                         }, 4000)
@@ -69,7 +69,8 @@ export const licenseLogic = kea<licenseLogicType>([
                     lemonToast.success(
                         `Activated license - you can now use all features of the ${license.plan} plan. Refreshing the page...`
                     )
-                    actions.setError(null)
+                    // Reset the URL so we don't trigger the license submission again
+                    router.actions.replace('/instance/licenses')
                     setTimeout(() => {
                         window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
                     }, 4000)
@@ -106,7 +107,16 @@ export const licenseLogic = kea<licenseLogicType>([
                 terms: !terms ? 'You must accept the terms and conditions to continue' : undefined,
             }),
             submit: async (params) => {
-                window.location.href = 'https://license.posthog.com/start-payment?' + toParams(params)
+                // TODO: This is just for testing
+                router.actions.push('/instance/licenses#license_key=1234')
+                return
+
+                window.location.href =
+                    'https://license.posthog.com/start-payment?' +
+                    toParams({
+                        return_url: window.location.origin + '/instance/licenses',
+                        ...params,
+                    })
             },
         },
     })),
@@ -114,16 +124,16 @@ export const licenseLogic = kea<licenseLogicType>([
         licenses: {
             addLicense: (state, { license }) => [license, ...state],
         },
-        error: [
-            null as null | APIErrorType,
-            {
-                setError: (_, { error }) => error,
-            },
-        ],
         showConfirmCancel: [
             null as null | LicenseType,
             {
                 setShowConfirmCancel: (_, { license }) => license,
+            },
+        ],
+        showLicenseDirectInput: [
+            false,
+            {
+                setShowLicenseDirectInput: (_, { show }) => show,
             },
         ],
     }),
@@ -151,4 +161,14 @@ export const licenseLogic = kea<licenseLogicType>([
     afterMount(({ actions }) => {
         actions.loadLicenses()
     }),
+
+    urlToAction(({ actions }) => ({
+        '/instance/licenses': (params, search, hash) => {
+            if (hash.license_key) {
+                actions.setShowLicenseDirectInput(true)
+                actions.setActivateLicenseValues({ key: hash.license_key })
+                actions.submitActivateLicense()
+            }
+        },
+    })),
 ])

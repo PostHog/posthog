@@ -6,9 +6,11 @@ import { BillingEnrollment } from './BillingEnrollment'
 import './Billing.scss'
 import { billingLogic } from './billingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { licenseLogic } from 'scenes/instance/Licenses/licenseLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -16,12 +18,16 @@ export const scene: SceneExport = {
 }
 
 export function Billing(): JSX.Element {
-    const { billing, isSmallScreen } = useValues(billingLogic)
+    const { billing } = useValues(billingLogic)
+
+    const { licenses, licensesLoading, isActivateLicenseSubmitting, showConfirmCancel, showLicenseDirectInput } =
+        useValues(licenseLogic)
+    const { deleteLicense, setShowConfirmCancel, setShowLicenseDirectInput } = useActions(licenseLogic)
+    const { preflight } = useValues(preflightLogic)
 
     return (
         <div className="flex flex-col space-y-6">
             <PageHeader title="Billing &amp; usage" />
-            <LemonDivider />
             {billing?.should_setup_billing && (
                 <AlertMessage
                     type="warning"
@@ -36,25 +42,18 @@ export function Billing(): JSX.Element {
                     Your plan is <b>currently inactive</b> as you haven't finished setting up your billing information.
                 </AlertMessage>
             )}
-            {isSmallScreen ? (
-                <div className="flex flex-col space-y-4">
+            <div className="flex flex-row gap-4 flex-wrap justify-center">
+                <div className="flex-1">
                     <CurrentUsage />
-                    {billing?.plan ? <Plan plan={billing.plan} currentPlan /> : <BillingEnrollment />}
                 </div>
-            ) : (
-                <div className="flex flex-row space-x-4">
-                    <div className="w-2/3">
-                        <CurrentUsage />
-                    </div>
-                    <div className="w-1/3">
-                        {billing?.plan && !billing?.should_setup_billing ? (
-                            <Plan plan={billing.plan} currentPlan />
-                        ) : (
-                            <BillingEnrollment />
-                        )}
-                    </div>
+                <div className="shrink-0">
+                    {billing?.plan && !billing?.should_setup_billing ? (
+                        <Plan plan={billing.plan} currentPlan />
+                    ) : (
+                        <BillingEnrollment />
+                    )}
                 </div>
-            )}
+            </div>
         </div>
     )
 }
