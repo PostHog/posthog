@@ -221,6 +221,7 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(fn=self._run_backfill_mutation),
             AsyncMigrationOperation(fn=self._wait_for_mutation_done),
             AsyncMigrationOperation(fn=self._clear_temporary_tables),
+            AsyncMigrationOperation(fn=self._postcheck),
         ]
 
     def _dictionary_connection_string(self):
@@ -245,6 +246,21 @@ class Migration(AsyncMigrationDefinition):
                 query_id=query_id,
                 sql=f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY COLUMN {column} VARCHAR Codec({codec})",
             )
+
+    # TODO: Consider making postcheck a native component of the async migrations spec
+    def _postcheck(self, query_id) -> bool:
+        incomplete_events_ratio = sync_execute(
+            "SELECT countIf(empty(person_id) OR person_created_at = toDateTime(0)) / count() FROM events"
+        )[0][0]
+
+        if incomplete_events_ratio > 0.01:
+            incomplete_events_percentage = incomplete_events_ratio * 100
+            raise Exception(
+                f"Backfill did not work succesfully. {int(incomplete_events_percentage)}% of events did not get the correct data."
+            )
+
+        # useful for tests
+        return True
 
     def _run_backfill_mutation(self, query_id):
         # If there's an ongoing backfill, skip enqueuing another and jump to the step where we wait for the mutation to finish

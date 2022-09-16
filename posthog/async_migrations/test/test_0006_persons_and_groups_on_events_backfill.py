@@ -105,6 +105,14 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
     def test_completes_successfully(self):
         create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
+        create_person(
+            team_id=self.team.pk,
+            version=0,
+            uuid=str(uuid1),
+            properties={"personprop": 2},
+            timestamp="2022-01-02T00:00:00Z",
+        )
+        create_person_distinct_id(self.team.pk, "1", str(uuid1))
 
         self.assertTrue(run_migration())
 
@@ -446,3 +454,57 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
             },
             events[0],
         )
+
+    def test_postcheck(self):
+        definition = get_async_migration_definition(MIGRATION_NAME)
+
+        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
+        create_person(
+            team_id=self.team.pk,
+            version=0,
+            uuid=str(uuid1),
+            properties={"personprop": 2},
+            timestamp="2022-01-02T00:00:00Z",
+        )
+        create_person_distinct_id(self.team.pk, "1", str(uuid1))
+
+        with self.assertRaisesRegex(
+            Exception, "Backfill did not work succesfully. 100% of events did not get the correct data."
+        ):
+            definition._postcheck("query_id")
+
+        self.assertTrue(run_migration())
+
+        self.assertTrue(definition._postcheck("query_id"))
+
+    def test_postcheck_threshold(self):
+        definition = get_async_migration_definition(MIGRATION_NAME)
+
+        for i in range(100):
+            _uuid = UUIDT()
+
+            create_event(event_uuid=_uuid, team=self.team, distinct_id=str(i), event="$pageview")
+            create_person(
+                team_id=self.team.pk,
+                version=0,
+                uuid=str(_uuid),
+                properties={"personprop": 2},
+                timestamp="2022-01-02T00:00:00Z",
+            )
+            create_person_distinct_id(self.team.pk, str(i), str(_uuid))
+
+        create_event(event_uuid=UUIDT(), team=self.team, distinct_id="no_data_1", event="$pageview")
+
+        self.assertTrue(run_migration())
+
+        # Test that we pass the postcheck when 1 out of 101 events is incomplete
+        self.assertTrue(definition._postcheck("query_id"))
+
+        create_event(event_uuid=UUIDT(), team=self.team, distinct_id="no_data_2", event="$pageview")
+        create_event(event_uuid=UUIDT(), team=self.team, distinct_id="no_data_3", event="$pageview")
+
+        # Test that we fail the postcheck with the right message when 3 out of 101 events is incomplete (~2%)
+        with self.assertRaisesRegex(
+            Exception, "Backfill did not work succesfully. 2% of events did not get the correct data."
+        ):
+            definition._postcheck("query_id")
