@@ -2,6 +2,7 @@ from django.conf import settings
 
 
 def is_cloud():
+    # TODO: Possibly cache this for a time?
     try:
         from ee.models import License
 

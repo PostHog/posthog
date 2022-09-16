@@ -1,11 +1,17 @@
-from typing import Any
+from datetime import datetime, timezone, timedelta
+from typing import Any, Optional
 
 from django.http import HttpRequest
 from rest_framework import serializers, viewsets, mixins
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.response import Response
+from rest_framework.exceptions import NotAuthenticated
+import jwt
+from ee.models.license import License
+import requests
 
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.models.organization import Organization
 
 mock_billing_info = {
     "stripe_customer_id": "cus_12345",
@@ -50,13 +56,32 @@ class BillingViewset(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewset
     ]
 
     def list(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
-
+        org: Optional[Organization] = None if self.request.user.is_anonymous else self.request.user.organization
         # TODO: Ensure user is allowed to see billing info
-        print("ORG")
-        print(not self.request.user.is_anonymous and self.request.user.organization)
+
         # TODO: Get this from real billing service and not mock
+        billing_service_token = self._build_token(org)
+
+        # res = requests.get(
+        #     f"https://billing.posthog.com/api/billing/{org}",
+        #     headers={"Authorization": f"bearer {billing_service_token}"},
+        # )
 
         return Response(mock_billing_info)
 
     def update(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
         return Response(mock_billing_info)
+
+    def _build_token(self, org):
+        license = License.objects.first_valid()
+
+        if not org or not license:
+            raise NotAuthenticated()
+
+        encoded_jwt = jwt.encode(
+            {"exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15)},
+            license.key,
+            algorithm="HS256",
+        )
+
+        return encoded_jwt
