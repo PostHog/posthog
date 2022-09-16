@@ -17,7 +17,6 @@ export interface ParsedEntry {
 //  - If object is detected in string, parse it and make it pretty
 //  - If array is detected in string, parse it and make it pretty
 export function parseEntry(entry?: string): ParsedEntry {
-    console.log('ENTRY', entry)
     if (!entry?.replace(/\s+/g, '')?.trim()) {
         return {
             type: 'string',
