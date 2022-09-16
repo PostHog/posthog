@@ -27,7 +27,8 @@ git checkout tags/1.39.1
 cd ..
 
 cat > Caddyfile <<EOT
-:80, :443 {
+# replace :80 with your domain name to get automatic https via LetsEncrypt
+:80 {
   reverse_proxy http://web:8000
 }
 EOT
