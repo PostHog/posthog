@@ -46,6 +46,7 @@ class TestPlugin(BaseTest):
         with self.assertRaises(ValidationError):
             validate_plugin_job_payload(Plugin(public_jobs={}), "unknown_job", {}, is_staff=False)
 
+        validate_plugin_job_payload(Plugin(public_jobs={"foo_job": {}}), "foo_job", {}, is_staff=False)
         validate_plugin_job_payload(Plugin(public_jobs={"foo_job": {"payload": {}}}), "foo_job", {}, is_staff=False)
         validate_plugin_job_payload(
             Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number"}}}}), "foo_job", {}, is_staff=False
