@@ -42,8 +42,11 @@ rm docker-compose.hobby.yml
 
 echo ""
 echo ""
+echo ""
 echo "🎉🎉🎉 Welcome to PostHog! 🎉🎉🎉"
 echo ""
-echo "For a full guide on how to customize and deploy PostHog, check out https://posthog.com/docs/self-host/deploy/hobby"
+echo "For a full guide on how to customize and deploy, check out https://posthog.com/docs/self-host/deploy/hobby"
 echo ""
 echo "P.S: It's dangerous to go alone! Take this: 🦔"
+echo ""
+echo ""
