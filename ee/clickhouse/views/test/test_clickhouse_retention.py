@@ -346,11 +346,13 @@ class BreakdownTests(APIBaseTest, ClickhouseTestMixin):
         )
 
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
-
-        assert retention_by_cohort_by_period == {
-            "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"]},
-            "Day 1": {"1": ["person 3", "person 1"]},
-        }
+        self.assertDictEqual(
+            retention_by_cohort_by_period,
+            {
+                "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"]},
+                "Day 1": {"1": ["person 1", "person 3"]},
+            },
+        )
 
     @test_with_materialized_columns(person_properties=["os"])
     def test_can_specify_breakdown_person_property(self):
@@ -735,7 +737,7 @@ def get_by_cohort_by_period_for_response(client: Client, response: RetentionResp
         # pagination so this could be wrong for large counts
         assert value["count"] == len(people_in_period)
 
-        return people_in_period
+        return sorted(people_in_period)
 
     def create_cohort_response(cohort):
         people = get_retention_table_people_from_url_ok(client=client, people_url=cohort["people_url"])["result"]
