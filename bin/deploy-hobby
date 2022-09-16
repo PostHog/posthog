@@ -23,8 +23,7 @@ sudo apt install -y git
 # try to clone - if folder is already there pull latest for that branch
 git clone https://github.com/PostHog/posthog.git &> /dev/null || true
 cd posthog
-git checkout tags/release-1.39.1
-git pull
+git checkout tags/1.39.1
 cd ..
 
 cat > Caddyfile <<EOT

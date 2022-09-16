@@ -30,7 +30,7 @@ services:
         environment: &env
             SITE_URL: http://localhost:8000
             DISABLE_SECURE_SSL_REDIRECT: 'true'
-            SECRET_KEY: $SECRET_KEY
+            SECRET_KEY: $POSTHOG_SECRET
             IS_BEHIND_PROXY: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
