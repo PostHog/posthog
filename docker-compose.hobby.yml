@@ -22,10 +22,10 @@ services:
             - /bin/sh
             - -c
             - |
-              until [[ "$$(wget -O - http://clickhouse:8123/ping -q)" == "Ok." ]]; do sleep 5; done
-              ./bin/migrate
-              ./bin/docker-server
-              ./bin/docker-frontend
+                until [[ "$$(wget -O - http://clickhouse:8123/ping -q)" == "Ok." ]]; do sleep 5; done
+                ./bin/migrate
+                ./bin/docker-server
+                ./bin/docker-frontend
         restart: on-failure
         environment: &env
             SITE_URL: http://localhost:8000

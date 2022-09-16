@@ -12,6 +12,21 @@ export POSTHOG_SECRET
 #     "event": "magic_curl_install"
 # }' https://app.posthog.com/batch/ > /dev/null
 
+
+# update apt cache
+echo "Grabbing latest apt caches..."
+sudo apt update
+
+# clone posthog
+echo "Cloning PostHog 🦔 from Github..."
+sudo apt install -y git
+# try to clone - if folder is already there pull latest for that branch
+git clone https://github.com/PostHog/posthog.git &> /dev/null || true
+cd posthog
+git checkout tags/release-1.39.1
+git pull
+cd ..
+
 cat > Caddyfile <<EOT
 :80, :443 {
   reverse_proxy http://web:8000
