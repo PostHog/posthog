@@ -1,11 +1,10 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { More } from 'lib/components/LemonButton/More'
 import { isLicenseExpired, licenseLogic } from './licenseLogic'
 import { useValues, useActions } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { PageHeader } from 'lib/components/PageHeader'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
@@ -15,8 +14,9 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { dayjs } from 'lib/dayjs'
 import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { Field } from 'lib/forms/Field'
+import { IconInfo } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: Licenses,
@@ -100,15 +100,10 @@ function ConfirmCancelModal({
 }
 
 export function Licenses(): JSX.Element {
-    const {
-        licenses,
-        licensesLoading,
-        activateLicense,
-        activateLicenseAllErrors,
-        isActivateLicenseSubmitting,
-        showConfirmCancel,
-    } = useValues(licenseLogic)
+    const { licenses, licensesLoading, isActivateLicenseSubmitting, showConfirmCancel } = useValues(licenseLogic)
     const { deleteLicense, setShowConfirmCancel } = useActions(licenseLogic)
+
+    const [showExistingForm, setShowExistingForm] = useState(false)
 
     const columns: LemonTableColumns<LicenseType> = [
         {
@@ -128,17 +123,17 @@ export function Licenses(): JSX.Element {
             dataIndex: 'plan',
         },
         {
-            title: function Render() {
-                return (
-                    <Tooltip
-                        placement="right"
-                        title="Maximum number of team members that you can have across all organizations with your current license."
-                    >
-                        Max # of team members
-                        <InfoCircleOutlined className="info-indicator" />
-                    </Tooltip>
-                )
-            },
+            title: (
+                <Tooltip
+                    placement="right"
+                    title="Maximum number of team members that you can have across all organizations with your current license."
+                >
+                    <span className="flex items-center">
+                        Max # of team members
+                        <IconInfo className="info-indicator text-xl" />
+                    </span>
+                </Tooltip>
+            ),
             render: function renderMaxUsers(_, license: LicenseType) {
                 return license.max_users === null ? 'Unlimited' : license.max_users
             },
@@ -176,8 +171,6 @@ export function Licenses(): JSX.Element {
         },
     ]
 
-    console.log(activateLicense, activateLicenseAllErrors)
-
     return (
         <div>
             <ConfirmCancelModal
@@ -186,32 +179,110 @@ export function Licenses(): JSX.Element {
                 onCancel={() => setShowConfirmCancel(null)}
                 onOk={() => (showConfirmCancel ? deleteLicense(showConfirmCancel) : null)}
             />
-            <PageHeader
-                title="Licenses"
-                caption={
-                    <>
+            <PageHeader title="Licenses" />
+
+            <div className="flex flex-row flex-wrap gap-4 my-4 mb-8 items-start">
+                <div className="flex-1">
+                    <p>
                         Here you can add and manage your PostHog enterprise licenses. When you activate a license key,
                         enterprise functionality will be enabled immediately. Contact{' '}
-                        <a href="mailto:sales@posthog.com">sales@posthog.com</a> to buy a license or if you have any
+                        <a href="mailto:sales@posthog.com">sales@posthog.com</a> for more information or if you have any
                         issues with a license.
-                    </>
-                }
-            />
+                    </p>
 
-            <Form
-                logic={licenseLogic}
-                formKey="activateLicense"
-                className="flex flex-row gap-2 my-4 items-start"
-                enableFormOnSubmit
-            >
-                <Field name="key">
-                    <LemonInput placeholder="License key" fullWidth />
-                </Field>
+                    <p>You will be billed after the first month based on usage.</p>
+                    <p>
+                        This license is for <strong>Self Hosted instances only</strong>, premium PostHog Cloud features
+                        are billed separately.
+                    </p>
+                </div>
 
-                <LemonButton type="primary" htmlType="submit" loading={isActivateLicenseSubmitting}>
-                    Activate license key
-                </LemonButton>
-            </Form>
+                <div>
+                    <div className="border rounded p-8 px-10 shadow" style={{ minWidth: 500 }}>
+                        {showExistingForm ? (
+                            <>
+                                <h2 className="text-center">Activate a PostHog license key</h2>
+                                <Form
+                                    logic={licenseLogic}
+                                    formKey="activateLicense"
+                                    enableFormOnSubmit
+                                    className="space-y-4"
+                                >
+                                    <Field name="key" label={'License key'}>
+                                        <LemonInput fullWidth />
+                                    </Field>
+
+                                    <LemonButton
+                                        type="primary"
+                                        htmlType="submit"
+                                        loading={isActivateLicenseSubmitting}
+                                        fullWidth
+                                        center
+                                        size="large"
+                                    >
+                                        Activate license key
+                                    </LemonButton>
+                                </Form>
+                            </>
+                        ) : (
+                            <>
+                                <h2 className="text-center">Get a PostHog license key</h2>
+                                <Form
+                                    logic={licenseLogic}
+                                    formKey="createLicense"
+                                    enableFormOnSubmit
+                                    className="space-y-4"
+                                >
+                                    <Field name="client_name" label="Company Name">
+                                        <LemonInput fullWidth />
+                                    </Field>
+
+                                    <Field
+                                        name="billing_email"
+                                        label="Billing Email"
+                                        help="Your license key will also be sent to this email address"
+                                    >
+                                        <LemonInput fullWidth />
+                                    </Field>
+
+                                    <Field name="terms">
+                                        <LemonCheckbox
+                                            bordered
+                                            fullWidth
+                                            label={
+                                                <>
+                                                    I accept the{' '}
+                                                    <Link target="_blank" to="https://posthog.com/terms">
+                                                        terms and conditions
+                                                    </Link>
+                                                </>
+                                            }
+                                        />
+                                    </Field>
+
+                                    <LemonButton
+                                        type="primary"
+                                        htmlType="submit"
+                                        loading={isActivateLicenseSubmitting}
+                                        fullWidth
+                                        center
+                                        size="large"
+                                    >
+                                        Continue to verify card
+                                    </LemonButton>
+                                </Form>
+                            </>
+                        )}
+
+                        <LemonDivider dashed className="my-4" />
+
+                        <LemonButton fullWidth center onClick={() => setShowExistingForm(!showExistingForm)}>
+                            {!showExistingForm ? 'I already have a license key' : "I don't have a license key"}
+                        </LemonButton>
+                    </div>
+                </div>
+            </div>
+
             <LemonTable
                 data-attr="license-table"
                 size="small"

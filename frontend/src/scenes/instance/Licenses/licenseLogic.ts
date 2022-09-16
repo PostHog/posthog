@@ -7,6 +7,9 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { dayjs } from 'lib/dayjs'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { isEmail, toParams } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
 
 export function isLicenseExpired(license: LicenseType): boolean {
     return new Date(license.valid_until) < new Date()
@@ -18,7 +21,7 @@ const PLAN_TO_SORTING_VALUE: Record<LicensePlan, number> = { [LicensePlan.Scale]
 export const licenseLogic = kea<licenseLogicType>([
     path(['scenes', 'instance', 'Licenses', 'licenseLogic']),
     connect({
-        values: [preflightLogic, ['preflight']],
+        values: [preflightLogic, ['preflight'], organizationLogic, ['currentOrganization'], userLogic, ['user']],
     }),
     actions({
         setError: (error: APIErrorType | null) => ({ error }),
@@ -78,6 +81,32 @@ export const licenseLogic = kea<licenseLogicType>([
                     })
                     throw e
                 }
+            },
+        },
+
+        createLicense: {
+            defaults: {
+                client_name: values.currentOrganization?.name,
+                billing_email: values.user?.email,
+                terms: false,
+            } as {
+                client_name: string
+                billing_email: string
+                terms: boolean
+            },
+            errors: ({ client_name, billing_email, terms }) => ({
+                client_name: !client_name
+                    ? 'Please enter the name of your organisation for billing purposes'
+                    : undefined,
+                billing_email: !billing_email
+                    ? 'Please enter the email to be associated with the license'
+                    : !isEmail(billing_email)
+                    ? 'Please enter a valid email address'
+                    : undefined,
+                terms: !terms ? 'You must accept the terms and conditions to continue' : undefined,
+            }),
+            submit: async (params) => {
+                window.location.href = 'https://license.posthog.com/start-payment?' + toParams(params)
             },
         },
     })),
