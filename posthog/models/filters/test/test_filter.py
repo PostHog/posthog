@@ -300,6 +300,24 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             results = filter_persons(filter, self.team)
             self.assertEqual(results, [p2_uuid])
 
+        def test_is_date_before_persons(self):
+            p1_uuid = str(
+                person_factory(
+                    team_id=self.team.pk, distinct_ids=["p1"], properties={"some-timestamp": "2022-03-01"}
+                ).uuid
+            )
+            person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"some-timestamp": "2022-05-01"})
+
+            filter = Filter(
+                data={
+                    "properties": [
+                        {"type": "person", "key": "some-timestamp", "value": "2022-04-01", "operator": "is_date_before"}
+                    ]
+                }
+            )
+            results = filter_persons(filter, self.team)
+            self.assertEqual(results, [p1_uuid])
+
         def test_json_object(self):
             p1_uuid = person_factory(
                 team_id=self.team.pk,

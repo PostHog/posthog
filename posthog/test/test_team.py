@@ -75,8 +75,13 @@ class TestTeam(BaseTest):
                 mock_feature_enabled.assert_called_once_with(
                     "person-on-events-enabled",
                     str(team.uuid),
-                    groups={"project": str(team.uuid)},
-                    group_properties={"project": {"id": str(team.pk)}},
+                    groups={"organization": str(self.organization.id)},
+                    group_properties={
+                        "organization": {
+                            "id": str(self.organization.id),
+                            "created_at": self.organization.created_at,
+                        }
+                    },
                     only_evaluate_locally=True,
                 )
 
