@@ -106,17 +106,19 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                             if (currentTab === SessionRecordingTab.CONSOLE) {
                                 return (
                                     <div
-                                        className="font-mono text-xs w-full text-ellipsis"
-                                        style={{
-                                            lineHeight: '1.5rem',
-                                            ...(expanded && {
-                                                display: '-webkit-box',
-                                                '-webkit-line-clamp': '6',
-                                                '-webkit-box-orient': 'vertical',
-                                                overflow: 'hidden',
-                                                whiteSpace: 'normal',
-                                            }),
-                                        }}
+                                        className="font-mono text-xs w-full text-ellipsis leading-6"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={
+                                            expanded
+                                                ? {
+                                                      display: '-webkit-box',
+                                                      WebkitLineClamp: 6,
+                                                      WebkitBoxOrient: 'vertical',
+                                                      overflow: 'hidden',
+                                                      whiteSpace: 'normal',
+                                                  }
+                                                : undefined
+                                        }
                                     >
                                         {interleave(record.previewContent, ' ')}
                                     </div>
@@ -148,7 +150,7 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                             }
                             if (currentTab === SessionRecordingTab.CONSOLE) {
                                 return (
-                                    <div className="py-2 pr-2 pl-18 font-mono text-xs" style={{ lineHeight: '1.5rem' }}>
+                                    <div className="py-2 pr-2 pl-18 font-mono text-xs leading-6">
                                         {record.fullContent?.map((content: JSX.Element, i: number) => (
                                             <React.Fragment key={i}>
                                                 {content}

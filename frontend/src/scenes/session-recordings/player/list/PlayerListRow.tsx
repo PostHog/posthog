@@ -119,12 +119,9 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                         </div>
                     </div>
                     <div className={clsx('grow h-full', !isExpanded && 'overflow-hidden')}>{contentDetermined}</div>
-                    <div
-                        className="flex shrink-0 flex-row gap-3 items-center text-muted"
-                        style={{ lineHeight: '1.5rem' }}
-                    >
+                    <div className="flex shrink-0 flex-row gap-3 items-center text-muted leading-6">
                         {sideContentDetermined}
-                        <div style={{ fontSize: 11 }}>{record.colonTimestamp}</div>
+                        <div className="text-xs leading-6">{record.colonTimestamp}</div>
                         {allOptions.length > 0 && (
                             <LemonButtonWithPopup
                                 data-attr="player-list-item-menu"

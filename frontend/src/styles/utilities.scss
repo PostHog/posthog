@@ -89,12 +89,6 @@
     }
 }
 
-@each $space in $spaces {
-    .leading-#{$space} {
-        line-height: #{$space/4}rem;
-    }
-}
-
 .space-y-px {
     & > * + * {
         margin-top: 1px;
@@ -601,6 +595,12 @@
 
 .text-ellipsis {
     @extend %mixin-text-ellipsis;
+}
+
+@each $space in $spaces {
+    .leading-#{$space} {
+        line-height: #{$space/4}rem;
+    }
 }
 
 .rounded-none {
