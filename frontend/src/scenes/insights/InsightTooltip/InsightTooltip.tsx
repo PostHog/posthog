@@ -61,12 +61,26 @@ export function InsightTooltip({
     seriesData = [],
     altTitle,
     altRightTitle,
-    renderSeries = (value: React.ReactNode, datum: SeriesDatum) => (
-        <div className="datum-label-column">
-            <SeriesLetter className="mr-2" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
-            {value}
-        </div>
-    ),
+    renderSeries = (value: React.ReactNode, datum: SeriesDatum) => {
+        const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
+        return (
+            <div className="datum-label-column">
+                <SeriesLetter
+                    className="mr-2"
+                    hasBreakdown={hasBreakdown}
+                    seriesIndex={datum?.action?.order ?? datum.id}
+                />
+                {hasBreakdown ? (
+                    <div className="flex flex-col">
+                        {datum.breakdown_value}
+                        {value}
+                    </div>
+                ) : (
+                    value
+                )}
+            </div>
+        )
+    },
     renderCount = (value: number) => {
         return <>{humanFriendlyNumber(value)}</>
     },
