@@ -6,16 +6,16 @@ POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
 export POSTHOG_SECRET
 
 # send log of this install for continued support!
-# curl -s -L --header "Content-Type: application/json" -d '{
-#     "api_key": "sTMFPsFhdP1Ssg",
-#     "type": "capture",
-#     "event": "magic_curl_install"
-# }' https://app.posthog.com/batch/ > /dev/null
+curl -s -L --header "Content-Type: application/json" -d '{
+    "api_key": "sTMFPsFhdP1Ssg",
+    "type": "capture",
+    "event": "magic_curl_install"
+}' https://app.posthog.com/batch/ > /dev/null
 
 
 # update apt cache
 echo "Grabbing latest apt caches..."
-sudo apt update
+sudo apt update > /dev/null
 
 # clone posthog
 echo "Cloning PostHog 🦔 from Github..."
@@ -23,7 +23,7 @@ sudo apt install -y git
 # try to clone - if folder is already there pull latest for that branch
 git clone https://github.com/PostHog/posthog.git &> /dev/null || true
 cd posthog
-git checkout tags/1.39.1
+git checkout tags/1.39.1 &> /dev/null
 cd ..
 
 cat > Caddyfile <<EOT
@@ -41,19 +41,6 @@ rm docker-compose.hobby.yml
 
 echo "🎉🎉🎉 Welcome to PostHog! 🎉🎉🎉"
 echo ""
-echo "Starting the stack"
-echo "---"
-echo "To start the stack run 'docker compose up -d'"
-echo "After waiting a couple of minutes for migrations to finish, you'll be able to access PostHog on http://localhost:8000"
+echo "For a full guide on how to customize and deploy PostHog, check out https://posthog.com/docs/self-host/deploy/hobby"
 echo ""
-echo "Stopping the stack"
-echo "---"
-echo "To stop the stack run 'docker compose stop'"
-echo "To start the stack again run 'docker compose start'"
-echo "If you have any issues at all delete everything in this directory and run the curl command again"
-echo ""
-echo 'To upgrade: run /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/upgrade-hobby)"'
-echo ""
-echo "PostHog will be up at http://localhost:8000!"
-echo ""
-echo "It's dangerous to go alone! Take this: 🦔"
+echo "P.S: It's dangerous to go alone! Take this: 🦔"
