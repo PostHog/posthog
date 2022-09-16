@@ -33,12 +33,15 @@ cat > Caddyfile <<EOT
 }
 EOT
 
-# start up the stack
+# set up docker-compose.yml
+echo "Creating docker-compose.yml..."
 rm -f docker-compose.yml
 curl -s -S -o docker-compose.hobby.yml https://raw.githubusercontent.com/PostHog/posthog/master/docker-compose.hobby.yml > /dev/null
 envsubst < docker-compose.hobby.yml > docker-compose.yml
 rm docker-compose.hobby.yml
 
+echo ""
+echo ""
 echo "🎉🎉🎉 Welcome to PostHog! 🎉🎉🎉"
 echo ""
 echo "For a full guide on how to customize and deploy PostHog, check out https://posthog.com/docs/self-host/deploy/hobby"
