@@ -25,33 +25,52 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.get_rate", return_value="5/minute")
     @patch("posthog.rate_limit.incr")
-    def test_burst_rate_limit(self, incr_mock, _):
+    def test_default_burst_rate_limit(self, incr_mock, _):
         for _ in range(5):
-            response = self.client.get(f"/api/projects/{self.team.pk}/insights")
+            response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Does not actually block the request, but increments the counter
-        response = self.client.get(f"/api/projects/{self.team.pk}/insights")
+        response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(incr_mock.call_count, 1)
         incr_mock.assert_called_with("rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "burst"})
 
     @patch("posthog.rate_limit.PassThroughSustainedRateThrottle.get_rate", return_value="5/hour")
     @patch("posthog.rate_limit.incr")
-    def test_sustained_rate_limit(self, incr_mock, _):
+    def test_default_sustained_rate_limit(self, incr_mock, _):
         base_time = now()
         for _ in range(5):
             with freeze_time(base_time):
-                response = self.client.get(f"/api/projects/{self.team.pk}/insights")
+                response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
                 base_time += timedelta(seconds=61)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         with freeze_time(base_time):
             # Does not actually block the request, but increments the counter
-            response = self.client.get(f"/api/projects/{self.team.pk}/insights")
+            response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(incr_mock.call_count, 1)
             incr_mock.assert_called_with("rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "sustained"})
+
+    @patch("posthog.rate_limit.PassThroughClickHouseBurstRateThrottle.get_rate", return_value="5/minute")
+    @patch("posthog.rate_limit.incr")
+    def test_clickhouse_burst_rate_limit(self, incr_mock, _):
+        # Does nothing on /feature_flags endpoint
+        for _ in range(10):
+            response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(incr_mock.call_count, 0)
+
+        for _ in range(5):
+            response = self.client.get(f"/api/projects/{self.team.pk}/events")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Does not actually block the request, but increments the counter
+        response = self.client.get(f"/api/projects/{self.team.pk}/events")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(incr_mock.call_count, 1)
+        incr_mock.assert_called_with("rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "clickhouse_burst"})
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.get_rate", return_value="5/minute")
     @patch("posthog.rate_limit.incr")

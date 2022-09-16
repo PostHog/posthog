@@ -22,3 +22,11 @@ class PassThroughBurstRateThrottle(PassThroughThrottle):
 
 class PassThroughSustainedRateThrottle(PassThroughThrottle):
     scope = "sustained"
+
+
+class PassThroughClickHouseBurstRateThrottle(PassThroughThrottle):
+    scope = "clickhouse_burst"
+
+
+class PassThroughClickHouseSustainedRateThrottle(PassThroughThrottle):
+    scope = "clickhouse_sustained"

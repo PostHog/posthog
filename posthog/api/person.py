@@ -64,6 +64,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
+from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
@@ -158,6 +159,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
     lifecycle_class = Lifecycle
     retention_class = Retention
     stickiness_class = Stickiness
@@ -274,8 +276,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         try:
             result = get_person_property_values_for_key(key, self.team, value)
             statsd.incr(
-                "get_person_property_values_for_key_success",
-                tags={"team_id": self.team.id},
+                "get_person_property_values_for_key_success", tags={"team_id": self.team.id},
             )
         except Exception as e:
             statsd.incr(
@@ -305,11 +306,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 scope="Person",
                 activity="was_merged_into_person",
                 detail=Detail(
-                    merge=Merge(
-                        type="Person",
-                        source=PersonSerializer(p).data,
-                        target=PersonSerializer(person).data,
-                    )
+                    merge=Merge(type="Person", source=PersonSerializer(p).data, target=PersonSerializer(person).data,)
                 ),
             )
 
@@ -563,10 +560,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             )
 
         people = self.lifecycle_class().get_people(
-            target_date=target_date_parsed,
-            filter=filter,
-            team=team,
-            lifecycle_type=lifecycle_type,
+            target_date=target_date_parsed, filter=filter, team=team, lifecycle_type=lifecycle_type,
         )
         next_url = paginated_result(request, len(people), filter.offset, filter.limit)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
@@ -612,10 +606,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
 
 def paginated_result(
-    request: request.Request,
-    count: int,
-    offset: int = 0,
-    limit: int = DEFAULT_PAGE_LIMIT,
+    request: request.Request, count: int, offset: int = 0, limit: int = DEFAULT_PAGE_LIMIT,
 ) -> Optional[str]:
     return format_paginated_url(request, offset, limit) if count >= limit else None
 
