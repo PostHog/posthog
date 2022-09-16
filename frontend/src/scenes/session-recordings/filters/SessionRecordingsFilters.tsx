@@ -11,15 +11,15 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 
-interface SessionRecordingsEventFiltersProps {
+interface SessionRecordingsFiltersProps {
     personUUID?: string
     isPersonPage?: boolean
 }
 
-export function SessionRecordingsEventFilters({
+export function SessionRecordingsFilters({
     personUUID,
     isPersonPage = false,
-}: SessionRecordingsEventFiltersProps): JSX.Element {
+}: SessionRecordingsFiltersProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
     const { entityFilters, propertyFilters, filtersEnabled } = useValues(sessionRecordingsTableLogicInstance)
 
@@ -86,10 +86,10 @@ export function SessionRecordingsEventFilters({
     )
 }
 
-export function SessionRecordingsEventFiltersToggle({
+export function SessionRecordingsFiltersToggle({
     personUUID,
     isPersonPage,
-}: SessionRecordingsEventFiltersProps): JSX.Element {
+}: SessionRecordingsFiltersProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
     const { entityFilters, propertyFilters, filtersEnabled } = useValues(sessionRecordingsTableLogicInstance)
     const { setFiltersEnabled } = useActions(sessionRecordingsTableLogicInstance)

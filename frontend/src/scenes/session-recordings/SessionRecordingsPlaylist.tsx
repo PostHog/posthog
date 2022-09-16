@@ -11,7 +11,7 @@ import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
-import { SessionRecordingsEventFilters } from './filters/SessionRecordingEventFilters'
+import { SessionRecordingsFilters } from './filters/SessionRecordingsFilters'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -51,7 +51,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
     return (
         <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
             <div className="SessionRecordingsPlaylist__left-column space-y-4">
-                <SessionRecordingsEventFilters personUUID={personUUID} />
+                <SessionRecordingsFilters personUUID={personUUID} />
                 <LemonTable
                     dataSource={sessionRecordings}
                     columns={columns}

@@ -6,17 +6,17 @@ import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
-import { SessionRecordingsEventFiltersToggle } from './SessionRecordingEventFilters'
+import { SessionRecordingsFiltersToggle } from './SessionRecordingsFilters'
 
-interface SessionRecordingsTableProps {
+interface SessionRecordingsTopBarProps {
     personUUID?: string
     isPersonPage?: boolean
 }
 
-export function SessionRecordingsFilters({
+export function SessionRecordingsTopBar({
     personUUID,
     isPersonPage = false,
-}: SessionRecordingsTableProps): JSX.Element {
+}: SessionRecordingsTopBarProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
     const { fromDate, toDate, durationFilter } = useValues(sessionRecordingsTableLogicInstance)
     const { setDateRange, setDurationFilter, reportRecordingsListFilterAdded } = useActions(
@@ -25,7 +25,7 @@ export function SessionRecordingsFilters({
 
     return (
         <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
-            <SessionRecordingsEventFiltersToggle personUUID={personUUID} isPersonPage={isPersonPage} />
+            <SessionRecordingsFiltersToggle personUUID={personUUID} isPersonPage={isPersonPage} />
 
             <div className="flex items-center gap-4">
                 <DateFilter

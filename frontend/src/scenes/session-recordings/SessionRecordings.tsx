@@ -9,10 +9,10 @@ import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRe
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
-import { SessionRecordingsFilters } from './filters/SessionRecordingFilters'
+import { SessionRecordingsTopBar } from './filters/SessionRecordingsTopBar'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { Link } from '@posthog/lemon-ui'
-import { SessionRecordingsEventFilters } from './filters/SessionRecordingEventFilters'
+import { SessionRecordingsFilters } from './filters/SessionRecordingsFilters'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -28,13 +28,13 @@ export function SessionsRecordings(): JSX.Element {
                     </AlertMessage>
                 </div>
             ) : null}
-            <SessionRecordingsFilters />
+            <SessionRecordingsTopBar />
             {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST] ? (
                 <SessionRecordingsPlaylist key="global" />
             ) : (
                 <div className="space-y-4">
                     <div style={{ maxWidth: 700 }}>
-                        <SessionRecordingsEventFilters />
+                        <SessionRecordingsFilters />
                     </div>
                     <SessionRecordingsTable key="global" />
                 </div>
