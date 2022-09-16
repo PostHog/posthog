@@ -248,7 +248,9 @@ class Migration(AsyncMigrationDefinition):
             )
 
     # TODO: Consider making postcheck a native component of the async migrations spec
-    def _postcheck(self, query_id) -> bool:
+    def _postcheck(self, query_id, skip_on_tests=True) -> bool:
+        if settings.TEST and skip_on_tests:
+            return True
         incomplete_events_ratio = sync_execute(
             "SELECT countIf(empty(person_id) OR person_created_at = toDateTime(0)) / count() FROM events"
         )[0][0]
