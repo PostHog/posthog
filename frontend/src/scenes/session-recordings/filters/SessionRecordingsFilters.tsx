@@ -94,7 +94,7 @@ export function SessionRecordingsFiltersToggle({
     const { entityFilters, propertyFilters, filtersEnabled } = useValues(sessionRecordingsTableLogicInstance)
     const { setFiltersEnabled } = useActions(sessionRecordingsTableLogicInstance)
 
-    const totalFilters =
+    const totalFiltersCount =
         (entityFilters.actions?.length || 0) + (entityFilters.events?.length || 0) + (propertyFilters?.length || 0)
 
     return (
@@ -102,7 +102,7 @@ export function SessionRecordingsFiltersToggle({
             type="secondary"
             size="small"
             icon={
-                <IconWithCount count={totalFilters}>
+                <IconWithCount count={totalFiltersCount}>
                     <IconFilter />
                 </IconWithCount>
             }
