@@ -281,7 +281,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     return {
                         ...state,
                         text_tiles: state?.text_tiles.map((t) => {
-                            console.log({ textTileId, color, i: t.id })
                             return t.id === textTileId ? { ...t, color } : t
                         }),
                     } as DashboardType

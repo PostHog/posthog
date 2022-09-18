@@ -15,6 +15,8 @@ import { urls } from 'scenes/urls'
 import { Splotch, SplotchColor } from 'lib/components/icons/Splotch'
 import { capitalizeFirstLetter } from 'lib/utils'
 import ReactMarkdown from 'react-markdown'
+import { IconMarkdown } from 'lib/components/icons'
+import { Tabs } from 'antd'
 
 export function TextTileModal({
     isOpen,
@@ -29,13 +31,17 @@ export function TextTileModal({
 }): JSX.Element {
     const modalLogic = dashboardTextTileModalLogic({ dashboard, textTileId: textTileId ?? 'new', onClose })
     const { isTextTileSubmitting } = useValues(modalLogic)
-    const { submitTextTile } = useActions(modalLogic)
+    const { submitTextTile, resetTextTile } = useActions(modalLogic)
 
     return (
         <LemonModal
+            closable={true}
             isOpen={isOpen}
-            title={textTileId === 'new' ? 'Add text to the Dashboard' : 'Edit text'}
-            onClose={onClose}
+            title={''}
+            onClose={() => {
+                resetTextTile()
+                onClose()
+            }}
             footer={
                 <>
                     <LemonButton disabled={isTextTileSubmitting} type="secondary" onClick={onClose}>
@@ -55,18 +61,28 @@ export function TextTileModal({
                 </>
             }
         >
-            {}
             <Form
                 logic={dashboardTextTileModalLogic}
                 props={{ dashboard: dashboard, textTileId: textTileId }}
                 formKey={'textTile'}
                 id="text-tile-form"
-                className="space-y-2"
+                className=""
                 enableFormOnSubmit
             >
-                <Field name="body" label="Body">
+                <Field name="body" label="">
                     {({ value, onChange }) => (
-                        <LemonTextArea autoFocus value={value} onChange={(newValue) => onChange(newValue)} />
+                        <Tabs>
+                            <Tabs.TabPane tab="Write" key="write-card">
+                                <LemonTextArea autoFocus value={value} onChange={(newValue) => onChange(newValue)} />
+                                <div className="text-muted inline-flex items-center space-x-1">
+                                    <IconMarkdown />
+                                    <span>Basic formatting and markdown support</span>
+                                </div>
+                            </Tabs.TabPane>
+                            <Tabs.TabPane tab="Preview" key={'preview-card'}>
+                                <ReactMarkdown>{value}</ReactMarkdown>
+                            </Tabs.TabPane>
+                        </Tabs>
                     )}
                 </Field>
             </Form>
