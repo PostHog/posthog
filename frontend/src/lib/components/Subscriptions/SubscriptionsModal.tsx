@@ -72,6 +72,7 @@ export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
             fullWidth
             popup={{
                 actionable: true,
+                closeParentPopupOnClickInside: true,
                 placement: 'right-start',
                 overlay: (
                     <>

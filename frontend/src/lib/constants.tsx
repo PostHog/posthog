@@ -128,6 +128,7 @@ export const FEATURE_FLAGS = {
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     ONBOARDING_BILLING: 'onboarding-billing', //owner: @kappa90
     ACTOR_ON_EVENTS_QUERYING: 'person-on-events-enabled', //owner: @EDsCODE
+    FEATURE_FLAGS_UX: 'feature-flags-ux', //owner: @liyiy
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

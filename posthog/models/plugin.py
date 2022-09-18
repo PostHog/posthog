@@ -364,7 +364,7 @@ def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: Dict[str
     if job_type not in plugin.public_jobs:
         raise ValidationError(f"Unknown plugin job: {repr(job_type)}")
 
-    payload_spec = plugin.public_jobs[job_type]["payload"]
+    payload_spec = plugin.public_jobs[job_type].get("payload", {})
     for key, field_options in payload_spec.items():
         if field_options.get("required", False) and key not in payload:
             raise ValidationError(f"Missing required job field: {key}")

@@ -5,7 +5,7 @@ from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, response, serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 
@@ -14,7 +14,7 @@ from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.constants import INSIGHT_TRENDS
+from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardTextTile, DashboardTile, Insight, Team
@@ -106,6 +106,18 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             "effective_privilege_level",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared"]
+
+    def validate_description(self, value: str) -> str:
+        available_features: Optional[List[str]] = (
+            Team.objects.select_related("organization")
+            .values_list("organization__available_features", flat=True)
+            .get(id=self.context["team_id"])
+        )
+
+        if value and AvailableFeature.DASHBOARD_COLLABORATION not in (available_features or []):
+            raise PermissionDenied("You must have paid for dashboard collaboration to set the dashboard description")
+
+        return value
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]

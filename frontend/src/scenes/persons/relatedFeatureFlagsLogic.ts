@@ -38,6 +38,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     props(
         {} as {
             distinctId: string
+            groups?: { [key: string]: string }
         }
     ),
     key((props) => `${props.distinctId}`),
@@ -54,6 +55,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                     const response = await api.get(
                         `api/projects/${values.currentTeamId}/feature_flags/evaluation_reasons?${toParams({
                             distinct_id: props.distinctId,
+                            ...(props.groups ? { groups: props.groups } : {}),
                         })}`
                     )
                     return response

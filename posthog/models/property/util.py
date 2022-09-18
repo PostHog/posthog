@@ -751,3 +751,16 @@ def get_session_property_filter_statement(prop: Property, idx: int, prepend: str
 
     else:
         raise exceptions.ValidationError(f"Property '{prop.key}' is not allowed in session property filters.")
+
+
+def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):
+    if isinstance(prop, PropertyGroup):
+        if len(prop.values) == 1:
+            if skip:
+                prop.values = [clear_excess_levels(p) for p in prop.values]
+            else:
+                return clear_excess_levels(prop.values[0])
+        else:
+            prop.values = [clear_excess_levels(p, skip=True) for p in prop.values]
+
+    return prop

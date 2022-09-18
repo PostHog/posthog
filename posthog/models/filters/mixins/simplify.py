@@ -1,13 +1,4 @@
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    List,
-    Literal,
-    TypeVar,
-    Union,
-    cast,
-)
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, TypeVar, cast
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.property import GroupTypeIndex, PropertyGroup
@@ -29,7 +20,6 @@ class SimplifyFilterMixin:
         - if aggregating by groups, adds property filter to remove blank groups
         - for cohort properties, replaces them with more concrete lookups or with cohort conditions
         """
-
         if self._data.get("is_simplified"):  # type: ignore
             return self
 
@@ -50,7 +40,9 @@ class SimplifyFilterMixin:
             for entity_type, entities in result.entities_to_dict().items():
                 updated_entities[entity_type] = [self._simplify_entity(team, entity_type, entity, **kwargs) for entity in entities]  # type: ignore
 
-        prop_group = self._clear_excess_levels(self._simplify_property_group(team, result.property_groups, **kwargs), skip=True)  # type: ignore
+        from posthog.models.property.util import clear_excess_levels
+
+        prop_group = clear_excess_levels(self._simplify_property_group(team, result.property_groups, **kwargs), skip=True)  # type: ignore
         prop_group = prop_group.to_dict()  # type: ignore
 
         new_group_props = []
@@ -62,20 +54,6 @@ class SimplifyFilterMixin:
             prop_group = {"type": "AND", "values": [new_group, prop_group]} if prop_group else new_group
 
         return result.with_data({**updated_entities, "properties": prop_group})
-
-    def _clear_excess_levels(self, prop: Union["PropertyGroup", "Property"], skip=False):
-        from posthog.models.property import PropertyGroup
-
-        if isinstance(prop, PropertyGroup):
-            if len(prop.values) == 1:
-                if skip:
-                    prop.values = [self._clear_excess_levels(p) for p in prop.values]
-                else:
-                    return self._clear_excess_levels(prop.values[0])
-            else:
-                prop.values = [self._clear_excess_levels(p, skip=True) for p in prop.values]
-
-        return prop
 
     def _simplify_entity(
         self, team: "Team", entity_type: Literal["events", "actions", "exclusions"], entity_params: Dict, **kwargs

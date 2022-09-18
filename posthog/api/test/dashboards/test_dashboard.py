@@ -2,14 +2,14 @@ import json
 from typing import Dict, List, Optional, Tuple
 
 from dateutil import parser
-from django.db import connection
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
@@ -34,24 +34,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual([dashboard["name"] for dashboard in response_data["results"]], dashboard_names)
 
     @snapshot_postgres_queries
-    def test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count(self) -> None:
-        self.dashboard_api.create_dashboard({"name": "a dashboard"})
-
-        # Get the query count when there is only a single dashboard
-        start_query_count = len(connection.queries)
-        self.client.get(f"/api/projects/{self.team.id}/dashboards/")
-        expected_query_count = len(connection.queries) - start_query_count
-
-        self.dashboard_api.create_dashboard({"name": "b dashboard"})
-        self.dashboard_api.create_dashboard({"name": "c dashboard"})
-        self.dashboard_api.create_dashboard({"name": "d dashboard"})
-
-        # Verify that the query count only increases by one per additional dashboard
-        # sharing configuration is a prefetch and so adds another query
-        with self.assertNumQueries(expected_query_count + 3):
-            self.client.get(f"/api/projects/{self.team.id}/dashboards/")
-
-    @snapshot_postgres_queries
     def test_retrieve_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "private dashboard"})
 
@@ -70,7 +52,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
     def test_create_basic_dashboard(self) -> None:
-        _, response_data = self.dashboard_api.create_dashboard({"name": "My new dashboard"})
+        # the front end sends an empty description even if not allowed to add one
+        _, response_data = self.dashboard_api.create_dashboard({"name": "My new dashboard", "description": ""})
 
         self.assertEqual(response_data["name"], "My new dashboard")
         self.assertEqual(response_data["description"], "")
@@ -94,7 +77,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {
                 "name": "dashboard new name",
                 "creation_mode": "duplicate",
-                "description": "Internal system metrics.",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -103,7 +85,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["name"], "dashboard new name")
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["creation_mode"], "template")
-        self.assertEqual(response_data["description"], "Internal system metrics.")
         self.assertEqual(response_data["restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
         self.assertEqual(
             response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
@@ -203,6 +184,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             all(j - i == 2 for i, j in zip(query_counts[2:], query_counts[3:])),
             f"received: {query_counts} for queries: \n\n {queries}",
         )
+
+    @snapshot_postgres_queries
+    def test_listing_insights_is_not_nplus1(self) -> None:
+        self.client.logout()
+
+        self.organization.available_features = [AvailableFeature.DASHBOARD_COLLABORATION]
+        self.organization.save()
+        self.team.access_control = True
+        self.team.save()
+
+        user_with_collaboration = User.objects.create_and_join(
+            self.organization, "no-collaboration-feature@posthog.com", None
+        )
+        self.client.force_login(user_with_collaboration)
+
+        with self.assertNumQueries(6):
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(5):
+            self._create_dashboard({"name": f"dashboard-{i}", "description": i})
+
+            with self.assertNumQueries(9):
+                response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_no_cache_available(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")

@@ -483,6 +483,12 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             elif key == "my_last_viewed":
                 if str_to_bool(request.GET["my_last_viewed"]):
                     queryset = self._annotate_with_my_last_viewed_at(queryset).filter(my_last_viewed_at__isnull=False)
+            elif key == "feature_flag":
+                feature_flag = request.GET["feature_flag"]
+                queryset = queryset.filter(
+                    Q(filters__breakdown__icontains=f"$feature/{feature_flag}")
+                    | Q(filters__properties__icontains=feature_flag)
+                )
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
