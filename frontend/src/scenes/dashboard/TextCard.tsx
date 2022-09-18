@@ -14,6 +14,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Splotch, SplotchColor } from 'lib/components/icons/Splotch'
 import { capitalizeFirstLetter } from 'lib/utils'
+import ReactMarkdown from 'react-markdown'
 
 export function TextTileModal({
     isOpen,
@@ -171,7 +172,9 @@ export function TextCardInternal(
                         <div className={clsx('DashboardCard__ribbon ml-2', textTile.color)} />
                     )}
                 <Textfit mode="multi" min={16} max={120}>
-                    <div className="whitespace-pre-wrap px-2 pb-2">{textTile.body}</div>
+                    <div className="whitespace-pre-wrap px-2 pb-2 TextCard-Body">
+                        <ReactMarkdown>{textTile.body}</ReactMarkdown>
+                    </div>
                 </Textfit>
             </div>
             {showResizeHandles && (

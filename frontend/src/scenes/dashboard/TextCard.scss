@@ -3,6 +3,17 @@
     background: #fff;
 }
 
+.TextCard-Body {
+    ul {
+        list-style: disc;
+        padding-inline-start: 1em;
+    }
+    ol {
+        list-style: numeric;
+        padding-inline-start: 1em;
+    }
+}
+
 .handle {
     display: flex;
     align-items: flex-end;
