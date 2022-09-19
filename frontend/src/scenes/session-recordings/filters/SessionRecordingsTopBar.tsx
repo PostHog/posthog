@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingsTableLogic } from '../sessionRecordingsTableLogic'
-import { DurationFilter } from '../DurationFilter'
+import { DurationFilter } from './DurationFilter'
 import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
