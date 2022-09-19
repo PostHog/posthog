@@ -820,6 +820,9 @@ export interface DashboardTile extends Tileable, Cacheable {
 export interface DashboardTextTile extends Tileable {
     id: number
     body: string
+    created_by?: UserBasicType
+    last_modified_by?: UserBasicType
+    last_modified_at: string
 }
 
 export interface InsightModel extends DashboardTile {

@@ -17,6 +17,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import ReactMarkdown from 'react-markdown'
 import { IconMarkdown } from 'lib/components/icons'
 import { Tabs } from 'antd'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 
 export function TextTileModal({
     isOpen,
@@ -121,6 +122,10 @@ export function TextCardInternal(
             {...divProps}
             ref={ref}
         >
+            <UserActivityIndicator
+                at={textTile.last_modified_at}
+                by={textTile.created_by || textTile.last_modified_by}
+            />
             <div className="min-h-4 flex items-center w-full pt-2 px-2 justify-end">
                 <More
                     overlay={

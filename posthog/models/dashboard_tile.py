@@ -22,7 +22,9 @@ class DashboardTextTile(BaseDashboardTile):
     body: models.CharField = models.CharField(max_length=4000, null=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
-    last_modified_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    last_modified_by: models.ForeignKey = models.ForeignKey(
+        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_text_tiles"
+    )
 
     class Meta:
         indexes = [
