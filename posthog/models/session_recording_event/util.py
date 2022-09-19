@@ -1,14 +1,13 @@
 import datetime
 import json
 import uuid
-from typing import Union
+from typing import List, Union
 
 import structlog
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog.client import sync_execute
-from posthog.helpers.session_recording import get_events_summary_from_snapshot_data
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.session_recording_event.sql import INSERT_SESSION_RECORDING_EVENT_SQL
@@ -28,6 +27,7 @@ def create_session_recording_event(
     window_id: str,
     timestamp: Union[datetime.datetime, str],
     snapshot_data: dict,
+    snapshot_events_summary: Union[List, None] = None,
 ) -> str:
     timestamp = cast_timestamp_or_now(timestamp)
     snapshot_data_json = json.dumps(snapshot_data)
@@ -38,7 +38,7 @@ def create_session_recording_event(
         "session_id": session_id,
         "window_id": window_id,
         "snapshot_data": snapshot_data_json,
-        "events_summary": get_events_summary_from_snapshot_data([snapshot_data]),
+        "events_summary": [json.dumps(x) for x in snapshot_events_summary] if snapshot_events_summary else [],
         "timestamp": timestamp,
         "created_at": timestamp,
     }
