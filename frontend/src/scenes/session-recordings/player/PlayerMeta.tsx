@@ -12,6 +12,8 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SessionRecordingPlayerProps } from '~/types'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { Link } from '@posthog/lemon-ui'
 
 export function PlayerMetaV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { sessionPerson, description, resolution, scale, recordingStartTime, loading } = useValues(
@@ -87,11 +89,11 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
         loading,
     } = useValues(metaLogic({ sessionRecordingId, playerKey }))
     return (
-        <div className="player-meta-container-v3 border-b">
-            <Row className="player-meta-user-section">
-                <Col className="player-meta-avatar">
+        <div className="PlayerMetaV3 border-b">
+            <div className="flex items-center p-3 gap-4">
+                <div>
                     {!sessionPerson ? (
-                        <Skeleton.Avatar active size={48} shape="circle" />
+                        <LemonSkeleton.Circle className="w-12 h-12" />
                     ) : (
                         <ProfilePicture
                             name={sessionPerson?.name}
@@ -99,13 +101,13 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                             size="xxl"
                         />
                     )}
-                </Col>
-                <Col className="player-meta-details">
-                    <Row className="player-meta-details-top">
+                </div>
+                <div className="flex-1">
+                    <div className="font-bold">
                         {!sessionPerson || !recordingStartTime ? (
-                            <Skeleton title={false} active paragraph={{ rows: 1, width: 250 }} />
+                            <LemonSkeleton className="w-1/2" />
                         ) : (
-                            <Space size={4}>
+                            <div className="flex items-center gap-2">
                                 <PersonHeader person={sessionPerson} withIcon={false} noEllipsis={true} />
                                 {'·'}
                                 <TZLabel
@@ -114,25 +116,25 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                                     formatTime="h:mm A"
                                     showPopover={false}
                                 />
-                            </Space>
+                            </div>
                         )}
-                    </Row>
-                    <Row className="player-meta-details-bottom text-muted">
+                    </div>
+                    <div>
                         {loading ? (
-                            <Skeleton title={false} active paragraph={{ rows: 1, width: 160 }} />
+                            <LemonSkeleton className="w-1/4 mt-1" />
                         ) : (
-                            <span>{description}</span>
+                            <span className="text-muted">{description}</span>
                         )}
-                    </Row>
-                </Col>
-            </Row>
+                    </div>
+                </div>
+            </div>
             <LemonDivider className="my-0" />
-            <Row className="player-meta-window-section" justify="space-between" align="middle">
-                <Row align="middle">
+            <div className="flex justify-between items-center p-3 h-12">
+                <div className="flex items-center gap-1 flex-1">
                     {loading || currentWindowIndex === -1 ? (
-                        <Skeleton title={false} active paragraph={{ rows: 1, width: 250 }} />
+                        <LemonSkeleton className="w-1/3" />
                     ) : (
-                        <Space size={4} align="center">
+                        <>
                             <IconWindow
                                 value={currentWindowIndex + 1}
                                 className="text-muted"
@@ -142,20 +144,20 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                             {currentUrl && (
                                 <>
                                     {'· '}
-                                    <a href={currentUrl} target="_blank">
+                                    <Link to={currentUrl} target="_blank">
                                         {truncate(currentUrl, 32)}
-                                    </a>
+                                    </Link>
                                     <span className="window-url-copy-icon">
                                         <CopyToClipboardInline description="current url" explicitValue={currentUrl} />
                                     </span>
                                 </>
                             )}
-                        </Space>
+                        </>
                     )}
-                </Row>
-                <Row align="middle">
+                </div>
+                <div>
                     {loading ? (
-                        <Skeleton title={false} active paragraph={{ rows: 1, width: 250 }} />
+                        <LemonSkeleton className="w-1/3" />
                     ) : (
                         <span>
                             {resolution && (
@@ -165,9 +167,8 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                             )}
                         </span>
                     )}
-                </Row>
-            </Row>
-            {/*<LemonDivider className="my-0" />*/}
+                </div>
+            </div>
         </div>
     )
 }
