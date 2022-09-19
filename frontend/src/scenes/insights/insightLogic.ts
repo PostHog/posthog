@@ -863,7 +863,7 @@ export const insightLogic = kea<insightLogicType>({
                 } else if (insightNumericId) {
                     mountedInsightSceneLogic?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 } else {
-                    router.actions.push(urls.insightView(savedInsight.short_id))
+                    router.actions.push(`${urls.insightView(savedInsight.short_id)}/edit`)
                 }
             }
         },
