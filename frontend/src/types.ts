@@ -1984,7 +1984,6 @@ export type Duration = {
 export type CombinedEvent = EventDefinition | ActionType
 
 export enum CombinedEventType {
-    All = 'all',
     ActionEvent = 'action_event',
     Event = 'event',
     EventCustom = 'event_custom',

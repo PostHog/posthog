@@ -2,6 +2,7 @@ import { actions, kea, key, listeners, path, props, reducers, selectors } from '
 import {
     ActionType,
     AnyPropertyFilter,
+    Breadcrumb,
     CombinedEvent,
     CombinedEventType,
     EventDefinition,
@@ -14,8 +15,7 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<CombinedEvent> {
     current?: string
@@ -39,7 +39,7 @@ function cleanFilters(filter: Partial<Filters>): Filters {
     return {
         event: '',
         properties: [],
-        event_type: CombinedEventType.All,
+        event_type: CombinedEventType.Event,
         ...filter,
     }
 }
@@ -69,13 +69,11 @@ function normalizeEventDefinitionEndpointUrl({
     url,
     searchParams = {},
     full = false,
-    shouldSimplifyActions = false,
-    eventTypeFilter = CombinedEventType.All,
+    eventTypeFilter = CombinedEventType.Event,
 }: {
     url?: string | null | undefined
     searchParams?: Record<string, any>
     full?: boolean
-    shouldSimplifyActions?: boolean
     eventTypeFilter?: CombinedEventType
 }): string | null {
     if (!full && !url) {
@@ -85,9 +83,7 @@ function normalizeEventDefinitionEndpointUrl({
         ...(url
             ? {
                   ...combineUrl(url).searchParams,
-                  ...(shouldSimplifyActions
-                      ? { event_type: eventTypeFilter }
-                      : { event_type: CombinedEventType.Event }),
+                  event_type: eventTypeFilter,
               }
             : {}),
         ...searchParams,
@@ -147,7 +143,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 loadEventDefinitions: async ({ url: _url }, breakpoint) => {
                     let url = normalizeEventDefinitionEndpointUrl({
                         url: _url,
-                        shouldSimplifyActions: values.shouldSimplifyActions,
                         eventTypeFilter: values.filters.event_type,
                     })
                     if (url && url in (cache.apiCache ?? {})) {
@@ -156,13 +151,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
 
                     if (!url) {
                         url = api.eventDefinitions.determineListEndpoint({
-                            ...(values.shouldSimplifyActions
-                                ? {
-                                      event_type: values.filters.event_type,
-                                  }
-                                : {
-                                      event_type: CombinedEventType.Event,
-                                  }),
+                            event_type: values.filters.event_type,
                         })
                     }
                     await breakpoint(200)
@@ -176,12 +165,10 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             ...response,
                             previous: normalizeEventDefinitionEndpointUrl({
                                 url: response.previous,
-                                shouldSimplifyActions: values.shouldSimplifyActions,
                                 eventTypeFilter: values.filters.event_type,
                             }),
                             next: normalizeEventDefinitionEndpointUrl({
                                 url: response.next,
-                                shouldSimplifyActions: values.shouldSimplifyActions,
                                 eventTypeFilter: values.filters.event_type,
                             }),
                             current: url,
@@ -301,12 +288,23 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         ],
     })),
     selectors(({ cache }) => ({
-        shouldSimplifyActions: [
-            () => [featureFlagLogic.selectors.featureFlags],
-            (flags) => !!flags[FEATURE_FLAGS.SIMPLIFY_ACTIONS],
-        ],
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        name: `Data Management`,
+                        path: urls.eventDefinitions(),
+                    },
+                    {
+                        name: 'Events',
+                        path: urls.eventDefinitions(),
+                    },
+                ]
+            },
+        ],
     })),
     listeners(({ actions, values, cache }) => ({
         setFilters: () => {
@@ -315,7 +313,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     url: values.eventDefinitions.current,
                     searchParams: { search: values.filters.event },
                     full: true,
-                    shouldSimplifyActions: values.shouldSimplifyActions,
                     eventTypeFilter: values.filters.event_type,
                 })
             )

@@ -22,19 +22,12 @@ import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/D
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
 import { IconWebhook } from 'lib/components/icons'
-import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { AlertMessage } from 'lib/components/AlertMessage'
 
 const eventTypeOptions: LemonSelectOptions<CombinedEventType> = [
-    { value: CombinedEventType.All, label: 'All types', 'data-attr': 'event-type-option-all' },
-    {
-        value: CombinedEventType.ActionEvent,
-        label: 'Calculated events',
-        'data-attr': 'event-type-option-action-event',
-    },
+    { value: CombinedEventType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
     {
         value: CombinedEventType.EventCustom,
         label: 'Custom events',
@@ -55,8 +48,7 @@ export const scene: SceneExport = {
 
 export function EventDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { eventDefinitions, eventDefinitionsLoading, filters, shouldSimplifyActions } =
-        useValues(eventDefinitionsTableLogic)
+    const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
     const { currentTeam } = useValues(teamLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
@@ -80,7 +72,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 if (isActionEvent(definition)) {
                     return <ActionHeader definition={definition} hideIcon asLink />
                 }
-                return <EventDefinitionHeader definition={definition} hideIcon asLink shouldSimplifyActions />
+                return <EventDefinitionHeader definition={definition} hideIcon asLink />
             },
             sorter: (a, b) => a.name?.localeCompare(b.name ?? '') ?? 0,
         },
@@ -95,7 +87,7 @@ export function EventDefinitionsTable(): JSX.Element {
                   } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
               ]
             : []),
-        ...(shouldSimplifyActions
+        ...(false
             ? [
                   {
                       title: 'Created by',
@@ -206,18 +198,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 title="Data Management"
                 caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
                 tabbedPage
-                buttons={shouldSimplifyActions && <NewActionButton />}
             />
-            {shouldSimplifyActions && (
-                <AlertMessage className="flex items-center mb-4" type="info">
-                    <div className="text-base mb-1">Actions have moved to the Events tab</div>
-                    <p className="font-normal">
-                        Actions are now called calculated events and can be found in the events tab. You can create a
-                        new calculated event (formerly known as an Action) by clicking the "New calculated event"
-                        button.
-                    </p>
-                </AlertMessage>
-            )}
             {preflight && !preflight?.is_event_property_usage_enabled && <UsageDisabledWarning />}
             <DataManagementPageTabs tab={DataManagementTab.EventDefinitions} />
             <div className="flex justify-between items-center gap-2 mb-4">
@@ -227,21 +208,19 @@ export function EventDefinitionsTable(): JSX.Element {
                     onChange={(v) => setFilters({ event: v || '' })}
                     value={filters.event}
                 />
-                {shouldSimplifyActions && (
-                    <div className="flex items-center gap-2">
-                        <span>Type:</span>
-                        <LemonSelect
-                            value={filters.event_type}
-                            options={eventTypeOptions}
-                            data-attr="event-type-filter"
-                            dropdownMatchSelectWidth={false}
-                            onChange={(value) => {
-                                setFilters({ event_type: value as CombinedEventType })
-                            }}
-                            size="small"
-                        />
-                    </div>
-                )}
+                <div className="flex items-center gap-2">
+                    <span>Type:</span>
+                    <LemonSelect
+                        value={filters.event_type}
+                        options={eventTypeOptions}
+                        data-attr="event-type-filter"
+                        dropdownMatchSelectWidth={false}
+                        onChange={(value) => {
+                            setFilters({ event_type: value as CombinedEventType })
+                        }}
+                        size="small"
+                    />
+                </div>
             </div>
             <LemonTable
                 columns={columns}

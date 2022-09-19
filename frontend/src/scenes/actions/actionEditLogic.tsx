@@ -5,13 +5,13 @@ import { actionsModel } from '~/models/actionsModel'
 import type { actionEditLogicType } from './actionEditLogicType'
 import { ActionType } from '~/types'
 import { lemonToast } from 'lib/components/lemonToast'
-import { duplicateActionErrorToast } from 'scenes/actions/ActionEdit'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { actionLogic } from 'scenes/actions/actionLogic'
+import React from 'react'
+import { Link } from 'lib/components/Link'
 
 export type NewActionType = Partial<ActionType> &
     Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
@@ -42,10 +42,9 @@ export const actionEditLogic = kea<actionEditLogicType>([
         deleteAction: true,
     }),
 
-    connect((props: ActionEditLogicProps) => ({
-        values: [actionLogic({ id: props.id }), ['shouldSimplifyActions']],
+    connect({
         actions: [actionsModel, ['loadActions'], eventDefinitionsTableLogic, ['loadEventDefinitions']],
-    })),
+    }),
 
     reducers({
         createNew: [
@@ -101,13 +100,20 @@ export const actionEditLogic = kea<actionEditLogicType>([
                             // Below works because `detail` in the format:
                             // `This project already has an action with this name, ID ${errorActionId}`
                             const dupeId = response.detail.split(' ').pop()
-                            duplicateActionErrorToast(dupeId, values.shouldSimplifyActions)
+
+                            lemonToast.error(
+                                <>
+                                    Action with this name already exists.{' '}
+                                    <Link to={urls.action(dupeId)}>Click here to edit.</Link>
+                                </>
+                            )
+
                             return action
                         }
                         throw response
                     }
 
-                    lemonToast.success(`${values.shouldSimplifyActions ? 'Calculated event' : 'Action'} saved`)
+                    lemonToast.success(`Action saved`)
                     props.onSave(action as ActionType)
                     // reload actions so they are immediately available throughout the app
                     actions.loadEventDefinitions(null)
@@ -124,12 +130,8 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 endpoint: api.actions.determineDeleteEndpoint(),
                 object: values.action,
                 callback: () => {
-                    router.actions.push(values.shouldSimplifyActions ? urls.eventDefinitions() : urls.actions())
-                    if (values.shouldSimplifyActions) {
-                        actions.loadEventDefinitions(null)
-                    } else {
-                        actions.loadActions()
-                    }
+                    router.actions.push(urls.actions())
+                    actions.loadActions()
                 },
             })
         },

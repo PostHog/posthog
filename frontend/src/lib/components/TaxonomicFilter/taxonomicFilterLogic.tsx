@@ -43,7 +43,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
@@ -151,17 +150,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 selectors.groupAnalyticsTaxonomicGroupNames,
                 selectors.eventNames,
                 selectors.excludedProperties,
-                selectors.featureFlags,
             ],
             (
                 teamId,
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
-                excludedProperties,
-                featureFlags
+                excludedProperties
             ): TaxonomicFilterGroup[] => {
-                const shouldSimplifyActions = !!featureFlags?.[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
                 return [
                     {
                         name: 'Events',
@@ -175,14 +171,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         ...eventTaxonomicGroupProps,
                     },
                     {
-                        name: shouldSimplifyActions ? 'Calculated events' : 'Actions',
-                        searchPlaceholder: shouldSimplifyActions ? 'calculated events' : 'actions',
+                        name: 'Actions',
+                        searchPlaceholder: 'actions',
                         type: TaxonomicFilterGroupType.Actions,
                         logic: actionsModel,
                         value: 'actions',
                         getName: (action: ActionType) => action.name || '',
                         getValue: (action: ActionType) => action.id,
-                        getPopupHeader: () => (shouldSimplifyActions ? 'Calculated event' : 'Action'),
+                        getPopupHeader: () => 'Action',
                         getIcon: getEventDefinitionIcon,
                     },
                     {
