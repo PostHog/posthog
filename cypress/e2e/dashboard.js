@@ -121,7 +121,7 @@ describe('Dashboard', () => {
         cy.get('.InsightCard [data-attr=more-button]').first().click()
         cy.get('button').contains('Set color').click()
         cy.get('button').contains('Green').click()
-        cy.get('.InsightCard .InsightMeta__ribbon').should('have.class', 'green')
+        cy.get('.InsightCard .DashboardCard__ribbon').should('have.class', 'green')
     })
 
     it('Duplicate dashboard item', () => {
