@@ -168,6 +168,7 @@ export function addHistoricalEventsExportCapabilityV2(
 
     const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
 
+    // KLUDGE: This breaks down if JOB_SPEC changes in the future as the new spec won't get registered
     if (!(INTERFACE_JOB_NAME in currentPublicJobs)) {
         hub.promiseManager.trackPromise(
             hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, JOB_SPEC)
