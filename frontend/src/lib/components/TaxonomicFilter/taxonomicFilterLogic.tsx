@@ -14,7 +14,7 @@ import { personPropertiesModel } from '~/models/personPropertiesModel'
 import {
     ActionType,
     CohortType,
-    CombinedEventType,
+    EventDefinitionType,
     DashboardType,
     EventDefinition,
     Experiment,
@@ -164,7 +164,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         searchPlaceholder: 'events',
                         type: TaxonomicFilterGroupType.Events,
                         endpoint: combineUrl(`api/projects/${teamId}/event_definitions`, {
-                            event_type: CombinedEventType.Event,
+                            event_type: EventDefinitionType.Event,
                         }).url,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
@@ -321,7 +321,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         searchPlaceholder: 'custom events',
                         type: TaxonomicFilterGroupType.CustomEvents,
                         endpoint: combineUrl(`api/projects/${teamId}/event_definitions`, {
-                            event_type: CombinedEventType.EventCustom,
+                            event_type: EventDefinitionType.EventCustom,
                         }).url,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,

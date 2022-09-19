@@ -211,6 +211,7 @@ export function ActionsTable(): JSX.Element {
                 title="Data Management"
                 caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
                 tabbedPage
+                buttons={<NewActionButton />}
             />
             <DataManagementPageTabs tab={DataManagementTab.Actions} />
             <div className="flex items-center justify-between gap-2 mb-4">
@@ -224,7 +225,6 @@ export function ActionsTable(): JSX.Element {
                     <Radio.Button value={false}>All actions</Radio.Button>
                     <Radio.Button value={true}>My actions</Radio.Button>
                 </Radio.Group>
-                <NewActionButton />
             </div>
             <LemonTable
                 columns={columns}

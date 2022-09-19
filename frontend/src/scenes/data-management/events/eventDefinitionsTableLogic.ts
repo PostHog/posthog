@@ -1,13 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import {
-    ActionType,
-    AnyPropertyFilter,
-    Breadcrumb,
-    CombinedEvent,
-    CombinedEventType,
-    EventDefinition,
-    PropertyDefinition,
-} from '~/types'
+import { AnyPropertyFilter, Breadcrumb, EventDefinitionType, EventDefinition, PropertyDefinition } from '~/types'
 import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
@@ -17,7 +9,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
 import { urls } from 'scenes/urls'
 
-export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<CombinedEvent> {
+export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string
     count?: number
     page?: number
@@ -32,14 +24,14 @@ export interface PropertyDefinitionsPaginatedResponse extends PaginatedResponse<
 export interface Filters {
     event: string
     properties: AnyPropertyFilter[]
-    event_type: CombinedEventType
+    event_type: EventDefinitionType
 }
 
 function cleanFilters(filter: Partial<Filters>): Filters {
     return {
         event: '',
         properties: [],
-        event_type: CombinedEventType.Event,
+        event_type: EventDefinitionType.Event,
         ...filter,
     }
 }
@@ -69,12 +61,12 @@ function normalizeEventDefinitionEndpointUrl({
     url,
     searchParams = {},
     full = false,
-    eventTypeFilter = CombinedEventType.Event,
+    eventTypeFilter = EventDefinitionType.Event,
 }: {
     url?: string | null | undefined
     searchParams?: Record<string, any>
     full?: boolean
-    eventTypeFilter?: CombinedEventType
+    eventTypeFilter?: EventDefinitionType
 }): string | null {
     if (!full && !url) {
         return null
@@ -89,10 +81,6 @@ function normalizeEventDefinitionEndpointUrl({
         ...searchParams,
     }
     return api.eventDefinitions.determineListEndpoint(params)
-}
-
-export function isActionEvent(event: CombinedEvent): event is ActionType {
-    return 'is_action' in (event as ActionType) && !!event.is_action
 }
 
 export interface EventDefinitionsTableLogicProps {

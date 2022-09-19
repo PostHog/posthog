@@ -1,7 +1,6 @@
 import React from 'react'
-import { ActionType, CombinedEvent, EventDefinition, PropertyDefinition } from '~/types'
+import { EventDefinition, PropertyDefinition } from '~/types'
 import {
-    ActionEvent,
     IconAutocapture,
     IconPageleave,
     IconPageview,
@@ -21,8 +20,6 @@ import {
     eventTaxonomicGroupProps,
     propertyTaxonomicGroupProps,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { actionsModel } from '~/models/actionsModel'
-import { isActionEvent } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
     if (!!keyMapping.event[definition.name]) {
@@ -39,14 +36,7 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     )
 }
 
-export function getEventDefinitionIcon(definition: CombinedEvent): JSX.Element {
-    if (isActionEvent(definition)) {
-        return (
-            <Tooltip title="Action">
-                <ActionEvent className="taxonomy-icon taxonomy-icon-muted" />
-            </Tooltip>
-        )
-    }
+export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element {
     // Rest are events
     if (definition.name === '$pageview') {
         return (
@@ -96,7 +86,7 @@ function RawDefinitionHeader({
     hideText = false,
     asLink = false,
 }: {
-    definition: CombinedEvent | PropertyDefinition
+    definition: EventDefinition | PropertyDefinition
     group: TaxonomicFilterGroup
 } & SharedDefinitionHeaderProps): JSX.Element {
     const fullDetailUrl = group.getFullDetailUrl?.(definition)
@@ -128,30 +118,6 @@ function RawDefinitionHeader({
                 </div>
             )}
         </>
-    )
-}
-
-export function ActionHeader({
-    definition,
-    ...props
-}: { definition: ActionType } & SharedDefinitionHeaderProps): JSX.Element {
-    return (
-        <RawDefinitionHeader
-            definition={definition}
-            group={{
-                name: 'Actions',
-                searchPlaceholder: 'actions',
-                type: TaxonomicFilterGroupType.Actions,
-                logic: actionsModel,
-                value: 'actions',
-                getName: (action: ActionType) => action.name || '',
-                getValue: (action: ActionType) => action.name || '',
-                getFullDetailUrl: (action: ActionType) => (action.action_id ? urls.action(action.action_id) : ''),
-                getPopupHeader: () => 'action',
-                getIcon: getEventDefinitionIcon,
-            }}
-            {...props}
-        />
     )
 }
 
