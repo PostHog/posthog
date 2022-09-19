@@ -50,7 +50,7 @@ function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTy
 }
 
 export function Group(): JSX.Element {
-    const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex } = useValues(groupLogic)
+    const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex, groupType } = useValues(groupLogic)
 
     if (!groupData) {
         return groupDataLoading ? <SpinnerOverlay /> : <NotFound object="group" />
