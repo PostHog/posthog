@@ -1,3 +1,4 @@
+import datetime
 import json
 from typing import Any, Dict, List, Optional, cast
 
@@ -55,12 +56,15 @@ class TextTileListSerializer(serializers.ListSerializer):
                 if "body" in validated_tile and validated_tile["body"] != tile.body:
                     tile.body = validated_tile["body"]
                     tile.last_modified_by = self.context["request"].user
+                    tile.last_modified_at = datetime.datetime.now()
                 if "layouts" in validated_tile and validated_tile["layouts"] != tile.layouts:
                     tile.layouts = validated_tile["layouts"]
                     tile.last_modified_by = self.context["request"].user
+                    tile.last_modified_at = datetime.datetime.now()
                 if "color" in validated_tile and validated_tile["color"] != tile.color:
                     tile.color = validated_tile["color"]
                     tile.last_modified_by = self.context["request"].user
+                    tile.last_modified_at = datetime.datetime.now()
 
                 tile.save()
                 tiles.append(tile)

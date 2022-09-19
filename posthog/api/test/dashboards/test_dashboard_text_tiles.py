@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Dict, Union
 from unittest import mock
 
@@ -55,81 +56,84 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(update_response.json()["text_tiles"]), 2)
 
-    @freeze_time("2022-04-01 12:45")
     def test_can_update_text_tiles_on_a_dashboard(self) -> None:
-        self.maxDiff = None
+        with freeze_time("2022-04-01 12:45") as frozen_time:
+            self.maxDiff = None
 
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {"text_tiles": [{"body": "I AM TEXT!"}, {"body": "I AM ALSO TEXT!"}]},
-        )
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+                {"text_tiles": [{"body": "I AM TEXT!"}, {"body": "I AM ALSO TEXT!"}]},
+            )
+            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-        tiles = update_response.json()["text_tiles"]
-        tiles[0]["color"] = "red"
+            tiles = update_response.json()["text_tiles"]
+            tiles[0]["color"] = "red"
 
-        self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"text_tiles": tiles})
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+            self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"text_tiles": tiles})
+            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(
-            update_response.json()["text_tiles"],
-            [
-                {
-                    "id": tiles[0]["id"],
-                    "layouts": {},
-                    "color": "red",
-                    "body": "I AM TEXT!",
-                    "created_by": self._serialised_user(self.user),
-                    "last_modified_at": "2022-04-01T12:45:00Z",
-                    "last_modified_by": None,
-                },
-                {
-                    "body": "I AM ALSO TEXT!",
-                    "color": None,
-                    "id": tiles[1]["id"],
-                    "layouts": {},
-                    "created_by": self._serialised_user(self.user),
-                    "last_modified_at": "2022-04-01T12:45:00Z",
-                    "last_modified_by": None,
-                },
-            ],
-        )
+            self.assertEqual(
+                update_response.json()["text_tiles"],
+                [
+                    {
+                        "id": tiles[0]["id"],
+                        "layouts": {},
+                        "color": "red",
+                        "body": "I AM TEXT!",
+                        "created_by": self._serialised_user(self.user),
+                        "last_modified_at": "2022-04-01T12:45:00Z",
+                        "last_modified_by": None,
+                    },
+                    {
+                        "body": "I AM ALSO TEXT!",
+                        "color": None,
+                        "id": tiles[1]["id"],
+                        "layouts": {},
+                        "created_by": self._serialised_user(self.user),
+                        "last_modified_at": "2022-04-01T12:45:00Z",
+                        "last_modified_by": None,
+                    },
+                ],
+            )
 
-        new_user: User = User.objects.create_and_join(
-            organization=self.organization, email="second@posthog.com", password="Secretive"
-        )
-        self.client.force_login(new_user)
-        tiles[1]["body"] = "amended text"
-        different_user_update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"text_tiles": tiles}
-        )
-        self.assertEqual(different_user_update_response.status_code, status.HTTP_200_OK)
+            new_user: User = User.objects.create_and_join(
+                organization=self.organization, email="second@posthog.com", password="Secretive"
+            )
+            self.client.force_login(new_user)
+            tiles[1]["body"] = "amended text"
 
-        self.assertEqual(
-            different_user_update_response.json()["text_tiles"],
-            [
-                {
-                    "id": tiles[0]["id"],
-                    "layouts": {},
-                    "color": "red",
-                    "body": "I AM TEXT!",
-                    "created_by": self._serialised_user(self.user),
-                    "last_modified_at": "2022-04-01T12:45:00Z",
-                    "last_modified_by": self._serialised_user(self.user),
-                },
-                {
-                    "body": "amended text",
-                    "color": None,
-                    "id": tiles[1]["id"],
-                    "layouts": {},
-                    "created_by": self._serialised_user(self.user),
-                    "last_modified_at": "2022-04-01T12:45:00Z",
-                    "last_modified_by": self._serialised_user(new_user),
-                },
-            ],
-        )
+            frozen_time.tick(delta=timedelta(hours=4))
+
+            different_user_update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"text_tiles": tiles}
+            )
+            self.assertEqual(different_user_update_response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(
+                different_user_update_response.json()["text_tiles"],
+                [
+                    {
+                        "id": tiles[0]["id"],
+                        "layouts": {},
+                        "color": "red",
+                        "body": "I AM TEXT!",
+                        "created_by": self._serialised_user(self.user),
+                        "last_modified_at": "2022-04-01T12:45:00Z",
+                        "last_modified_by": self._serialised_user(self.user),
+                    },
+                    {
+                        "body": "amended text",
+                        "color": None,
+                        "id": tiles[1]["id"],
+                        "layouts": {},
+                        "created_by": self._serialised_user(self.user),
+                        "last_modified_at": "2022-04-01T16:45:00Z",
+                        "last_modified_by": self._serialised_user(new_user),
+                    },
+                ],
+            )
 
     def test_dashboard_item_layout_can_update_text_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "asdasd", "pinned": True})
