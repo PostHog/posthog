@@ -81,7 +81,7 @@ export function TextTileModal({
                                 </div>
                             </Tabs.TabPane>
                             <Tabs.TabPane tab="Preview" key={'preview-card'}>
-                                <ReactMarkdown>{value}</ReactMarkdown>
+                                <TextCardBody text={value} />
                             </Tabs.TabPane>
                         </Tabs>
                     )}
@@ -97,6 +97,16 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     children?: JSX.Element
     updateColor?: (newColor: InsightModel['color']) => void
     removeFromDashboard?: () => void
+}
+
+function TextCardBody({ text }: { text: string }): JSX.Element {
+    return (
+        <Textfit mode="multi" min={16} max={120}>
+            <div className="whitespace-pre-wrap px-2 pb-2 TextCard-Body">
+                <ReactMarkdown>{text}</ReactMarkdown>
+            </div>
+        </Textfit>
+    )
 }
 
 export function TextCardInternal(
@@ -195,11 +205,7 @@ export function TextCardInternal(
                         InsightColor.White /* White has historically meant no color synonymously to null */ && (
                         <div className={clsx('DashboardCard__ribbon ml-2', textTile.color)} />
                     )}
-                <Textfit mode="multi" min={16} max={120}>
-                    <div className="whitespace-pre-wrap px-2 pb-2 TextCard-Body">
-                        <ReactMarkdown>{textTile.body}</ReactMarkdown>
-                    </div>
-                </Textfit>
+                <TextCardBody text={textTile.body} />
             </div>
             {showResizeHandles && (
                 <>
