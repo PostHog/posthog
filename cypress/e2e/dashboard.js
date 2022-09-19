@@ -9,6 +9,12 @@ function createDashboardFromTemplate(dashboardName) {
     cy.contains(dashboardName).should('exist')
 }
 
+function addTextCardToDashboard(contents) {
+    cy.get('[data-attr="dashboard-add-dropdown"]').click()
+    cy.get('[data-attr="add-text-tile-to-dashboard"]').click()
+    cy.get('[data-attr="text-card-edit-area"]').type(contents)
+}
+
 describe('Dashboard', () => {
     beforeEach(() => {
         cy.clickNavMenu('dashboards')
@@ -35,6 +41,27 @@ describe('Dashboard', () => {
         cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
         cy.get('[data-attr="dashboard-list-item"] a').first().click({ force: true }) // Go to the dashboard
         cy.get('[data-attr="insight-name"]').should('contain', 'Test Insight Zeus') // Check if the insight is there
+    })
+
+    it('Adding new text card to dashboard works', () => {
+        addTextCardToDashboard('# a title\n\nand_italics_\n\nand**bold**\n\n* and\n* a\n* list')
+        cy.get('[data-attr="save-new-text-tile"]').click()
+        cy.get('.TextCard').contains('h1', 'a title').should('be.visible')
+    })
+
+    it('Can edit text card on dashboard', () => {
+        addTextCardToDashboard('# a title')
+        cy.get('[data-attr="save-new-text-tile"]').click()
+        cy.get('.TextCard').contains('h1', 'a title').should('be.visible')
+        cy.get('.TextCard')
+            .last()
+            .within(() => {
+                cy.get('[data-attr="more-button"]').click()
+                cy.get('[data-attr="edit-text"]').click()
+            })
+        cy.get('[data-attr="text-card-edit-area"]').type('edited _values_')
+        cy.get('[data-attr="edit-text-tile-text"]').click()
+        cy.get('.TextCard').contains('edited values').should('be.visible')
     })
 
     it('Cannot see tags or description (non-FOSS feature)', () => {

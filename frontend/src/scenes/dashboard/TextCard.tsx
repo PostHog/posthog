@@ -74,7 +74,12 @@ export function TextTileModal({
                     {({ value, onChange }) => (
                         <Tabs>
                             <Tabs.TabPane tab="Write" key="write-card">
-                                <LemonTextArea autoFocus value={value} onChange={(newValue) => onChange(newValue)} />
+                                <LemonTextArea
+                                    data-attr="text-card-edit-area"
+                                    autoFocus
+                                    value={value}
+                                    onChange={(newValue) => onChange(newValue)}
+                                />
                                 <div className="text-muted inline-flex items-center space-x-1">
                                     <IconMarkdown />
                                     <span>Basic formatting and markdown support</span>
@@ -146,6 +151,7 @@ export function TextCardInternal(
                                     status="stealth"
                                     fullWidth
                                     onClick={() => push(urls.dashboardTextTile(dashboardId, textTile.id))}
+                                    data-attr="edit-text"
                                 >
                                     Edit text
                                 </LemonButton>
