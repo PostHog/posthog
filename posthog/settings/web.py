@@ -213,12 +213,6 @@ if RATE_LIMIT_ENABLED or TEST:
         "posthog.rate_limit.PassThroughBurstRateThrottle",
         "posthog.rate_limit.PassThroughSustainedRateThrottle",
     ]
-    REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
-        "burst": "240/minute",
-        "sustained": "2000/hour",
-        "clickhouse_burst": "60/minute",
-        "clickhouse_sustained": "600/hour",
-    }
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
