@@ -1,7 +1,7 @@
 import { PluginMeta } from '@posthog/plugin-scaffold'
 import deepmerge from 'deepmerge'
 
-import { Hub, PluginConfigVMInternalResponse } from '../../../../../src/types'
+import { Hub, PluginConfig, PluginConfigVMInternalResponse } from '../../../../../src/types'
 import { createHub } from '../../../../../src/utils/db/hub'
 import { createStorage } from '../../../../../src/worker/vm/extensions/storage'
 import { createUtils } from '../../../../../src/worker/vm/extensions/utilities'
@@ -14,9 +14,12 @@ jest.mock('../../../../../src/utils/status')
 describe('addHistoricalEventsExportCapability()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
+    let _pluginConfig39: PluginConfig
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
+
+        _pluginConfig39 = { ...pluginConfig39 }
     })
 
     afterEach(async () => {
@@ -33,8 +36,8 @@ describe('addHistoricalEventsExportCapability()', () => {
                 job: {},
             },
             meta: {
-                storage: createStorage(hub, pluginConfig39),
-                utils: createUtils(hub, pluginConfig39.id),
+                storage: createStorage(hub, _pluginConfig39),
+                utils: createUtils(hub, _pluginConfig39.id),
                 jobs: {
                     exportHistoricalEvents: jest.fn().mockReturnValue(jest.fn()),
                 },
@@ -42,7 +45,7 @@ describe('addHistoricalEventsExportCapability()', () => {
             },
         }) as unknown as PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgrade>>
 
-        addHistoricalEventsExportCapability(hub, pluginConfig39, mockVM)
+        addHistoricalEventsExportCapability(hub, _pluginConfig39, mockVM)
 
         return mockVM
     }
@@ -73,10 +76,14 @@ describe('addHistoricalEventsExportCapability()', () => {
         })
     })
 
-    it('updates plugin job spec if current spec is outdated', async () => {
-        await hub.db.addOrUpdatePublicJob(60, 'Export historical events', { foo: 'bar' })
-
+    it('updates plugin job spec if current spec is outdated', () => {
         const addOrUpdatePublicJobSpy = jest.spyOn(hub.db, 'addOrUpdatePublicJob')
+
+        _pluginConfig39.plugin = {
+            public_jobs: {
+                'Export historical events': { payload: { foo: 'bar' } },
+            },
+        } as any
 
         addCapabilities()
 
@@ -86,6 +93,25 @@ describe('addHistoricalEventsExportCapability()', () => {
                 dateTo: { required: true, title: 'Export end date', type: 'date' },
             },
         })
+    })
+
+    it('does not update plugin job spec if current spec matches stored spec', () => {
+        const addOrUpdatePublicJobSpy = jest.spyOn(hub.db, 'addOrUpdatePublicJob')
+
+        _pluginConfig39.plugin = {
+            public_jobs: {
+                'Export historical events': {
+                    payload: {
+                        dateFrom: { required: true, title: 'Export start date', type: 'date' },
+                        dateTo: { required: true, title: 'Export end date', type: 'date' },
+                    },
+                },
+            },
+        } as any
+
+        addCapabilities()
+
+        expect(addOrUpdatePublicJobSpy).not.toHaveBeenCalled()
     })
 
     describe('setupPlugin()', () => {
