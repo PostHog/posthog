@@ -1,15 +1,16 @@
 .LemonDataGrid {
-    position: relative;
     width: 100%;
     background: #fff;
     border-radius: var(--radius);
     border: 1px solid var(--border);
+    border-bottom: none;
     overflow: hidden;
 
     &--cell {
         display: flex;
         align-items: center;
-        border-top: 1px solid var(--border);
+        //border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
         padding: 0.5rem 1rem;
     }
     &--header {
@@ -20,5 +21,11 @@
         font-weight: 700;
         text-align: left;
         border-top: none;
+    }
+    &--header-end {
+        background: var(--bg-mid);
+    }
+    .LemonDataGrid--very-hidden {
+        overflow: hidden !important;
     }
 }
