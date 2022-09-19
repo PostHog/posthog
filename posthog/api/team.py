@@ -183,9 +183,10 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
         base_permissions = [permission() for permission in self.permission_classes]
+
+        # Return early for non-actions (e.g. OPTIONS)
         if self.action:
-            # Return early for non-actions (e.g. OPTIONS)
-            if self.action == "create":
+            if self.action in ("create", "reset_token"):
                 organization = getattr(self.request.user, "organization", None)
                 if not organization:
                     raise exceptions.ValidationError("You need to belong to an organization.")
