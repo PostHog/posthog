@@ -172,6 +172,7 @@ function AnnotationsPopover({
             additionalRefs={overlayRefs}
             className="AnnotationsPopover"
             placement="top"
+            fallbackPlacements={['top-end', 'top-start']}
             referenceElement={activeBadgeElement as HTMLElement}
             visible={isPopoverShown}
             onClickOutside={closePopover}
