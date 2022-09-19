@@ -61,6 +61,33 @@ describe('addHistoricalEventsExportCapability()', () => {
         ])
     })
 
+    it('registers public job spec theres not currently a spec', () => {
+        const addOrUpdatePublicJobSpy = jest.spyOn(hub.db, 'addOrUpdatePublicJob')
+        addCapabilities()
+
+        expect(addOrUpdatePublicJobSpy).toHaveBeenCalledWith(60, 'Export historical events', {
+            payload: {
+                dateFrom: { required: true, title: 'Export start date', type: 'date' },
+                dateTo: { required: true, title: 'Export end date', type: 'date' },
+            },
+        })
+    })
+
+    it('updates plugin job spec if current spec is outdated', async () => {
+        await hub.db.addOrUpdatePublicJob(60, 'Export historical events', { foo: 'bar' })
+
+        const addOrUpdatePublicJobSpy = jest.spyOn(hub.db, 'addOrUpdatePublicJob')
+
+        addCapabilities()
+
+        expect(addOrUpdatePublicJobSpy).toHaveBeenCalledWith(60, 'Export historical events', {
+            payload: {
+                dateFrom: { required: true, title: 'Export start date', type: 'date' },
+                dateTo: { required: true, title: 'Export end date', type: 'date' },
+            },
+        })
+    })
+
     describe('setupPlugin()', () => {
         it('calls original setupPlugin()', async () => {
             const setupPlugin = jest.fn()
