@@ -6834,10 +6834,10 @@ chart.js@^3.9.1:
   resolved "https://registry.yarnpkg.com/chart.js/-/chart.js-3.9.1.tgz#3abf2c775169c4c71217a107163ac708515924b8"
   integrity sha512-Ro2JbLmvg83gXF5F4sniaQ+lTbSv18E+TIf2cOeiH1Iqd2PGFOtem+DUufMZsCJwFE7ywPOpfXFBwRTGq7dh6w==
 
-chartjs-adapter-dayjs@^1.0.0:
-  version "1.0.0"
-  resolved "https://registry.yarnpkg.com/chartjs-adapter-dayjs/-/chartjs-adapter-dayjs-1.0.0.tgz#794cafb11d3715a565daae4ef99525f9ed2d763f"
-  integrity sha512-EnbVqTJGFKLpg1TROLdCEufrzbmIa2oeLGx8O2Wdjw2EoMudoOo9+YFu+6CM0Z0hQ/v3yq/e/Y6efQMu22n8Jg==
+chartjs-adapter-dayjs-3@^1.2.3:
+  version "1.2.3"
+  resolved "https://registry.yarnpkg.com/chartjs-adapter-dayjs-3/-/chartjs-adapter-dayjs-3-1.2.3.tgz#c3c4c61ec2b4d3a5532e80f159c0e78b92f2bf2c"
+  integrity sha512-H8m1c2cFi9zdiJ0IfY7txUSSZusnS671sUuE6dbmvcaHmSFTMNoWH5lJvNj+oM1hLRsiP5pSTiB7InAMDJP+rQ==
 
 chartjs-color-string@^0.6.0:
   version "0.6.0"
