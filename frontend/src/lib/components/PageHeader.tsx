@@ -5,6 +5,7 @@ import { LemonDivider } from './LemonDivider'
 
 interface PageHeaderProps {
     title: string | JSX.Element
+    description?: string | JSX.Element
     caption?: string | JSX.Element | null | false
     buttons?: JSX.Element | false
     style?: React.CSSProperties
@@ -12,10 +13,21 @@ interface PageHeaderProps {
     delimited?: boolean
 }
 
-export function PageHeader({ title, caption, buttons, style, tabbedPage, delimited }: PageHeaderProps): JSX.Element {
+export function PageHeader({
+    title,
+    caption,
+    description,
+    buttons,
+    style,
+    tabbedPage,
+    delimited,
+}: PageHeaderProps): JSX.Element {
     const row = (
         <div className="page-title-row flex justify-between" style={style}>
-            <h1 className="page-title">{title}</h1>
+            <div>
+                <h1 className="page-title">{title}</h1>
+                <span className="page-description">{description}</span>
+            </div>
             <div className="page-buttons">{buttons}</div>
         </div>
     )

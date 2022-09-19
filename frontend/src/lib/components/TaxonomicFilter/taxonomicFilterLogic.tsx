@@ -459,7 +459,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                             key,
                             group_type_index: type.group_type_index,
                         })}`,
-                    getName: () => capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular),
+                    getName: (group) => group.name,
                     getValue: (group) => group.name,
                     getPopupHeader: () => `Property`,
                     getIcon: getPropertyDefinitionIcon,

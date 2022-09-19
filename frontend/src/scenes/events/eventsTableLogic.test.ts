@@ -13,14 +13,12 @@ const errorToastSpy = jest.spyOn(lemonToast, 'error')
 
 const timeNow = '2021-05-05T00:00:00.000Z'
 
-jest.mock('lib/dayjs', () => {
-    const dayjs = jest.requireActual('lib/dayjs')
-    return { ...dayjs, now: () => dayjs.dayjs(timeNow) }
-})
+import * as dayjs from 'lib/dayjs'
+jest.spyOn(dayjs, 'now').mockImplementation(() => dayjs.dayjs(timeNow))
 
-import { triggerExport } from 'lib/components/ExportButton/exporter'
+import * as exporter from 'lib/components/ExportButton/exporter'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-jest.mock('lib/components/ExportButton/exporter')
+jest.spyOn(exporter, 'triggerExport')
 
 const randomBool = (): boolean => Math.random() < 0.5
 
@@ -808,7 +806,7 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.startDownload()
                 })
-                expect(triggerExport).toHaveBeenCalledWith({
+                expect(exporter.triggerExport).toHaveBeenCalledWith({
                     export_context: {
                         max_limit: 3500,
                         path: `/api/projects/${MOCK_TEAM_ID}/events?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D`,

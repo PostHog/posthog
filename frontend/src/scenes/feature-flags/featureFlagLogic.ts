@@ -4,6 +4,7 @@ import {
     AnyPropertyFilter,
     Breadcrumb,
     FeatureFlagType,
+    InsightModel,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
     PropertyFilter,
@@ -58,12 +59,13 @@ export interface FeatureFlagLogicProps {
 export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
-    key(({ id }) => id ?? 'new'),
+    key(({ id }) => id ?? 'unknown'),
     connect({
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
     }),
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        setFeatureFlagMissing: true,
         addConditionSet: true,
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
         removeConditionSet: (index: number) => ({ index }),
@@ -81,7 +83,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
+        duplicateVariant: (index: number) => ({ index }),
         removeVariant: (index: number) => ({ index }),
+        editFeatureFlag: (editing: boolean) => ({ editing }),
         distributeVariantsEqually: true,
     }),
     forms(({ actions }) => ({
@@ -257,12 +261,25 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+
+        featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
+        isEditingFlag: [
+            false,
+            {
+                editFeatureFlag: (_, { editing }) => editing,
+            },
+        ],
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
                 if (props.id && props.id !== 'new') {
-                    return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
+                    try {
+                        return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
+                    } catch (e) {
+                        actions.setFeatureFlagMissing()
+                        throw e
+                    }
                 }
                 return NEW_FLAG
             },
@@ -286,12 +303,27 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
+        recentInsights: [
+            [] as InsightModel[],
+            {
+                loadRecentInsights: async () => {
+                    if (props.id && props.id !== 'new' && values.featureFlag.key) {
+                        const response = await api.get(
+                            `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
+                        )
+                        return response.results
+                    }
+                    return []
+                },
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
             router.actions.replace(urls.featureFlag(featureFlag.id))
+            actions.editFeatureFlag(false)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({
@@ -310,6 +342,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             } else {
                 actions.setMultivariateOptions(null)
             }
+        },
+        loadFeatureFlagSuccess: async () => {
+            actions.loadRecentInsights()
         },
     })),
     selectors({
@@ -378,6 +413,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
         if (foundFlag) {
             actions.setFeatureFlag(foundFlag)
+            actions.loadRecentInsights()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
         }

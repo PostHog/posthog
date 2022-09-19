@@ -31,8 +31,8 @@ class Command(BaseCommand):
         idx = len(entries)
         index_label = _format_number(idx)
         file_name = "{}/{}_{}".format(MIGRATION_PATH, index_label, name)
-        f = open(file_name, "w")
-        f.write(FILE_DEFAULT)
+        with open(file_name, "w", encoding="utf_8") as f:
+            f.write(FILE_DEFAULT)
         return
 
 

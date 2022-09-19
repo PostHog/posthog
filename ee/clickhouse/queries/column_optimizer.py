@@ -15,13 +15,13 @@ from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOpt
 class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
     @cached_property
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
-        used_properties = self._used_properties_with_type("group")
+        used_properties = self.used_properties_with_type("group")
         return set(cast(GroupTypeIndex, group_type_index) for _, _, group_type_index in used_properties)
 
     @cached_property
     def group_on_event_columns_to_query(self) -> Set[ColumnName]:
         "Returns a list of event table group columns containing materialized properties that this query needs"
-        used_properties = self._used_properties_with_type("group")
+        used_properties = self.used_properties_with_type("group")
 
         columns_to_query: Set[ColumnName] = set()
 

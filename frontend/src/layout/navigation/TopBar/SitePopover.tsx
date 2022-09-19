@@ -202,9 +202,8 @@ function Version(): JSX.Element {
                 </div>
                 {latestVersion && (
                     <Link
-                        href={`https://posthog.com/blog/the-posthog-array-${latestVersion.replace(/\./g, '-')}`}
+                        to={`https://posthog.com/blog/the-posthog-array-${latestVersion.replace(/\./g, '-')}`}
                         target="_blank"
-                        rel="noopener"
                         onClick={() => {
                             closeSitePopover()
                         }}

@@ -68,8 +68,11 @@ export function DashboardHeader(): JSX.Element | null {
                             value={dashboard?.name || (allItemsLoading ? 'Loading…' : '')}
                             placeholder="Name this dashboard"
                             onSave={
-                                dashboard ? (value) => updateDashboard({ id: dashboard.id, name: value }) : undefined
+                                dashboard
+                                    ? (value) => updateDashboard({ id: dashboard.id, name: value, allowUndo: true })
+                                    : undefined
                             }
+                            saveOnBlur={true}
                             minLength={1}
                             maxLength={400} // Sync with Dashboard model
                             mode={!canEditDashboard ? 'view' : undefined}
@@ -255,7 +258,10 @@ export function DashboardHeader(): JSX.Element | null {
                                 name="description"
                                 value={dashboard.description || ''}
                                 placeholder="Description (optional)"
-                                onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
+                                onSave={(value) =>
+                                    updateDashboard({ id: dashboard.id, description: value, allowUndo: true })
+                                }
+                                saveOnBlur={true}
                                 compactButtons
                                 mode={!canEditDashboard ? 'view' : undefined}
                                 paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
@@ -319,7 +325,9 @@ function CollaboratorBubbles({
             people={allCollaborators.map((collaborator) => ({
                 email: collaborator.user.email,
                 name: collaborator.user.first_name,
-                title: `${collaborator.user.first_name} (${privilegeLevelToName[collaborator.level]})`,
+                title: `${collaborator.user.first_name} <${collaborator.user.email}> (${
+                    privilegeLevelToName[collaborator.level]
+                })`,
             }))}
             tooltip={tooltipParts.join(' • ')}
             onClick={onClick}

@@ -1,3 +1,4 @@
+import React from 'react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { consoleLogsListLogicType } from './consoleLogsListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -20,6 +21,7 @@ import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedLis
 import md5 from 'md5'
 import { parseEntry } from 'scenes/session-recordings/player/list/consoleLogsUtils'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { ConsoleDetails, ConsoleDetailsProps } from 'scenes/session-recordings/player/list/ConsoleDetails'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
@@ -55,7 +57,12 @@ function parseConsoleLogPayload(
         })
         .flat()
     const fullContent = [
-        ...parsedEntries.map(({ parsed }) => parsed),
+        ...parsedEntries.map(({ parsed, type }) => {
+            if (['array', 'object'].includes(type)) {
+                return <ConsoleDetails json={parsed as ConsoleDetailsProps['json']} />
+            }
+            return parsed
+        }),
         ...parsedTrace.map(({ parsed }) => parsed),
     ].flat()
     const traceContent = parsedTrace.map(({ traceUrl }) => traceUrl).filter((traceUrl) => !!traceUrl)

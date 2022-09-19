@@ -106,6 +106,11 @@ export function PropertyGroupFilters({
                                                 </div>
                                                 <PropertyFilters
                                                     orFiltering={true}
+                                                    addButton={
+                                                        <LemonButton type="tertiary" noPadding icon={<IconPlusMini />}>
+                                                            Add filter
+                                                        </LemonButton>
+                                                    }
                                                     propertyFilters={group.values}
                                                     style={{ marginBottom: 0 }}
                                                     onChange={(properties) => {

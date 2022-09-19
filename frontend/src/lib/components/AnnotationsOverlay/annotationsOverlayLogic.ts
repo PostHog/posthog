@@ -34,7 +34,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     }),
     actions({
         createAnnotation: (annotationData: AnnotationDataWithoutInsight) => ({ annotationData }),
-        activateDate: (date: Dayjs, badgeCoordinates: [number, number]) => ({ date, badgeCoordinates }),
+        activateDate: (date: Dayjs, badgeElement: HTMLButtonElement) => ({ date, badgeElement }),
         deactivateDate: true,
         lockDate: true,
         unlockDate: true,
@@ -55,10 +55,10 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 activateDate: (_, { date }) => date,
             },
         ],
-        activeBadgeCoordinates: [
-            null as [number, number] | null,
+        activeBadgeElement: [
+            null as HTMLButtonElement | null,
             {
-                activateDate: (_, { badgeCoordinates }) => badgeCoordinates,
+                activateDate: (_, { badgeElement }) => badgeElement,
             },
         ],
         isDateLocked: [

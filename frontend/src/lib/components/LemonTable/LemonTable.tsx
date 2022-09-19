@@ -8,8 +8,8 @@ import './LemonTable.scss'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
-import { Skeleton } from 'antd'
 import { useScrollable } from 'lib/hooks/useScrollable'
+import { LemonSkeleton } from '../LemonSkeleton'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -42,9 +42,11 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** How tall should rows be. The default value is `"middle"`. */
-    size?: 'small' | 'middle'
+    size?: 'xs' | 'small' | 'middle'
     /** An embedded table has no border around it and no background. This way it blends better into other components. */
     embedded?: boolean
+    /** Whether inner table borders should be shown. **/
+    bordered?: boolean
     loading?: boolean
     pagination?: PaginationAuto | PaginationManual
     expandable?: ExpandableConfig<T>
@@ -86,6 +88,7 @@ export function LemonTable<T extends Record<string, any>>({
     onRow,
     size,
     embedded = false,
+    bordered = true,
     loading,
     pagination,
     expandable,
@@ -196,6 +199,7 @@ export function LemonTable<T extends Record<string, any>>({
                 size && size !== 'middle' && `LemonTable--${size}`,
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
+                !bordered && 'LemonTable--borderless',
                 ...scrollableClassNames,
                 className
             )}
@@ -263,31 +267,28 @@ export function LemonTable<T extends Record<string, any>>({
                                                         : undefined
                                                 }
                                             >
-                                                <Tooltip
-                                                    title={
-                                                        column.sorter &&
-                                                        (() => {
-                                                            const nextSorting = getNextSorting(
-                                                                currentSorting,
-                                                                determineColumnKey(column, 'sorting'),
-                                                                disableSortingCancellation
-                                                            )
-                                                            return `Click to ${
-                                                                nextSorting
-                                                                    ? nextSorting.order === 1
-                                                                        ? 'sort ascending'
-                                                                        : 'sort descending'
-                                                                    : 'cancel sorting'
-                                                            }`
-                                                        })
-                                                    }
+                                                <div
+                                                    className="LemonTable__header-content items-center"
+                                                    style={{ justifyContent: column.align }}
                                                 >
-                                                    <div
-                                                        className="LemonTable__header-content"
-                                                        style={{ justifyContent: column.align }}
-                                                    >
-                                                        {column.title}
-                                                        {column.sorter && (
+                                                    {column.title}
+                                                    {column.sorter && (
+                                                        <Tooltip
+                                                            title={() => {
+                                                                const nextSorting = getNextSorting(
+                                                                    currentSorting,
+                                                                    determineColumnKey(column, 'sorting'),
+                                                                    disableSortingCancellation
+                                                                )
+                                                                return `Click to ${
+                                                                    nextSorting
+                                                                        ? nextSorting.order === 1
+                                                                            ? 'sort ascending'
+                                                                            : 'sort descending'
+                                                                        : 'cancel sorting'
+                                                                }`
+                                                            }}
+                                                        >
                                                             <SortingIndicator
                                                                 order={
                                                                     currentSorting?.columnKey ===
@@ -296,9 +297,10 @@ export function LemonTable<T extends Record<string, any>>({
                                                                         : null
                                                                 }
                                                             />
-                                                        )}
-                                                    </div>
-                                                </Tooltip>
+                                                            {/* this non-breaking space lets antd's tooltip work*/}{' '}
+                                                        </Tooltip>
+                                                    )}
+                                                </div>
                                             </th>
                                         ))
                                     )}
@@ -352,7 +354,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                             column.className
                                                         )}
                                                     >
-                                                        <Skeleton title paragraph={false} active />
+                                                        <LemonSkeleton />
                                                     </td>
                                                 ))
                                             )}

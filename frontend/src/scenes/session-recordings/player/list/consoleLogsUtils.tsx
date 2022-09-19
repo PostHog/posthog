@@ -1,5 +1,5 @@
 import React from 'react'
-import { findAllIndices } from 'lib/utils'
+import { Link } from 'lib/components/Link'
 
 const STRING_INCLUDES_URL = new RegExp(
     '([a-zA-Z0-9]+://)?([a-zA-Z0-9_]+:[a-zA-Z0-9_]+@)?([a-zA-Z0-9.-]+\\.[A-Za-z]{2,4})(:[0-9]+)?(/.*)?'
@@ -17,7 +17,7 @@ export interface ParsedEntry {
 //  - If object is detected in string, parse it and make it pretty
 //  - If array is detected in string, parse it and make it pretty
 export function parseEntry(entry?: string): ParsedEntry {
-    if (!entry) {
+    if (!entry?.replace(/\s+/g, '')?.trim()) {
         return {
             type: 'string',
             parsed: null,
@@ -42,11 +42,12 @@ export function parseEntry(entry?: string): ParsedEntry {
     }
 
     // Align all whitespace
-    rawEntry = rawEntry.replace(/\\n/g, ' ').replace(/\s+/g, ' ')
+    rawEntry = rawEntry.replace(/\\n/g, '\n\t').replace(/\s+/g, ' ')
 
     // Wrap urls with anchor tags
-    const rawEntriesSplit = rawEntry.split(' ').map((splitEntry) => {
-        if (STRING_INCLUDES_URL.test(rawEntry)) {
+    const finalStringBuilder: React.ReactElement[] = []
+    rawEntry.split(/(\s+)/g).forEach((splitEntry) => {
+        if (STRING_INCLUDES_URL.test(splitEntry) && splitEntry.split(':').length >= 3) {
             // Parse the trace string
             // trace[] contains strings that looks like:
             // * ":123:456"
@@ -55,63 +56,47 @@ export function parseEntry(entry?: string): ParsedEntry {
             // * "Login (https://example.com/path/to/file.js:123:456)"
             // * "https://example.com/path/to/file.js:123:456 https://example.com/path/to/file.js:123:456 https://example.com/path/to/file.js:123:456"
             // Note: there may be other formats too, but we only handle these ones now
-            const splitString = rawEntry.split(/\s+/g)
-            const urlIndices = findAllIndices(splitString, (s) => s.split(':').length >= 3)
 
-            // URL doesn't exist here
-            if (urlIndices.length === 0) {
-                return rawEntry
-            }
-
-            let element = <></>
-            splitString.forEach((splitPart, index) => {
-                if (urlIndices.includes(index)) {
-                    const url = splitPart.replace(/^\(/, '').replace(/\)$/, '') // remove flanking parentheses
-                    let shortenedURL
-                    const splitTrace = url.split(':')
-                    const lineNumbers = splitTrace.slice(-2).join(':').split(/\s+/)[0]
-                    const baseURL = splitTrace.slice(0, -2).join(':')
-                    if (splitTrace.length >= 4) {
-                        // Case with URL and line number
-                        try {
-                            const fileNameFromURL = new URL(baseURL).pathname.split('/').slice(-1)[0]
-                            shortenedURL = `${fileNameFromURL}:${lineNumbers}`
-                        } catch (e) {
-                            // If we can't parse the URL, fall back to this line number
-                            shortenedURL = `:${lineNumbers}`
-                        }
-                    } else if (splitTrace.length === 3) {
-                        // Case with line number only
-                        shortenedURL = `:${lineNumbers}`
-                    }
-                    const link = (
-                        <a href={baseURL} target="_blank">
-                            {shortenedURL}
-                        </a>
-                    )
-                    element = (
-                        <>
-                            {element} {link}
-                        </>
-                    )
-                    if (!traceUrl) {
-                        traceUrl = link
-                    }
-                } else {
-                    element = (
-                        <>
-                            {element} {splitPart}
-                        </>
-                    )
+            const url = splitEntry.replace(/^\(/, '').replace(/\)$/, '') // remove flanking parentheses
+            let shortenedURL
+            const splitTrace = url.split(':')
+            const lineNumbers = splitTrace.slice(-2).join(':').split(/\s+/)[0]
+            const baseURL = splitTrace.slice(0, -2).join(':')
+            if (splitTrace.length >= 4) {
+                // Case with URL and line number
+                try {
+                    const fileNameFromURL = new URL(baseURL).pathname.split('/').slice(-1)[0]
+                    shortenedURL = `${fileNameFromURL}:${lineNumbers}`
+                } catch (e) {
+                    // If we can't parse the URL, fall back to this line number
+                    shortenedURL = `:${lineNumbers}`
                 }
-            })
-            return element
+            } else if (splitTrace.length === 3) {
+                // Case with line number only
+                shortenedURL = `:${lineNumbers}`
+            }
+            const link = (
+                <Link to={baseURL} target="_blank">
+                    {shortenedURL}
+                </Link>
+            )
+            if (!traceUrl) {
+                traceUrl = link
+            }
+            finalStringBuilder.push(<>{link}</>)
+            return
         }
-        return <>{splitEntry}</>
+        finalStringBuilder.push(<>{splitEntry}</>)
     })
 
     return {
-        parsed: rawEntriesSplit,
+        parsed: (
+            <>
+                {finalStringBuilder.map((s, i) => (
+                    <React.Fragment key={i}>{s}</React.Fragment>
+                ))}
+            </>
+        ),
         type: 'string',
         size: -1,
         traceUrl,

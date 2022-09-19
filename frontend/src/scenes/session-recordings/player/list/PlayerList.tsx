@@ -1,8 +1,9 @@
 import './PlayerList.scss'
-import React, { useEffect, useRef } from 'react'
+import React, { ReactElement, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import {
+    DEFAULT_EXPANDED_ROW_HEIGHT,
     DEFAULT_ROW_HEIGHT,
     listLogic,
     OVERSCANNED_ROW_COUNT,
@@ -17,6 +18,7 @@ import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { ExpandableConfig } from 'lib/components/LemonTable'
 import { ListRowOptions, PlayerListRow } from 'scenes/session-recordings/player/list/PlayerListRow'
+import { getRowExpandedState } from 'scenes/session-recordings/player/playerUtils'
 
 interface RowConfig<T extends Record<string, any>> {
     /** Class to append to each row. */
@@ -24,16 +26,21 @@ interface RowConfig<T extends Record<string, any>> {
     /** Status of each row. Defaults no status */
     status?: RowStatus | ((record: T) => RowStatus | null)
     /** Callback to render main content on left side of row */
-    content?: JSX.Element | ((record: T) => JSX.Element | null)
+    content?: ReactElement | ((record: T, index: number, expanded: boolean) => ReactElement | null)
     /** Callback to render main content on right side of row */
-    sideContent?: JSX.Element | ((record: T) => JSX.Element | null)
+    sideContent?: ReactElement | ((record: T, index: number, expanded: boolean) => ReactElement | null)
     /** Side menu options for each row in the list **/
     options?: ListRowOptions<T> | ((record: T, index: number) => ListRowOptions<T>)
 }
 
+export interface PlayerListExpandableConfig<T extends Record<string, any>> extends ExpandableConfig<T> {
+    /** If specified, replace the preview content in the row with custom render */
+    expandedPreviewContentRender?: (record: T, recordIndex: number) => any
+}
+
 export interface PlayerListProps<T> extends SessionRecordingPlayerProps {
     tab: SessionRecordingTab
-    expandable?: ExpandableConfig<T>
+    expandable?: PlayerListExpandableConfig<T>
     row?: RowConfig<T>
 }
 
@@ -46,8 +53,9 @@ export function PlayerList<T extends Record<string, any>>({
 }: PlayerListProps<T>): JSX.Element {
     const listRef = useRef<List>(null)
     const logic = listLogic({ tab, sessionRecordingId, playerKey })
-    const { data, showPositionFinder, isCurrent, isDirectionUp } = useValues(logic)
-    const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick } = useActions(logic)
+    const { data, showPositionFinder, isCurrent, isDirectionUp, expandedRows } = useValues(logic)
+    const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick, expandRow, collapseRow } =
+        useActions(logic)
     const { sessionEventsDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
 
     useEffect(() => {
@@ -117,6 +125,12 @@ export function PlayerList<T extends Record<string, any>>({
                                     rowCount={data.length}
                                     rowRenderer={({ index, style, key }) => {
                                         const record = data[index] as T
+                                        const expandedDetermined = getRowExpandedState(
+                                            record,
+                                            index,
+                                            expandable,
+                                            expandedRows.has(index)
+                                        )
                                         const rowKeyDetermined = key ?? index
                                         const rowClassNameDetermined =
                                             typeof row?.className === 'function'
@@ -126,10 +140,12 @@ export function PlayerList<T extends Record<string, any>>({
                                             typeof row?.status === 'function' ? row.status(record) : row?.status
                                         const rowCurrentDetermined = isCurrent(index)
                                         const rowContentDetermined =
-                                            typeof row?.content === 'function' ? row.content(record) : row?.content
+                                            typeof row?.content === 'function'
+                                                ? row.content(record, index, expandedDetermined)
+                                                : row?.content
                                         const rowSideContentDetermined =
                                             typeof row?.sideContent === 'function'
-                                                ? row.sideContent(record)
+                                                ? row.sideContent(record, index, expandedDetermined)
                                                 : row?.sideContent
                                         const optionsDetermined =
                                             typeof row?.options === 'function'
@@ -146,17 +162,42 @@ export function PlayerList<T extends Record<string, any>>({
                                                 statusDetermined={rowStatusDetermined}
                                                 currentDetermined={rowCurrentDetermined}
                                                 style={style}
-                                                expandable={expandable}
+                                                expandable={
+                                                    expandable
+                                                        ? {
+                                                              ...expandable,
+                                                              onRowExpand: (record, index) => {
+                                                                  expandable?.onRowExpand?.(record, index)
+                                                                  expandRow(index)
+                                                                  listRef?.current?.recomputeRowHeights(index)
+                                                              },
+                                                              onRowCollapse: (_, index) => {
+                                                                  expandable?.onRowCollapse?.(record, index)
+                                                                  collapseRow(index)
+                                                                  listRef?.current?.recomputeRowHeights(index)
+                                                              },
+                                                          }
+                                                        : undefined
+                                                }
                                                 contentDetermined={rowContentDetermined}
                                                 sideContentDetermined={rowSideContentDetermined}
                                                 onClick={(record) => {
                                                     handleRowClick(record.playerPosition)
                                                 }}
                                                 optionsDetermined={optionsDetermined ?? []}
+                                                expandedDetermined={expandedDetermined}
+                                                loading={sessionEventsDataLoading}
                                             />
                                         )
                                     }}
-                                    rowHeight={DEFAULT_ROW_HEIGHT}
+                                    rowHeight={({ index }) => {
+                                        const record = data[index] as T
+                                        if (getRowExpandedState(record, index, expandable, expandedRows.has(index))) {
+                                            return DEFAULT_EXPANDED_ROW_HEIGHT
+                                        }
+
+                                        return DEFAULT_ROW_HEIGHT
+                                    }}
                                 />
                             )
                         }}

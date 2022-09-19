@@ -264,7 +264,7 @@ export function PluginDrawer(): JSX.Element {
                                         onClick={() => setEditingSource(!editingSource)}
                                         data-attr="plugin-edit-source"
                                     >
-                                        Edit Source
+                                        Edit source
                                     </Button>
                                 </div>
                             ) : null}
