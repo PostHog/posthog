@@ -106,11 +106,13 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
 
 function TextCardBody({ text }: { text: string }): JSX.Element {
     return (
-        <Textfit mode="multi" min={16} max={120}>
-            <div className="whitespace-pre-wrap px-2 pb-2 TextCard-Body">
-                <ReactMarkdown>{text}</ReactMarkdown>
-            </div>
-        </Textfit>
+        <div className={'w-full'}>
+            <Textfit mode={text.indexOf('\n') >= 0 ? 'multi' : 'single'} min={16} max={80}>
+                <div className="TextCard-Body whitespace-pre-wrap px-2 pb-2">
+                    <ReactMarkdown>{text}</ReactMarkdown>
+                </div>
+            </Textfit>
+        </div>
     )
 }
 
@@ -137,13 +139,13 @@ export function TextCardInternal(
             {...divProps}
             ref={ref}
         >
-            <div className={'flex flex-row px-2'}>
+            <div className={'flex flex-row px-2 pt-2'}>
                 <UserActivityIndicator
                     className={'grow'}
                     at={textTile.last_modified_at}
                     by={textTile.created_by || textTile.last_modified_by}
                 />
-                <div className="min-h-4 flex items-center pt-2 px-2 justify-end">
+                <div className="min-h-4 flex items-center justify-end">
                     <More
                         overlay={
                             <>
