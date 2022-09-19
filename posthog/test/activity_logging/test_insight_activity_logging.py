@@ -22,7 +22,9 @@ class TestChangesBetweenInsights(BaseTest):
                 action="changed",
                 field="dashboards",
                 before=[],
-                after=[{"id": dashboard.id, "name": dashboard.name}],
+                after=[
+                    {"insight": {"id": insight_after.id}, "dashboard": {"id": dashboard.id, "name": "the dashboard"}}
+                ],
             )
         ]
 
