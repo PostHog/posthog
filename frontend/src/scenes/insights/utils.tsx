@@ -328,11 +328,11 @@ export function formatAggregationValue(
 }
 
 export function formatBreakdownLabel(
-    cohorts?: CohortType[],
-    formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction,
-    breakdown_value?: BreakdownKeyType,
-    breakdown?: BreakdownKeyType,
-    breakdown_type?: BreakdownType | null,
+    cohorts: CohortType[] | undefined,
+    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
+    breakdown_value: BreakdownKeyType | undefined,
+    breakdown: BreakdownKeyType | undefined,
+    breakdown_type: BreakdownType | null | undefined,
     isHistogram?: boolean
 ): string {
     if (isHistogram && typeof breakdown_value === 'string') {
