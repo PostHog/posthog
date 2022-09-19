@@ -102,8 +102,8 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                         />
                     )}
                 </div>
-                <div className="flex-1">
-                    <div className="font-bold">
+                <div className="flex-1 flex flex-col justify-center">
+                    <div className="flex items-center font-bold h-6 ">
                         {!sessionPerson || !recordingStartTime ? (
                             <LemonSkeleton className="w-1/2" />
                         ) : (
@@ -119,9 +119,9 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                             </div>
                         )}
                     </div>
-                    <div>
+                    <div className="flex items-center h-6">
                         {loading ? (
-                            <LemonSkeleton className="w-1/4 mt-1" />
+                            <LemonSkeleton className="w-1/4" />
                         ) : (
                             <span className="text-muted">{description}</span>
                         )}
@@ -147,7 +147,7 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                                     <Link to={currentUrl} target="_blank">
                                         {truncate(currentUrl, 32)}
                                     </Link>
-                                    <span className="window-url-copy-icon">
+                                    <span className="flex">
                                         <CopyToClipboardInline description="current url" explicitValue={currentUrl} />
                                     </span>
                                 </>
