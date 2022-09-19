@@ -1,4 +1,5 @@
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -726,50 +727,51 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(session_recordings), 0)
 
     @freeze_time("2021-01-21T20:00:00.000Z")
-    @snapshot_clickhouse_queries
-    def test_event_duration_is_accurate(self):
+    # @snapshot_clickhouse_queries
+    def test_event_duration_is_calculated_from_summary(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
-        chunks = create_chunked_snapshots(
+        # Creates 1 full snapshot
+        create_chunked_snapshots(
             team_id=self.team.id,
             snapshot_count=1,
-            distinct_id="u",
+            distinct_id="user",
             session_id="1",
             timestamp=self.base_time,
             window_id="1",
-            has_full_snapshot=False,
+            has_full_snapshot=True,
             source=3,
-        )  # active
+        )
 
-        assert chunks == 10
+        # Creates 10 click events at 1 second intervals
+        create_chunked_snapshots(
+            team_id=self.team.id,
+            snapshot_count=10,
+            distinct_id="user",
+            session_id="1",
+            timestamp=self.base_time + timedelta(minutes=1),
+            window_id="1",
+            has_full_snapshot=False,
+            source=2,
+        )
 
-        # create_snapshot(
-        #     distinct_id="user", session_id="1", timestamp=self.base_time, window_id="1", team_id=self.team.id
-        # )
-        # self.create_event("user", self.base_time)
-        # create_snapshot(
-        #     distinct_id="user",
-        #     session_id="1",
-        #     timestamp=self.base_time + relativedelta(seconds=30),
-        #     window_id="1",
-        #     team_id=self.team.id,
-        # )
-        # self.create_event("user", self.base_time + relativedelta(seconds=31), event_name="$autocapture")
+        # Creates 10 input events at 1 second intervals
+        create_chunked_snapshots(
+            team_id=self.team.id,
+            snapshot_count=10,
+            distinct_id="user",
+            session_id="1",
+            timestamp=self.base_time + timedelta(minutes=2),
+            window_id="1",
+            has_full_snapshot=False,
+            source=5,
+        )
 
-        # # Pageview within timestamps matches recording
-        # filter = SessionRecordingsFilter(
-        #     team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]}
-        # )
-        # session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
-        # (session_recordings, _) = session_recording_list_instance.run()
-        # self.assertEqual(len(session_recordings), 1)
-        # self.assertEqual(session_recordings[0]["session_id"], "1")
+        filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        (session_recordings, more_recordings_available) = session_recording_list_instance.run()
 
-        # # Pageview outside timestamps does not match recording
-        # filter = SessionRecordingsFilter(
-        #     team=self.team,
-        #     data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
-        # )
-        # session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
-        # (session_recordings, _) = session_recording_list_instance.run()
-        # self.assertEqual(len(session_recordings), 0)
+        assert len(session_recordings) == 1
+
+        assert session_recordings[0]["start_time"] == self.base_time + relativedelta(seconds=0)
+        assert session_recordings[0]["end_time"] == self.base_time + relativedelta(minutes=2, seconds=10)

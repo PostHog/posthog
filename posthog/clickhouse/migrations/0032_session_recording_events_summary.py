@@ -10,7 +10,7 @@ operations = [
     migrations.RunSQL(f"DROP TABLE session_recording_events_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
     migrations.RunSQL(f"DROP TABLE kafka_session_recording_events ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
     migrations.RunSQL(
-        f"ALTER TABLE session_recording_events ON CLUSTER '{CLICKHOUSE_CLUSTER}' ADD COLUMN IF NOT EXISTS events_summary VARCHAR AFTER snapshot_data"
+        f"ALTER TABLE session_recording_events ON CLUSTER '{CLICKHOUSE_CLUSTER}' ADD COLUMN IF NOT EXISTS events_summary Array(VARCHAR) AFTER snapshot_data"
     ),
     migrations.RunSQL(KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL()),
     migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_MV_SQL()),

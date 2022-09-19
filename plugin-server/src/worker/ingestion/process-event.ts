@@ -248,14 +248,14 @@ export class EventsProcessor {
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
 
-        const data: RawSessionRecordingEvent = {
+        const data: Partial<RawSessionRecordingEvent> = {
             uuid,
             team_id: team_id,
             distinct_id: distinct_id,
             session_id: properties['$session_id'],
             window_id: properties['$window_id'],
             snapshot_data: JSON.stringify(properties['$snapshot_data']),
-            events_summary: JSON.stringify(properties['$snapshot_events_summary'] || []),
+            events_summary: (properties['$snapshot_events_summary'] || []).map((x: any) => JSON.stringify(x)),
             timestamp: timestampString,
             created_at: timestampString,
         }
