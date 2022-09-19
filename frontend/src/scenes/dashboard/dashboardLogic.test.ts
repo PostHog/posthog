@@ -521,12 +521,12 @@ describe('dashboardLogic', () => {
                     sm: [
                         { h: 8, i: 'insight-tile-172', minH: 5, minW: 3, w: 6, x: 6, y: 0 },
                         { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 6, x: 0, y: 0 },
-                        { h: 5, i: 'text-tile-4', minH: 5, minW: 3, w: 6, x: 0, y: 5 },
+                        { h: 2.5, i: 'text-tile-4', minH: 2, minW: 3, w: 6, x: 0, y: 5 },
                     ],
                     xs: [
                         { h: 5, i: 'insight-tile-172', minH: 5, minW: 3, w: 1, x: 0, y: 0 },
                         { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 1, x: 0, y: 5 },
-                        { h: 5, i: 'text-tile-4', minH: 5, minW: 3, w: 1, x: 0, y: 10 },
+                        { h: 2.5, i: 'text-tile-4', minH: 2, minW: 3, w: 1, x: 0, y: 10 },
                     ],
                 },
             })
@@ -538,12 +538,12 @@ describe('dashboardLogic', () => {
                     sm: [
                         { h: 12, i: 'insight-tile-172', minH: 5, minW: 3, w: 6, x: 6, y: 0 },
                         { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 6, x: 0, y: 0 },
-                        { h: 21, i: 'text-tile-4', minH: 5, minW: 3, w: 6, x: 0, y: 5 },
+                        { h: 21, i: 'text-tile-4', minH: 2, minW: 3, w: 6, x: 0, y: 5 },
                     ],
                     xs: [
                         { h: 7, i: 'insight-tile-172', minH: 5, minW: 3, w: 1, x: 0, y: 0 },
                         { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 1, x: 0, y: 5 },
-                        { h: 9, i: 'text-tile-4', minH: 5, minW: 3, w: 1, x: 0, y: 10 },
+                        { h: 9, i: 'text-tile-4', minH: 2, minW: 3, w: 1, x: 0, y: 10 },
                     ],
                 })
             })
@@ -552,12 +552,12 @@ describe('dashboardLogic', () => {
                         sm: [
                             { h: 12, i: 'insight-tile-172', minH: 5, minW: 3, w: 6, x: 6, y: 0 },
                             { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 6, x: 0, y: 0 },
-                            { h: 21, i: 'text-tile-4', minH: 5, minW: 3, w: 6, x: 0, y: 5 },
+                            { h: 21, i: 'text-tile-4', minH: 2, minW: 3, w: 6, x: 0, y: 5 },
                         ],
                         xs: [
                             { h: 7, i: 'insight-tile-172', minH: 5, minW: 3, w: 1, x: 0, y: 0 },
                             { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 1, x: 0, y: 5 },
-                            { h: 9, i: 'text-tile-4', minH: 5, minW: 3, w: 1, x: 0, y: 10 },
+                            { h: 9, i: 'text-tile-4', minH: 2, minW: 3, w: 1, x: 0, y: 10 },
                         ],
                     },
                 })
@@ -585,8 +585,8 @@ describe('dashboardLogic', () => {
                         {
                             id: 4,
                             layouts: {
-                                sm: { i: 'text-tile-4', h: 21, minH: 5, minW: 3, w: 6, x: 0, y: 5 },
-                                xs: { i: 'text-tile-4', h: 9, minH: 5, minW: 3, w: 1, x: 0, y: 10 },
+                                sm: { i: 'text-tile-4', h: 21, minH: 2, minW: 3, w: 6, x: 0, y: 5 },
+                                xs: { i: 'text-tile-4', h: 9, minH: 2, minW: 3, w: 1, x: 0, y: 10 },
                             },
                         },
                     ],

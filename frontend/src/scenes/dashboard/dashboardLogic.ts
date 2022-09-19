@@ -485,7 +485,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 // The dashboard redesign includes constraints on the size of dashboard items
                 const minW = MIN_ITEM_WIDTH_UNITS
                 const minH = MIN_ITEM_HEIGHT_UNITS
-                const minTextH = 1
+                const minTextH = 2
 
                 const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
