@@ -3,6 +3,7 @@ from typing import List
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight, generate_insight_cache_key
@@ -19,6 +20,9 @@ class BaseDashboardTile(models.Model):
 class DashboardTextTile(BaseDashboardTile):
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="text_tiles")
     body: models.CharField = models.CharField(max_length=4000, null=True, blank=True)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    last_modified_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
         indexes = [

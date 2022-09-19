@@ -42,7 +42,9 @@ class TextTileListSerializer(serializers.ListSerializer):
 
         for validated_item in validated_data:
             if "id" not in validated_item:
-                new_tile = DashboardTextTile.objects.create(**validated_item, dashboard_id=self.parent.instance.id)
+                new_tile = DashboardTextTile.objects.create(
+                    **validated_item, dashboard_id=self.parent.instance.id, created_by=self.context["request"].user
+                )
                 tiles.append(new_tile)
             else:
                 validated_tiles_by_id[validated_item["id"]] = validated_item
@@ -50,12 +52,16 @@ class TextTileListSerializer(serializers.ListSerializer):
         for tile in text_tiles:
             validated_tile: Optional[Dict] = validated_tiles_by_id.get(tile.id, None)
             if validated_tile:
-                if "body" in validated_tile:
+                if "body" in validated_tile and validated_tile["body"] != tile.body:
                     tile.body = validated_tile["body"]
-                if "layouts" in validated_tile:
+                    tile.last_modified_by = self.context["request"].user
+                if "layouts" in validated_tile and validated_tile["layouts"] != tile.layouts:
                     tile.layouts = validated_tile["layouts"]
-                if "color" in validated_tile:
+                    tile.last_modified_by = self.context["request"].user
+                if "color" in validated_tile and validated_tile["color"] != tile.color:
                     tile.color = validated_tile["color"]
+                    tile.last_modified_by = self.context["request"].user
+
                 tile.save()
                 tiles.append(tile)
             else:
@@ -66,11 +72,13 @@ class TextTileListSerializer(serializers.ListSerializer):
 
 class TextTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField()
+    created_by = UserBasicSerializer(read_only=True)
+    last_modified_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = DashboardTextTile
-        fields = ["id", "layouts", "color", "body"]
-        read_only_fields = ["id"]
+        fields = ["id", "layouts", "color", "body", "created_by", "last_modified_by", "last_modified_at"]
+        read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
         list_serializer_class = TextTileListSerializer
 
 

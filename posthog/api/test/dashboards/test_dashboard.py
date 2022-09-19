@@ -204,9 +204,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         for i in range(5):
-            self._create_dashboard({"name": f"dashboard-{i}", "description": i})
+            self.dashboard_api.create_dashboard({"name": f"dashboard-{i}", "description": i})
 
-            with self.assertNumQueries(9):
+            with self.assertNumQueries(10):
                 response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
