@@ -59,6 +59,7 @@ export function Cohorts(): JSX.Element {
         },
         {
             title: 'Users in cohort',
+            align: 'right',
             render: function RenderCount(_: any, cohort: CohortType) {
                 return cohort.count?.toLocaleString()
             },
