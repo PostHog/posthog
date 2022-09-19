@@ -24,6 +24,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     ProjectMembershipNecessaryPermissions,
     TeamMemberLightManagementPermission,
+    TeamMemberStrictManagementPermission,
 )
 
 
@@ -186,7 +187,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
-            if self.action in ("create", "reset_token"):
+            if self.action == "create":
                 organization = getattr(self.request.user, "organization", None)
                 if not organization:
                     raise exceptions.ValidationError("You need to belong to an organization.")
@@ -214,6 +215,11 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         self.check_object_permissions(self.request, team)
         return team
 
+    # :KLUDGE: Exposed for compatibility reasons for permission classes.
+    @property
+    def team(self):
+        return self.get_object()
+
     def perform_destroy(self, team: Team):
         team_id = team.pk
         delete_bulky_postgres_data(team_ids=[team_id])
@@ -223,7 +229,16 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         with mute_selected_signals():
             super().perform_destroy(team)
 
-    @action(methods=["PATCH"], detail=True)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[
+            permissions.IsAuthenticated,
+            ProjectMembershipNecessaryPermissions,
+            TeamMemberStrictManagementPermission,
+        ],
+    )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         team.api_token = generate_random_token_project()
