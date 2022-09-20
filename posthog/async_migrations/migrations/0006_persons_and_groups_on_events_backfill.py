@@ -1,4 +1,5 @@
 from functools import cached_property
+from typing import Dict, Tuple, Union
 
 import structlog
 from django.conf import settings
@@ -59,6 +60,11 @@ TEMPORARY_GROUPS_TABLE_NAME = "tmp_groups_0006"
 # :KLUDGE: On cloud, groups and person tables now have storage_policy sometimes attached
 STORAGE_POLICY_SETTING = lambda: ", storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
+# we shouldn't set this too low to avoid false positives for data inconsistency given we sample data
+DEFAULT_ACCEPTED_INCONSISTENT_DATA_RATIO = 0.01
+
+EMPTY_OBJECT = "{}"
+
 
 class Migration(AsyncMigrationDefinition):
     description = "Backfill persons and groups data on the sharded_events table"
@@ -77,7 +83,7 @@ class Migration(AsyncMigrationDefinition):
         ),
         "GROUPS_DICT_CACHE_SIZE": (1000000, "ClickHouse cache size (in rows) for groups data.", int),
         "TIMESTAMP_LOWER_BOUND": ("2020-01-01", "Timestamp lower bound for events to backfill", str),
-        "TIMESTAMP_UPPER_BOUND": ("2022-10-01", "Timestamp upper bound for events to backfill", str),
+        "TIMESTAMP_UPPER_BOUND": ("2030-01-01", "Timestamp upper bound for events to backfill", str),
         "TEAM_ID": (
             None,
             "The team_id of team to run backfill for. If unset the backfill will run for all teams.",
@@ -92,15 +98,20 @@ class Migration(AsyncMigrationDefinition):
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
-        rows_not_backfilled_count = sync_execute(
+        rows_to_backfill_check = sync_execute(
             """
-            SELECT count()
+            SELECT 1
             FROM events
-            WHERE empty(person_id) OR person_created_at = toDateTime(0)
+            WHERE
+                empty(person_id) OR
+                person_created_at = toDateTime(0) OR
+                person_properties = '' OR
+                group0_properties = ''
+            LIMIT 1
             """
-        )[0][0]
+        )
 
-        return rows_not_backfilled_count > 0
+        return len(rows_to_backfill_check) > 0
 
     @cached_property
     def operations(self):
@@ -220,8 +231,8 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(fn=self._create_dictionaries, rollback_fn=self._clear_temporary_tables),
             AsyncMigrationOperation(fn=self._run_backfill_mutation),
             AsyncMigrationOperation(fn=self._wait_for_mutation_done),
-            AsyncMigrationOperation(fn=self._clear_temporary_tables),
             AsyncMigrationOperation(fn=lambda query_id: self._postcheck(query_id)),
+            AsyncMigrationOperation(fn=self._clear_temporary_tables),
         ]
 
     def _dictionary_connection_string(self):
@@ -248,18 +259,76 @@ class Migration(AsyncMigrationDefinition):
             )
 
     # TODO: Consider making postcheck a native component of the async migrations spec
-    def _postcheck(self, query_id: str, skip_on_tests=True):
-        if settings.TEST and skip_on_tests:
-            return
-        incomplete_events_ratio = sync_execute(
-            "SELECT countIf(empty(person_id) OR person_created_at = toDateTime(0)) / count() FROM events",
-            client_query_id=query_id,
+    def _postcheck(self, _: str):
+        self._check_person_data()
+        self._check_groups_data()
+
+    def _where_clause(self) -> Tuple[str, Dict[str, Union[str, int]]]:
+        team_id = self.get_parameter("TEAM_ID")
+        team_id_filter = f" AND team_id = %(team_id)s" if team_id else ""
+        where_clause = f"WHERE timestamp > toDateTime(%(timestamp_lower_bound)s) AND timestamp < toDateTime(%(timestamp_upper_bound)s) {team_id_filter}"
+
+        return (
+            where_clause,
+            {
+                "team_id": team_id,
+                "timestamp_lower_bound": self.get_parameter("TIMESTAMP_LOWER_BOUND"),
+                "timestamp_upper_bound": self.get_parameter("TIMESTAMP_UPPER_BOUND"),
+            },
+        )
+
+    def _check_person_data(self, threshold=DEFAULT_ACCEPTED_INCONSISTENT_DATA_RATIO):
+        where_clause, where_clause_params = self._where_clause()
+
+        incomplete_person_data_ratio = sync_execute(
+            f"""
+            SELECT countIf(
+                empty(person_id) OR
+                person_created_at = toDateTime(0) OR
+                person_properties = ''
+            ) / count() FROM events
+            SAMPLE 10000000
+            {where_clause}
+            """,
+            where_clause_params,
         )[0][0]
 
-        if incomplete_events_ratio > 0.01:
-            incomplete_events_percentage = incomplete_events_ratio * 100
+        if incomplete_person_data_ratio > threshold:
+            incomplete_events_percentage = incomplete_person_data_ratio * 100
             raise Exception(
-                f"Backfill did not work succesfully. {int(incomplete_events_percentage)}% of events did not get the correct data."
+                f"Backfill did not work succesfully. ~{int(incomplete_events_percentage)}% of events did not get the correct data for persons."
+            )
+
+    def _check_groups_data(self, threshold=DEFAULT_ACCEPTED_INCONSISTENT_DATA_RATIO):
+        where_clause, where_clause_params = self._where_clause()
+
+        # To check if groups data was not backfilled, we check for:
+        # 1. groupX_properties = '' (because the backfill sets group properties to '{}' if the group doesn't exist)
+        # 2. groupX_created_at != created_at column of groups table via dictionary lookup (because we can't just look for groups with toDateTime(0) as that's the default)
+        incomplete_groups_data_ratio = sync_execute(
+            f"""
+            SELECT countIf(
+                group0_properties = '' OR
+                group0_created_at != dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 0, $group_0)) OR
+                group1_properties = '' OR
+                group1_created_at != dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 1, $group_1)) OR
+                group2_properties = '' OR
+                group2_created_at != dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 2, $group_2)) OR
+                group3_properties = '' OR
+                group3_created_at != dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 3, $group_3)) OR
+                group4_properties = '' OR
+                group4_created_at != dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4))
+            ) / count() FROM events
+            SAMPLE 10000000
+            {where_clause}
+            """,
+            where_clause_params,
+        )[0][0]
+
+        if incomplete_groups_data_ratio > threshold:
+            incomplete_events_percentage = incomplete_groups_data_ratio * 100
+            raise Exception(
+                f"Backfill did not work succesfully. ~{int(incomplete_events_percentage)}% of events did not get the correct data for groups."
             )
 
     def _run_backfill_mutation(self, query_id):
@@ -267,9 +336,7 @@ class Migration(AsyncMigrationDefinition):
         if self._count_running_mutations() > 0:
             return
 
-        team_id = self.get_parameter("TEAM_ID")
-        team_id_filter = f" AND team_id = %(team_id)s" if team_id else ""
-        where_clause = f"WHERE timestamp > toDateTime(%(timestamp_lower_bound)s) AND timestamp < toDateTime(%(timestamp_upper_bound)s) {team_id_filter}"
+        where_clause, where_clause_params = self._where_clause()
 
         execute_op_clickhouse(
             f"""
@@ -277,13 +344,14 @@ class Migration(AsyncMigrationDefinition):
                 {{on_cluster_clause}}
                 UPDATE
                     person_id = toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
-                    person_properties = dictGetString(
+                    person_properties = dictGetStringOrDefault(
                         '{settings.CLICKHOUSE_DATABASE}.person_dict',
                         'properties',
                         tuple(
                             team_id,
                             toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
-                        )
+                        ),
+                        toJSONString(map())
                     ),
                     person_created_at = dictGetDateTime(
                         '{settings.CLICKHOUSE_DATABASE}.person_dict',
@@ -293,11 +361,11 @@ class Migration(AsyncMigrationDefinition):
                             toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
                         )
                     ),
-                    group0_properties = dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 0, $group_0)),
-                    group1_properties = dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 1, $group_1)),
-                    group2_properties = dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 2, $group_2)),
-                    group3_properties = dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 3, $group_3)),
-                    group4_properties = dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 4, $group_4)),
+                    group0_properties = dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 0, $group_0), toJSONString(map())),
+                    group1_properties = dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 1, $group_1), toJSONString(map())),
+                    group2_properties = dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 2, $group_2), toJSONString(map())),
+                    group3_properties = dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 3, $group_3), toJSONString(map())),
+                    group4_properties = dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 4, $group_4), toJSONString(map())),
                     group0_created_at = dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 0, $group_0)),
                     group1_created_at = dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 1, $group_1)),
                     group2_created_at = dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
@@ -305,11 +373,7 @@ class Migration(AsyncMigrationDefinition):
                     group4_created_at = dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4))
                 {where_clause}
             """,
-            {
-                "team_id": team_id,
-                "timestamp_lower_bound": self.get_parameter("TIMESTAMP_LOWER_BOUND"),
-                "timestamp_upper_bound": self.get_parameter("TIMESTAMP_UPPER_BOUND"),
-            },
+            where_clause_params,
             settings={"max_execution_time": 0},
             per_shard=True,
             query_id=query_id,
