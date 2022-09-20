@@ -15,6 +15,7 @@ from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.session_recordings.session_recording import SessionRecording
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
+from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
@@ -48,6 +49,7 @@ class SessionRecordingSerializer(serializers.Serializer):
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
 
     def _get_session_recording_list(self, filter):
         return SessionRecordingList(filter=filter, team=self.team).run()

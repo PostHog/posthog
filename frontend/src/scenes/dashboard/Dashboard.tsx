@@ -6,7 +6,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { DashboardPlacement, DashboardMode, DashboardType } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -60,9 +60,8 @@ function DashboardScene(): JSX.Element {
     }, [])
 
     useKeyboardHotkeys(
-        [DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(placement)
-            ? {}
-            : {
+        placement == DashboardPlacement.Dashboard
+            ? {
                   e: {
                       action: () =>
                           setDashboardMode(
@@ -84,8 +83,9 @@ function DashboardScene(): JSX.Element {
                       action: () => setDashboardMode(null, DashboardEventSource.Hotkey),
                       disabled: dashboardMode !== DashboardMode.Edit,
                   },
-              },
-        [setDashboardMode, dashboardMode]
+              }
+            : {},
+        [setDashboardMode, dashboardMode, placement]
     )
 
     if (!dashboard && !itemsLoading && receivedErrorsFromAPI) {
@@ -94,12 +94,7 @@ function DashboardScene(): JSX.Element {
 
     return (
         <div className="dashboard">
-            {![
-                DashboardPlacement.ProjectHomepage,
-                DashboardPlacement.Public,
-                DashboardPlacement.Export,
-                DashboardPlacement.InternalMetrics,
-            ].includes(placement) && <DashboardHeader />}
+            {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
 
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
