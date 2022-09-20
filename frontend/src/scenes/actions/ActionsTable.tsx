@@ -25,6 +25,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput } from '@posthog/lemon-ui'
+import { actionsLogic } from 'scenes/actions/actionsLogic'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -37,6 +38,7 @@ const searchActions = (sources: ActionType[], search: string): ActionType[] => {
 
 export const scene: SceneExport = {
     component: ActionsTable,
+    logic: actionsLogic,
 }
 
 export function ActionsTable(): JSX.Element {
@@ -209,17 +211,20 @@ export function ActionsTable(): JSX.Element {
                 title="Data Management"
                 caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
                 tabbedPage
+                buttons={<NewActionButton />}
             />
             <DataManagementPageTabs tab={DataManagementTab.Actions} />
-
-            <LemonInput type="search" placeholder="Search for actions" onChange={setSearchTerm} value={searchTerm} />
-
-            <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
-                <Radio.Button value={false}>All actions</Radio.Button>
-                <Radio.Button value={true}>My actions</Radio.Button>
-            </Radio.Group>
-            <div className="mb-4 float-right">
-                <NewActionButton />
+            <div className="flex items-center justify-between gap-2 mb-4">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for actions"
+                    onChange={setSearchTerm}
+                    value={searchTerm}
+                />
+                <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
+                    <Radio.Button value={false}>All actions</Radio.Button>
+                    <Radio.Button value={true}>My actions</Radio.Button>
+                </Radio.Group>
             </div>
             <LemonTable
                 columns={columns}

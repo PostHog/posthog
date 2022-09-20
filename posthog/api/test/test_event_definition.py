@@ -159,24 +159,6 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 2)
         self.assertNotEqual(response.json()["results"][0]["name"], action.name)
 
-    def test_event_type_action_event(self):
-        action = Action.objects.create(team=self.demo_team, name="action1_app")
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=action_event")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["action_id"], action.id)
-        self.assertEqual(response.json()["results"][0]["name"], action.name)
-
-    def test_event_type_all(self):
-        action = Action.objects.create(team=self.demo_team, name="action1_app")
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=all")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
-        self.assertEqual(response.json()["results"][0]["action_id"], action.id)
-        self.assertEqual(response.json()["results"][0]["name"], action.name)
-
     def test_event_type_event_custom(self):
         response = self.client.get("/api/projects/@current/event_definitions/?event_type=event_custom")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
