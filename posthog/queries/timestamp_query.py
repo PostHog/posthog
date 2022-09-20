@@ -11,7 +11,7 @@ from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, format_c
 
 
 class TimestampQuery:
-    def __init__(self, filter, team: Team, should_round=False, table="") -> None:
+    def __init__(self, filter, team: Team, should_round: Optional[bool] = None, table="") -> None:
         self._filter = filter
         self._team = team
         self._table = f"{table}." if table else ""
@@ -114,13 +114,13 @@ class TimestampQuery:
             rel_delta = relativedelta(self._end_time.replace(day=1), self._start_time.replace(day=1))
             return (rel_delta.years * 12) + rel_delta.months + 1
 
-        return (int(self.time_difference.total_seconds() / TIME_IN_SECONDS[self._filter.interval]) + 1,)
+        return int(self.time_difference.total_seconds() / TIME_IN_SECONDS[self._filter.interval]) + 1
 
     @cached_property
     def should_round(self):
 
-        if self._should_round:
-            return True
+        if self._should_round is not None:
+            return self._should_round
 
         round_interval = False
         if self._filter.interval in ["week", "month"]:

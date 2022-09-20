@@ -47,7 +47,7 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                      AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
                       AND timestamp <= toDateTime('2020-01-14 23:59:59')
                       AND (NOT has([''], "$group_0")) ) events
                  WHERE (step_0 = 1
@@ -84,7 +84,7 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                      AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
                       AND timestamp <= toDateTime('2020-01-14 23:59:59')
                       AND (NOT has([''], "$group_0")) ) events
                  WHERE (step_0 = 1
@@ -141,7 +141,7 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                      AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
                       AND timestamp <= toDateTime('2020-01-14 23:59:59')
                       AND ((NOT has([''], "$group_0"))
                            AND (NOT has([''], "$group_0"))) ) events
@@ -179,7 +179,7 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                      AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
                       AND timestamp <= toDateTime('2020-01-14 23:59:59')
                       AND ((NOT has([''], "$group_0"))
                            AND (NOT has([''], "$group_0"))) ) events

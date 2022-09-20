@@ -8,7 +8,7 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['$pageleave', '$pageview']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -85,7 +85,7 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$pageleave', '$pageview']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
                          AND timestamp <= toDateTime('2020-01-06 00:00:00') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
@@ -107,7 +107,7 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['$pageleave', '$pageview']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -184,7 +184,7 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$pageleave', '$pageview']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
                          AND timestamp <= toDateTime('2020-01-06 00:00:00') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
@@ -206,7 +206,7 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
@@ -272,7 +272,7 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$feature_flag_called'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
             AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
@@ -357,7 +357,7 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview1'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
        AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
@@ -423,7 +423,7 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$feature_flag_called'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
        AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
             AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))

@@ -25,7 +25,7 @@ class SessionQuery:
     def get_query(self) -> Tuple[str, Dict]:
         params = {"team_id": self._team.pk}
 
-        timestamp_query = TimestampQuery(filter=self._filter, team=self._team)
+        timestamp_query = TimestampQuery(filter=self._filter, team=self._team, should_round=False)
         parsed_date_from, date_from_params = timestamp_query.date_from
         parsed_date_to, date_to_params = timestamp_query.date_to
         params.update(date_from_params)
