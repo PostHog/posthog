@@ -613,7 +613,7 @@ export function LineGraph_({
     }, [datasets, hiddenLegendKeys])
 
     return (
-        <div className="LineGraph absolute w-full h-full" data-attr={dataAttr}>
+        <div className="LineGraph absolute w-full h-full overflow-hidden" data-attr={dataAttr}>
             <canvas ref={canvasRef} />
             {myLineChart && showAnnotations && (
                 <BindLogic
