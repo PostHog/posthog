@@ -9,17 +9,20 @@ from posthog.models.property.util import get_property_string_expr
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.timestamp_query import TimestampQuery
 from posthog.queries.trends.util import get_active_user_params
-from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 
 
 class TrendsEventQuery(EventQuery):
     _entity: Entity
     _filter: Filter
+    _timestamp_query: TimestampQuery
 
     def __init__(self, entity: Entity, *args, **kwargs):
         self._entity = entity
         super().__init__(*args, **kwargs)
+
+        self._timestamp_query = TimestampQuery(self._filter, self._team)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = (
@@ -145,12 +148,11 @@ class TrendsEventQuery(EventQuery):
     def _get_date_filter(self) -> Tuple[str, Dict]:
         date_filter = ""
         date_params: Dict[str, Any] = {}
-        interval_annotation = get_trunc_func_ch(self._filter.interval)
-        _, _, round_interval = get_time_diff(
-            self._filter.interval, self._filter.date_from, self._filter.date_to, team_id=self._team_id
-        )
-        _, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team=self._team)
-        parsed_date_from = date_from_clause(interval_annotation, round_interval)
+        parsed_date_from, date_from_params = self._timestamp_query.date_from
+        parsed_date_to, date_to_params = self._timestamp_query.date_to
+
+        date_params.update(date_from_params)
+        date_params.update(date_to_params)
 
         self.parsed_date_from = parsed_date_from
         self.parsed_date_to = parsed_date_to
