@@ -554,7 +554,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         # don't run the backfill so we can test the postcheck based only on the data we create
         old_fn = MIGRATION_DEFINITION.operations[-4].fn
-        MIGRATION_DEFINITION.operations[-4].fn = lambda *args: None  # type: ignore
+        MIGRATION_DEFINITION.operations[-4].fn = lambda *args: None
 
         create_event(
             event_uuid=UUIDT(),

@@ -98,6 +98,8 @@ class Migration(AsyncMigrationDefinition):
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
+
+        # we don't check groupX_created_at columns as they are 0 by default
         rows_to_backfill_check = sync_execute(
             """
             SELECT 1
@@ -106,7 +108,11 @@ class Migration(AsyncMigrationDefinition):
                 empty(person_id) OR
                 person_created_at = toDateTime(0) OR
                 person_properties = '' OR
-                group0_properties = ''
+                group0_properties = '' OR
+                group1_properties = '' OR
+                group2_properties = '' OR
+                group3_properties = '' OR
+                group4_properties = ''
             LIMIT 1
             """
         )
