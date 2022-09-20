@@ -68,7 +68,7 @@ DEFAULT_ACCEPTED_INCONSISTENT_DATA_RATIO = 0.01
 class Migration(AsyncMigrationDefinition):
     description = "Backfill persons and groups data on the sharded_events table"
 
-    depends_on = "0006_persons_and_groups_on_events_backfill_deprecated"
+    depends_on = "0006_persons_and_groups_on_events_backfill"
 
     posthog_min_version = "1.40.0"
     posthog_max_version = "1.41.99"
