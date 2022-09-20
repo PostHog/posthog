@@ -19,7 +19,18 @@ export class Status implements StatusBlueprint {
 
     constructor(mode?: string) {
         this.mode = mode
-        this.logger = pino()
+        this.logger = pino({
+            // By default pino will log the level number. So we can easily unify
+            // the log structure with other parts of the app e.g. the web
+            // server, we output the level name rather than the number. This
+            // way, e.g. we can easily ingest into Loki and query across
+            // workloads for all `error` log levels.
+            formatters: {
+                level: (label) => {
+                    return { level: label }
+                },
+            },
+        })
         this.prompt = 'MAIN'
     }
 
