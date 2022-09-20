@@ -55,9 +55,7 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: An
     const modalOverlayRef = useRef<HTMLDivElement | null>(null)
 
     const tickPointIndices: number[] = chart.scales.x.ticks.map(({ value }) => value)
-    const tickDates: dayjs.Dayjs[] = tickPointIndices.map((dateIndex) =>
-        dayjsWithTimezone(dates[dateIndex], timezone, true)
-    )
+    const tickDates: dayjs.Dayjs[] = tickPointIndices.map((dateIndex) => dayjsWithTimezone(dates[dateIndex], timezone))
 
     return (
         <div
