@@ -180,7 +180,7 @@ class EventQuery(metaclass=ABCMeta):
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
         date_params = {}
-        timestamp_query = TimestampQuery(filter=self._filter, team=self._team)
+        timestamp_query = TimestampQuery(filter=self._filter, team=self._team, should_round=False)
         parsed_date_from, date_from_params = timestamp_query.date_from
         parsed_date_to, date_to_params = timestamp_query.date_to
         date_params.update(date_from_params)

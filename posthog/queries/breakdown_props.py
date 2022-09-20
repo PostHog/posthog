@@ -49,7 +49,7 @@ def get_breakdown_prop_values(
     column_optimizer = column_optimizer or ColumnOptimizer(filter, team.id)
 
     date_params = {}
-    timestamp_query = TimestampQuery(filter=filter, team=team)
+    timestamp_query = TimestampQuery(filter=filter, team=team, should_round=False)
     parsed_date_from, date_from_params = timestamp_query.date_from
     parsed_date_to, date_to_params = timestamp_query.date_to
     date_params.update(date_from_params)
@@ -243,7 +243,7 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
     entity = kwargs.pop("entity", None)
 
     date_params = {}
-    timestamp_query = TimestampQuery(filter=filter, team=team, table="all_events")
+    timestamp_query = TimestampQuery(filter=filter, team=team, table="all_events", should_round=False)
     parsed_date_from, date_from_params = timestamp_query.date_from
     parsed_date_to, date_to_params = timestamp_query.date_to
     date_params.update(date_from_params)

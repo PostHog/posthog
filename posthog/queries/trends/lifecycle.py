@@ -180,7 +180,7 @@ class LifecycleEventQuery(EventQuery):
 
     def _get_date_filter(self):
         date_params: Dict[str, Any] = {}
-        timestamp_query = TimestampQuery(self._filter, self._team)
+        timestamp_query = TimestampQuery(self._filter, self._team, should_round=False)
         _, date_from_params = timestamp_query.date_from
         _, date_to_params = timestamp_query.date_to
         date_params.update(date_from_params)
