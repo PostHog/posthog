@@ -225,7 +225,6 @@ export const billingLogic = kea<billingLogicType>([
     })),
     urlToAction(({ actions }) => ({
         '/ingestion/billing': (_, params) => {
-            console.log(params)
             if (params.reason === 'cancelled') {
                 actions.reportIngestionBillingCancelled()
             }
