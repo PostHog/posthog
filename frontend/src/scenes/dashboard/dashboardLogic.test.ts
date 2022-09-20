@@ -5,22 +5,29 @@ import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { InsightModel, DashboardType, InsightShortId, DashboardTextTile } from '~/types'
+import { DashboardTextTile, DashboardType, InsightColor, InsightModel, InsightShortId } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dayjs, now } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
-import anything = jasmine.anything
 import api from 'lib/api'
+import { getAppContext } from 'lib/utils/getAppContext'
+import anything = jasmine.anything
 
 jest.mock('lib/utils/getAppContext')
-import { getAppContext } from 'lib/utils/getAppContext'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
 function insightsOnDashboard(dashboardsRelation: number[]): InsightModel[] {
     return dashboardJson.items.map((i) => ({ ...i, dashboards: dashboardsRelation }))
 }
+
+const TEXT_TILE: DashboardTextTile = {
+    id: 4,
+    body: 'I AM A TEXT',
+    layouts: {},
+    color: InsightColor.Blue,
+} as DashboardTextTile
 
 const dashboardResult = (
     dashboardId: number,
@@ -102,11 +109,7 @@ describe('dashboardLogic', () => {
         }
         dashboards = {
             5: {
-                ...dashboardResult(
-                    5,
-                    [insights['172'], insights['175']],
-                    [{ id: 4, body: 'I AM A TEXT', layouts: {}, color: 'blue' } as DashboardTextTile]
-                ),
+                ...dashboardResult(5, [insights['172'], insights['175']], [TEXT_TILE]),
             },
             6: {
                 ...dashboardResult(6, [
@@ -162,7 +165,11 @@ describe('dashboardLogic', () => {
                 },
             },
             patch: {
-                '/api/projects/:team/dashboards/:id/': () => [200, "we don't care"],
+                '/api/projects/:team/dashboards/:id/': async (req) => {
+                    const dashboardId = req.params['id'][0]
+                    const payload = await req.json()
+                    return [200, { ...dashboards[dashboardId], ...payload }]
+                },
                 '/api/projects/:team/insights/:id/': async (req) => {
                     try {
                         const updates = await req.json()
@@ -505,6 +512,57 @@ describe('dashboardLogic', () => {
         expect(
             nineLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
         ).toEqual([])
+    })
+
+    describe('text tiles', () => {
+        beforeEach(async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    textTiles: [TEXT_TILE],
+                })
+        })
+
+        it('can remove text tiles', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.removeTextTile(TEXT_TILE.id)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    textTiles: [],
+                })
+        })
+
+        it('can add text tiles', async () => {
+            const newTile = {
+                id: TEXT_TILE.id + 1,
+                body: 'I AM ANOTHER TEXT',
+                layouts: {},
+                color: 'blue',
+            } as DashboardTextTile
+
+            await expectLogic(logic, () => {
+                logic.actions.addTextTile(newTile)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    textTiles: [
+                        {
+                            body: 'I AM A TEXT',
+                            color: 'blue',
+                            id: 4,
+                            layouts: {},
+                        },
+                        {
+                            body: 'I AM ANOTHER TEXT',
+                            color: 'blue',
+                            layouts: {},
+                        },
+                    ],
+                })
+        })
     })
 
     describe('layouts', () => {

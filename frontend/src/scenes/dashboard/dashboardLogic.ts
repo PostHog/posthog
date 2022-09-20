@@ -13,6 +13,7 @@ import {
     DashboardLayoutSize,
     DashboardMode,
     DashboardPlacement,
+    DashboardTextTile,
     DashboardType,
     FilterType,
     InsightModel,
@@ -26,6 +27,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { dayjs, now } from 'lib/dayjs'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -108,6 +110,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         updateItemColor: (insightNumericId: number, color: string | null) => ({ insightNumericId, color }),
         updateTextTileColor: (textTileId: number, color: string | null) => ({ textTileId, color }),
         removeItem: (insight: Partial<InsightModel>) => ({ insight }),
+        addTextTile: (textTile: DashboardTextTile, message?: string) => ({ textTile, message }),
         removeTextTile: (textTileId: number) => ({ textTileId }),
         refreshAllDashboardItems: (items?: InsightModel[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
@@ -153,6 +156,59 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             return null
                         }
                         throw error
+                    }
+                },
+                removeTextTile: async ({ textTileId }) => {
+                    if (!props.id) {
+                        // what are we changing?!
+                        return values.allItems
+                    }
+
+                    const originalTextTile = {
+                        ...(values.allItems?.text_tiles.find((tt) => tt.id === textTileId) || {}),
+                    } as DashboardTextTile
+
+                    try {
+                        const updatedDashboard = await api.update(
+                            `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
+                            {
+                                text_tiles: values.allItems?.text_tiles.filter((t) => t.id !== textTileId),
+                            }
+                        )
+                        lemonToast.success('removed text tile', {
+                            button: {
+                                label: 'Undo',
+                                action: async () => {
+                                    actions.addTextTile(originalTextTile, 'text tile deletion reverted')
+                                },
+                            },
+                        })
+                        return updatedDashboard as DashboardType
+                    } catch (e) {
+                        lemonToast.error('could not remove text tile: ' + e)
+                        return values.allItems
+                    }
+                },
+                addTextTile: async ({ textTile, message }) => {
+                    if (!props.id) {
+                        // what are we changing?!
+                        return values.allItems
+                    }
+
+                    const { id: _, ...tile } = textTile
+
+                    try {
+                        const updatedDashboard = await api.update(
+                            `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
+                            {
+                                text_tiles: [...(values.allItems?.text_tiles || []), tile],
+                            }
+                        )
+                        lemonToast.success(message || 'added text tile')
+                        return updatedDashboard as DashboardType
+                    } catch (e) {
+                        lemonToast.error('could not undo text tile deletion: ' + e)
+                        return values.allItems
                     }
                 },
             },
@@ -289,12 +345,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     return {
                         ...state,
                         items: state?.items.filter((i) => i.id !== insight.id),
-                    } as DashboardType
-                },
-                removeTextTile: (state, { textTileId }) => {
-                    return {
-                        ...state,
-                        text_tiles: state?.text_tiles.filter((t) => t.id !== textTileId),
                     } as DashboardType
                 },
                 [insightsModel.actionTypes.duplicateInsightSuccess]: (state, { item }): DashboardType => {
@@ -727,16 +777,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
             return api.update(`api/projects/${values.currentTeamId}/insights/${insight.id}`, {
                 dashboards: insight.dashboards?.filter((id) => id !== props.id) ?? [],
             } as Partial<InsightModel>)
-        },
-        removeTextTile: async ({ textTileId }) => {
-            if (!props.id) {
-                // what are we saving colors against?!
-                return
-            }
-
-            return api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                text_tiles: values.allItems?.text_tiles.filter((t) => t.id !== textTileId),
-            })
         },
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
