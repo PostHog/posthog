@@ -1,12 +1,4 @@
-from typing import Optional, cast
-
-import structlog
-from django.conf import settings
-
 from posthog.async_migrations.definition import AsyncMigrationDefinition
-from posthog.client import sync_execute
-
-logger = structlog.get_logger(__name__)
 
 """
 Migration summary:
@@ -56,16 +48,5 @@ class Migration(AsyncMigrationDefinition):
 
     posthog_min_version = "1.36.1"
     posthog_max_version = "1.36.99"
-
-    def is_required(self):
-        return "Distributed" not in cast(str, self.get_current_engine("events"))
-
-    def get_current_engine(self, table_name: str) -> Optional[str]:
-        result = sync_execute(
-            "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": table_name},
-        )
-
-        return result[0][0] if len(result) > 0 else None
 
     # Check older versions of the file for the migration code

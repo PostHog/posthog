@@ -99,7 +99,7 @@ class AsyncMigrationDefinition:
         self.name = name
 
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
-    # e.g. instances where fresh setups are already set up correctly
+    # note that fresh installs already mark all existing async migrations as completed
     def is_required(self) -> bool:
         return True
 

@@ -1,14 +1,19 @@
 from typing import Dict, Optional
 
+import structlog
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.timezone import now
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import Version
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
-from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
+from posthog.client import sync_execute
+from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_completed_async_migrations
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings import TEST
 from posthog.version import VERSION
+
+logger = structlog.get_logger(__name__)
 
 
 def reload_migration_definitions():
@@ -33,17 +38,50 @@ all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
 reload_migration_definitions()
 
 
+def is_fresh_install(first_migration: str):
+    # To verify we're on a fresh install
+    # (1) check that the first migration is not started
+    # (2) check that there are no events in the events table (i.e. someone didn't try to upgrade to 1.40 from before async migrations introduction)
+    migration_instance = AsyncMigration.objects.filter(name=first_migration).first()
+    if migration_instance.status != MigrationStatus.NotStarted:
+        return False
+    event_cnt = sync_execute("SELECT count() FROM events")[0][0]
+    if event_cnt > 0:
+        return False
+    return True
+
+
+def mark_all_existing_migrations_as_completed():
+    logger.info("Fresh install - marking all existing migrations as completed")
+    # we can tell by the percentage being 0 and time being the same that they were completed at startup
+    finished_at = now()
+    for migration_name in ALL_ASYNC_MIGRATIONS.keys():
+        sm = AsyncMigration.objects.filter(name=migration_name).first()
+        sm.status = MigrationStatus.CompletedSuccessfully
+        sm.finished_at = finished_at
+        sm.save()
+
+
+def check_required_migrations_have_been_completed(ignore_posthog_version: bool, applied_migrations):
+    unapplied_migrations = set(ALL_ASYNC_MIGRATIONS.keys()) - applied_migrations
+    for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
+        if (
+            (not ignore_posthog_version)
+            and (migration_name in unapplied_migrations)
+            and (POSTHOG_VERSION > Version(migration.posthog_max_version))
+        ):
+            raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
+
+
 def setup_async_migrations(ignore_posthog_version: bool = False):
     """
     Execute the necessary setup for async migrations to work:
     1. Import all the migration definitions
     2. Create a database record for each
+    3. On fresh installs mark all existing migrations as completed
     3. Check if all migrations necessary for this PostHog version have completed (else don't start)
     4. Populate a dependencies map and in-memory record of migration definitions
     """
-
-    applied_migrations = set(instance.name for instance in get_all_completed_async_migrations())
-    unapplied_migrations = set(ALL_ASYNC_MIGRATIONS.keys()) - applied_migrations
 
     first_migration = None
     for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
@@ -61,12 +99,13 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
 
         ASYNC_MIGRATION_TO_DEPENDENCY[migration_name] = dependency
 
-        if (
-            (not ignore_posthog_version)
-            and (migration_name in unapplied_migrations)
-            and (POSTHOG_VERSION > Version(migration.posthog_max_version))
-        ):
-            raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
+    if not first_migration:
+        raise Exception("No first async migration found")
+    if is_fresh_install(first_migration):
+        mark_all_existing_migrations_as_completed()
+
+    applied_migrations = set(instance.name for instance in get_all_completed_async_migrations())
+    check_required_migrations_have_been_completed(ignore_posthog_version, applied_migrations)
 
     for key, val in ASYNC_MIGRATION_TO_DEPENDENCY.items():
         DEPENDENCY_TO_ASYNC_MIGRATION[val] = key
