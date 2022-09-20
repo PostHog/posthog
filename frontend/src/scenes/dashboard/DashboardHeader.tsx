@@ -262,47 +262,58 @@ export function DashboardHeader(): JSX.Element | null {
                                     >
                                         Share
                                     </LemonButton>
-                                    {canEditDashboard && (
-                                        <LemonButtonWithSideAction
-                                            to={urls.insightNew(undefined, dashboard?.id)}
-                                            type="primary"
-                                            data-attr="dashboard-add-graph-header"
-                                            sideAction={{
-                                                popup: {
-                                                    placement: 'bottom-end',
-                                                    overlay: (
-                                                        <>
-                                                            {showTextCards &&
-                                                                hasAvailableFeature(
-                                                                    AvailableFeature.DASHBOARD_COLLABORATION
-                                                                ) && (
-                                                                    <LemonButton
-                                                                        status="stealth"
-                                                                        fullWidth
-                                                                        onClick={() => {
-                                                                            push(
-                                                                                urls.dashboardTextTile(
-                                                                                    dashboard.id,
-                                                                                    'new'
+                                    {canEditDashboard ? (
+                                        showTextCards &&
+                                        hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) ? (
+                                            <LemonButtonWithSideAction
+                                                to={urls.insightNew(undefined, dashboard?.id)}
+                                                type="primary"
+                                                data-attr="dashboard-add-graph-header"
+                                                sideAction={{
+                                                    popup: {
+                                                        placement: 'bottom-end',
+                                                        overlay: (
+                                                            <>
+                                                                {showTextCards &&
+                                                                    hasAvailableFeature(
+                                                                        AvailableFeature.DASHBOARD_COLLABORATION
+                                                                    ) && (
+                                                                        <LemonButton
+                                                                            status="stealth"
+                                                                            fullWidth
+                                                                            onClick={() => {
+                                                                                push(
+                                                                                    urls.dashboardTextTile(
+                                                                                        dashboard.id,
+                                                                                        'new'
+                                                                                    )
                                                                                 )
-                                                                            )
-                                                                        }}
-                                                                        data-attr="add-text-tile-to-dashboard"
-                                                                    >
-                                                                        Add text card &nbsp;
-                                                                        <LemonTag type="warning">Beta</LemonTag>
-                                                                    </LemonButton>
-                                                                )}
-                                                        </>
-                                                    ),
-                                                },
-                                                disabled: false,
-                                                'data-attr': 'dashboard-add-dropdown',
-                                            }}
-                                        >
-                                            Add insight
-                                        </LemonButtonWithSideAction>
-                                    )}
+                                                                            }}
+                                                                            data-attr="add-text-tile-to-dashboard"
+                                                                        >
+                                                                            Add text card &nbsp;
+                                                                            <LemonTag type="warning">Beta</LemonTag>
+                                                                        </LemonButton>
+                                                                    )}
+                                                            </>
+                                                        ),
+                                                    },
+                                                    disabled: false,
+                                                    'data-attr': 'dashboard-add-dropdown',
+                                                }}
+                                            >
+                                                Add insight
+                                            </LemonButtonWithSideAction>
+                                        ) : (
+                                            <LemonButton
+                                                to={urls.insightNew(undefined, dashboard?.id)}
+                                                type="primary"
+                                                data-attr="dashboard-add-graph-header"
+                                            >
+                                                Add insight
+                                            </LemonButton>
+                                        )
+                                    ) : null}
                                 </>
                             )}
                         </>

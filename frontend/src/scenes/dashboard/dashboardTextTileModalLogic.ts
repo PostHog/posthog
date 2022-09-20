@@ -29,14 +29,18 @@ export const dashboardTextTileModalLogic = kea<dashboardTextTileModalLogicType>(
     props({} as DashboardTextTileModalProps),
     key((props) => `dashboardTextTileModalLogic-${props.dashboard.id}-${props.textTileId}`),
     connect({ actions: [dashboardsModel, ['updateDashboard']] }),
-    listeners(({ props }) => ({
+    listeners(({ props, actions }) => ({
         submitTextTileFailure: (error) => {
             if (props.dashboard && props.textTileId) {
                 lemonToast.error(`Could not save text: ${error.error} (${JSON.stringify(error.errors)})`)
             }
+            actions.resetTextTile()
             props?.onClose?.()
         },
-        submitTextTileSuccess: () => props?.onClose?.(),
+        submitTextTileSuccess: () => {
+            actions.resetTextTile()
+            props?.onClose?.()
+        },
     })),
     forms(({ props, actions }) => ({
         textTile: {

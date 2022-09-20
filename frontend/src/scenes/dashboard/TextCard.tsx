@@ -73,7 +73,7 @@ export function TextTileModal({
                 <Field name="body" label="">
                     {({ value, onChange }) => (
                         <Tabs>
-                            <Tabs.TabPane tab="Write" key="write-card">
+                            <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
                                 <LemonTextArea
                                     data-attr="text-card-edit-area"
                                     autoFocus
