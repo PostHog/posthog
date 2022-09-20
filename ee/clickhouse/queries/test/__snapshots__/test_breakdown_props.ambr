@@ -15,7 +15,7 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
        AND ((isNull(replaceRegexpAll(JSONExtractRaw(group_properties_0, 'out'), '^"|"$', ''))
              OR NOT JSONHas(group_properties_0, 'out')))
@@ -42,7 +42,7 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
        AND ((isNull(replaceRegexpAll(JSONExtractRaw(group_properties_0, 'out'), '^"|"$', ''))
              OR NOT JSONHas(group_properties_0, 'out')))
@@ -76,7 +76,7 @@
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-21 00:00:00')), 'UTC'), 'UTC')
+       AND timestamp >= toDateTime('2019-12-21 00:00:00')
        AND timestamp <= toDateTime('2020-01-04 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -108,7 +108,7 @@
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-21 00:00:00')), 'UTC'), 'UTC')
+       AND timestamp >= toDateTime('2019-12-21 00:00:00')
        AND timestamp <= toDateTime('2020-01-04 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -146,7 +146,7 @@
         AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '') ILIKE '%test%'))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-21 00:00:00')), 'UTC'), 'UTC')
+       AND timestamp >= toDateTime('2019-12-21 00:00:00')
        AND timestamp <= toDateTime('2020-01-04 23:59:59')
        AND ((has(['test2'], replaceRegexpAll(JSONExtractRaw(person_props, '$os'), '^"|"$', ''))
              OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
@@ -170,12 +170,12 @@
         FROM events
         WHERE $session_id != ''
           AND team_id = 2
-          AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC') - INTERVAL 24 HOUR
+          AND timestamp >= toDateTime('2020-01-02 00:00:00') - INTERVAL 24 HOUR
           AND timestamp <= toDateTime('2020-01-12 23:59:59') + INTERVAL 24 HOUR
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC')
+       AND timestamp >= toDateTime('2020-01-02 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -211,12 +211,12 @@
         FROM events
         WHERE $session_id != ''
           AND team_id = 2
-          AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC') - INTERVAL 24 HOUR
+          AND timestamp >= toDateTime('2020-01-02 00:00:00') - INTERVAL 24 HOUR
           AND timestamp <= toDateTime('2020-01-12 23:59:59') + INTERVAL 24 HOUR
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC')
+       AND timestamp >= toDateTime('2020-01-02 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -252,12 +252,12 @@
         FROM events
         WHERE $session_id != ''
           AND team_id = 2
-          AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC') - INTERVAL 24 HOUR
+          AND timestamp >= toDateTime('2020-01-02 00:00:00') - INTERVAL 24 HOUR
           AND timestamp <= toDateTime('2020-01-12 23:59:59') + INTERVAL 24 HOUR
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC')
+       AND timestamp >= toDateTime('2020-01-02 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC

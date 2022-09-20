@@ -100,7 +100,7 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'insight analyzed']
-                         AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-01-01 00:00:00')), 'UTC'), 'UTC')
+                         AND timestamp >= toDateTime('2021-01-01 00:00:00')
                          AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -322,7 +322,7 @@
                                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['$pageview', 'insight analyzed', 'insight updated']
-                               AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-01-01 00:00:00')), 'UTC'), 'UTC')
+                               AND timestamp >= toDateTime('2021-01-01 00:00:00')
                                AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
@@ -486,7 +486,7 @@
                           AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'insight analyzed']
-                         AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-01-01 00:00:00')), 'UTC'), 'UTC')
+                         AND timestamp >= toDateTime('2021-01-01 00:00:00')
                          AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -630,7 +630,7 @@
                           HAVING max(is_deleted) = 0
                           AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
-                         AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-01-01 00:00:00')), 'UTC'), 'UTC')
+                         AND timestamp >= toDateTime('2021-01-01 00:00:00')
                          AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                     WHERE (1=1) ))
               WHERE step_0 = 1 ))
@@ -773,7 +773,7 @@
                           HAVING max(is_deleted) = 0
                           AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
-                         AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-01-01 00:00:00')), 'UTC'), 'UTC')
+                         AND timestamp >= toDateTime('2021-01-01 00:00:00')
                          AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                     WHERE (1=1) ))
               WHERE step_0 = 1 ))
