@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
     , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
-    , events_summary Array(String) MATERIALIZED JSON_CAST(JSON_QUERY(snapshot_data, '$.events_summary[*]'), "Array(String)")
+    , events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)')
     , click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'event_type') = 3 AND JSONExtractInt(x, 'source_type') = 2, events_summary))
     , keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'event_type') = 3 AND JSONExtractInt(x, 'source_type') = 5, events_summary))
     , first_event_timestamp Int8 MATERIALIZED arrayReduce('min', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary))

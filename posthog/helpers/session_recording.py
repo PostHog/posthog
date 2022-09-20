@@ -52,7 +52,6 @@ class SessionRecordingEvent:
     session_id: str
     window_id: str
     snapshot_data: Dict[str, Any]
-    events_summary: Optional[List[SessionRecordingEventSummary]]
 
 
 @dataclasses.dataclass

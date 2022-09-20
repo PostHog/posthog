@@ -33,7 +33,7 @@ class SessionRecording:
         self._team = team
 
     _recording_snapshot_query = """
-        SELECT session_id, window_id, distinct_id, timestamp, snapshot_data, events_summary
+        SELECT session_id, window_id, distinct_id, timestamp, snapshot_data
         FROM session_recording_events
         PREWHERE
             team_id = %(team_id)s
@@ -52,9 +52,9 @@ class SessionRecording:
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 snapshot_data=json.loads(snapshot_data),
-                events_summary=json.loads(events_summary) if events_summary else None,
+                # events_summary=json.loads(events_summary) if events_summary else None,
             )
-            for session_id, window_id, distinct_id, timestamp, snapshot_data, events_summary in response
+            for session_id, window_id, distinct_id, timestamp, snapshot_data in response
         ]
 
     def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
@@ -104,7 +104,7 @@ class SessionRecording:
 
         for snapshot in snapshots:
             if snapshot.snapshot_data.get("chunk_index") == 0:
-                if snapshot.events_summary is None:
+                if snapshot.snapshot_data.get("events_summary") is None:
                     # NOTE: Old snapshots could be missing this field in which case we ditch the whole session
                     return None
 
@@ -112,7 +112,7 @@ class SessionRecording:
                     events_summary_by_window_id[snapshot.window_id] = []
 
                 events_summary_by_window_id[snapshot.window_id].extend(
-                    [cast(SessionRecordingEventSummary, x) for x in snapshot.events_summary]
+                    [cast(SessionRecordingEventSummary, x) for x in snapshot.snapshot_data["events_summary"]]
                 )
                 events_summary_by_window_id[snapshot.window_id].sort(key=lambda x: x["timestamp"])
 
