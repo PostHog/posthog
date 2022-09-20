@@ -746,7 +746,7 @@ export interface SessionRecordingType {
     person?: PersonType
 
     click_count?: number
-    input_count?: number
+    keypress_count?: number
 }
 
 export interface SessionRecordingEvents {

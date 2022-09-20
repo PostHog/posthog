@@ -1099,15 +1099,15 @@ class TestCapture(BaseTest):
                         ),
                         "compression": "gzip-base64",
                         "has_full_snapshot": False,
+                        "events_summary": [
+                            {
+                                "event_type": snapshot_type,
+                                "is_active": False,
+                                "source_type": snapshot_source,
+                                "timestamp": timestamp,
+                            }
+                        ],
                     },
-                    "$snapshot_events_summary": [
-                        {
-                            "event_type": snapshot_type,
-                            "is_active": False,
-                            "source_type": snapshot_source,
-                            "timestamp": timestamp,
-                        }
-                    ],
                     "$session_id": session_id,
                     "$window_id": window_id,
                     "distinct_id": distinct_id,

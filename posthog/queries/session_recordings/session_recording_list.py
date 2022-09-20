@@ -69,10 +69,10 @@ class SessionRecordingList(EventQuery):
             any(window_id) as window_id,
             MIN(timestamp) AS start_time,
             MAX(timestamp) AS end_time,
-            MAX(arrayReduce('max', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), JSONExtract(JSON_QUERY(events_summary, '$[*]'), 'Array(String)')))) as last_event_timestamp,
-            MIN(arrayReduce('min', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), JSONExtract(JSON_QUERY(events_summary, '$[*]'), 'Array(String)')))) as first_event_timestamp,
-            SUM(length(arrayFilter((x) -> JSONExtractInt(x, 'event_type') = 3 AND JSONExtractInt(x, 'source_type') = 2, JSONExtract(JSON_QUERY(events_summary, '$[*]'), 'Array(String)')))) as click_count,
-            SUM(length(arrayFilter((x) -> JSONExtractInt(x, 'event_type') = 3 AND JSONExtractInt(x, 'source_type') = 5, JSONExtract(JSON_QUERY(events_summary, '$[*]'), 'Array(String)')))) as input_count,
+            MAX(last_event_timestamp) as last_event_timestamp,
+            MAX(first_event_timestamp) as first_event_timestamp,
+            SUM(click_count) as click_count,
+            SUM(keypress_count) as keypress_count,
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
             SUM(has_full_snapshot) as full_snapshots
@@ -94,7 +94,7 @@ class SessionRecordingList(EventQuery):
         any(session_recordings.first_event_timestamp) as first_event_timestamp,
         any(session_recordings.last_event_timestamp) as last_event_timestamp,
         any(session_recordings.click_count) as click_count,
-        any(session_recordings.input_count) as input_count,
+        any(session_recordings.keypress_count) as keypress_count,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id
         {event_filter_aggregate_select_clause}
@@ -129,7 +129,7 @@ class SessionRecordingList(EventQuery):
         any(session_recordings.first_event_timestamp) as first_event_timestamp,
         any(session_recordings.last_event_timestamp) as last_event_timestamp,
         any(session_recordings.click_count) as click_count,
-        any(session_recordings.input_count) as input_count,
+        any(session_recordings.keypress_count) as keypress_count,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id
     FROM (
@@ -368,7 +368,7 @@ class SessionRecordingList(EventQuery):
                         "first_event_timestamp",
                         "last_event_timestamp",
                         "click_count",
-                        "input_count",
+                        "keypress_count",
                         "duration",
                         "distinct_id",
                         "start_url",

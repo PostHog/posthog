@@ -255,8 +255,6 @@ export class EventsProcessor {
             session_id: properties['$session_id'],
             window_id: properties['$window_id'],
             snapshot_data: JSON.stringify(properties['$snapshot_data']),
-            // events_summary: (properties['$snapshot_events_summary'] || []).map((x: any) => JSON.stringify(x)),
-            events_summary: JSON.stringify(properties['$snapshot_events_summary'] || []),
             timestamp: timestampString,
             created_at: timestampString,
         }

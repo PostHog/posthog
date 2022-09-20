@@ -38,7 +38,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                             </div>
                             <div className="flex items-center gap-1 rounded bg-primary-highlight p-1 text-xs">
                                 <IconKeyboard />
-                                {sessionRecording.input_count || 0} inputs
+                                {sessionRecording.keypress_count || 0} inputs
                             </div>
                         </div>
                         <div>

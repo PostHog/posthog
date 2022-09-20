@@ -95,6 +95,7 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
 
     id = str(utils.UUIDT())
     chunks = chunk_string(compressed_data, chunk_size)
+
     for index, chunk in enumerate(chunks):
         yield {
             **events[0],
@@ -103,7 +104,6 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
                 "$session_id": session_id,
                 "$window_id": window_id,
                 # If it is the first chunk we include all events
-                "$snapshot_events_summary": get_events_summary_from_snapshot_data(data_list) if index == 0 else [],
                 "$snapshot_data": {
                     "chunk_id": id,
                     "chunk_index": index,
@@ -111,6 +111,7 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
                     "data": chunk,
                     "compression": "gzip-base64",
                     "has_full_snapshot": has_full_snapshot,
+                    "events_summary": get_events_summary_from_snapshot_data(data_list) if index == 0 else None,
                 },
             },
         }

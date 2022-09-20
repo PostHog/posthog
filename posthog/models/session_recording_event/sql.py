@@ -18,7 +18,6 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     session_id VARCHAR,
     window_id VARCHAR,
     snapshot_data VARCHAR,
-    events_summary VARCHAR,
     created_at DateTime64(6, 'UTC')
     {materialized_columns}
     {extra_fields}
@@ -27,6 +26,11 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
     , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
+    , events_summary Array(String) MATERIALIZED JSON_CAST(JSON_QUERY(snapshot_data, '$.events_summary[*]'), "Array(String)")
+    , click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'event_type') = 3 AND JSONExtractInt(x, 'source_type') = 2, events_summary))
+    , keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'event_type') = 3 AND JSONExtractInt(x, 'source_type') = 5, events_summary))
+    , first_event_timestamp Int8 MATERIALIZED arrayReduce('min', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary))
+    , last_event_timestamp Int8 MATERIALIZED arrayReduce('max', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary))
 """
 
 SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = """
@@ -79,7 +83,6 @@ distinct_id,
 session_id,
 window_id,
 snapshot_data,
-events_summary,
 created_at,
 _timestamp,
 _offset

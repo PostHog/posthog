@@ -27,7 +27,6 @@ def create_session_recording_event(
     window_id: str,
     timestamp: Union[datetime.datetime, str],
     snapshot_data: dict,
-    snapshot_events_summary: Union[List, None] = None,
 ) -> str:
     timestamp = cast_timestamp_or_now(timestamp)
     snapshot_data_json = json.dumps(snapshot_data)
@@ -38,7 +37,6 @@ def create_session_recording_event(
         "session_id": session_id,
         "window_id": window_id,
         "snapshot_data": snapshot_data_json,
-        "events_summary": [json.dumps(x) for x in snapshot_events_summary] if snapshot_events_summary else [],
         "timestamp": timestamp,
         "created_at": timestamp,
     }
