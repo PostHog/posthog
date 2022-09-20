@@ -88,6 +88,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
                 "DROP DICTIONARY IF EXISTS groups_dict",
             ]
         )
+        AsyncMigrationError.objects.all().delete()
 
     def test_is_required(self):
         create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
@@ -548,35 +549,6 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
             Exception, "Backfill did not work succesfully. ~2% of events did not get the correct data for persons."
         ):
             MIGRATION_DEFINITION._check_person_data()  # type: ignore
-
-    def test_check_groups_data_fail(self):
-
-        # don't run the backfill so we can test the postcheck based only on the data we create
-        old_fn = MIGRATION_DEFINITION.operations[-4].fn
-        MIGRATION_DEFINITION.operations[-4].fn = lambda *args: None  # type: ignore
-
-        create_event(
-            event_uuid=UUIDT(),
-            team=self.team,
-            distinct_id="1",
-            event="$pageview",
-            person_id=UUIDT(),
-            person_created_at="2021-02-02T00:00:00Z",
-            person_properties={},
-        )
-
-        self.assertFalse(run_migration())
-
-        migration_error = AsyncMigrationError.objects.get(
-            async_migration=AsyncMigration.objects.get(name=MIGRATION_NAME)
-        )
-
-        self.assertIn(
-            "Backfill did not work succesfully. ~100% of events did not get the correct data for groups.",
-            migration_error.description,
-        )
-
-        MIGRATION_DEFINITION.operations[-4].fn = old_fn
 
     def test_check_groups_data_success(self):
 
