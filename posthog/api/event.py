@@ -86,6 +86,13 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             OpenApiParameter(
                 "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
             ),
+            OpenApiParameter(
+                "matching",
+                OpenApiTypes.BOOL,
+                required=False,
+                default=False,
+                description="Events that match `event` or `properties` query are tagged with extra `is_match` property. Also return non matching events.",
+            ),
             PropertiesSerializer(required=False),
         ]
     )
@@ -113,6 +120,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 request_get_query_dict=request.GET.dict(),
                 order_by=parse_order_by(request.GET.get("orderBy")),
                 action_id=request.GET.get("action_id"),
+                matching=request.GET.get("matching", False),
             )
 
             # Retry the query without the 1 day optimization

@@ -27,6 +27,8 @@ export function SessionRecordingsFilters({
         sessionRecordingsTableLogicInstance
     )
 
+    console.log('FILTERS', entityFilters, propertyFilters)
+
     return (
         <>
             {filtersEnabled ? (

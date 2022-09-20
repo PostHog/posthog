@@ -17,7 +17,7 @@ from posthog.models.property.util import parse_prop_grouped_clauses
 
 
 def determine_event_conditions(
-    team: Team, conditions: Dict[str, Union[str, List[str]]], long_date_from: bool
+    team: Team, conditions: Dict[str, Union[str, List[str]]], long_date_from: bool, matching: bool
 ) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
@@ -40,10 +40,17 @@ def determine_event_conditions(
         elif k == "distinct_id":
             result += "AND distinct_id = %(distinct_id)s"
             params.update({"distinct_id": v})
-        elif k == "event":
+        elif k == "event" and not matching:
             result += "AND event = %(event)s"
             params.update({"event": v})
     return result, params
+
+
+# def determine_event_aliases(
+#     team: Team, conditions: Dict[str, Union[str, List[str]]], matching: bool
+# ) -> Tuple[str, Dict]:
+#     result = ""
+#     params: Dict[str, Union[str, List[str]]] = {}
 
 
 def query_events_list(
@@ -54,10 +61,17 @@ def query_events_list(
     action_id: Optional[str],
     long_date_from: bool = False,
     limit: int = 100,
+    matching: bool = False,
 ) -> List:
     limit += 1
     limit_sql = "LIMIT %(limit)s"
     order = "DESC" if order_by[0] == "-timestamp" else "ASC"
+
+    # aliases, alias_params = determine_event_aliases(
+    #     team,
+    #     request_get_query_dict,
+    #     matching
+    # )
 
     conditions, condition_params = determine_event_conditions(
         team,
@@ -67,6 +81,7 @@ def query_events_list(
             **request_get_query_dict,
         },
         long_date_from,
+        matching,
     )
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False

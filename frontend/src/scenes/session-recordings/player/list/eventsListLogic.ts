@@ -36,7 +36,7 @@ export const eventsListLogic = kea<eventsListLogicType>([
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['currentPlayerTime'],
             sharedListLogic({ sessionRecordingId, playerKey }),
-            ['windowIdFilter'],
+            ['windowIdFilter', 'entityFilters'],
         ],
     })),
     actions({
@@ -105,8 +105,22 @@ export const eventsListLogic = kea<eventsListLogicType>([
     })),
     selectors(() => ({
         eventListData: [
-            (selectors) => [selectors.eventsToShow, selectors.windowIdFilter],
-            (events, windowIdFilter): RecordingEventType[] => {
+            (selectors) => [selectors.eventsToShow, selectors.windowIdFilter, selectors.entityFilters],
+            (events, windowIdFilter, entityFilters): RecordingEventType[] => {
+                console.log(
+                    'EVENTSDATA',
+                    events
+                        .filter(
+                            (e) =>
+                                windowIdFilter === RecordingWindowFilter.All ||
+                                e.playerPosition?.windowId === windowIdFilter
+                        )
+                        .map((e) => ({
+                            ...e,
+                            colonTimestamp: colonDelimitedDuration(Math.floor((e.playerTime ?? 0) / 1000)),
+                        })),
+                    entityFilters
+                )
                 return events
                     .filter(
                         (e) =>

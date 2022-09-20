@@ -1,8 +1,9 @@
-import { actions, kea, reducers, path, listeners, connect, props, key } from 'kea'
+import { actions, kea, reducers, path, listeners, connect, props, key, afterMount } from 'kea'
 import { PlayerPosition, RecordingWindowFilter, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import type { sharedListLogicType } from './sharedListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
+import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
 
 export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId']
 
@@ -10,9 +11,10 @@ export const sharedListLogic = kea<sharedListLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sharedListLogic', key]),
     props({} as SessionRecordingPlayerProps),
     key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect({
+    connect(() => ({
         logic: [eventUsageLogic],
-    }),
+        values: [sessionRecordingsTableLogic, ['entityFilters']],
+    })),
     actions(() => ({
         setTab: (tab: SessionRecordingTab) => ({ tab }),
         setWindowIdFilter: (windowId: WindowOption) => ({ windowId }),
@@ -42,4 +44,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
             }
         },
     })),
+    afterMount(({ values }) => {
+        console.log('AFTErMOUNT', values.entityFilters)
+    }),
 ])
