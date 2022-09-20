@@ -26,24 +26,21 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
     , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
-    , events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)')
+    , events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)') COMMENT 'column_materializer::events_summary'
     , click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'event_type') = 3 AND JSONExtractInt(x, 'source_type') = 2, events_summary))
     , keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'event_type') = 3 AND JSONExtractInt(x, 'source_type') = 5, events_summary))
-    , first_event_timestamp Int8 MATERIALIZED arrayReduce('min', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary))
-    , last_event_timestamp Int8 MATERIALIZED arrayReduce('max', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary))
+    , first_event_timestamp DateTime64(3, 'UTC') MATERIALIZED toDateTime(arrayReduce('min', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)
+    , last_event_timestamp DateTime64(3, 'UTC') MATERIALIZED toDateTime(arrayReduce('max', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)
 """
 
 SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = """
     , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'
+    , events_summary Array(String) COMMENT 'column_materializer::events_summary'
+    , click_count Int8 COMMENT 'column_materializer::click_count'
+    , keypress_count Int8 COMMENT 'column_materializer::keypress_count'
+    , first_event_timestamp DateTime64(3, 'UTC') COMMENT 'column_materializer::first_event_timestamp'
+    , last_event_timestamp DateTime64(3, 'UTC') COMMENT 'column_materializer::last_event_timestamp'
 """
-
-SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
-    ALTER TABLE session_recording_events
-    ON CLUSTER '{cluster}'
-    COMMENT COLUMN has_full_snapshot 'column_materializer::has_full_snapshot'
-""".format(
-    cluster=settings.CLICKHOUSE_CLUSTER
-)
 
 SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
     "session_recording_events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED

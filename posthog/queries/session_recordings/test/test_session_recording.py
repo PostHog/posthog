@@ -13,7 +13,7 @@ from posthog.models import Filter
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording import RecordingMetadata, SessionRecording
 from posthog.session_recordings.test.test_factory import create_chunked_snapshots, create_snapshot
-from posthog.test.base import ClickhouseTestMixin, APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
 def create_recording_request_and_filter(session_recording_id, limit=None, offset=None) -> Tuple[Request, Filter]:

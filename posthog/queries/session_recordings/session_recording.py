@@ -33,7 +33,7 @@ class SessionRecording:
         self._team = team
 
     _recording_snapshot_query = """
-        SELECT session_id, window_id, distinct_id, timestamp, snapshot_data
+        SELECT session_id, window_id, distinct_id, timestamp, snapshot_data, events_summary
         FROM session_recording_events
         PREWHERE
             team_id = %(team_id)s
@@ -52,9 +52,9 @@ class SessionRecording:
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 snapshot_data=json.loads(snapshot_data),
-                # events_summary=json.loads(events_summary) if events_summary else None,
+                events_summary=[json.loads(x) for x in events_summary] if events_summary else [],
             )
-            for session_id, window_id, distinct_id, timestamp, snapshot_data in response
+            for session_id, window_id, distinct_id, timestamp, snapshot_data, events_summary in response
         ]
 
     def get_snapshots(self, limit, offset) -> DecompressedRecordingData:

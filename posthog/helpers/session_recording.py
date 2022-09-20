@@ -25,6 +25,54 @@ Event = Dict
 SnapshotData = Dict
 WindowId = Optional[str]
 
+## NOTE: For reference here are some helpful enum mappings from rrweb
+# https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
+
+# event.type
+RRWEB_MAP_EVENT_TYPE = [
+    0,  # DomContentLoaded
+    1,  # Load
+    2,  # FullSnapshot
+    3,  # IncrementalSnapshot
+    4,  # Meta
+    5,  # Custom
+    6,  # Plugin
+]
+
+# event.data.source
+RRWEB_MAP_EVENT_DATA_SOURCE = [
+    0,  # Mutation
+    1,  # MouseMove
+    2,  # MouseInteraction
+    3,  # Scroll
+    4,  # ViewportResize
+    5,  # Input
+    6,  # TouchMove
+    7,  # MediaInteraction
+    8,  # StyleSheetRule
+    9,  # CanvasMutation
+    10,  # Font
+    11,  # Log
+    12,  # Drag
+    13,  # StyleDeclaration
+    14,  # Selection
+]
+
+# event.data.type
+RRWEB_MAP_EVENT_DATA_TYPE = [
+    0,  # MouseUp
+    1,  # MouseDown
+    2,  # Click
+    3,  # ContextMenu
+    4,  # DblClick
+    5,  # Focus
+    6,  # Blur
+    7,  # TouchStart
+    8,  # TouchMove_Departed
+    9,  # TouchEnd
+    10,  # TouchCancel
+]
+
 
 class RecordingSegment(TypedDict):
     start_time: datetime
@@ -52,6 +100,7 @@ class SessionRecordingEvent:
     session_id: str
     window_id: str
     snapshot_data: Dict[str, Any]
+    events_summary: List[SessionRecordingEventSummary]
 
 
 @dataclasses.dataclass
@@ -226,14 +275,14 @@ def is_active_event(event: SessionRecordingEventSummary) -> bool:
     Determines which rr-web events are "active" - meaning user generated
     """
     active_rr_web_sources = [
-        1,  # "MouseMove"
-        2,  # "MouseInteraction"
-        3,  # "Scroll"
-        4,  # "ViewportResize"
-        5,  # "Input"
-        6,  # "TouchMove"
-        7,  # "MediaInteraction"
-        12,  # "Drag"
+        1,  # MouseMove,
+        2,  # MouseInteraction,
+        3,  # Scroll,
+        4,  # ViewportResize,
+        5,  # Input,
+        6,  # TouchMove,
+        7,  # MediaInteraction,
+        12,  # Drag,
     ]
     return event["event_type"] == 3 and event["source_type"] in active_rr_web_sources
 
@@ -288,6 +337,8 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
     """
     Extract a minimal representation of the snapshot data events for easier querying
     """
+
+    # NOTE: There is an additional "data.type" which we might want to pull out as this determine if it is a click or not...
     events_summary = [
         SessionRecordingEventSummary(
             timestamp=event["timestamp"],

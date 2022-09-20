@@ -5,26 +5,18 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun.api import freeze_time
 
-from posthog.models import Person, Team
-from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.session_recordings.test.test_factory import create_snapshot
-from posthog.test.base import test_with_materialized_columns
-
-from dateutil.relativedelta import relativedelta
-from freezegun.api import freeze_time
-
-from posthog.models import Cohort, Person
+from posthog.models import Cohort, Person, Team
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
-from posthog.session_recordings.test.test_factory import create_snapshot, create_chunked_snapshots
+from posthog.session_recordings.test.test_factory import create_chunked_snapshots, create_snapshot
 from posthog.test.base import (
+    APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     snapshot_clickhouse_queries,
     test_with_materialized_columns,
-    APIBaseTest,
 )
 
 
