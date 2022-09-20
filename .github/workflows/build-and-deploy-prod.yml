@@ -122,29 +122,6 @@ jobs:
                   container-name: posthog-production-plugins-async
                   image: ${{ steps.build-image.outputs.image }}
 
-            - name: Fill in the new migration image ID in the Amazon ECS task definition
-              id: task-def-migrate
-              uses: aws-actions/amazon-ecs-render-task-definition@v1
-              with:
-                  task-definition: deploy/task-definition.migration.json
-                  container-name: posthog-production-migration
-                  image: ${{ steps.build-image.outputs.image }}
-
-            - name: Perform migrations
-              run: |
-                  aws ecs register-task-definition --cli-input-json file://$TASK_DEFINITION
-                  aws ecs run-task --cluster posthog-production-cluster --count 1 --launch-type FARGATE --task-definition posthog-production-migration --network-configuration '{
-                    "awsvpcConfiguration": {
-                      "subnets": ["subnet-8738fde1"],
-                      "securityGroups": ["sg-05a5f7e510b15473c"],
-                      "assignPublicIp": "ENABLED"
-                    }}'
-              env:
-                  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-                  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-                  AWS_DEFAULT_REGION: 'us-east-1'
-                  TASK_DEFINITION: ${{ steps.task-def-migrate.outputs.task-definition }}
-
             - name: Deploy Amazon ECS web task definition
               uses: aws-actions/amazon-ecs-deploy-task-definition@v1
               with:
