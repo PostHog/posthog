@@ -155,7 +155,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
             <div className="flex items-center space-x-4 flex-wrap my-2">
                 {showChartFilter(activeView) && (
                     <>
-                        {activeView === InsightType.TRENDS && filters.display !== ChartDisplayType.WorldMap && (
+                        {activeView === InsightType.TRENDS && (
                             <ConfigFilter>
                                 <span>{axisLabel(filters.display)}</span>
                                 <LemonSelect
