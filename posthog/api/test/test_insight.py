@@ -1502,6 +1502,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         ids_in_response = [r["id"] for r in response_data["results"]]
+        # insight 3 is not included in response
         self.assertCountEqual(ids_in_response, [insight.id, insight2.id])
 
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(self):

@@ -297,22 +297,20 @@ export function ActionFilterRow({
                         </div>
                         {/* central section flexible */}
                         <div className="ActionFilterRow__center">
-                            <div className="flex-auto">{filterElement}</div>
-                            {customRowSuffix !== undefined && <div className="col">{suffix}</div>}
+                            <div className="flex-auto overflow-hidden">{filterElement}</div>
+                            {customRowSuffix !== undefined && <>{suffix}</>}
                             {mathAvailability !== MathAvailability.None && (
                                 <>
-                                    <div className="col">
-                                        <MathSelector
-                                            math={math}
-                                            mathGroupTypeIndex={mathGroupTypeIndex}
-                                            index={index}
-                                            onMathSelect={onMathSelect}
-                                            style={{ maxWidth: '100%', width: 'initial' }}
-                                            mathAvailability={mathAvailability}
-                                        />
-                                    </div>
+                                    <MathSelector
+                                        math={math}
+                                        mathGroupTypeIndex={mathGroupTypeIndex}
+                                        index={index}
+                                        onMathSelect={onMathSelect}
+                                        style={{ maxWidth: '100%', width: 'initial' }}
+                                        mathAvailability={mathAvailability}
+                                    />
                                     {mathDefinitions[math || '']?.onProperty && (
-                                        <div className="col">
+                                        <div className="flex-auto overflow-hidden">
                                             <TaxonomicStringPopup
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 groupTypes={[
