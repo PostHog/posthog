@@ -63,8 +63,6 @@ STORAGE_POLICY_SETTING = lambda: ", storage_policy = 'hot_to_cold'" if settings.
 # we shouldn't set this too low to avoid false positives for data inconsistency given we sample data
 DEFAULT_ACCEPTED_INCONSISTENT_DATA_RATIO = 0.01
 
-EMPTY_OBJECT = "{}"
-
 
 class Migration(AsyncMigrationDefinition):
     description = "Backfill persons and groups data on the sharded_events table"
