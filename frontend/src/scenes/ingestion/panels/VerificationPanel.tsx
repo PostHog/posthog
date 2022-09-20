@@ -13,8 +13,7 @@ import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { setAddBilling, completeOnboarding } = useActions(ingestionLogic)
-    const { isTestingOnboardingBilling } = useValues(ingestionLogic)
+    const { setAddBilling } = useActions(ingestionLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     useInterval(() => {
@@ -41,11 +40,7 @@ export function VerificationPanel(): JSX.Element {
                                 center
                                 type="secondary"
                                 onClick={() => {
-                                    if (isTestingOnboardingBilling) {
-                                        setAddBilling(true)
-                                    } else {
-                                        completeOnboarding()
-                                    }
+                                    setAddBilling(true)
                                     reportIngestionContinueWithoutVerifying()
                                 }}
                             >
@@ -65,16 +60,12 @@ export function VerificationPanel(): JSX.Element {
                                 data-attr="wizard-complete-button"
                                 type="primary"
                                 onClick={() => {
-                                    if (isTestingOnboardingBilling) {
-                                        setAddBilling(true)
-                                    } else {
-                                        completeOnboarding()
-                                    }
+                                    setAddBilling(true)
                                 }}
                                 fullWidth
                                 center
                             >
-                                {isTestingOnboardingBilling ? 'Next' : 'Complete'}
+                                Next
                             </LemonButton>
                         </div>
                     </div>
