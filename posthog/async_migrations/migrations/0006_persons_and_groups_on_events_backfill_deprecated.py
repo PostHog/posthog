@@ -11,9 +11,11 @@ If users ran the old version of this, they will be ok to run 0007, if not, they 
 
 class Migration(AsyncMigrationDefinition):
 
-    description = "Test migration"
+    description = "No-op migration"
 
     posthog_max_version = "1.39.1"
+
+    depends_on = "0005_person_replacing_by_version"
 
     operations: List[AsyncMigrationOperation] = []
 
