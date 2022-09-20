@@ -41,7 +41,7 @@ class TimestampQuery:
 
     @cached_property
     def date_to_clause(self):
-        return f"AND {self._table}timestamp <= toDateTime(%(date_to)s)"
+        return self._get_timezone_aware_date_condition("<=", "date_to")
 
     @cached_property
     def date_from_clause(self):
