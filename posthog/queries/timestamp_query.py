@@ -1,20 +1,21 @@
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Any, Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
-from posthog.queries.util import format_ch_timestamp, get_earliest_timestamp
+from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, format_ch_timestamp, get_earliest_timestamp
 
 
 class TimestampQuery:
-    def __init__(self, filter, team: Team, table="") -> None:
+    def __init__(self, filter, team: Team, should_round=False, table="") -> None:
         self._filter = filter
         self._team = team
         self._table = f"{table}." if table else ""
+        self._should_round = should_round
 
     @cached_property
     def date_to_param(self) -> Optional[str]:
@@ -119,6 +120,10 @@ class TimestampQuery:
 
     @cached_property
     def should_round(self):
+
+        if self._should_round:
+            return True
+
         round_interval = False
         if self._filter.interval in ["week", "month"]:
             round_interval = True
@@ -126,18 +131,3 @@ class TimestampQuery:
             round_interval = self.time_difference.total_seconds() >= TIME_IN_SECONDS[self._filter.interval] * 2
 
         return round_interval
-
-
-PERIOD_TO_TRUNC_FUNC: Dict[str, str] = {
-    "hour": "toStartOfHour",
-    "week": "toStartOfWeek",
-    "day": "toStartOfDay",
-    "month": "toStartOfMonth",
-}
-
-TIME_IN_SECONDS: Dict[str, Any] = {
-    "hour": 3600,
-    "day": 3600 * 24,
-    "week": 3600 * 24 * 7,
-    "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
-}

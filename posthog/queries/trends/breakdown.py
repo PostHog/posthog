@@ -34,6 +34,7 @@ from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.session_query import SessionQuery
+from posthog.queries.timestamp_query import TIME_IN_SECONDS, TimestampQuery
 from posthog.queries.trends.sql import (
     BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
     BREAKDOWN_ACTIVE_USER_INNER_SQL,
@@ -48,7 +49,7 @@ from posthog.queries.trends.sql import (
     SESSION_MATH_BREAKDOWN_INNER_SQL,
 )
 from posthog.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
-from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps, start_of_week_fix
+from posthog.queries.util import start_of_week_fix
 from posthog.utils import encode_get_request_params
 
 
@@ -100,11 +101,17 @@ class TrendsBreakdown:
         )
 
     def get_query(self) -> Tuple[str, Dict, Callable]:
-        interval_annotation = get_trunc_func_ch(self.filter.interval)
-        num_intervals, seconds_in_interval, round_interval = get_time_diff(
-            self.filter.interval, self.filter.date_from, self.filter.date_to, self.team_id
-        )
-        _, parsed_date_to, date_params = parse_timestamps(filter=self.filter, team=self.team)
+        date_params = {}
+
+        timestamp_query = TimestampQuery(filter=self.filter, team=self.team)
+        parsed_date_from, date_from_params = timestamp_query.date_from
+        parsed_date_to, date_to_params = timestamp_query.date_to
+        num_intervals = timestamp_query.num_intervals
+        seconds_in_interval = TIME_IN_SECONDS[self.filter.interval]
+        interval_annotation = timestamp_query.interval_annotation
+
+        date_params.update(date_from_params)
+        date_params.update(date_to_params)
 
         prop_filters, prop_filter_params = self._props_to_filter
 
@@ -141,7 +148,7 @@ class TrendsBreakdown:
         }
 
         breakdown_filter_params = {
-            "parsed_date_from": date_from_clause(interval_annotation, round_interval),
+            "parsed_date_from": parsed_date_from,
             "parsed_date_to": parsed_date_to,
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
