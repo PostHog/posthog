@@ -116,7 +116,7 @@ class TimestampQuery:
             rel_delta = relativedelta(self._end_time.replace(day=1), self._start_time.replace(day=1))
             return (rel_delta.years * 12) + rel_delta.months + 1
 
-        return (int(self.time_difference.total_seconds() / TIME_IN_SECONDS[self._filter.interval]) + 1,)
+        return int(self.time_difference.total_seconds() / TIME_IN_SECONDS[self._filter.interval]) + 1
 
     @cached_property
     def should_round(self):
