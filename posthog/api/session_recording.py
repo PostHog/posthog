@@ -1,6 +1,8 @@
 import dataclasses
-from typing import Any, Union
+from datetime import datetime
+from typing import Any, Optional, Union
 
+from dateutil import parser
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -52,14 +54,22 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def _get_session_recording_list(self, filter):
         return SessionRecordingList(filter=filter, team=self.team).run()
 
-    def _get_session_recording_snapshots(self, request, session_recording_id, limit, offset):
+    def _get_session_recording_snapshots(
+        self, request, session_recording_id, limit, offset, recording_start_time: Optional[datetime]
+    ):
         return SessionRecording(
-            request=request, team=self.team, session_recording_id=session_recording_id
+            request=request,
+            team=self.team,
+            session_recording_id=session_recording_id,
+            recording_start_time=recording_start_time,
         ).get_snapshots(limit, offset)
 
-    def _get_session_recording_meta_data(self, request, session_recording_id):
+    def _get_session_recording_meta_data(self, request, session_recording_id, recording_start_time: Optional[datetime]):
         return SessionRecording(
-            request=request, team=self.team, session_recording_id=session_recording_id
+            request=request,
+            team=self.team,
+            session_recording_id=session_recording_id,
+            recording_start_time=recording_start_time,
         ).get_metadata()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -107,8 +117,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     # Returns meta data about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording_id = kwargs["pk"]
+        recording_start_time_string = request.GET.get("recording_start_time")
+        recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
-        session_recording_meta_data = self._get_session_recording_meta_data(request, session_recording_id)
+        session_recording_meta_data = self._get_session_recording_meta_data(
+            request, session_recording_id, recording_start_time
+        )
         if not session_recording_meta_data:
             raise exceptions.NotFound("Session not found")
 
@@ -158,9 +172,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         filter = Filter(request=request)
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
         offset = filter.offset if filter.offset else 0
+        recording_start_time_string = request.GET.get("recording_start_time")
+        recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
         session_recording_snapshot_data = self._get_session_recording_snapshots(
-            request, session_recording_id, limit, offset
+            request, session_recording_id, limit, offset, recording_start_time
         )
 
         if session_recording_snapshot_data.snapshot_data_by_window_id == {}:
