@@ -2106,6 +2106,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "pederjohnsen",
+      "name": "Peder Johnsen",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1238485?v=4",
+      "profile": "https://pederjohnsen.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
