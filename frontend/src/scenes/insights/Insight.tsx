@@ -37,7 +37,6 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { useDebouncedCallback } from 'use-debounce'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { Link } from '@posthog/lemon-ui'
 
@@ -77,12 +76,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
     const actorOnEventsQueryingEnabled = featureFlags[FEATURE_FLAGS.ACTOR_ON_EVENTS_QUERYING]
 
-    const debouncedOnChange = useDebouncedCallback((insightMetadata) => {
-        if (insightMode === ItemMode.Edit) {
-            setInsightMetadata(insightMetadata)
-        }
-    }, 250)
-
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
     if (insightId !== 'new' && insightLoading && !filtersKnown) {
@@ -115,12 +108,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         value={insight.name || ''}
                         placeholder={summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)}
                         onSave={(value) => setInsightMetadata({ name: value })}
+                        saveOnBlur={true}
                         maxLength={400} // Sync with Insight model
-                        // lock into edit without buttons when insight is editing
-                        mode={!canEditInsight ? 'view' : insightMode === ItemMode.Edit ? 'edit' : undefined}
-                        onChange={(value) => {
-                            debouncedOnChange({ name: value })
-                        }}
+                        mode={!canEditInsight ? 'view' : undefined}
                         data-attr="insight-name"
                         notice={
                             !canEditInsight
@@ -131,8 +121,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                   }
                                 : undefined
                         }
-                        // Don't autofocus when we enter edit mode - this field is not of prime concern then
-                        autoFocus={insightMode !== ItemMode.Edit}
                     />
                 }
                 buttons={
@@ -251,23 +239,17 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     <>
                         {!!(canEditInsight || insight.description) && (
                             <EditableField
-                                className="my-3"
                                 multiline
                                 name="description"
                                 value={insight.description || ''}
                                 placeholder="Description (optional)"
                                 onSave={(value) => setInsightMetadata({ description: value })}
+                                saveOnBlur={true}
                                 maxLength={400} // Sync with Insight model
-                                // lock into edit without buttons when insight is editing
-                                mode={!canEditInsight ? 'view' : insightMode === ItemMode.Edit ? 'edit' : undefined}
-                                onChange={(value) => {
-                                    debouncedOnChange({ description: value })
-                                }}
+                                mode={!canEditInsight ? 'view' : undefined}
                                 data-attr="insight-description"
                                 compactButtons
                                 paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
-                                // Don't autofocus when we enter edit mode - this field is not of prime concern then
-                                autoFocus={insightMode !== ItemMode.Edit}
                             />
                         )}
                         {canEditInsight ? (

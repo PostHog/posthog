@@ -2,6 +2,7 @@ import re
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
+import structlog
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
@@ -145,6 +146,8 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
+            structlog.contextvars.bind_contextvars(team_id=team.id)
+
             distinct_id = data.get("distinct_id")
             if distinct_id is None:
                 return cors_response(

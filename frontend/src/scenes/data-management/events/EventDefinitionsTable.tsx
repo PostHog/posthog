@@ -156,7 +156,7 @@ export function EventDefinitionsTable(): JSX.Element {
                   } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
               ]
             : []),
-        ...(!shouldSimplifyActions && hasIngestionTaxonomy
+        ...(hasIngestionTaxonomy
             ? [
                   {
                       title: <ThirtyDayVolumeTitle tooltipPlacement="bottom" />,

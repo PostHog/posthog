@@ -180,6 +180,94 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ],
             )
 
+        def test_lifecycle_trend_person_prop_filtering(self):
+
+            person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            event_factory(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"$number": 1},
+            )
+            event_factory(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-12T12:00:00Z",
+                properties={"$number": 1},
+            )
+            event_factory(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-13T12:00:00Z",
+                properties={"$number": 1},
+            )
+
+            event_factory(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-15T12:00:00Z",
+                properties={"$number": 1},
+            )
+
+            event_factory(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-17T12:00:00Z",
+                properties={"$number": 1},
+            )
+
+            event_factory(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-19T12:00:00Z",
+                properties={"$number": 1},
+            )
+
+            person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            event_factory(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z")
+            event_factory(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z")
+
+            person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+            event_factory(team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z")
+
+            person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
+            event_factory(team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z")
+
+            result = trends().run(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [{"key": "name", "value": "p1", "type": "person"}],
+                            }
+                        ],
+                        "shown_as": TRENDS_LIFECYCLE,
+                    }
+                ),
+                self.team,
+            )
+
+            self.assertLifecycleResults(
+                result,
+                [
+                    {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
+                    {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                    {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 1, 0, 1]},
+                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+                ],
+            )
+
         def test_lifecycle_trends_distinct_id_repeat(self):
             with freeze_time("2020-01-12T12:00:00Z"):
                 person_factory(team_id=self.team.pk, distinct_ids=["p1", "another_p1"], properties={"name": "p1"})

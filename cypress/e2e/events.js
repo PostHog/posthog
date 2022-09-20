@@ -110,6 +110,17 @@ describe('Events', () => {
         cy.get('.column-display-item').should('have.length', 4)
     })
 
+    it('keeps the popop open after selecting an option', () => {
+        cy.get('[data-attr=new-prop-filter-EventsTable]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
+        cy.get('.taxonomic-list-row').should('have.length', 1).click()
+
+        cy.get('[data-attr="taxonomic-operator"]').click()
+        cy.get('.operator-value-option').contains('> greater than').click()
+        cy.wait(500)
+        cy.get('[data-attr="taxonomic-operator"]').should('be.visible')
+    })
+
     /**
      * Test fails because property filters act on properties.$time but not all events have that property
      *
