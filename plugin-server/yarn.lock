@@ -4852,9 +4852,9 @@ fast-levenshtein@^2.0.6:
   integrity sha1-PYpcZog6FqMMqGQ+hR8Zuqd5eRc=
 
 fast-redact@^3.1.1:
-  version "3.1.1"
-  resolved "https://registry.yarnpkg.com/fast-redact/-/fast-redact-3.1.1.tgz#790fcff8f808c2e12fabbfb2be5cb2deda448fa0"
-  integrity sha512-odVmjC8x8jNeMZ3C+rPMESzXVSEU8tSWSHv9HFxP2mm89G/1WwqhrerJDQm9Zus8X6aoRgQDThKqptdNA6bt+A==
+  version "3.1.2"
+  resolved "https://registry.yarnpkg.com/fast-redact/-/fast-redact-3.1.2.tgz#d58e69e9084ce9fa4c1a6fa98a3e1ecf5d7839aa"
+  integrity sha512-+0em+Iya9fKGfEQGcd62Yv6onjBmmhV1uh86XVfOU8VwAe6kaFdQCWI9s0/Nnugx5Vd9tdbZ7e6gE2tR9dzXdw==
 
 fast-safe-stringify@^2.0.4:
   version "2.0.7"
@@ -7385,10 +7385,10 @@ pino-abstract-transport@^1.0.0, pino-abstract-transport@v1.0.0:
     readable-stream "^4.0.0"
     split2 "^4.0.0"
 
-pino-pretty@^9.0.0:
-  version "9.0.0"
-  resolved "https://registry.yarnpkg.com/pino-pretty/-/pino-pretty-9.0.0.tgz#729e7b272a2326f4e7e50fdf669f211f7d6a5f2c"
-  integrity sha512-WcojVUw8aJQz0in90xj7nQo5g14d9bLkBnE80P/Sk8JxNilbtyXp9mNjRcF07uOBEoNMrdkBniv8Tu1Lale7Kw==
+pino-pretty@^9.1.0:
+  version "9.1.0"
+  resolved "https://registry.yarnpkg.com/pino-pretty/-/pino-pretty-9.1.0.tgz#162f525944d7eede154db8055cb0ab5e00bde0c4"
+  integrity sha512-IM6NY9LLo/dVgY7/prJhCh4rAJukafdt0ibxeNOWc2fxKMyTk90SOB9Ao2HfbtShT9QPeP0ePpJktksMhSQMYA==
   dependencies:
     colorette "^2.0.7"
     dateformat "^4.6.3"
@@ -7410,10 +7410,10 @@ pino-std-serializers@^6.0.0:
   resolved "https://registry.yarnpkg.com/pino-std-serializers/-/pino-std-serializers-6.0.0.tgz#4c20928a1bafca122fdc2a7a4a171ca1c5f9c526"
   integrity sha512-mMMOwSKrmyl+Y12Ri2xhH1lbzQxwwpuru9VjyJpgFIH4asSj88F2csdMwN6+M5g1Ll4rmsYghHLQJw81tgZ7LQ==
 
-pino@^8.4.1:
-  version "8.4.1"
-  resolved "https://registry.yarnpkg.com/pino/-/pino-8.4.1.tgz#25c818489804364598fa27c11650021d986fbf70"
-  integrity sha512-rZnbTUNFiYBH1H2OfYYVNBEFRDhN2nRaEmBD2+MDmGXSGyps+YPJ55LzWZP90zg7zyWKy0ZMqGlk47AO6OaBqQ==
+pino@^8.6.0:
+  version "8.6.0"
+  resolved "https://registry.yarnpkg.com/pino/-/pino-8.6.0.tgz#b82132965b1549d617b02b7d4e29da7c68ae0361"
+  integrity sha512-gCEOs6XpgiM8mSFjiLXQejDJ1PZww8AUmHowQ16QpqpXQDIm3mFwn/29+Y6CJxd6i+x3uXduuerjq+IqWoABbA==
   dependencies:
     atomic-sleep "^1.0.0"
     fast-redact "^3.1.1"
@@ -7959,9 +7959,9 @@ safe-buffer@~5.1.0, safe-buffer@~5.1.1:
   integrity sha512-Gd2UZBJDkXlY7GbJxfsE8/nvKkUEU1G38c1siN6QP6a9PT9MmHB8GnpscSmMJSoF8LOIrt8ud/wPtojys4G6+g==
 
 safe-stable-stringify@^2.3.1:
-  version "2.3.1"
-  resolved "https://registry.yarnpkg.com/safe-stable-stringify/-/safe-stable-stringify-2.3.1.tgz#ab67cbe1fe7d40603ca641c5e765cb942d04fc73"
-  integrity sha512-kYBSfT+troD9cDA85VDnHZ1rpHC50O0g1e6WlGHVCz/g+JS+9WKLj+XwFYyR8UbrZN8ll9HUpDAAddY58MGisg==
+  version "2.4.0"
+  resolved "https://registry.yarnpkg.com/safe-stable-stringify/-/safe-stable-stringify-2.4.0.tgz#95fadb1bcf8057a1363e11052122f5da36a69215"
+  integrity sha512-eehKHKpab6E741ud7ZIMcXhKcP6TSIezPkNZhy5U8xC6+VvrRdUA2tMgxGxaGl4cz7c2Ew5+mg5+wNB16KQqrA==
 
 "safer-buffer@>= 2.1.2 < 3.0.0", safer-buffer@^2.0.2, safer-buffer@^2.1.0, safer-buffer@~2.1.0:
   version "2.1.2"
@@ -8476,9 +8476,9 @@ text-table@^0.2.0:
   integrity sha1-f17oI66AUgfACvLfSoTsP8+lcLQ=
 
 thread-stream@^2.0.0:
-  version "2.0.1"
-  resolved "https://registry.yarnpkg.com/thread-stream/-/thread-stream-2.0.1.tgz#3fa74e2223e661a48f836494f7a64eeac5ac03c0"
-  integrity sha512-X7vWOdsHLkBq0si20ruEE2ttpS7WOVyD52xKu+TOjrRP9Qi9uB9ynHYpzZUbBptArBSuKYUn4mH+jEBnO2CRGg==
+  version "2.2.0"
+  resolved "https://registry.yarnpkg.com/thread-stream/-/thread-stream-2.2.0.tgz#310c03a253f729094ce5d4638ef5186dfa80a9e8"
+  integrity sha512-rUkv4/fnb4rqy/gGy7VuqK6wE1+1DOCOWy4RMeaV69ZHMP11tQKZvZSip1yTgrKCMZzEMcCL/bKfHvSfDHx+iQ==
   dependencies:
     real-require "^0.2.0"
 
