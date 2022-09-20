@@ -9,8 +9,9 @@ import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { IconAutocapture, IconChevronLeft, IconChevronRight, IconKeyboard } from 'lib/components/icons'
+import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -29,16 +30,24 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
             title: 'Recordings',
             render: function RenderPlayButton(_: any, sessionRecording: SessionRecordingType) {
                 return (
-                    <div>
-                        {asDisplay(sessionRecording.person, 25)}
+                    <div className="flex flex-col gap-2">
+                        <div className="text-primary">{asDisplay(sessionRecording.person, 25)}</div>
+                        <div className="flex gap-1">
+                            <div className="flex items-center gap-1 rounded bg-primary-highlight p-1 text-xs">
+                                <IconAutocapture /> {sessionRecording.click_count || 0} clicks
+                            </div>
+                            <div className="flex items-center gap-1 rounded bg-primary-highlight p-1 text-xs">
+                                <IconKeyboard />
+                                {sessionRecording.input_count || 0} inputs
+                            </div>
+                        </div>
                         <div>
-                            <span>
+                            <span className="text-xs flex justify-between">
                                 <TZLabel
                                     time={sessionRecording.start_time}
                                     formatDate="MMMM DD, YYYY"
                                     formatTime="h:mm A"
                                 />
-                                {` · `}
                                 {colonDelimitedDuration(sessionRecording.recording_duration)}
                             </span>
                         </div>

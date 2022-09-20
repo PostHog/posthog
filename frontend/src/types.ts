@@ -744,6 +744,9 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+
+    click_count?: number
+    input_count?: number
 }
 
 export interface SessionRecordingEvents {

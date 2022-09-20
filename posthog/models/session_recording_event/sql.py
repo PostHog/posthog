@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     session_id VARCHAR,
     window_id VARCHAR,
     snapshot_data VARCHAR,
-    events_summary Array(VARCHAR),
+    events_summary VARCHAR,
     created_at DateTime64(6, 'UTC')
     {materialized_columns}
     {extra_fields}
