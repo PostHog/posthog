@@ -50,7 +50,7 @@ function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTy
 }
 
 export function Group(): JSX.Element {
-    const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex } = useValues(groupLogic)
+    const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex, groupType } = useValues(groupLogic)
 
     if (!groupData) {
         return groupDataLoading ? <SpinnerOverlay /> : <NotFound object="group" />
@@ -100,7 +100,7 @@ export function Group(): JSX.Element {
                     tab={<span data-attr="groups-related-flags-tab">Feature flags</span>}
                     key={PersonsTabType.FEATURE_FLAGS}
                 >
-                    <RelatedFeatureFlags distinctId={groupData.group_key} groups={{ [groupTypeName]: groupKey }} />
+                    <RelatedFeatureFlags distinctId={groupData.group_key} groups={{ [groupType]: groupKey }} />
                 </TabPane>
             </Tabs>
         </>

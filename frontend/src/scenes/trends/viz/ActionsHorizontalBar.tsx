@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
-import { ActionFilter, ChartParams, GraphType } from '~/types'
-import { personsModalLogic } from '../persons-modal/personsModalLogic'
+import { ChartParams, GraphType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { openPersonsModal, shouldUsePersonsModalV2 } from '../persons-modal/PersonsModalV2'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 
@@ -20,7 +19,6 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     const [total, setTotal] = useState(0)
     const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const { indexedResults, labelGroupType } = useValues(logic)
 
     function updateData(): void {
@@ -88,47 +86,19 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                 !showPersonsModal || insight.filters?.formula
                     ? undefined
                     : (point) => {
-                          const { value: pointValue, index, points, seriesId, crossDataset } = point
+                          const { index, points, crossDataset } = point
 
                           const dataset = points.referencePoint.dataset
-
-                          const action = dataset.actions?.[point.index]
                           const label = dataset.labels?.[point.index]
-                          const date_from = insight.filters?.date_from || ''
-                          const date_to = insight.filters?.date_to || ''
-                          const breakdown_value = dataset.breakdownValues?.[point.index]
-                              ? dataset.breakdownValues[point.index]
-                              : null
-                          const params = {
-                              action: action as ActionFilter,
-                              label: label ?? '',
-                              date_from,
-                              date_to,
-                              filters: insight.filters ?? {},
-                              breakdown_value: breakdown_value ?? '',
-                              pointValue,
-                              seriesId,
-                          }
                           const urls = urlsForDatasets(crossDataset, index)
                           const selectedUrl = urls[index]?.value
 
-                          if (shouldUsePersonsModalV2()) {
-                              if (selectedUrl) {
-                                  openPersonsModal({
-                                      urlsIndex: index,
-                                      urls,
-                                      title: <PropertyKeyInfo value={label || ''} disablePopover />,
-                                  })
-                              }
-                          } else {
-                              if (selectedUrl) {
-                                  loadPeopleFromUrl({
-                                      ...params,
-                                      url: selectedUrl,
-                                  })
-                              } else {
-                                  loadPeople(params)
-                              }
+                          if (selectedUrl) {
+                              openPersonsModal({
+                                  urlsIndex: index,
+                                  urls,
+                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
+                              })
                           }
                       }
             }

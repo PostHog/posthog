@@ -19,7 +19,7 @@ import {
     TooltipOptions,
 } from 'chart.js'
 import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
-import 'chartjs-adapter-dayjs'
+import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay, annotationsOverlayLogic } from 'lib/components/AnnotationsOverlay'
@@ -613,7 +613,7 @@ export function LineGraph_({
     }, [datasets, hiddenLegendKeys])
 
     return (
-        <div className="LineGraph absolute w-full h-full" data-attr={dataAttr}>
+        <div className="LineGraph absolute w-full h-full overflow-hidden" data-attr={dataAttr}>
             <canvas ref={canvasRef} />
             {myLineChart && showAnnotations && (
                 <BindLogic
