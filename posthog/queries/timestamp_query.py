@@ -1,7 +1,8 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Any, Dict, Optional, Tuple
 
+from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -17,12 +18,14 @@ class TimestampQuery:
 
     @cached_property
     def date_to_param(self) -> Optional[str]:
-        return self._date_param(self._filter.date_to, self._filter.date_to_has_explicit_time)
+        return self._date_param(
+            self._filter.date_to, self._filter._date_to and not self._filter.date_to_has_explicit_time
+        )
 
-    def _date_param(self, target_date, has_explicit_time) -> str:
+    def _date_param(self, target_date, should_convert) -> str:
         return format_ch_timestamp(
             target_date,
-            convert_to_timezone=self._team.timezone if not has_explicit_time else None,
+            convert_to_timezone=self._team.timezone if should_convert else None,
         )
 
     @cached_property
@@ -57,7 +60,7 @@ class TimestampQuery:
         if self._filter.date_from:
             date_from_query = self.date_from_clause
             date_from_param.update(
-                {"date_from": self._date_param(self._filter.date_from, self._filter.date_from_has_explicit_time)}
+                {"date_from": self._date_param(self._filter.date_from, not self._filter.date_from_has_explicit_time)}
             )
         else:
             try:
@@ -67,7 +70,7 @@ class TimestampQuery:
             else:
                 date_from_query = self.date_from_clause
                 date_from_param.update(
-                    {"date_from": self._date_param(earliest_date, self._filter.date_from_has_explicit_time)}
+                    {"date_from": self._date_param(earliest_date, not self._filter.date_from_has_explicit_time)}
                 )
 
         return date_from_query, date_from_param
@@ -94,20 +97,30 @@ class TimestampQuery:
         return clause
 
     @cached_property
-    def time_difference(self) -> timedelta:
-        _start_time = self._filter.date_from or get_earliest_timestamp(self._team.pk)
-        _end_time = self._filter.date_to or timezone.now()
+    def _start_time(self) -> datetime:
+        return self._filter.date_from or get_earliest_timestamp(self._team.pk)
 
-        return _end_time - _start_time
+    @cached_property
+    def _end_time(self) -> datetime:
+        return self._filter.date_to or timezone.now()
+
+    @cached_property
+    def time_difference(self) -> timedelta:
+        return self._end_time - self._start_time
 
     @cached_property
     def num_intervals(self):
+
+        if self._filter.interval == "month":
+            rel_delta = relativedelta(self._end_time.replace(day=1), self._start_time.replace(day=1))
+            return (rel_delta.years * 12) + rel_delta.months + 1
+
         return (int(self.time_difference.total_seconds() / TIME_IN_SECONDS[self._filter.interval]) + 1,)
 
     @cached_property
     def should_round(self):
         round_interval = False
-        if self._filter.interval == "week":
+        if self._filter.interval in ["week", "month"]:
             round_interval = True
         else:
             round_interval = self.time_difference.total_seconds() >= TIME_IN_SECONDS[self._filter.interval] * 2
