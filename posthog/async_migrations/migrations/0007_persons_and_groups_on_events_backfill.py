@@ -82,7 +82,7 @@ class Migration(AsyncMigrationDefinition):
         ),
         "GROUPS_DICT_CACHE_SIZE": (1000000, "ClickHouse cache size (in rows) for groups data.", int),
         "TIMESTAMP_LOWER_BOUND": ("2020-01-01", "Timestamp lower bound for events to backfill", str),
-        "TIMESTAMP_UPPER_BOUND": ("2030-01-01", "Timestamp upper bound for events to backfill", str),
+        "TIMESTAMP_UPPER_BOUND": ("2024-01-01", "Timestamp upper bound for events to backfill", str),
         "TEAM_ID": (
             None,
             "The team_id of team to run backfill for. If unset the backfill will run for all teams.",
