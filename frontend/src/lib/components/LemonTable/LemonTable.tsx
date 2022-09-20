@@ -267,31 +267,28 @@ export function LemonTable<T extends Record<string, any>>({
                                                         : undefined
                                                 }
                                             >
-                                                <Tooltip
-                                                    title={
-                                                        column.sorter &&
-                                                        (() => {
-                                                            const nextSorting = getNextSorting(
-                                                                currentSorting,
-                                                                determineColumnKey(column, 'sorting'),
-                                                                disableSortingCancellation
-                                                            )
-                                                            return `Click to ${
-                                                                nextSorting
-                                                                    ? nextSorting.order === 1
-                                                                        ? 'sort ascending'
-                                                                        : 'sort descending'
-                                                                    : 'cancel sorting'
-                                                            }`
-                                                        })
-                                                    }
+                                                <div
+                                                    className="LemonTable__header-content items-center"
+                                                    style={{ justifyContent: column.align }}
                                                 >
-                                                    <div
-                                                        className="LemonTable__header-content"
-                                                        style={{ justifyContent: column.align }}
-                                                    >
-                                                        {column.title}
-                                                        {column.sorter && (
+                                                    {column.title}
+                                                    {column.sorter && (
+                                                        <Tooltip
+                                                            title={() => {
+                                                                const nextSorting = getNextSorting(
+                                                                    currentSorting,
+                                                                    determineColumnKey(column, 'sorting'),
+                                                                    disableSortingCancellation
+                                                                )
+                                                                return `Click to ${
+                                                                    nextSorting
+                                                                        ? nextSorting.order === 1
+                                                                            ? 'sort ascending'
+                                                                            : 'sort descending'
+                                                                        : 'cancel sorting'
+                                                                }`
+                                                            }}
+                                                        >
                                                             <SortingIndicator
                                                                 order={
                                                                     currentSorting?.columnKey ===
@@ -300,9 +297,10 @@ export function LemonTable<T extends Record<string, any>>({
                                                                         : null
                                                                 }
                                                             />
-                                                        )}
-                                                    </div>
-                                                </Tooltip>
+                                                            {/* this non-breaking space lets antd's tooltip work*/}{' '}
+                                                        </Tooltip>
+                                                    )}
+                                                </div>
                                             </th>
                                         ))
                                     )}

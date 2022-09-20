@@ -72,7 +72,7 @@ function DisplayName(): JSX.Element {
 }
 
 export function ProjectSettings(): JSX.Element {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
     const { user, hasAvailableFeature } = useValues(userLogic)
@@ -141,24 +141,28 @@ export function ProjectSettings(): JSX.Element {
                     <a href="https://posthog.com/docs/integrations">our libraries</a>.
                 </p>
                 <CodeSnippet
-                    actions={[
-                        {
-                            icon: <IconRefresh />,
-                            title: 'Reset project API key',
-                            popconfirmProps: {
-                                title: (
-                                    <>
-                                        Reset the project's API key?{' '}
-                                        <b>This will invalidate the current API key and cannot be undone.</b>
-                                    </>
-                                ),
-                                okText: 'Reset key',
-                                okType: 'danger',
-                                placement: 'left',
-                            },
-                            callback: resetToken,
-                        },
-                    ]}
+                    actions={
+                        isTeamTokenResetAvailable
+                            ? [
+                                  {
+                                      icon: <IconRefresh />,
+                                      title: 'Reset project API key',
+                                      popconfirmProps: {
+                                          title: (
+                                              <>
+                                                  Reset the project's API key?{' '}
+                                                  <b>This will invalidate the current API key and cannot be undone.</b>
+                                              </>
+                                          ),
+                                          okText: 'Reset key',
+                                          okType: 'danger',
+                                          placement: 'left',
+                                      },
+                                      callback: resetToken,
+                                  },
+                              ]
+                            : []
+                    }
                     copyDescription="project API key"
                 >
                     {currentTeam?.api_token || ''}

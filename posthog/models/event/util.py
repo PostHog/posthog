@@ -17,6 +17,8 @@ from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.settings import TEST
 
+ZERO_DATE = timezone.datetime(1970, 1, 1)
+
 
 def create_event(
     event_uuid: uuid.UUID,
@@ -26,16 +28,56 @@ def create_event(
     timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
+    person_id: Optional[uuid.UUID] = None,
+    person_properties: Optional[Dict] = None,
+    person_created_at: Optional[Union[timezone.datetime, str]] = None,
+    group0_properties: Optional[Dict] = None,
+    group1_properties: Optional[Dict] = None,
+    group2_properties: Optional[Dict] = None,
+    group3_properties: Optional[Dict] = None,
+    group4_properties: Optional[Dict] = None,
+    group0_created_at: Optional[Union[timezone.datetime, str]] = None,
+    group1_created_at: Optional[Union[timezone.datetime, str]] = None,
+    group2_created_at: Optional[Union[timezone.datetime, str]] = None,
+    group3_created_at: Optional[Union[timezone.datetime, str]] = None,
+    group4_created_at: Optional[Union[timezone.datetime, str]] = None,
 ) -> str:
     if not timestamp:
         timestamp = timezone.now()
     assert timestamp is not None
 
     # clickhouse specific formatting
-    if isinstance(timestamp, str):
-        timestamp = isoparse(timestamp)
-    else:
-        timestamp = timestamp.astimezone(pytz.utc)
+    timestamp = isoparse(timestamp) if isinstance(timestamp, str) else timestamp.astimezone(pytz.utc)
+    person_created_at = (
+        isoparse(person_created_at)
+        if isinstance(person_created_at, str)
+        else (person_created_at or ZERO_DATE).astimezone(pytz.utc)
+    )
+    group0_created_at = (
+        isoparse(group0_created_at)
+        if isinstance(group0_created_at, str)
+        else (group0_created_at or ZERO_DATE).astimezone(pytz.utc)
+    )
+    group1_created_at = (
+        isoparse(group1_created_at)
+        if isinstance(group1_created_at, str)
+        else (group1_created_at or ZERO_DATE).astimezone(pytz.utc)
+    )
+    group2_created_at = (
+        isoparse(group2_created_at)
+        if isinstance(group2_created_at, str)
+        else (group2_created_at or ZERO_DATE).astimezone(pytz.utc)
+    )
+    group3_created_at = (
+        isoparse(group3_created_at)
+        if isinstance(group3_created_at, str)
+        else (group3_created_at or ZERO_DATE).astimezone(pytz.utc)
+    )
+    group4_created_at = (
+        isoparse(group4_created_at)
+        if isinstance(group4_created_at, str)
+        else (group4_created_at or ZERO_DATE).astimezone(pytz.utc)
+    )
 
     elements_chain = ""
     if elements and len(elements) > 0:
@@ -50,7 +92,19 @@ def create_event(
         "distinct_id": str(distinct_id),
         "elements_chain": elements_chain,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        # TODO: Support persons on events
+        "person_id": str(person_id) if person_id else "00000000-0000-0000-0000-000000000000",
+        "person_properties": json.dumps(person_properties) if person_properties is not None else "",
+        "person_created_at": person_created_at.strftime("%Y-%m-%d %H:%M:%S.%f") if person_created_at is not None else 0,
+        "group0_properties": json.dumps(group0_properties) if group0_properties is not None else "",
+        "group1_properties": json.dumps(group1_properties) if group1_properties is not None else "",
+        "group2_properties": json.dumps(group2_properties) if group2_properties is not None else "",
+        "group3_properties": json.dumps(group3_properties) if group3_properties is not None else "",
+        "group4_properties": json.dumps(group4_properties) if group4_properties is not None else "",
+        "group0_created_at": group0_created_at.strftime("%Y-%m-%d %H:%M:%S.%f") if group0_created_at is not None else 0,
+        "group1_created_at": group1_created_at.strftime("%Y-%m-%d %H:%M:%S.%f") if group1_created_at is not None else 0,
+        "group2_created_at": group2_created_at.strftime("%Y-%m-%d %H:%M:%S.%f") if group2_created_at is not None else 0,
+        "group3_created_at": group3_created_at.strftime("%Y-%m-%d %H:%M:%S.%f") if group3_created_at is not None else 0,
+        "group4_created_at": group4_created_at.strftime("%Y-%m-%d %H:%M:%S.%f") if group4_created_at is not None else 0,
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)

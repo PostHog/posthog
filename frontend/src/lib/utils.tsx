@@ -1504,13 +1504,3 @@ export function interleave(arr: any[], delimiter: any): any[] {
             : item
     )
 }
-
-export function findAllIndices(arr: any[], callback: (item: any) => boolean): number[] {
-    const indexes = []
-    for (let i = 0; i < arr.length; i++) {
-        if (callback(arr[i])) {
-            indexes.push(i)
-        }
-    }
-    return indexes
-}

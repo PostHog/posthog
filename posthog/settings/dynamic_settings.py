@@ -139,6 +139,11 @@ CONSTANCE_CONFIG = {
         "user to determine how many insight cache updates to run at a time",
         int,
     ),
+    "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS": (
+        get_from_env("ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS", default=False),
+        "Used to enable the running of experimental async migrations",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -166,6 +171,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
+    "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

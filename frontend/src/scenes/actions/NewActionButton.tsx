@@ -5,20 +5,16 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IconEdit, IconMagnifier } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonModal } from '@posthog/lemon-ui'
 
 export function NewActionButton(): JSX.Element {
     const [visible, setVisible] = useState(false)
     const [appUrlsVisible, setAppUrlsVisible] = useState(false)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
             <LemonButton type="primary" onClick={() => setVisible(true)} data-attr="create-action">
-                New {featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? 'calculated event' : 'action'}
+                New action
             </LemonButton>
             <LemonModal
                 isOpen={visible}
@@ -26,7 +22,7 @@ export function NewActionButton(): JSX.Element {
                     setVisible(false)
                     setAppUrlsVisible(false)
                 }}
-                title={`Create new ${featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? 'calculated event' : 'action'}`}
+                title={`Create new action`}
                 footer={
                     <>
                         {appUrlsVisible && (

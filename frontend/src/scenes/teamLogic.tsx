@@ -10,6 +10,7 @@ import { getAppContext } from '../lib/utils/getAppContext'
 import { lemonToast } from 'lib/components/lemonToast'
 import { IconSwapHoriz } from 'lib/components/icons'
 import { loaders } from 'kea-loaders'
+import { OrganizationMembershipLevel } from '../lib/constants'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -118,6 +119,12 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
         timezone: [(selectors) => [selectors.currentTeam], (currentTeam): string => currentTeam?.timezone || 'UTC'],
+        isTeamTokenResetAvailable: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): boolean =>
+                !!currentTeam?.effective_membership_level &&
+                currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
+        ],
     }),
     listeners(({ actions }) => ({
         deleteTeam: async ({ team }) => {
