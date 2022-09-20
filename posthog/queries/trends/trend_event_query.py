@@ -148,7 +148,6 @@ class TrendsEventQuery(EventQuery):
         timestamp_query = TimestampQuery(self._filter, self._team)
         parsed_date_from, date_from_params = timestamp_query.date_from
         parsed_date_to, date_to_params = timestamp_query.date_to
-
         date_params.update(date_from_params)
         date_params.update(date_to_params)
 

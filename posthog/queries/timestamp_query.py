@@ -19,9 +19,7 @@ class TimestampQuery:
 
     @cached_property
     def date_to_param(self) -> Optional[str]:
-        return self._date_param(
-            self._filter.date_to, self._filter._date_to and not self._filter.date_to_has_explicit_time
-        )
+        return self._date_param(self._filter.date_to, not self._filter.date_to_has_explicit_time)
 
     def _date_param(self, target_date, should_convert) -> str:
         return format_ch_timestamp(
@@ -41,7 +39,7 @@ class TimestampQuery:
 
     @cached_property
     def date_to_clause(self):
-        return self._get_timezone_aware_date_condition("<=", "date_to")
+        return f"AND {self._table}timestamp <= toDateTime(%(date_to)s)"
 
     @cached_property
     def date_from_clause(self):
