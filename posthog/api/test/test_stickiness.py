@@ -348,7 +348,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
 
             self.assertEqual(response[0]["count"], 1)
             self.assertEqual(response[0]["labels"][0], "1 day")
-            self.assertEqual(response[0]["data"][0], 0)
+            self.assertEqual(response[0]["data"][0], 1)
             self.assertEqual(response[0]["labels"][1], "2 days")
             self.assertEqual(response[0]["data"][1], 0)
             self.assertEqual(response[0]["labels"][2], "3 days")
