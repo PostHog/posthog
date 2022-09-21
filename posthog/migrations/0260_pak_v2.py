@@ -37,9 +37,4 @@ class Migration(migrations.Migration):
             field=models.CharField(blank=True, editable=False, max_length=50, null=True, unique=True),
         ),
         migrations.RunPython(hash_all_keys, migrations.RunPython.noop),
-        migrations.AlterField(
-            model_name="personalapikey",
-            name="secure_value",
-            field=models.CharField(editable=False, max_length=300, null=False, unique=True),
-        ),
     ]

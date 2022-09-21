@@ -67,6 +67,9 @@ Object {
           "username",
         ],
         "primary_dashboard": 1,
+        "recording_domains": Array [
+          "https://recordings.posthog.com/",
+        ],
         "session_recording_opt_in": true,
         "slack_incoming_webhook": "",
         "test_account_filters": Array [

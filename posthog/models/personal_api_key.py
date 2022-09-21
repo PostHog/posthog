@@ -19,7 +19,7 @@ class PersonalAPIKey(models.Model):
     secure_value: models.CharField = models.CharField(
         unique=True,
         max_length=300,
-        null=False,
+        null=True,
         editable=False,
     )
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)

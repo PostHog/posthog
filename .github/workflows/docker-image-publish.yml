@@ -39,6 +39,7 @@ jobs:
                   context: .
                   push: true
                   tags: posthog/posthog:latest
+                  buildx-fallback: true # if Depot builder is unavailable, fall back to local buildx
 
             - name: Image digests
               run: |
