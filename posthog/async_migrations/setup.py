@@ -139,7 +139,7 @@ def verify_required_migrations_have_been_completed(ignore_posthog_version: bool,
 def is_fresh_install(first_migration: str):
     # To verify we're on a fresh install
     # (1) check that the first async migration is not started
-    # (2) check that there are no persons exist (i.e. someone didn't try to upgrade to 1.40 from before async migrations introduction)
+    # (2) check that no persons exist (i.e. someone didn't try to upgrade to 1.40 from before async migrations introduction)
     migration_instance = AsyncMigration.objects.filter(name=first_migration).first()
     if migration_instance.status != MigrationStatus.NotStarted:
         return False
