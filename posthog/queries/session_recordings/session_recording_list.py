@@ -30,6 +30,7 @@ class SessionRecordingList(EventQuery):
 
     _core_events_query = """
         SELECT
+            uuid,
             distinct_id,
             event,
             team_id,
@@ -156,8 +157,10 @@ class SessionRecordingList(EventQuery):
 
     def _get_properties_select_clause(self) -> str:
         session_id_clause, _ = get_property_string_expr("events", "$session_id", "'$session_id'", "properties")
+        window_id_clause, _ = get_property_string_expr("events", "$window_id", "'$window_id'", "properties")
         clause = f""",
-            {session_id_clause} as session_id
+            {session_id_clause} as session_id,
+            {window_id_clause} as window_id
         """
         clause += (
             f", events.elements_chain as elements_chain"
@@ -349,8 +352,22 @@ class SessionRecordingList(EventQuery):
         return SessionRecordingQueryResult(session_recordings, more_recordings_available)
 
     def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
+        default_columns = ["session_id", "start_time", "end_time", "duration", "distinct_id"]
         return [
-            dict(zip(["session_id", "start_time", "end_time", "duration", "distinct_id", "start_url", "end_url"], row))
+            dict(
+                zip(
+                    ["session_id", "start_time", "end_time", "duration", "distinct_id", "start_url", "end_url"]
+                    + [
+                        item
+                        for sublist in [
+                            ["matching_events_count_{}".format(i), "matching_events_{}".format(i)]
+                            for i in range(len(row) - len(default_columns))
+                        ]
+                        for item in sublist
+                    ],
+                    row,
+                )
+            )
             for row in results
         ]
 
