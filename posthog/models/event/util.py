@@ -1,6 +1,5 @@
 import json
 import uuid
-from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 import pytz
@@ -79,7 +78,7 @@ def create_event(
 def format_clickhouse_timestamp(
     raw_timestamp: Optional[Union[timezone.datetime, str]],
     default=timezone.now(),
-) -> datetime:
+) -> str:
     parsed_datetime = (
         isoparse(raw_timestamp) if isinstance(raw_timestamp, str) else (raw_timestamp or default).astimezone(pytz.utc)
     )
