@@ -36,18 +36,6 @@ jobs:
                       type=sha,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
                       type=raw,value=master,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
 
-            # We also want to use cache-from when building, but we want to also
-            # include the master tag so we get the master branch image as well.
-            # This creates a scope similar to the github cache action scoping
-            - name: Docker cache-from/cache-to metadata
-              id: meta-for-cache
-              uses: docker/metadata-action@v3
-              with:
-                  images: ghcr.io/posthog/posthog/posthog
-                  tags: |
-                      type=raw,value=master
-                      type=ref,event=pr
-
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v1
 
@@ -65,15 +53,10 @@ jobs:
               id: docker_build
               uses: docker/build-push-action@v2
               with:
-                  cache-from: ${{ steps.meta-for-cache.outputs.tags }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
-                  # load: true # NOTE: this option is not compatible with `push: true`
-                  # NOTE: we use inline as suggested here:
-                  # https://github.com/docker/build-push-action/blob/master/docs/advanced/cache.md#inline-cache
-                  # It notes that it doesn't support mode=max, but we're not
-                  # removing any layers, soooo, maybe it's fine.
-                  cache-to: type=registry,${{ steps.meta-for-cache.outputs.tags }},mode=max
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
                   outputs: |
                       type=docker,dest=/tmp/posthog-image.tar
 
@@ -92,34 +75,6 @@ jobs:
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
                   echo "Image name: $image_name" >> $GITHUB_STEP_SUMMARY
-
-    push:
-        # We use artifacts to pass the docker image between steps, so we do
-        # the push separately such that we can do this in parallel with other
-        # jobs.
-        name: Docker image push
-        if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
-        runs-on: ubuntu-latest
-        needs: build
-
-        steps:
-            - name: Login to GitHub Container Registry
-              uses: docker/login-action@v1
-              with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-
-            - uses: actions/download-artifact@v3
-              with:
-                  name: docker-image
-                  path: /tmp/
-
-            - name: Push (if PostHog/posthog)
-              # Only push to GHCR if running on PostHog/posthog, as there's no read-write token on forks
-              run: |
-                  docker load < /tmp/posthog-image.tar
-                  docker image push --all-tags ghcr.io/posthog/posthog/posthog
 
     posthog_cloud:
         name: PostHog Cloud image build
