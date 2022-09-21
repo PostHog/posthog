@@ -58,7 +58,7 @@ def create_event(
         "created_at": format_clickhouse_timestamp(timestamp),
         "person_id": str(person_id) if person_id else "00000000-0000-0000-0000-000000000000",
         "person_properties": json.dumps(person_properties) if person_properties is not None else "",
-        "person_created_at": format_clickhouse_timestamp(person_created_at, ZERO_DATE)g,
+        "person_created_at": format_clickhouse_timestamp(person_created_at, ZERO_DATE),
         "group0_properties": json.dumps(group0_properties) if group0_properties is not None else "",
         "group1_properties": json.dumps(group1_properties) if group1_properties is not None else "",
         "group2_properties": json.dumps(group2_properties) if group2_properties is not None else "",
