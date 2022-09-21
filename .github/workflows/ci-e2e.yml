@@ -73,7 +73,7 @@ jobs:
                   # https://github.com/docker/build-push-action/blob/master/docs/advanced/cache.md#inline-cache
                   # It notes that it doesn't support mode=max, but we're not
                   # removing any layers, soooo, maybe it's fine.
-                  cache-to: ${{ steps.meta-for-cache.outputs.tags }},mode=max
+                  cache-to: type=registry,${{ steps.meta-for-cache.outputs.tags }},mode=max
                   outputs: |
                       type=docker,dest=/tmp/posthog-image.tar
 
