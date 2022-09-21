@@ -117,9 +117,7 @@ export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum
                 <Space direction={'horizontal'} wrap={true} align="center">
                     {pillValues.map((pill) => (
                         <Tag className="tag-pill" key={pill} closable={false}>
-                            <Typography.Text ellipsis={{ tooltip: pill }} style={{ maxWidth: 150 }}>
-                                {midEllipsis(pill, 30)}
-                            </Typography.Text>
+                            <Typography.Text style={{ maxWidth: 150 }}>{midEllipsis(pill, 30)}</Typography.Text>
                         </Tag>
                     ))}
                 </Space>
