@@ -22,7 +22,7 @@ def hash_all_keys(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0258_team_recording_domains"),
+        ("posthog", "0259_backfill_team_recording_domains"),
     ]
 
     operations = [
@@ -36,5 +36,5 @@ class Migration(migrations.Migration):
             name="value",
             field=models.CharField(blank=True, editable=False, max_length=50, null=True, unique=True),
         ),
-        migrations.RunPython(hash_all_keys, migrations.RunPython.noop),
+        migrations.RunPython(hash_all_keys),
     ]
