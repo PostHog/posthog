@@ -259,7 +259,7 @@ class SessionRecordingList(EventQuery):
             )
             aggregate_select_clause += f"""
             , countIf({condition_sql}) as count_event_match_{index}
-            , groupUniqArrayIf(100)((events.timestamp, events.uuid, events.session_id, events.window_id), {condition_sql}) as count_event_match_{index}
+            , groupUniqArrayIf(100)((events.timestamp, events.uuid, events.session_id, events.window_id), {condition_sql}) as matching_events_{index}
             """
             aggregate_having_clause += f"\nAND count_event_match_{index} > 0"
             params = {**params, **filter_params}
