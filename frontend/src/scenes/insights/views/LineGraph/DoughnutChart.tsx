@@ -13,7 +13,7 @@ import {
     ChartOptions,
     ChartDataset,
 } from 'chart.js'
-import 'chartjs-adapter-dayjs'
+import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty } from '~/lib/utils'
 import { GraphType } from '~/types'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -104,7 +104,7 @@ export function DoughnutChart({
                 datasets: processedDatasets,
             },
             options: {
-                cutout: '90%',
+                cutout: '0%',
                 responsive: true,
                 maintainAspectRatio: false,
                 hover: {
