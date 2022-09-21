@@ -38,41 +38,6 @@ all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
 reload_migration_definitions()
 
 
-def is_fresh_install(first_migration: str):
-    # To verify we're on a fresh install
-    # (1) check that the first migration is not started
-    # (2) check that there are no events in the events table (i.e. someone didn't try to upgrade to 1.40 from before async migrations introduction)
-    migration_instance = AsyncMigration.objects.filter(name=first_migration).first()
-    if migration_instance.status != MigrationStatus.NotStarted:
-        return False
-    event_cnt = sync_execute("SELECT count() FROM events")[0][0]
-    if event_cnt > 0:
-        return False
-    return True
-
-
-def mark_all_existing_migrations_as_completed():
-    logger.info("Fresh install - marking all existing migrations as completed")
-    # we can tell by the percentage being 0 and time being the same that they were completed at startup
-    finished_at = now()
-    for migration_name in ALL_ASYNC_MIGRATIONS.keys():
-        sm = AsyncMigration.objects.filter(name=migration_name).first()
-        sm.status = MigrationStatus.CompletedSuccessfully
-        sm.finished_at = finished_at
-        sm.save()
-
-
-def check_required_migrations_have_been_completed(ignore_posthog_version: bool, applied_migrations):
-    unapplied_migrations = set(ALL_ASYNC_MIGRATIONS.keys()) - applied_migrations
-    for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
-        if (
-            (not ignore_posthog_version)
-            and (migration_name in unapplied_migrations)
-            and (POSTHOG_VERSION > Version(migration.posthog_max_version))
-        ):
-            raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
-
-
 def setup_async_migrations(ignore_posthog_version: bool = False):
     """
     Execute the necessary setup for async migrations to work:
@@ -105,7 +70,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
         mark_all_existing_migrations_as_completed()
 
     applied_migrations = set(instance.name for instance in get_all_completed_async_migrations())
-    check_required_migrations_have_been_completed(ignore_posthog_version, applied_migrations)
+    verify_required_migrations_have_been_completed(ignore_posthog_version, applied_migrations)
 
     for key, val in ASYNC_MIGRATION_TO_DEPENDENCY.items():
         DEPENDENCY_TO_ASYNC_MIGRATION[val] = key
@@ -158,3 +123,39 @@ def get_async_migration_dependency(migration_name: str) -> Optional[str]:
         return None
 
     return ASYNC_MIGRATION_TO_DEPENDENCY[migration_name]
+
+
+def verify_required_migrations_have_been_completed(ignore_posthog_version: bool, applied_migrations: set):
+    unapplied_migrations = set(ALL_ASYNC_MIGRATIONS.keys()) - applied_migrations
+    for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
+        if (
+            (not ignore_posthog_version)
+            and (migration_name in unapplied_migrations)
+            and (POSTHOG_VERSION > Version(migration.posthog_max_version))
+        ):
+            raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
+
+
+def is_fresh_install(first_migration: str):
+    # To verify we're on a fresh install
+    # (1) check that the first async migration is not started
+    # (2) check that there are no persons exist (i.e. someone didn't try to upgrade to 1.40 from before async migrations introduction)
+    migration_instance = AsyncMigration.objects.filter(name=first_migration).first()
+    if migration_instance.status != MigrationStatus.NotStarted:
+        return False
+    event_cnt = sync_execute("SELECT count() FROM events")[0][0]
+    person_cnt = sync_execute("SELECT count() FROM person")[0][0]
+    if event_cnt > 0 or person_cnt > 0:
+        return False
+    return True
+
+
+def mark_all_existing_migrations_as_completed():
+    logger.info("Fresh install - marking all existing migrations as completed")
+    # we can tell by the percentage being 0 and time being the same that they were completed at startup
+    finished_at = now()
+    for migration_name in ALL_ASYNC_MIGRATIONS.keys():
+        sm = AsyncMigration.objects.filter(name=migration_name).first()
+        sm.status = MigrationStatus.CompletedSuccessfully
+        sm.finished_at = finished_at
+        sm.save()
