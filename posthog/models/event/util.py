@@ -77,7 +77,8 @@ def create_event(
 
 
 def format_clickhouse_timestamp(
-    raw_timestamp: Optional[Union[timezone.datetime, str]], default=timezone.now(),
+    raw_timestamp: Optional[Union[timezone.datetime, str]],
+    default=timezone.now(),
 ) -> datetime:
     parsed_datetime = (
         isoparse(raw_timestamp) if isinstance(raw_timestamp, str) else (raw_timestamp or default).astimezone(pytz.utc)
