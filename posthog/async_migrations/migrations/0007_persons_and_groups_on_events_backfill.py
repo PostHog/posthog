@@ -263,7 +263,6 @@ class Migration(AsyncMigrationDefinition):
                 sql=f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY COLUMN {column} VARCHAR Codec({codec})",
             )
 
-    # TODO: Consider making postcheck a native component of the async migrations spec
     def _postcheck(self, _: str):
         self._check_person_data()
         self._check_groups_data()

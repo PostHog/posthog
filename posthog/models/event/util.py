@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 import pytz
@@ -42,43 +43,6 @@ def create_event(
     group3_created_at: Optional[Union[timezone.datetime, str]] = None,
     group4_created_at: Optional[Union[timezone.datetime, str]] = None,
 ) -> str:
-    if not timestamp:
-        timestamp = timezone.now()
-    assert timestamp is not None
-
-    # clickhouse specific formatting
-    timestamp = isoparse(timestamp) if isinstance(timestamp, str) else timestamp.astimezone(pytz.utc)
-    person_created_at = (
-        isoparse(person_created_at)
-        if isinstance(person_created_at, str)
-        else (person_created_at or ZERO_DATE).astimezone(pytz.utc)
-    )
-    group0_created_at = (
-        isoparse(group0_created_at)
-        if isinstance(group0_created_at, str)
-        else (group0_created_at or ZERO_DATE).astimezone(pytz.utc)
-    )
-    group1_created_at = (
-        isoparse(group1_created_at)
-        if isinstance(group1_created_at, str)
-        else (group1_created_at or ZERO_DATE).astimezone(pytz.utc)
-    )
-    group2_created_at = (
-        isoparse(group2_created_at)
-        if isinstance(group2_created_at, str)
-        else (group2_created_at or ZERO_DATE).astimezone(pytz.utc)
-    )
-    group3_created_at = (
-        isoparse(group3_created_at)
-        if isinstance(group3_created_at, str)
-        else (group3_created_at or ZERO_DATE).astimezone(pytz.utc)
-    )
-    group4_created_at = (
-        isoparse(group4_created_at)
-        if isinstance(group4_created_at, str)
-        else (group4_created_at or ZERO_DATE).astimezone(pytz.utc)
-    )
-
     elements_chain = ""
     if elements and len(elements) > 0:
         elements_chain = elements_to_string(elements=elements)
@@ -87,29 +51,40 @@ def create_event(
         "uuid": str(event_uuid),
         "event": event,
         "properties": json.dumps(properties),
-        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "timestamp": format_clickhouse_timestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.pk,
         "distinct_id": str(distinct_id),
         "elements_chain": elements_chain,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "person_id": str(person_id) if person_id else "00000000-0000-0000-0000-000000000000",
         "person_properties": json.dumps(person_properties) if person_properties is not None else "",
-        "person_created_at": person_created_at.strftime("%Y-%m-%d %H:%M:%S.%f") if person_created_at is not None else 0,
+        "person_created_at": format_clickhouse_timestamp(person_created_at, ZERO_DATE).strftime("%Y-%m-%d %H:%M:%S.%f")
+        if person_created_at is not None
+        else 0,
         "group0_properties": json.dumps(group0_properties) if group0_properties is not None else "",
         "group1_properties": json.dumps(group1_properties) if group1_properties is not None else "",
         "group2_properties": json.dumps(group2_properties) if group2_properties is not None else "",
         "group3_properties": json.dumps(group3_properties) if group3_properties is not None else "",
         "group4_properties": json.dumps(group4_properties) if group4_properties is not None else "",
-        "group0_created_at": group0_created_at.strftime("%Y-%m-%d %H:%M:%S.%f") if group0_created_at is not None else 0,
-        "group1_created_at": group1_created_at.strftime("%Y-%m-%d %H:%M:%S.%f") if group1_created_at is not None else 0,
-        "group2_created_at": group2_created_at.strftime("%Y-%m-%d %H:%M:%S.%f") if group2_created_at is not None else 0,
-        "group3_created_at": group3_created_at.strftime("%Y-%m-%d %H:%M:%S.%f") if group3_created_at is not None else 0,
-        "group4_created_at": group4_created_at.strftime("%Y-%m-%d %H:%M:%S.%f") if group4_created_at is not None else 0,
+        "group0_created_at": format_clickhouse_timestamp(group0_created_at, ZERO_DATE).strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "group1_created_at": format_clickhouse_timestamp(group1_created_at, ZERO_DATE).strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "group2_created_at": format_clickhouse_timestamp(group2_created_at, ZERO_DATE).strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "group3_created_at": format_clickhouse_timestamp(group3_created_at, ZERO_DATE).strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "group4_created_at": format_clickhouse_timestamp(group4_created_at, ZERO_DATE).strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
 
     return str(event_uuid)
+
+
+# default
+def format_clickhouse_timestamp(
+    raw_timestamp: Optional[Union[timezone.datetime, str]], default=timezone.now()
+) -> datetime:
+    return (
+        isoparse(raw_timestamp) if isinstance(raw_timestamp, str) else (raw_timestamp or default).astimezone(pytz.utc)
+    )
 
 
 def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Dict[str, Person]] = None) -> None:
