@@ -179,6 +179,7 @@ jobs:
                       type=ref,event=pr
                       type=sha,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
                       type=raw,value=master,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+                      type=raw,value=${{ github.sha }},enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
 
             # We also want to use cache-from when building, but we want to also
             # include the master tag so we get the master branch image as well.
@@ -212,6 +213,23 @@ jobs:
                   # Cloud additions
                   build-args: |
                       BASE_IMAGE=${{ steps.load.outputs.docker_image_digest }}
+
+            - name: Trigger PostHog Cloud deployment
+              if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+              uses: mvasigh/dispatch-action@main
+              with:
+                  # TODO: find a way to avoid using a personal access token. An
+                  # option: push something to SQS (using WebIdentity) -> lambda
+                  # function to trigger the workflow via webhook
+                  token: ${{ secrets.POSTHOG_CLOUD_ACCESS_TOKEN }}
+                  repo: posthog-cloud-infra
+                  owner: PostHog
+                  event_type: posthog_cloud_build
+                  message: |
+                      {
+                        "image_tag": "${{ github.sha }}",
+                        "context": ${{ toJson(github) }}
+                      }
 
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
