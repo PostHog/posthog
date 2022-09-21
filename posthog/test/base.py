@@ -356,8 +356,8 @@ class BaseTestMigrations(QueryMatchingTest):
     def app(self):
         return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
 
-    migrate_from = None
-    migrate_to = None
+    migrate_from: str
+    migrate_to: str
     apps = None
     assert_snapshots = False
 
