@@ -332,12 +332,14 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                         "events": [
                             {
                                 "id": "watched movie",
-                                "properties": {
-                                    "key": "name",
-                                    "value": ["person1"],
-                                    "operator": "exact",
-                                    "type": "person",
-                                },
+                                "properties": [
+                                    {
+                                        "key": "name",
+                                        "value": ["person1"],
+                                        "operator": "exact",
+                                        "type": "person",
+                                    }
+                                ],
                             }
                         ],
                     },
