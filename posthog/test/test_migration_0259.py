@@ -3,8 +3,8 @@ from posthog.test.base import TestMigrations
 
 class RecordingDomainMigrationTestCase(TestMigrations):
 
-    migrate_from = "0258_team_recording_domains"  # type: ignore
-    migrate_to = "0259_backfill_team_recording_domains"  # type: ignore
+    migrate_from = "0258_team_recording_domains"
+    migrate_to = "0259_backfill_team_recording_domains"
     assert_snapshots = True
 
     def setUpBeforeMigration(self, apps):
