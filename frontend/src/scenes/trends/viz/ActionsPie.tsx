@@ -2,13 +2,12 @@ import './ActionsPie.scss'
 import React, { useState, useEffect } from 'react'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
-import { useValues, useActions } from 'kea'
+import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { ChartParams, GraphType, GraphDataset, ActionFilter } from '~/types'
+import { ChartParams, GraphType, GraphDataset } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { personsModalLogic } from '../persons-modal/personsModalLogic'
-import { openPersonsModal, shouldUsePersonsModalV2 } from '../persons-modal/PersonsModalV2'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 
@@ -17,7 +16,6 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
     const [total, setTotal] = useState(0)
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const { indexedResults, labelGroupType, hiddenLegendKeys } = useValues(logic)
 
     function updateData(): void {
@@ -72,45 +70,19 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                             !showPersonsModal || insight.filters?.formula
                                 ? undefined
                                 : (payload) => {
-                                      const { points, index, seriesId, crossDataset } = payload
+                                      const { points, index, crossDataset } = payload
                                       const dataset = points.referencePoint.dataset
-                                      const action = dataset.actions?.[index]
                                       const label = dataset.labels?.[index]
-                                      const date_from = insight.filters?.date_from || ''
-                                      const date_to = insight.filters?.date_to || ''
-                                      const breakdown_value = dataset.breakdownValues?.[index]
-                                          ? dataset.breakdownValues[index]
-                                          : null
-                                      const params = {
-                                          action: action as ActionFilter,
-                                          label: label ?? '',
-                                          date_from,
-                                          date_to,
-                                          filters: insight.filters ?? {},
-                                          seriesId,
-                                          breakdown_value: breakdown_value ?? '',
-                                      }
 
                                       const urls = urlsForDatasets(crossDataset, index)
                                       const selectedUrl = urls[index]?.value
 
-                                      if (shouldUsePersonsModalV2()) {
-                                          if (selectedUrl) {
-                                              openPersonsModal({
-                                                  urls,
-                                                  urlsIndex: index,
-                                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
-                                              })
-                                          }
-                                      } else {
-                                          if (selectedUrl) {
-                                              loadPeopleFromUrl({
-                                                  ...params,
-                                                  url: selectedUrl,
-                                              })
-                                          } else {
-                                              loadPeople(params)
-                                          }
+                                      if (selectedUrl) {
+                                          openPersonsModal({
+                                              urls,
+                                              urlsIndex: index,
+                                              title: <PropertyKeyInfo value={label || ''} disablePopover />,
+                                          })
                                       }
                                   }
                         }

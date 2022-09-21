@@ -146,7 +146,7 @@ module.exports = {
         // 'justifyItems', // The justify-items utilities like justify-items-end
         // 'justifySelf', // The justify-self utilities like justify-self-end
         // 'letterSpacing', // The letter-spacing utilities like tracking-normal
-        // 'lineHeight', // The line-height utilities like leading-9
+        'lineHeight', // The line-height utilities like leading-9
         // 'listStylePosition', // The list-style-position utilities like list-inside
         'listStyleType', // The list-style-type utilities like list-disc
         'margin', // The margin utilities like mt-28

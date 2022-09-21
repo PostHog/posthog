@@ -879,14 +879,22 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
         <>
             {readOnly ? (
                 <>
-                    <div className="font-medium border rounded p-2 pl-3 mb-4">
-                        Served value:{' '}
-                        <b>
+                    <div className="flex flex-col mb-4">
+                        <span className="card-secondary">Type</span>
+                        <span>
                             {featureFlag.filters.multivariate
-                                ? 'Multiple variants with rollout percentages (A/B test)'
+                                ? 'Multiple variants with rollout percentages (A/B/C test)'
                                 : 'Release toggle (boolean)'}
-                        </b>
+                        </span>
+
+                        <span className="card-secondary mt-4">Flag persistence</span>
+                        <span>
+                            This flag{' '}
+                            <b>{featureFlag.ensure_experience_continuity ? 'persists' : 'does not persist'} </b>
+                            across authentication events.
+                        </span>
                     </div>
+                    <LemonDivider className="my-3" />
                     {featureFlag.filters.multivariate && (
                         <>
                             <div className="mb-2">
@@ -1287,7 +1295,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 ].map((val, idx) => (
                                                     <span
                                                         key={idx}
-                                                        className="simple-tag tag-light-blue text-primary-alt"
+                                                        className="simple-tag tag-light-blue text-primary-alt display-value"
                                                     >
                                                         {property.type === 'cohort'
                                                             ? (val && cohortsById[val]?.name) || `ID ${val}`

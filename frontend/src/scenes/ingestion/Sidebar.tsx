@@ -1,5 +1,5 @@
 import React from 'react'
-import { ingestionLogic } from './ingestionLogic'
+import { ingestionLogic, INGESTION_STEPS } from './ingestionLogic'
 import { useActions, useValues } from 'kea'
 import './IngestionWizard.scss'
 import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'
@@ -10,9 +10,10 @@ import { HelpType } from '~/types'
 import { LemonDivider } from 'lib/components/LemonDivider'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product-onboarding&utm_campaign=help-button-sidebar'
+const sidebarSteps = Object.values(INGESTION_STEPS)
 
 export function Sidebar(): JSX.Element {
-    const { currentStep, sidebarSteps } = useValues(ingestionLogic)
+    const { currentStep } = useValues(ingestionLogic)
     const { sidebarStepClick } = useActions(ingestionLogic)
     const { reportIngestionHelpClicked, reportIngestionSidebarButtonClicked } = useActions(eventUsageLogic)
 

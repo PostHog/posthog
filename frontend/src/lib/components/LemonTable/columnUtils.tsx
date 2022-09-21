@@ -31,18 +31,9 @@ export function createdByColumn<T extends { created_by?: UserBasicType | null }>
             const { created_by } = item
             return (
                 <Row align="middle" wrap={false}>
-                    {created_by && <ProfilePicture name={created_by.first_name} email={created_by.email} size="md" />}
-                    <div
-                        style={{
-                            maxWidth: 250,
-                            width: 'auto',
-                            verticalAlign: 'middle',
-                            marginLeft: created_by ? 8 : 0,
-                            color: created_by ? undefined : 'var(--muted)',
-                        }}
-                    >
-                        {created_by ? created_by.first_name || created_by.email : '—'}
-                    </div>
+                    {created_by && (
+                        <ProfilePicture name={created_by.first_name} email={created_by.email} size="md" showName />
+                    )}
                 </Row>
             )
         },

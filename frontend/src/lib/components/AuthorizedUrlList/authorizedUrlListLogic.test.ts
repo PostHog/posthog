@@ -1,12 +1,18 @@
-import { appEditorUrl, authorizedUrlsLogic, validateProposedURL } from 'scenes/toolbar-launch/authorizedUrlsLogic'
+import {
+    appEditorUrl,
+    authorizedUrlListLogic,
+    AuthorizedUrlListType,
+    validateProposedURL,
+} from './authorizedUrlListLogic'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { urls } from 'scenes/urls'
+import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 
-describe('the authorized urls logic', () => {
-    let logic: ReturnType<typeof authorizedUrlsLogic.build>
+describe('the authorized urls list logic', () => {
+    let logic: ReturnType<typeof authorizedUrlListLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -20,13 +26,15 @@ describe('the authorized urls logic', () => {
             },
         })
         initKeaTests()
-        logic = authorizedUrlsLogic()
+        logic = authorizedUrlListLogic({
+            type: AuthorizedUrlListType.TOOLBAR_URLS,
+        })
         logic.mount()
     })
 
     it('encodes an app url correctly', () => {
         expect(appEditorUrl('http://127.0.0.1:8000')).toEqual(
-            '/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8000'
+            '/api/user/redirect_to_site/?userIntent=add-action&apiURL=http%3A%2F%2Flocalhost&appUrl=http%3A%2F%2F127.0.0.1%3A8000'
         )
     })
 
@@ -77,19 +85,64 @@ describe('the authorized urls logic', () => {
 
         testCases.forEach((testCase) => {
             it(`a proposal of "${testCase.proposedUrl}" has validity message "${testCase.validityMessage}"`, () => {
-                expect(validateProposedURL(testCase.proposedUrl, [])).toEqual(testCase.validityMessage)
+                expect(validateProposedURL(testCase.proposedUrl, [], false)).toEqual(testCase.validityMessage)
             })
         })
 
         it('fails if the proposed URL is already authorized', () => {
-            expect(validateProposedURL('https://valid.*.example.com', ['https://valid.*.example.com'])).toBe(
+            expect(validateProposedURL('https://valid.*.example.com', ['https://valid.*.example.com'], false)).toBe(
                 'This URL is already registered.'
             )
             expect(
-                validateProposedURL('https://valid.and-not-already-authorized.example.com', [
-                    'https://valid.*.example.com',
-                ])
+                validateProposedURL(
+                    'https://valid.and-not-already-authorized.example.com',
+                    ['https://valid.*.example.com'],
+                    false
+                )
             ).toBe(undefined)
+        })
+    })
+    describe('recording domain type', () => {
+        beforeEach(() => {
+            logic = authorizedUrlListLogic({
+                type: AuthorizedUrlListType.RECORDING_DOMAINS,
+            })
+            logic.mount()
+        })
+        it('gets initial domains from recording_domains on the current team', () => {
+            expectLogic(logic).toMatchValues({
+                authorizedUrls: ['https://recordings.posthog.com/'],
+            })
+        })
+        it('addUrl the recording_domains on the team', () => {
+            jest.spyOn(api, 'update')
+
+            expectLogic(logic, () => logic.actions.addUrl('http://*.example.com')).toFinishAllListeners()
+
+            expect(api.update).toBeCalledWith(`api/projects/${MOCK_TEAM_ID}`, {
+                recording_domains: ['https://recordings.posthog.com/', 'http://*.example.com'],
+            })
+        })
+
+        describe('validating proposed recording domains', () => {
+            const testCases = [
+                { proposedUrl: 'https://valid.*.example.com', validityMessage: undefined },
+                {
+                    proposedUrl: 'https://not.valid.com/path',
+                    validityMessage: "Please type a valid domain (URLs with a path aren't allowed).",
+                },
+                {
+                    proposedUrl: 'https://not.*.valid.*',
+                    validityMessage:
+                        'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.',
+                },
+            ]
+
+            testCases.forEach((testCase) => {
+                it(`a proposal of "${testCase.proposedUrl}" has validity message "${testCase.validityMessage}"`, () => {
+                    expect(validateProposedURL(testCase.proposedUrl, [], true)).toEqual(testCase.validityMessage)
+                })
+            })
         })
     })
 })
