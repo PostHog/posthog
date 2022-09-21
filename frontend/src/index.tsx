@@ -19,7 +19,7 @@ if (typeof window !== 'undefined') {
     if (process.env.NODE_ENV === 'development') {
         ;(window as any).getReduxState = () => getContext().store.getState()
     } else {
-        ;(window as any).getReduxState = () => 'Disabled outside development!'
+        ;(window as any).getReduxState = () => 'Disabled outside development!!'
     }
 }
 
