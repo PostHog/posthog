@@ -19,14 +19,15 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 class PersonalAPIKeySerializerCreateOnly(serializers.ModelSerializer):
     """Create-only PersonalAPIKey serializer that also returns key value."""
 
-    value = serializers.SerializerMethodField(read_only=True)
+    # Specifying method name because the serializer class already has a get_value method
+    value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
 
     class Meta:
         model = PersonalAPIKey
         fields = ["id", "label", "value", "created_at", "last_used_at", "user_id"]
         read_only_fields = ["id", "value", "created_at", "last_used_at", "user_id"]
 
-    def get_value(self, obj: PersonalAPIKey) -> str:
+    def get_key_value(self, obj: PersonalAPIKey) -> str:
         return obj._value  # type: ignore
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
