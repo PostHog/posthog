@@ -78,7 +78,6 @@ def create_event(
     return str(event_uuid)
 
 
-# default
 def format_clickhouse_timestamp(
     raw_timestamp: Optional[Union[timezone.datetime, str]], default=timezone.now()
 ) -> datetime:
