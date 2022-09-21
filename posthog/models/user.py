@@ -11,7 +11,7 @@ from posthog.constants import AvailableFeature
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
-from .personal_api_key import PersonalAPIKey
+from .personal_api_key import PersonalAPIKey, hash_key_value
 from .team import Team
 from .utils import UUIDClassicModel, generate_random_token, sane_repr
 
@@ -77,7 +77,9 @@ class UserManager(BaseUserManager):
     def get_from_personal_api_key(self, key_value: str) -> Optional["User"]:
         try:
             personal_api_key: PersonalAPIKey = (
-                PersonalAPIKey.objects.select_related("user").filter(user__is_active=True).get(value=key_value)
+                PersonalAPIKey.objects.select_related("user")
+                .filter(user__is_active=True)
+                .get(secure_value=hash_key_value(key_value))
             )
         except PersonalAPIKey.DoesNotExist:
             return None
