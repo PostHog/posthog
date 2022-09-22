@@ -3,12 +3,11 @@ import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { pathsLogicType } from './pathsLogicType'
 import { InsightLogicProps, FilterType, PathType, PropertyFilter, InsightType } from '~/types'
-import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { urls } from 'scenes/urls'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { openPersonsModal, shouldUsePersonsModalV2 } from 'scenes/trends/persons-modal/PersonsModalV2'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
@@ -45,7 +44,6 @@ export const pathsLogic = kea<pathsLogicType>({
     key: keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY),
 
     connect: (props: InsightLogicProps) => ({
-        logic: [personsModalLogic],
         values: [
             insightLogic(props),
             ['filters as filter', 'insight', 'insightLoading'],
@@ -76,28 +74,17 @@ export const pathsLogic = kea<pathsLogicType>({
         },
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
             const personsUrl = buildPeopleUrl({
-                label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                 date_from: '',
                 date_to: '',
                 filters: { ...values.filter, path_start_key, path_end_key, path_dropoff_key },
             })
-            if (shouldUsePersonsModalV2()) {
-                if (personsUrl) {
-                    openPersonsModal({
-                        url: personsUrl,
-                        title: pathsTitle({
-                            label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
-                            isDropOff: Boolean(path_dropoff_key),
-                        }),
-                    })
-                }
-            } else {
-                personsModalLogic.actions.loadPeople({
-                    label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
-                    date_from: '',
-                    date_to: '',
-                    pathsDropoff: Boolean(path_dropoff_key),
-                    filters: { ...values.filter, path_start_key, path_end_key, path_dropoff_key },
+            if (personsUrl) {
+                openPersonsModal({
+                    url: personsUrl,
+                    title: pathsTitle({
+                        label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
+                        isDropOff: Boolean(path_dropoff_key),
+                    }),
                 })
             }
         },

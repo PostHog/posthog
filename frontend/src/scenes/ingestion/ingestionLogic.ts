@@ -21,22 +21,14 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { windowValues } from 'kea-window-values'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { subscriptions } from 'kea-subscriptions'
-import { BillingType, TeamType } from '~/types'
+import { BillingType } from '~/types'
 
 export enum INGESTION_STEPS {
     START = 'Get started',
     CONNECT_PRODUCT = 'Connect your product',
     VERIFY = 'Listen for events',
     BILLING = 'Add payment method',
-    DONE = 'Done!',
-}
-
-export enum INGESTION_STEPS_WITHOUT_BILLING {
-    START = 'Get started',
-    CONNECT_PRODUCT = 'Connect your product',
-    VERIFY = 'Listen for events',
     DONE = 'Done!',
 }
 
@@ -65,7 +57,6 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setCurrentStep: (currentStep: string) => ({ currentStep }),
         sidebarStepClick: (step: string) => ({ step }),
         onBack: true,
-        setSidebarSteps: (steps: string[]) => ({ steps }),
     }),
     windowValues({
         isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
@@ -130,12 +121,6 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 openThirdPartyPluginModal: (_, { plugin }) => plugin,
             },
         ],
-        sidebarSteps: [
-            Object.values(INGESTION_STEPS_WITHOUT_BILLING) as string[],
-            {
-                setSidebarSteps: (_, { steps }) => steps,
-            },
-        ],
     }),
     selectors(() => ({
         currentStep: [
@@ -191,11 +176,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setAddBilling: () => getUrl(values),
         setState: () => getUrl(values),
         updateCurrentTeamSuccess: () => {
-            const isBillingPage = router.values.location.pathname == '/ingestion/billing'
-            const isVerifyPage =
-                !values.featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING] &&
-                router.values.location.pathname == '/ingestion/verify'
-            if (isBillingPage || isVerifyPage) {
+            if (router.values.location.pathname == '/ingestion/billing') {
                 return urls.events()
             }
         },
@@ -323,23 +304,8 @@ export const ingestionLogic = kea<ingestionLogicType>([
         },
     })),
     subscriptions(({ actions, values }) => ({
-        featureFlags: (featureFlags) => {
-            const steps = featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING]
-                ? INGESTION_STEPS
-                : INGESTION_STEPS_WITHOUT_BILLING
-            actions.setSidebarSteps(Object.values(steps))
-        },
         billing: (billing: BillingType) => {
             if (billing?.plan && values.addBilling) {
-                actions.setCurrentStep(INGESTION_STEPS.DONE)
-            }
-        },
-        currentTeam: (currentTeam: TeamType) => {
-            if (
-                currentTeam?.ingested_event &&
-                values.verify &&
-                !values.featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING]
-            ) {
                 actions.setCurrentStep(INGESTION_STEPS.DONE)
             }
         },

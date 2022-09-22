@@ -18,6 +18,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { ThirtyDayQueryCountTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 
 export const scene: SceneExport = {
     component: EventPropertyDefinitionsTable,
@@ -64,7 +65,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
         ...(hasIngestionTaxonomy
             ? [
                   {
-                      title: '30 day queries',
+                      title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
                       key: 'query_usage_30_day',
                       align: 'right',
                       render: function Render(_, definition: PropertyDefinition) {

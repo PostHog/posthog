@@ -17,6 +17,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.capture import get_distinct_id
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
@@ -1115,6 +1116,13 @@ class TestCapture(BaseTest):
                 "offset": 1993,
             },
         )
+
+    def test_get_distinct_id_non_json_properties(self) -> None:
+        with self.assertRaises(ValueError):
+            get_distinct_id({"properties": "str"})
+
+        with self.assertRaises(ValueError):
+            get_distinct_id({"properties": 123})
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_large_recording_data_is_split_into_multiple_messages(self, kafka_produce) -> None:

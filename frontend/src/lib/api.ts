@@ -1,10 +1,9 @@
 import posthog from 'posthog-js'
-import { parsePeopleParams, PeopleParamType } from 'scenes/trends/persons-modal/personsModalLogic'
 import {
     ActionType,
     RawAnnotationType,
     CohortType,
-    CombinedEventType,
+    EventDefinitionType,
     DashboardCollaboratorType,
     DashboardType,
     EventDefinition,
@@ -405,13 +404,6 @@ const api = {
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
         },
-        determinePeopleCsvUrl(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
-            return new ApiRequest()
-                .actions()
-                .withAction('people')
-                .withQueryString(parsePeopleParams(peopleParams, filters))
-                .assembleFullUrl(true)
-        },
     },
 
     activity: {
@@ -518,7 +510,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            event_type?: CombinedEventType
+            event_type?: EventDefinitionType
         }): Promise<PaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -533,7 +525,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            event_type?: CombinedEventType
+            event_type?: EventDefinitionType
         }): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)

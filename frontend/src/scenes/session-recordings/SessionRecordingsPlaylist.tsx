@@ -4,14 +4,14 @@ import { colonDelimitedDuration } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
 import { getRecordingListLimit, PLAYLIST_LIMIT, sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import './SessionRecordingPlaylist.scss'
+import './SessionRecordingsPlaylist.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { IconAutocapture, IconChevronLeft, IconChevronRight, IconKeyboard } from 'lib/components/icons'
-import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
+import { SessionRecordingsFilters } from './filters/SessionRecordingsFilters'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -57,8 +57,9 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
         },
     ]
     return (
-        <div ref={playlistRef} className="SessionRecordingPlaylist" data-attr="session-recordings-playlist">
-            <div className="SessionRecordingPlaylist__left-column mr-4">
+        <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
+            <div className="SessionRecordingsPlaylist__left-column space-y-4">
+                <SessionRecordingsFilters personUUID={personUUID} />
                 <LemonTable
                     dataSource={sessionRecordings}
                     columns={columns}
@@ -83,7 +84,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     emptyState="No matching recordings found"
                     loadingSkeletonRows={PLAYLIST_LIMIT}
                 />
-                <div className="SessionRecordingPlaylist__pagination-control">
+                <div className="flex justify-end items-center my-2">
                     <span>{`${offset + 1} - ${
                         offset +
                         (sessionRecordingsResponseLoading ? getRecordingListLimit(true) : sessionRecordings.length)
@@ -108,7 +109,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     />
                 </div>
             </div>
-            <div className="SessionRecordingPlaylist__right-column">
+            <div className="SessionRecordingsPlaylist__right-column">
                 {activeSessionRecordingId ? (
                     <div className="border rounded h-full">
                         <SessionRecordingPlayerV3 playerKey="playlist" sessionRecordingId={activeSessionRecordingId} />

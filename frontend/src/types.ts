@@ -233,6 +233,7 @@ export interface TeamType extends TeamBasicType {
     updated_at: string
     anonymize_ips: boolean
     app_urls: string[]
+    recording_domains: string[]
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
@@ -763,7 +764,7 @@ export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean
     plan: PlanInterface | null
-    billing_period_ends: string
+    billing_period_ends: string | null
     event_allocation: number | null
     current_usage: number | null
     subscription_url: string
@@ -772,7 +773,7 @@ export interface BillingType {
     should_display_current_bill: boolean
     billing_limit: number | null
     billing_limit_exceeded: boolean | null
-    current_bill_cycle: CurrentBillCycleType
+    current_bill_cycle: CurrentBillCycleType | null
     tiers: BillingTierType[] | null
 }
 
@@ -1984,11 +1985,7 @@ export type Duration = {
     unit: SmallTimeUnit
 }
 
-export type CombinedEvent = EventDefinition | ActionType
-
-export enum CombinedEventType {
-    All = 'all',
-    ActionEvent = 'action_event',
+export enum EventDefinitionType {
     Event = 'event',
     EventCustom = 'event_custom',
     EventPostHog = 'event_posthog',

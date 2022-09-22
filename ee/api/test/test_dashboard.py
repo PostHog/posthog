@@ -6,6 +6,7 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.license import License
+from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.dashboard import Dashboard
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -257,3 +258,61 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         self.assertEquals(
             response_data, self.permission_denied_response("You don't have edit permissions for this dashboard.")
         )
+
+    def test_cannot_edit_dashboard_description_when_collaboration_not_available(self):
+        self.client.logout()
+
+        self.organization.available_features = []
+        self.organization.save()
+        self.team.access_control = True
+        self.team.save()
+
+        user_without_collaboration = User.objects.create_and_join(
+            self.organization, "no-collaboration-feature@posthog.com", None
+        )
+        self.client.force_login(user_without_collaboration)
+
+        dashboard: Dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="example dashboard",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+            {"description": "i should not be allowed to edit this", "name": "even though I am allowed to edit this"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.description, "")
+        self.assertEqual(dashboard.name, "example dashboard")
+
+    def test_can_edit_dashboard_description_when_collaboration_is_available(self):
+        self.client.logout()
+
+        self.organization.available_features = [AvailableFeature.DASHBOARD_COLLABORATION]
+        self.organization.save()
+        self.team.access_control = True
+        self.team.save()
+
+        user_with_collaboration = User.objects.create_and_join(
+            self.organization, "no-collaboration-feature@posthog.com", None
+        )
+        self.client.force_login(user_with_collaboration)
+
+        dashboard: Dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="example dashboard",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+            {"description": "i should be allowed to edit this", "name": "and so also to edit this"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.description, "i should be allowed to edit this")
+        self.assertEqual(dashboard.name, "and so also to edit this")

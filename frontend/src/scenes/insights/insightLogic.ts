@@ -225,6 +225,11 @@ export const insightLogic = kea<insightLogicType>({
                         throw error
                     }
 
+                    const beforeUpdates = {}
+                    for (const key of Object.keys(metadata)) {
+                        beforeUpdates[key] = values.savedInsight[key]
+                    }
+
                     const response = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
                         metadata
@@ -236,8 +241,31 @@ export const insightLogic = kea<insightLogicType>({
                     for (const key of Object.keys(metadata)) {
                         updatedInsight[key] = response[key]
                     }
+
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight)
+
+                    lemonToast.success(`Updated insight`, {
+                        button: {
+                            label: 'Undo',
+                            dataAttr: 'edit-insight-undo',
+                            action: async () => {
+                                const response = await api.update(
+                                    `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
+                                    beforeUpdates
+                                )
+                                // only update the fields that we changed
+                                const revertedInsight = { ...values.insight } as InsightModel
+                                for (const key of Object.keys(beforeUpdates)) {
+                                    revertedInsight[key] = response[key]
+                                }
+                                savedInsightsLogic.findMounted()?.actions.loadInsights()
+                                dashboardsModel.actions.updateDashboardInsight(revertedInsight)
+                                actions.setInsight(revertedInsight, { overrideFilter: false, fromPersistentApi: true })
+                                lemonToast.success('Insight change reverted')
+                            },
+                        },
+                    })
                     return updatedInsight
                 },
                 // using values.filters, query for new insight results
@@ -922,7 +950,6 @@ export const insightLogic = kea<insightLogicType>({
             })
         },
         cancelChanges: ({ goToViewMode }) => {
-            actions.setInsightMetadata({ name: values.savedInsight.name, description: values.savedInsight.description })
             actions.setFilters(values.savedInsight.filters || {})
             if (goToViewMode) {
                 insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
