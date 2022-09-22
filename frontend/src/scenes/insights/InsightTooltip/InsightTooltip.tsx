@@ -70,14 +70,7 @@ export function InsightTooltip({
                     hasBreakdown={hasBreakdown}
                     seriesIndex={datum?.action?.order ?? datum.id}
                 />
-                {hasBreakdown ? (
-                    <div className="flex flex-col">
-                        {datum.breakdown_value}
-                        {value}
-                    </div>
-                ) : (
-                    value
-                )}
+                {value}
             </div>
         )
     },

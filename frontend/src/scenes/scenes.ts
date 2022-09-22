@@ -179,10 +179,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         onlyUnauthenticated: true,
     },
     [Scene.PasswordReset]: {
-        allowUnauthenticated: true,
+        onlyUnauthenticated: true,
     },
     [Scene.PasswordResetComplete]: {
-        allowUnauthenticated: true,
+        onlyUnauthenticated: true,
     },
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
