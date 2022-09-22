@@ -25,7 +25,9 @@ MILLISECOND_TIMESTAMP = round(datetime(2019, 1, 1).timestamp() * 1000)
 
 def create_activity_data(timestamp: datetime, is_active: bool):
     return SessionRecordingEventSummary(
-        event_type=3, source_type=1 if is_active else None, timestamp=round(timestamp.timestamp() * 1000)
+        timestamp=round(timestamp.timestamp() * 1000),
+        type=3,
+        data=dict(source=1 if is_active else -1),
     )
 
 
@@ -38,18 +40,26 @@ def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_i
     events = [
         {
             "event": "$snapshot",
-            "properties": {"$session_id": "1234", "$snapshot_data": {"type": 2, "foo": "bar"}, "distinct_id": "abc123"},
+            "properties": {
+                "$session_id": "1234",
+                "$snapshot_data": {"type": 2, "timestamp": MILLISECOND_TIMESTAMP},
+                "distinct_id": "abc123",
+            },
         },
         {
             "event": "$snapshot",
-            "properties": {"$session_id": "1234", "$snapshot_data": {"type": 1, "foo": "bar"}, "distinct_id": "abc123"},
+            "properties": {
+                "$session_id": "1234",
+                "$snapshot_data": {"type": 1, "timestamp": MILLISECOND_TIMESTAMP},
+                "distinct_id": "abc123",
+            },
         },
         {
             "event": "$snapshot",
             "properties": {
                 "$session_id": "5678",
                 "$window_id": "1",
-                "$snapshot_data": {"type": 1, "foo": "bar"},
+                "$snapshot_data": {"type": 1, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -58,7 +68,7 @@ def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_i
             "properties": {
                 "$session_id": "5678",
                 "$window_id": "2",
-                "$snapshot_data": {"type": 1, "foo": "bar"},
+                "$snapshot_data": {"type": 1, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -96,13 +106,13 @@ def test_compression_and_chunking(raw_snapshot_events, mocker: MockerFixture):
                     "chunk_id": "0178495e-8521-0000-8e1c-2652fa57099b",
                     "chunk_index": 0,
                     "compression": "gzip-base64",
-                    "data": "H4sIAAAAAAAC//v/L5qhmkGJoYShkqGAIRXIsmJQYDBi0AGSSgxpDPlACBFTYkhiSGQoAtK1YFlMXcZYdVUB5UuAOkH6YhkAxKw6nnAAAAA=",
+                    "data": "H4sIAAAAAAAC//v/L5qhmkGJoYShkqGAIRXIsmJQYDBi0AGSINFMhlygaDGQlQhkFUDlDRlMGUwYzBiMGQyA0AJMQmAtWCemicYUmBjLAAABQ+l7pgAAAA==",
                     "has_full_snapshot": True,
+                    "events_summary": [
+                        {"timestamp": MILLISECOND_TIMESTAMP, "type": 2, "data": {}},
+                        {"timestamp": MILLISECOND_TIMESTAMP, "type": 3, "data": {}},
+                    ],
                 },
-                "$snapshot_events_summary": [
-                    {"timestamp": 0, "is_active": False, "event_type": 2, "source_type": None},
-                    {"timestamp": 0, "is_active": False, "event_type": 3, "source_type": None},
-                ],
                 "distinct_id": "abc123",
             },
         }
@@ -239,14 +249,15 @@ def test_decompress_data_returning_only_activity_info(chunked_and_compressed_sna
         for event in chunked_and_compressed_snapshot_events
     ]
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, return_only_activity_data=True)
+
     assert paginated_events.snapshot_data_by_window_id == {
         None: [
-            {"timestamp": 1546300800000, "is_active": False, "event_type": 4, "source_type": None},
-            {"timestamp": 1546300800000, "is_active": False, "event_type": 2, "source_type": None},
+            {"timestamp": 1546300800000, "type": 4, "data": {}},
+            {"timestamp": 1546300800000, "type": 2, "data": {}},
         ],
         "1": [
-            {"timestamp": 1546300800000, "is_active": False, "event_type": 3, "source_type": None},
-            {"timestamp": 1546300800000, "is_active": True, "event_type": 3, "source_type": 2},
+            {"timestamp": 1546300800000, "type": 3, "data": {}},
+            {"timestamp": 1546300800000, "type": 3, "data": {"source": 2}},
         ],
     }
 
@@ -435,7 +446,7 @@ def raw_snapshot_events():
             "properties": {
                 "$session_id": "1234",
                 "$window_id": "1",
-                "$snapshot_data": {"type": 2, "foo": "bar"},
+                "$snapshot_data": {"type": 2, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -444,7 +455,7 @@ def raw_snapshot_events():
             "properties": {
                 "$session_id": "1234",
                 "$window_id": "1",
-                "$snapshot_data": {"type": 3, "foo": "zeta"},
+                "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -458,7 +469,7 @@ def chunked_and_compressed_snapshot_events():
             "event": "$snapshot",
             "properties": {
                 "$session_id": "1234",
-                "$snapshot_data": {"type": 4, "foo": "bar", "timestamp": MILLISECOND_TIMESTAMP},
+                "$snapshot_data": {"type": 4, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -466,7 +477,7 @@ def chunked_and_compressed_snapshot_events():
             "event": "$snapshot",
             "properties": {
                 "$session_id": "1234",
-                "$snapshot_data": {"type": 2, "foo": "bar", "timestamp": MILLISECOND_TIMESTAMP},
+                "$snapshot_data": {"type": 2, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -477,7 +488,7 @@ def chunked_and_compressed_snapshot_events():
             "properties": {
                 "$session_id": "1234",
                 "$window_id": "1",
-                "$snapshot_data": {"type": 3, "foo": "bar", "timestamp": MILLISECOND_TIMESTAMP},
+                "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -488,7 +499,6 @@ def chunked_and_compressed_snapshot_events():
                 "$window_id": "1",
                 "$snapshot_data": {
                     "type": 3,
-                    "foo": "bar",
                     "timestamp": MILLISECOND_TIMESTAMP,
                     "data": {"source": 2},
                 },
@@ -519,16 +529,15 @@ def test_get_events_summary_from_snapshot_data():
         {"type": 1, "foo": "bar", "timestamp": timestamp, "data": {"source": 3}},
     ]
 
-    data = get_events_summary_from_snapshot_data(snapshot_events)
     assert get_events_summary_from_snapshot_data(snapshot_events) == [
-        {"timestamp": timestamp, "event_type": 2, "source_type": None},
-        {"timestamp": timestamp, "event_type": 1, "source_type": None},
-        {"timestamp": timestamp, "event_type": 1, "source_type": 3},
+        {"timestamp": timestamp, "type": 2, "data": {}},
+        {"timestamp": timestamp, "type": 1, "data": {}},
+        {"timestamp": timestamp, "type": 1, "data": {"source": 3}},
     ]
 
 
 def test_is_active_event():
     timestamp = round(datetime.now().timestamp() * 1000)
-    assert is_active_event({"timestamp": timestamp, "event_type": 3, "source_type": None}) is False
-    assert is_active_event({"timestamp": timestamp, "event_type": 2, "source_type": 3}) is False
-    assert is_active_event({"timestamp": timestamp, "event_type": 3, "source_type": 3}) is True
+    assert is_active_event({"timestamp": timestamp, "type": 3, "data": {}}) is False
+    assert is_active_event({"timestamp": timestamp, "type": 2, "data": {"source": 3}}) is False
+    assert is_active_event({"timestamp": timestamp, "type": 3, "data": {"source": 3}}) is True

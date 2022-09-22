@@ -25,7 +25,7 @@ Event = Dict
 SnapshotData = Dict
 WindowId = Optional[str]
 
-## NOTE: For reference here are some helpful enum mappings from rrweb
+# NOTE: For reference here are some helpful enum mappings from rrweb
 # https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
 
 # event.type
@@ -87,10 +87,11 @@ class SnapshotDataTaggedWithWindowId:
     snapshot_data: SnapshotData
 
 
+# NOTE: EventSummary is a minimal version of full events, containing only some of the "data" content - strings and numbers
 class SessionRecordingEventSummary(TypedDict):
     timestamp: int
-    event_type: int
-    source_type: Optional[int]
+    type: int
+    data: Dict[str, Union[int, str]]
 
 
 @dataclasses.dataclass
@@ -284,7 +285,7 @@ def is_active_event(event: SessionRecordingEventSummary) -> bool:
         7,  # MediaInteraction,
         12,  # Drag,
     ]
-    return event["event_type"] == 3 and event["source_type"] in active_rr_web_sources
+    return event["type"] == 3 and event["data"].get("source") in active_rr_web_sources
 
 
 def parse_snapshot_timestamp(timestamp: int):
@@ -333,17 +334,23 @@ def get_active_segments_from_event_list(
     return active_recording_segments
 
 
+EVENT_SUMMARY_DATA_EXCLUSIONS = ["text"]
+
+
 def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> List[SessionRecordingEventSummary]:
     """
-    Extract a minimal representation of the snapshot data events for easier querying
+    Extract a minimal representation of the snapshot data events for easier querying.
+    'data' values are included as long as they are strings or numbers and not in the exclusion list to keep the payload minimal
     """
-
-    # NOTE: There is an additional "data.type" which we might want to pull out as this determine if it is a click or not...
     events_summary = [
         SessionRecordingEventSummary(
             timestamp=event["timestamp"],
-            event_type=event["type"],
-            source_type=event.get("data", {}).get("source"),
+            type=event["type"],
+            data={
+                key: value
+                for key, value in event.get("data", {}).items()
+                if type(value) in [str, int] and key not in EVENT_SUMMARY_DATA_EXCLUSIONS
+            },
         )
         for event in snapshot_data
     ]

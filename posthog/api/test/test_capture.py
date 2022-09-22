@@ -1102,9 +1102,8 @@ class TestCapture(BaseTest):
                         "has_full_snapshot": False,
                         "events_summary": [
                             {
-                                "event_type": snapshot_type,
-                                "is_active": False,
-                                "source_type": snapshot_source,
+                                "type": snapshot_type,
+                                "data": {"source": snapshot_source},
                                 "timestamp": timestamp,
                             }
                         ],
