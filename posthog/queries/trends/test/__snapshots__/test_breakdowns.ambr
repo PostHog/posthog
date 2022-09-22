@@ -4,7 +4,7 @@
   SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
     (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) AS value,
-            count(DISTINCT e.$session_id) as count
+            count(DISTINCT e."$session_id") as count
      FROM events e
      WHERE team_id = 2
        AND event = 'watched movie'
@@ -42,7 +42,7 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT count(DISTINCT e.$session_id) as total,
+           UNION ALL SELECT count(DISTINCT e."$session_id") as total,
                             toStartOfDay(timestamp, 'UTC') as day_start,
                             multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 25.0
                                     AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 66.25, '[25.0,66.25]', toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 66.25
@@ -441,7 +441,7 @@
   SELECT groupArray(value)
   FROM
     (SELECT sessions.session_duration AS value,
-            count(DISTINCT e.$session_id) as count
+            count(DISTINCT e."$session_id") as count
      FROM events e
      INNER JOIN
        (SELECT $session_id,
@@ -489,7 +489,7 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT count(DISTINCT e.$session_id) as total,
+           UNION ALL SELECT count(DISTINCT e."$session_id") as total,
                             toStartOfDay(timestamp, 'UTC') as day_start,
                             sessions.session_duration as breakdown_value
            FROM events e
@@ -523,7 +523,7 @@
   SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
     (SELECT toFloat64OrNull(toString(sessions.session_duration)) AS value,
-            count(DISTINCT e.$session_id) as count
+            count(DISTINCT e."$session_id") as count
      FROM events e
      INNER JOIN
        (SELECT $session_id,
@@ -570,7 +570,7 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT count(DISTINCT e.$session_id) as total,
+           UNION ALL SELECT count(DISTINCT e."$session_id") as total,
                             toStartOfDay(timestamp, 'UTC') as day_start,
                             multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0
                                     AND toFloat64OrNull(toString(sessions.session_duration)) < 69.92, '[0.0,69.92]', toFloat64OrNull(toString(sessions.session_duration)) >= 69.92
