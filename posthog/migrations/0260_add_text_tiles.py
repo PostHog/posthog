@@ -38,6 +38,13 @@ class Migration(migrations.Migration):
                 to="posthog.insight",
             ),
         ),
+        migrations.AddField(
+            model_name="dashboardtile",
+            name="text",
+            field=models.ForeignKey(
+                null=True, on_delete=django.db.models.deletion.CASCADE, related_name="dashboard_text", to="posthog.text"
+            ),
+        ),
         migrations.AddConstraint(
             model_name="dashboardtile",
             constraint=models.UniqueConstraint(
@@ -85,13 +92,6 @@ class Migration(migrations.Migration):
             model_name="text",
             name="team",
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
-        ),
-        migrations.AddField(
-            model_name="dashboardtile",
-            name="text",
-            field=models.ForeignKey(
-                null=True, on_delete=django.db.models.deletion.CASCADE, related_name="dashboard_text", to="posthog.text"
-            ),
         ),
         migrations.AlterUniqueTogether(
             name="dashboardtile",
