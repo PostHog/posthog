@@ -856,8 +856,8 @@ def trend_test_factory(trends):
             # value1 has: 5 seconds, 10 seconds, 15 seconds
             # value2 has: 10 seconds, 15 seconds (aggregated by session, so 15 is not double counted)
             # empty has: 1 seconds
-            self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["", "value1", "value2"])
-            self.assertEqual([resp["aggregated_value"] for resp in daily_response], [1, 10, 12.5])
+            self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["value2", "value1", ""])
+            self.assertEqual([resp["aggregated_value"] for resp in daily_response], [12.5, 10, 1])
 
             with freeze_time("2020-01-04T13:00:01Z"):
                 weekly_response = trends().run(
@@ -1936,12 +1936,12 @@ def trend_test_factory(trends):
 
             # value1 has 0,5,10 seconds (in second interval)
             # value2 has 5,10,15 seconds (in second interval)
-            self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["value1", "value2"])
+            self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["value2", "value1"])
             self.assertCountEqual(daily_response[0]["labels"], ["22-Dec-2019", "29-Dec-2019"])
-            self.assertCountEqual(daily_response[0]["data"], [0, 5])
-            self.assertCountEqual(daily_response[1]["data"], [0, 10])
+            self.assertCountEqual(daily_response[0]["data"], [0, 10])
+            self.assertCountEqual(daily_response[1]["data"], [0, 5])
 
-            self.assertEqual([resp["breakdown_value"] for resp in weekly_response], ["value1", "value2"])
+            self.assertEqual([resp["breakdown_value"] for resp in weekly_response], ["value2", "value1"])
             self.assertCountEqual(
                 weekly_response[0]["labels"],
                 [
@@ -1955,8 +1955,8 @@ def trend_test_factory(trends):
                     "4-Jan-2020",
                 ],
             )
-            self.assertCountEqual(weekly_response[0]["data"], [0, 0, 0, 0, 5, 5, 0, 0])
-            self.assertCountEqual(weekly_response[1]["data"], [0, 0, 0, 0, 7.5, 15, 0, 0])
+            self.assertCountEqual(weekly_response[0]["data"], [0, 0, 0, 0, 7.5, 15, 0, 0])
+            self.assertCountEqual(weekly_response[1]["data"], [0, 0, 0, 0, 5, 5, 0, 0])
 
         def test_trends_with_session_property_total_volume_math_with_sessions_spanning_multiple_intervals(self):
             _create_person(
@@ -3009,10 +3009,10 @@ def trend_test_factory(trends):
                         ),
                         self.team,
                     )
-                self.assertEqual(daily_response[0]["data"][0], 1)
-                self.assertEqual(daily_response[0]["label"], "sign up - none")
-                self.assertEqual(daily_response[1]["data"][0], 2)
-                self.assertEqual(daily_response[1]["label"], "sign up - some_val")
+                self.assertEqual(daily_response[0]["data"][0], 2)
+                self.assertEqual(daily_response[0]["label"], "sign up - some_val")
+                self.assertEqual(daily_response[1]["data"][0], 1)
+                self.assertEqual(daily_response[1]["label"], "sign up - none")
 
                 # MAU
                 with freeze_time("2019-12-31T13:00:01Z"):
@@ -3081,8 +3081,8 @@ def trend_test_factory(trends):
                     self.team,
                 )
 
-            self.assertDictContainsSubset({"count": 1, "breakdown_value": "1"}, event_response[0])
-            self.assertDictContainsSubset({"count": 2, "breakdown_value": "2"}, event_response[1])
+            self.assertDictContainsSubset({"count": 2, "breakdown_value": "2"}, event_response[0])
+            self.assertDictContainsSubset({"count": 1, "breakdown_value": "1"}, event_response[1])
             self.assertEntityResponseEqual(event_response, action_response)
 
         @test_with_materialized_columns(["$some_property"])
@@ -3105,13 +3105,13 @@ def trend_test_factory(trends):
                 )
 
             self.assertEqual(response[0]["label"], "sign up - none")
-            self.assertEqual(response[1]["label"], "sign up - other_value")
-            self.assertEqual(response[2]["label"], "sign up - value")
+            self.assertEqual(response[2]["label"], "sign up - other_value")
+            self.assertEqual(response[1]["label"], "sign up - value")
             self.assertEqual(response[3]["label"], "no events - none")
 
             self.assertEqual(sum(response[0]["data"]), 2)
-            self.assertEqual(sum(response[1]["data"]), 1)
-            self.assertEqual(sum(response[2]["data"]), 2)
+            self.assertEqual(sum(response[1]["data"]), 2)
+            self.assertEqual(sum(response[2]["data"]), 1)
             self.assertEqual(sum(response[3]["data"]), 1)
 
         @test_with_materialized_columns(person_properties=["email"])
@@ -4038,8 +4038,8 @@ def trend_test_factory(trends):
                         self.team,
                     )
 
-            self.assertEqual(res[0]["count"], 1)
-            self.assertEqual(res[1]["count"], 2)
+            self.assertEqual(res[0]["count"], 2)
+            self.assertEqual(res[1]["count"], 1)
 
         @test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
         def test_breakdown_single_cohort(self):

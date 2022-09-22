@@ -375,7 +375,12 @@ class TrendsBreakdown:
     def breakdown_sort_function(self, value):
         if self.filter.using_histogram:
             return json.loads(value.get("breakdown_value"))[0]
-        return 0 if value.get("breakdown_value") != "all" else 1
+        if value.get("breakdown_value") == "all":
+            return (-1, "")
+        if self.filter.breakdown_type == "session":
+            # if session duration breakdown, we want ordering based on the time buckets, not the value
+            return (-1, "")
+        return (value.get("count", value.get("aggregated_value", 0)) * -1, value.get("label"))  # reverse it
 
     def _parse_single_aggregate_result(
         self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]
