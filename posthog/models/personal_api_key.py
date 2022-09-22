@@ -1,13 +1,14 @@
-from django.conf import settings
 from django.contrib.auth.hashers import get_hasher
 from django.db import models
 from django.utils import timezone
 
 from .utils import generate_random_token
 
+PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
+
 
 def hash_key_value(value: str) -> str:
-    return get_hasher().encode(value, settings.SECRET_KEY)
+    return get_hasher().encode(value, PERSONAL_API_KEY_SALT)
 
 
 class PersonalAPIKey(models.Model):
