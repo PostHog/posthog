@@ -67,6 +67,7 @@ export function InsightContainer(
         showErrorMessage,
         exporterResourceParams,
         isUsingSessionAnalysis,
+        showTotalCount,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
@@ -156,7 +157,7 @@ export function InsightContainer(
                     <BindLogic logic={trendsLogic} props={insightProps}>
                         <InsightsTable
                             isLegend
-                            showTotalCount
+                            showTotalCount={showTotalCount}
                             filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                             canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
                             canCheckUncheckSeries={canEditInsight}
