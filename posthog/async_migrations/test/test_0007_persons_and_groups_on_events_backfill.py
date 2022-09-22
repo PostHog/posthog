@@ -16,7 +16,7 @@ from posthog.models.person.util import create_person, create_person_distinct_id,
 from posthog.models.utils import UUIDT
 from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 
-MIGRATION_NAME = "0006_persons_and_groups_on_events_backfill"
+MIGRATION_NAME = "0007_persons_and_groups_on_events_backfill"
 
 uuid1, uuid2, uuid3 = [UUIDT() for _ in range(3)]
 # Clickhouse leaves behind blank/zero values for non-filled columns, these are checked against these constants
