@@ -34,8 +34,6 @@ class SessionRecordingSerializer(serializers.Serializer):
     duration = serializers.DurationField()
     start_time = serializers.DateTimeField()
     end_time = serializers.DateTimeField()
-    first_event_timestamp = serializers.DateTimeField()
-    last_event_timestamp = serializers.DateTimeField()
     click_count = serializers.IntegerField()
     keypress_count = serializers.IntegerField()
     url = serializers.CharField()
@@ -48,8 +46,6 @@ class SessionRecordingSerializer(serializers.Serializer):
             "recording_duration": instance.get("duration"),
             "start_time": instance["start_time"],
             "end_time": instance["end_time"],
-            "first_event_timestamp": instance["first_event_timestamp"],
-            "last_event_timestamp": instance["last_event_timestamp"],
             "click_count": instance["click_count"],
             "keypress_count": instance["keypress_count"],
             "url": instance["url"],
