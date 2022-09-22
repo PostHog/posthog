@@ -47,7 +47,7 @@ def create_event(
     assert timestamp is not None
 
     timestamp = isoparse(timestamp) if isinstance(timestamp, str) else timestamp.astimezone(pytz.utc)
-    
+
     elements_chain = ""
     if elements and len(elements) > 0:
         elements_chain = elements_to_string(elements=elements)
