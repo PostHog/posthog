@@ -84,7 +84,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
         },
         loadNext: true,
         loadPrev: true,
-        enableFilter: true,
+        setFiltersEnabled: (showing: boolean) => ({ showing }),
         setOffset: (offset: number) => ({ offset }),
         setDateRange: (incomingFromDate: string | undefined, incomingToDate: string | undefined) => ({
             incomingFromDate,
@@ -126,10 +126,10 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
         },
     }),
     reducers: ({ props }) => ({
-        filterEnabled: [
+        filtersEnabled: [
             false,
             {
-                enableFilter: () => true,
+                setFiltersEnabled: (_, { showing }) => showing,
             },
         ],
         sessionRecordings: [
@@ -230,16 +230,6 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
         hasNext: [
             (s) => [s.sessionRecordingsResponse],
             (sessionRecordingsResponse) => sessionRecordingsResponse.has_next,
-        ],
-        showFilters: [
-            (s) => [s.filterEnabled, s.entityFilters, s.propertyFilters],
-            (filterEnabled, entityFilters, propertyFilters) => {
-                return (
-                    filterEnabled ||
-                    entityFilters !== DEFAULT_ENTITY_FILTERS ||
-                    propertyFilters !== DEFAULT_PROPERTY_FILTERS
-                )
-            },
         ],
         filterQueryParams: [
             (s) => [s.entityFilters, s.fromDate, s.toDate, s.offset, s.durationFilter, s.propertyFilters],

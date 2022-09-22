@@ -11,7 +11,6 @@ from posthog.client import sync_execute
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
-from posthog.queries.base import TIME_IN_SECONDS
 from posthog.types import FilterType
 
 EARLIEST_TIMESTAMP = "2015-01-01"
@@ -19,6 +18,13 @@ EARLIEST_TIMESTAMP = "2015-01-01"
 GET_EARLIEST_TIMESTAMP_SQL = """
 SELECT timestamp from events WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by timestamp limit 1
 """
+
+TIME_IN_SECONDS: Dict[str, Any] = {
+    "hour": 3600,
+    "day": 3600 * 24,
+    "week": 3600 * 24 * 7,
+    "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
+}
 
 
 def parse_timestamps(filter: FilterType, team: Team, table: str = "") -> Tuple[str, str, dict]:
@@ -171,3 +177,9 @@ def start_of_week_fix(filter: Filter) -> str:
     This function adds mode to the trunc_func, but only if the interval is week
     """
     return "0," if filter.interval == "week" else ""
+
+
+def convert_to_datetime_aware(date_obj):
+    if date_obj.tzinfo is None:
+        date_obj = date_obj.replace(tzinfo=timezone.utc)
+    return date_obj

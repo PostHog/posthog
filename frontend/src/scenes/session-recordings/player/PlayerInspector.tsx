@@ -102,10 +102,24 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                             }
                             return RowStatus.Information
                         },
-                        content: function renderContent(record) {
+                        content: function renderContent(record, _, expanded) {
                             if (currentTab === SessionRecordingTab.CONSOLE) {
                                 return (
-                                    <div className="font-mono text-xs w-full text-ellipsis">
+                                    <div
+                                        className="font-mono text-xs w-full text-ellipsis leading-6"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={
+                                            expanded
+                                                ? {
+                                                      display: '-webkit-box',
+                                                      WebkitLineClamp: 6,
+                                                      WebkitBoxOrient: 'vertical',
+                                                      overflow: 'hidden',
+                                                      whiteSpace: 'normal',
+                                                  }
+                                                : undefined
+                                        }
+                                    >
                                         {interleave(record.previewContent, ' ')}
                                     </div>
                                 )
@@ -129,22 +143,31 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                             return null
                         },
                     }}
-                    expandable={
-                        currentTab === SessionRecordingTab.CONSOLE
-                            ? undefined
-                            : {
-                                  expandedRowRender: function renderExpand(record) {
-                                      return (
-                                          record && (
-                                              <EventDetails
-                                                  event={record as EventType}
-                                                  tableProps={{ size: 'xs', bordered: false, className: 'pt-1' }}
-                                              />
-                                          )
-                                      )
-                                  },
-                              }
-                    }
+                    expandable={{
+                        expandedRowRender: function renderExpand(record) {
+                            if (!record) {
+                                return null
+                            }
+                            if (currentTab === SessionRecordingTab.CONSOLE) {
+                                return (
+                                    <div className="py-2 pr-2 pl-18 font-mono text-xs leading-6">
+                                        {record.fullContent?.map((content: JSX.Element, i: number) => (
+                                            <React.Fragment key={i}>
+                                                {content}
+                                                <br />
+                                            </React.Fragment>
+                                        ))}
+                                    </div>
+                                )
+                            }
+                            return (
+                                <EventDetails
+                                    event={record as EventType}
+                                    tableProps={{ size: 'xs', bordered: false, className: 'pt-1' }}
+                                />
+                            )
+                        },
+                    }}
                 />
             </div>
         </Col>

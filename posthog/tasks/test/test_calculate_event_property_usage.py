@@ -1,7 +1,9 @@
 import random
 from datetime import timedelta
+from typing import Dict, List
 from unittest.mock import MagicMock, call, patch
 
+from django.test.utils import CaptureQueriesContext
 from freezegun import freeze_time
 
 from posthog.models import EventDefinition, EventProperty, Insight, Organization, PropertyDefinition, Team
@@ -13,6 +15,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.test.base import _create_event as create_event
 from posthog.test.base import _create_person as create_person
 from posthog.test.base import flush_persons_and_events
+from posthog.test.db_context_capturing import capture_db_queries
 
 
 class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
@@ -33,9 +36,9 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
 
         Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
         # Test events with usage
-        expected_event_definitions = [
+        expected_event_definitions: List[Dict] = [
             {"name": "$pageview", "volume_30_day": 2, "query_usage_30_day": 1},
-            {"name": "watched_movie", "volume_30_day": 1, "query_usage_30_day": 0},
+            {"name": "watched_movie", "volume_30_day": 1, "query_usage_30_day": None},
         ]
         calculate_event_property_usage_for_team(self.team.pk)
 
@@ -70,9 +73,9 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
 
         Insight.objects.create(team=team, filters={"properties": [{"key": "$browser", "value": "Safari"}]})
         # Test events with usage
-        expected_property_definitions = [
-            {"name": "$current_url", "query_usage_30_day": 0, "is_numerical": False},
-            {"name": "app_rating", "query_usage_30_day": 0, "is_numerical": True},
+        expected_property_definitions: List[Dict] = [
+            {"name": "$current_url", "query_usage_30_day": None, "is_numerical": False},
+            {"name": "app_rating", "query_usage_30_day": None, "is_numerical": True},
             {"name": "$browser", "query_usage_30_day": 1, "is_numerical": False},
         ]
         calculate_event_property_usage_for_team(team.pk)
@@ -93,7 +96,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             calculate_event_property_usage()
 
             # mock will have had three calls, one for the autocreated team from the test class, one for `team`, and one for `team_two`
-            self.assertEqual(
+            self.assertCountEqual(
                 patched_calculate_for_team.call_args_list,
                 [call(team_id=self.team.id), call(team_id=team.id), call(team_id=team_two.id)],
             )
@@ -104,13 +107,15 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             calculate_event_property_usage()  # new team isn't in recency check and will run
 
             # mock will only have had one call, for `team_created_after_first_run`
-            self.assertEqual(patched_calculate_for_team.call_args_list, [call(team_id=team_created_after_first_run.id)])
+            self.assertCountEqual(
+                patched_calculate_for_team.call_args_list, [call(team_id=team_created_after_first_run.id)]
+            )
             patched_calculate_for_team.reset_mock()
 
             frozen_datetime.tick(delta=timedelta(days=1, minutes=1))
 
             calculate_event_property_usage()  # a day has passed all teams will run
-            self.assertEqual(
+            self.assertCountEqual(
                 patched_calculate_for_team.call_args_list,
                 [
                     call(team_id=self.team.id),
@@ -120,13 +125,92 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
                 ],
             )
 
-    def test_calculate_usage(self) -> None:
+    def test_event_and_property_definition_with_empty_name_is_safe(self) -> None:
+        empty_name_event: EventDefinition = EventDefinition.objects.create(team=self.team, name="")
+        empty_name_property: PropertyDefinition = PropertyDefinition.objects.create(team=self.team, name="")
+
+        create_event(
+            distinct_id="test",
+            team=self.team,
+            event="",
+            properties={empty_name_property.name: "running on empty"},
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2020-10-01"):
+            Insight.objects.create(
+                team=self.team,
+                filters={
+                    "events": [{"id": ""}],
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "",
+                                        "value": "running on empty",
+                                        "operator": "exact",
+                                        "type": "event",
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            )
+            calculate_event_property_usage()
+
+        empty_name_event.refresh_from_db()
+        empty_name_property.refresh_from_db()
+        self.assertEqual(empty_name_event.volume_30_day, 1)
+        self.assertEqual(empty_name_event.volume_30_day, 1)
+        self.assertEqual(empty_name_property.query_usage_30_day, 1)
+
+    def test_calculate_usage_does_not_double_count_on_second_run(self) -> None:
+        EventDefinition.objects.create(team=self.team, name="$pageview")
+        PropertyDefinition.objects.create(team=self.team, name="$current_url")
+
+        with freeze_time("2020-10-01"):
+            Insight.objects.create(
+                team=self.team,
+                filters={
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$current_url", "value": "https://posthog2.com"}],
+                },
+            )
+            create_event(
+                distinct_id="test",
+                team=self.team,
+                event="$pageview",
+                properties={"$current_url": "https://posthog2.com"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2020-10-04"):  # less than 30 days later
+            calculate_event_property_usage_for_team(self.team.pk)
+            self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
+            self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
+            self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
+
+        with freeze_time("2020-10-06"):  # less than 30 days later
+            calculate_event_property_usage_for_team(self.team.pk)
+            self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
+            self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
+            self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
+
+    @patch("posthog.tasks.calculate_event_property_usage.gauge")
+    def test_calculate_usage(self, mock_gauge: MagicMock) -> None:
         EventDefinition.objects.create(team=self.team, name="$pageview")
         EventDefinition.objects.create(team=self.team, name="custom event")
+        EventDefinition.objects.create(team=self.team, name="unused event")
         PropertyDefinition.objects.create(team=self.team, name="$current_url")
         PropertyDefinition.objects.create(team=self.team, name="team_id")
         PropertyDefinition.objects.create(team=self.team, name="used property")
         PropertyDefinition.objects.create(team=self.team, name="unused property")
+        # an event property definition for something that is queried below as a person property
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_continent_code")
         team2 = Organization.objects.bootstrap(None)[2]
         with freeze_time("2020-08-01"):
             # ignore stuff older than 30 days
@@ -166,6 +250,13 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
                                         "value": "https://posthog2.com",
                                         "operator": "exact",
                                         "type": "event",
+                                    },
+                                    # should not include this person property
+                                    {
+                                        "key": "$geoip_continent_code",
+                                        "value": ["NA"],
+                                        "operator": "exact",
+                                        "type": "person",
                                     },
                                 ],
                             },
@@ -211,8 +302,21 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 filters={"events": [{"id": "custom event"}], "properties": [{"key": "team_id", "value": "3"}]},
             )
-            Insight.objects.create(team=self.team, filters={"events": [{"id": "event that doesnt exist"}]})
-            # broken dashboard item
+            # insight that uses event or property with no corresponding definitions
+            Insight.objects.create(
+                team=self.team,
+                filters={
+                    "events": [{"id": "event that doesnt exist"}],
+                },
+            )
+            Insight.objects.create(
+                team=self.team,
+                filters={
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "property that doesn't exist", "value": "3"}],
+                },
+            )
+            # insight with no filters
             Insight.objects.create(team=self.team, filters={})
             create_event(
                 distinct_id="test",
@@ -240,9 +344,14 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
                 },
             )
 
-            calculate_event_property_usage_for_team(self.team.pk)
+            flush_persons_and_events()
 
-        self.assertEqual(3, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
+            with capture_db_queries() as capture_query_context:
+                calculate_event_property_usage_for_team(self.team.pk)
+
+        self.assertEqual(5, len(capture_query_context.captured_queries))
+
+        self.assertEqual(4, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
         self.assertEqual(2, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
 
         self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="custom event").query_usage_30_day)
@@ -253,7 +362,57 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             2, PropertyDefinition.objects.get(team=self.team, name="used property").query_usage_30_day
         )  # in a property group and in an events series filter
-        self.assertEqual(0, PropertyDefinition.objects.get(team=self.team, name="unused property").query_usage_30_day)
+
+        # unused property stays as None because no update is issued against it
+        self.assertIsNone(PropertyDefinition.objects.get(team=self.team, name="unused property").query_usage_30_day)
+
+        self.assertEqual(
+            None, PropertyDefinition.objects.get(team=self.team, name="$geoip_continent_code").query_usage_30_day
+        )
+
+        # two property definition excluded
+        # $geoip_continent_code and "unused property"
+        mock_gauge.assert_any_call(
+            "calculate_event_property_usage_for_team.event_properties_to_update",
+            value=PropertyDefinition.objects.count() - 2,
+            tags={"team": self.team.id},
+        )
+        self.assert_unchanged_models_are_excluded_from_update(capture_query_context, mock_gauge)
+
+    def assert_unchanged_models_are_excluded_from_update(
+        self, capture_query_context: CaptureQueriesContext, mock_gauge: MagicMock
+    ) -> None:
+        self.maxDiff = None
+        seen_sql = [q["sql"] for q in capture_query_context.captured_queries]
+        event_property_update = next(
+            filter(
+                lambda sql: sql.find('UPDATE "posthog_propertydefinition"') >= 0,
+                seen_sql,
+            ),
+            "should always find it",
+        )
+        self.assertNotIn(
+            str(PropertyDefinition.objects.get(name="unused property").id),
+            event_property_update,
+        )
+        self.assertNotIn(
+            str(PropertyDefinition.objects.get(name="$geoip_continent_code").id),
+            event_property_update,
+        )
+        # only one event definition excluded
+        mock_gauge.assert_any_call(
+            "calculate_event_property_usage_for_team.events_to_update",
+            value=EventDefinition.objects.count() - 1,
+            tags={"team": self.team.id},
+        )
+        event_update = next(
+            filter(
+                lambda sql: sql.find('UPDATE "posthog_eventdefinition"') >= 0,
+                seen_sql,
+            ),
+            "should always find it",
+        )
+        self.assertNotIn(str(EventDefinition.objects.get(name="unused event").id), event_update)
 
     def test_complete_inference(self) -> None:
         assert EventDefinition.objects.count() == 0
@@ -297,11 +456,11 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
         assert property_definitions[0].is_numerical is True
 
         assert property_definitions[1].name == "surname"
-        assert property_definitions[1].query_usage_30_day == 0
+        assert property_definitions[1].query_usage_30_day is None
         assert property_definitions[1].is_numerical is False
 
         assert property_definitions[2].name == "symbol"
-        assert property_definitions[2].query_usage_30_day == 0
+        assert property_definitions[2].query_usage_30_day is None
         assert property_definitions[2].is_numerical is False
 
         assert event_properties[0].event == "element_discovered"

@@ -44,6 +44,11 @@
             align-items: flex-start;
             gap: 0.5rem;
             overflow: hidden;
+
+            > * {
+                overflow: hidden;
+                max-width: 100%;
+            }
         }
 
         &.TaxonomicPropertyFilter__row--showing-operators {

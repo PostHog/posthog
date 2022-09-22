@@ -62,6 +62,7 @@ from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
+from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.settings import SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.tasks.update_cache import synchronously_update_insight_cache
@@ -401,6 +402,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
@@ -466,6 +468,12 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             elif key == "my_last_viewed":
                 if str_to_bool(request.GET["my_last_viewed"]):
                     queryset = self._annotate_with_my_last_viewed_at(queryset).filter(my_last_viewed_at__isnull=False)
+            elif key == "feature_flag":
+                feature_flag = request.GET["feature_flag"]
+                queryset = queryset.filter(
+                    Q(filters__breakdown__icontains=f"$feature/{feature_flag}")
+                    | Q(filters__properties__icontains=feature_flag)
+                )
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":

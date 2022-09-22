@@ -29,6 +29,7 @@ from typing import (
 from urllib.parse import urljoin, urlparse
 
 import lzstring
+import posthoganalytics
 import pytz
 import structlog
 from celery.schedules import crontab
@@ -300,6 +301,10 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         "anonymous": not request.user or not request.user.is_authenticated,
     }
 
+    posthog_bootstrap: Dict[str, Any] = {}
+    posthog_distinct_id: Optional[str] = None
+    is_identified_id: bool = False
+
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.team import TeamSerializer
@@ -318,6 +323,8 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         if request.user.pk:
             user_serialized = UserSerializer(request.user, context={"request": request}, many=False)
             posthog_app_context["current_user"] = user_serialized.data
+            posthog_distinct_id = user_serialized.data.get("distinct_id")
+            is_identified_id = True
             team = cast(User, request.user).team
             if team:
                 team_serialized = TeamSerializer(team, context={"request": request}, many=False)
@@ -325,6 +332,19 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
                 posthog_app_context["frontend_apps"] = get_frontend_apps(team.pk)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
+
+    if not posthog_distinct_id:
+        posthog_distinct_id = str(uuid.uuid4())
+
+    feature_flags = posthoganalytics.get_all_flags(posthog_distinct_id, only_evaluate_locally=True)
+    posthog_bootstrap["distinctID"] = posthog_distinct_id
+    posthog_bootstrap["featureFlags"] = feature_flags
+    posthog_bootstrap["isIdentifiedID"] = is_identified_id
+
+    # This allows immediate flag availability on the frontend, atleast for flags
+    # that don't depend on any person properties. To get these flags, add person properties to the
+    # `get_all_flags` call above.
+    context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
     html = template.render(context, request=request)
     return HttpResponse(html)
@@ -1024,22 +1044,6 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     except Exception as err:
         capture_exception(err)
         return None
-
-
-def should_write_recordings_to_object_storage(team_id: Optional[int]) -> bool:
-    return (
-        team_id is not None
-        and settings.OBJECT_STORAGE_ENABLED
-        and team_id == settings.WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM
-    )
-
-
-def should_read_recordings_from_object_storage(team_id: Optional[int]) -> bool:
-    return (
-        team_id is not None
-        and settings.OBJECT_STORAGE_ENABLED
-        and team_id == settings.READ_RECORDINGS_FROM_OBJECT_STORAGE_FOR_TEAM
-    )
 
 
 def generate_short_id():
