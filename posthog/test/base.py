@@ -353,7 +353,7 @@ def snapshot_postgres_queries(fn):
 
 class BaseTestMigrations(QueryMatchingTest):
     @property
-    def app(self):
+    def app(self) -> str:
         return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
 
     migrate_from: str
@@ -371,7 +371,7 @@ class BaseTestMigrations(QueryMatchingTest):
         old_apps = executor.loader.project_state(migrate_from).apps
 
         # Reverse to the original migration
-        executor.migrate(migrate_from)
+        executor.migrate(migrate_from)  # type: ignore
 
         self.setUpBeforeMigration(old_apps)
 
@@ -382,7 +382,7 @@ class BaseTestMigrations(QueryMatchingTest):
         if self.assert_snapshots:
             self._execute_migration_with_snapshots(executor)
         else:
-            executor.migrate(migrate_to)
+            executor.migrate(migrate_to)  # type: ignore
 
         self.apps = executor.loader.project_state(migrate_to).apps
 
