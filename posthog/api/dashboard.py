@@ -18,7 +18,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, DashboardTile, Insight, Team
+from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -43,28 +43,27 @@ class TextTileListSerializer(serializers.ListSerializer):
 
         for validated_item in validated_data:
             if "id" not in validated_item:
+                text = Text.objects.create(**validated_item, created_by=self.context["request"].user)
                 new_tile = DashboardTile.objects.create(
-                    **validated_item, dashboard_id=self.parent.instance.id, created_by=self.context["request"].user
+                    **validated_item, dashboard_id=self.parent.instance.id, text=text
                 )
                 tiles.append(new_tile)
             else:
                 validated_tiles_by_id[validated_item["id"]] = validated_item
 
         for tile in text_tiles:
+            if tile.text is None:
+                continue
             validated_tile: Optional[Dict] = validated_tiles_by_id.get(tile.id, None)
             if validated_tile:
-                if "body" in validated_tile and validated_tile["body"] != tile.body:
-                    tile.body = validated_tile["body"]
-                    tile.last_modified_by = self.context["request"].user
-                    tile.last_modified_at = datetime.datetime.now()
+                if "body" in validated_tile and validated_tile["body"] != tile.text.body:
+                    tile.text.body = validated_tile["body"]
+                    tile.text.last_modified_by = self.context["request"].user
+                    tile.text.last_modified_at = datetime.datetime.now()
                 if "layouts" in validated_tile and validated_tile["layouts"] != tile.layouts:
                     tile.layouts = validated_tile["layouts"]
-                    tile.last_modified_by = self.context["request"].user
-                    tile.last_modified_at = datetime.datetime.now()
                 if "color" in validated_tile and validated_tile["color"] != tile.color:
                     tile.color = validated_tile["color"]
-                    tile.last_modified_by = self.context["request"].user
-                    tile.last_modified_at = datetime.datetime.now()
 
                 tile.save()
                 tiles.append(tile)
@@ -221,7 +220,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if "text_tiles" in validated_data:
             # mypy thinks this doesn't work... but it does ¯\_(ツ)_/¯
             self.fields["text_tiles"].update(  # type: ignore
-                list(instance.text_tiles.all()),
+                list(instance.insight_tiles.filter(text__isnull=False).all()),
                 validated_data.pop("text_tiles"),
             )
 

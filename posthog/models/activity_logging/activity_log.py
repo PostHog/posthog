@@ -134,7 +134,12 @@ def _description(m: List[Any]) -> Union[str, Dict]:
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
     if isinstance(m, DashboardTile):
-        return {"insight": {"id": m.insight.id}, "dashboard": {"id": m.dashboard.id, "name": m.dashboard.name}}
+        description = {"dashboard": {"id": m.dashboard.id, "name": m.dashboard.name}}
+        if m.insight:
+            description["insight"] = {"id": m.insight.id}
+        if m.text:
+            description["text"] = {"id": m.text.id}
+        return description
     else:
         return str(m)
 

@@ -26,7 +26,7 @@ def generate_assets(
 
     if resource.dashboard:
         tiles = get_tiles_ordered_by_position(resource.dashboard)
-        insights = [tile.insight for tile in tiles]
+        insights = [tile.insight for tile in tiles if tile.insight]
     elif resource.insight:
         insights = [resource.insight]
     else:

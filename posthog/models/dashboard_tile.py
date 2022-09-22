@@ -1,12 +1,15 @@
 from typing import List
 
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q, UniqueConstraint
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight, generate_insight_cache_key
+from posthog.models.tagged_item import build_check
 
 
 class Text(models.Model):
@@ -18,8 +21,11 @@ class Text(models.Model):
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_text_tiles"
     )
 
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+
 
 class DashboardTile(models.Model):
+    # TODO this relation is no longer only insight tiles
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="insight_tiles")
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True)
     text = models.ForeignKey("posthog.Text", on_delete=models.CASCADE, related_name="dashboard_text", null=True)
@@ -35,11 +41,39 @@ class DashboardTile(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]
+        unique_together = ("dashboard", "insight", "text")
+        constraints = [
+            UniqueConstraint(
+                fields=["dashboard", "insight"],
+                name=f"unique_dashboard_insight",
+                condition=Q(("insight__isnull", False)),
+            ),
+            UniqueConstraint(
+                fields=["dashboard", "text"], name=f"unique_dashboard_text", condition=Q(("text__isnull", False))
+            ),
+            models.CheckConstraint(check=build_check(("insight", "text")), name="dash_tile_exactly_one_related_object"),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        related_fields = sum(map(bool, [getattr(self, o_field) for o_field in ("insight", "text")]))
+        if related_fields != 1:
+            raise ValidationError("Can only set either an insight or a text for this tile")
+
+        if self.insight is None and (
+            self.filters_hash is not None
+            or self.refreshing is not None
+            or self.refresh_attempt is not None
+            or self.last_refresh is not None
+        ):
+            raise ValidationError("fields to do with refreshing are only applicable when this is an insight tile")
 
     def save(self, *args, **kwargs) -> None:
-        has_no_filters_hash = self.filters_hash is None
-        if has_no_filters_hash and self.insight.filters != {}:
-            self.filters_hash = generate_insight_cache_key(self.insight, self.dashboard)
+        if self.insight is not None:
+            has_no_filters_hash = self.filters_hash is None
+            if has_no_filters_hash and self.insight.filters != {}:
+                self.filters_hash = generate_insight_cache_key(self.insight, self.dashboard)
 
         super(DashboardTile, self).save(*args, **kwargs)
 
@@ -78,7 +112,7 @@ def update_filters_hashes(tile_update_candidates) -> None:
 def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> List[DashboardTile]:
     tiles = list(
         DashboardTile.objects.filter(dashboard=dashboard)
-        .select_related("insight")
+        .select_related("insight", "text")
         .exclude(insight__deleted=True)
         .order_by("insight__order")
         .all()
