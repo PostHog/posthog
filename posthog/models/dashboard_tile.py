@@ -26,9 +26,9 @@ class Text(models.Model):
 
 class DashboardTile(models.Model):
     # TODO this relation is no longer only insight tiles
-    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="insight_tiles")
+    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True)
-    text = models.ForeignKey("posthog.Text", on_delete=models.CASCADE, related_name="dashboard_text", null=True)
+    text = models.ForeignKey("posthog.Text", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True)
 
     # caching for a dashboard & insight filter combination
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)

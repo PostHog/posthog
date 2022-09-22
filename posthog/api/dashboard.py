@@ -220,7 +220,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if "text_tiles" in validated_data:
             # mypy thinks this doesn't work... but it does ¯\_(ツ)_/¯
             self.fields["text_tiles"].update(  # type: ignore
-                list(instance.insight_tiles.filter(text__isnull=False).all()),
+                list(instance.tiles.filter(text__isnull=False).all()),
                 validated_data.pop("text_tiles"),
             )
 
@@ -332,7 +332,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related(
-            "insight_tiles", "insight_tiles__insight", "sharingconfiguration_set", "text_tiles"
+            "tiles", "tiles__insight", "sharingconfiguration_set", "tiles__text"
         ).select_related("team__organization", "created_by")
         return queryset
 
