@@ -354,20 +354,17 @@ class SessionRecordingList(EventQuery):
     def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
         default_columns = ["session_id", "start_time", "end_time", "duration", "distinct_id"]
         return [
-            dict(
-                zip(
-                    ["session_id", "start_time", "end_time", "duration", "distinct_id", "start_url", "end_url"]
-                    + [
-                        item
-                        for sublist in [
-                            ["matching_events_count_{}".format(i), "matching_events_{}".format(i)]
-                            for i in range(len(row) - len(default_columns))
+            dict(zip(default_columns, row[: len(default_columns)]))
+            | {
+                "matching_events": [
+                    {
+                        "events": [
+                            dict(zip(["timestamp", "id", "session_id", "window_id"], event)) for event in row[i + 1]
                         ]
-                        for item in sublist
-                    ],
-                    row,
-                )
-            )
+                    }
+                    for i in range(len(default_columns), len(row), 2)
+                ]
+            }
             for row in results
         ]
 

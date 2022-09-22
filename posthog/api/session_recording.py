@@ -35,6 +35,7 @@ class SessionRecordingSerializer(serializers.Serializer):
     start_time = serializers.DateTimeField()
     end_time = serializers.DateTimeField()
     distinct_id = serializers.CharField()
+    matching_events = serializers.ListField(required=False)
 
     def to_representation(self, instance):
         return {
@@ -44,6 +45,7 @@ class SessionRecordingSerializer(serializers.Serializer):
             "start_time": instance["start_time"],
             "end_time": instance["end_time"],
             "distinct_id": instance["distinct_id"],
+            "matching_events": instance["matching_events"],
         }
 
 
