@@ -10,7 +10,7 @@ from posthog.models.element.element import chain_to_elements
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.timestamp_query import TimestampQuery
+from posthog.queries.query_date_range import QueryDateRange
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -48,9 +48,9 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         filter = Filter(request=request, team=self.team)
 
         date_params = {}
-        timestamp_query = TimestampQuery(filter=filter, team=self.team, should_round=True)
-        date_from, date_from_params = timestamp_query.date_from
-        date_to, date_to_params = timestamp_query.date_to
+        query_date_range = QueryDateRange(filter=filter, team=self.team, should_round=True)
+        date_from, date_from_params = query_date_range.date_from
+        date_to, date_to_params = query_date_range.date_to
         date_params.update(date_from_params)
         date_params.update(date_to_params)
 

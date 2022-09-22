@@ -10,7 +10,7 @@ from posthog.models.team import Team
 from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, format_ch_timestamp, get_earliest_timestamp
 
 
-class TimestampQuery:
+class QueryDateRange:
     def __init__(self, filter, team: Team, should_round: Optional[bool] = None, table="") -> None:
         self._filter = filter
         self._team = team
