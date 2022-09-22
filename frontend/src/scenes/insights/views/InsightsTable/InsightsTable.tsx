@@ -129,6 +129,18 @@ export function InsightsTable({
 
     if (isLegend) {
         columns.push({
+          title: (
+            <LemonCheckbox
+              checked={indexedResults.every((i) => !hiddenLegendKeys[i.id])}
+              defaultChecked={true}
+              onChange={(checked) => indexedResults.forEach((i) => {
+                if (checked && hiddenLegendKeys[i.id])
+                  toggleVisibility(i.id);
+                else if (!checked && !hiddenLegendKeys[i.id])
+                  toggleVisibility(i.id);
+              })}
+            />
+          ),
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
                     <LemonCheckbox
