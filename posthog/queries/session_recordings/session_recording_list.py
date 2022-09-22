@@ -354,8 +354,8 @@ class SessionRecordingList(EventQuery):
     def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
         default_columns = ["session_id", "start_time", "end_time", "duration", "distinct_id"]
         return [
-            dict(zip(default_columns, row[: len(default_columns)]))
-            | {
+            {
+                **dict(zip(default_columns, row[: len(default_columns)])),
                 "matching_events": [
                     {
                         "events": [
@@ -363,7 +363,7 @@ class SessionRecordingList(EventQuery):
                         ]
                     }
                     for i in range(len(default_columns), len(row), 2)
-                ]
+                ],
             }
             for row in results
         ]
