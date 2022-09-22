@@ -19,7 +19,7 @@ export function VerifyDomainModal(): JSX.Element {
             title="Verify your domain"
             description={
                 <>
-                    <LemonTag>{domainBeingVerified?.domain || ''}</LemonTag>
+                    <LemonTag className="uppercase">{domainBeingVerified?.domain || ''}</LemonTag>
                     <p>To verify your domain, you need to add a record to your DNS zone.</p>
                 </>
             }
