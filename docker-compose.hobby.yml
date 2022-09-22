@@ -90,7 +90,7 @@ services:
         volumes:
             - ./compose:/compose
     caddy:
-        image: caddy
+        image: caddy:2.6.1
         restart: unless-stopped
         ports:
             - '80:80'
