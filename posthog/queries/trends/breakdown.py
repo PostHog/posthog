@@ -377,6 +377,9 @@ class TrendsBreakdown:
             return json.loads(value.get("breakdown_value"))[0]
         if value.get("breakdown_value") == "all":
             return (-1, "")
+        if self.filter.breakdown_type == "session":
+            # if session duration breakdown, we want ordering based on the time buckets, not the value
+            return (-1, "")
         return (value.get("count", value.get("aggregated_value", 0)) * -1, value.get("label"))  # reverse it
 
     def _parse_single_aggregate_result(

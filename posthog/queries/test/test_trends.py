@@ -856,8 +856,8 @@ def trend_test_factory(trends):
             # value1 has: 5 seconds, 10 seconds, 15 seconds
             # value2 has: 10 seconds, 15 seconds (aggregated by session, so 15 is not double counted)
             # empty has: 1 seconds
-            self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["", "value1", "value2"])
-            self.assertEqual([resp["aggregated_value"] for resp in daily_response], [1, 10, 12.5])
+            self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["value2", "value1", ""])
+            self.assertEqual([resp["aggregated_value"] for resp in daily_response], [12.5, 10, 1])
 
             with freeze_time("2020-01-04T13:00:01Z"):
                 weekly_response = trends().run(
@@ -3009,10 +3009,10 @@ def trend_test_factory(trends):
                         ),
                         self.team,
                     )
-                self.assertEqual(daily_response[0]["data"][0], 1)
-                self.assertEqual(daily_response[0]["label"], "sign up - none")
-                self.assertEqual(daily_response[1]["data"][0], 2)
-                self.assertEqual(daily_response[1]["label"], "sign up - some_val")
+                self.assertEqual(daily_response[0]["data"][0], 2)
+                self.assertEqual(daily_response[0]["label"], "sign up - some_val")
+                self.assertEqual(daily_response[1]["data"][0], 1)
+                self.assertEqual(daily_response[1]["label"], "sign up - none")
 
                 # MAU
                 with freeze_time("2019-12-31T13:00:01Z"):
