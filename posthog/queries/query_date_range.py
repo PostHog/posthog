@@ -4,6 +4,7 @@ from functools import cached_property
 from typing import Dict, Optional, Tuple
 
 import pytz
+from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -55,6 +56,19 @@ class QueryDateRange:
         return target.astimezone(pytz.timezone(self._team.timezone))
 
     def _parse_date(self, input):
+
+        try:
+            return self._localize_to_team(datetime.strptime(input, "%Y-%m-%d"))
+        except ValueError:
+            pass
+
+        # when input also contains the time for intervals "hour" and "minute"
+        # the above try fails. Try one more time from isoformat.
+        try:
+            return self._localize_to_team(parser.isoparse(input))
+        except ValueError:
+            pass
+
         regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
         match = re.search(regex, input)
         date = self._now
