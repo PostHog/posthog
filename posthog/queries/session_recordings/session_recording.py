@@ -33,7 +33,7 @@ class SessionRecording:
     _team: Team
 
     def __init__(
-        self, request: Request, session_recording_id: str, team: Team, recording_start_time: Optional[datetime]
+        self, request: Request, session_recording_id: str, team: Team, recording_start_time: Optional[datetime] = None
     ) -> None:
         self._request = request
         self._session_recording_id = session_recording_id
@@ -52,9 +52,12 @@ class SessionRecording:
 
     def get_recording_snapshot_date_clause(self) -> Tuple[str, Dict]:
         if self._recording_start_time:
+            # If we can, we want to limit the time range being queried.
+            # Theoretically, we shouldn't have to look before the recording start time,
+            # but until we straighten out the recording start time logic, we should have a buffer
             return (
                 """
-                    AND timestamp >= toDateTime(%(start_time)s) - INTERVAL 30 MINUTE
+                    AND timestamp >= toDateTime(%(start_time)s) - INTERVAL 1 DAY
                     AND timestamp <= toDateTime(%(start_time)s) + INTERVAL 2 DAY
             """,
                 {"start_time": self._recording_start_time},

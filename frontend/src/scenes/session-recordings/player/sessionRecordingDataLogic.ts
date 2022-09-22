@@ -27,7 +27,6 @@ import {
 } from './playerUtils'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { sessionRecordingsTableLogic } from '../sessionRecordingsTableLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -137,7 +136,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId'], sessionRecordingsTableLogic, ['sessionRecordings']],
+        values: [teamLogic, ['currentTeamId']],
     }),
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
