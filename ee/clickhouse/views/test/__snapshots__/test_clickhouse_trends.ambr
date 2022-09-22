@@ -221,7 +221,7 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
+       AND timestamp >= toDateTime('2012-01-01 00:00:00')
        AND timestamp <= toDateTime('2012-01-15 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -396,7 +396,7 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
+       AND timestamp >= toDateTime('2012-01-01 00:00:00')
        AND timestamp <= toDateTime('2012-01-15 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -509,7 +509,7 @@
              AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
+       AND timestamp >= toDateTime('2012-01-01 00:00:00')
        AND timestamp <= toDateTime('2012-01-15 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
