@@ -13,7 +13,6 @@ from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_fo
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table, sleep_until_finished
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.models.instance_setting import get_instance_setting
 
 logger = structlog.get_logger(__name__)
 
@@ -54,9 +53,9 @@ Constraints
 3. New columns need to be populated for new rows before running this async migration.
 """
 
-TEMPORARY_PERSONS_TABLE_NAME = "tmp_person_0006"
-TEMPORARY_PDI2_TABLE_NAME = "tmp_person_distinct_id2_0006"
-TEMPORARY_GROUPS_TABLE_NAME = "tmp_groups_0006"
+TEMPORARY_PERSONS_TABLE_NAME = "tmp_person_0007"
+TEMPORARY_PDI2_TABLE_NAME = "tmp_person_distinct_id2_0007"
+TEMPORARY_GROUPS_TABLE_NAME = "tmp_groups_0007"
 
 # :KLUDGE: On cloud, groups and person tables now have storage_policy sometimes attached
 STORAGE_POLICY_SETTING = lambda: ", storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
@@ -91,9 +90,6 @@ class Migration(AsyncMigrationDefinition):
     }
 
     def precheck(self):
-        # Used to guard against self-hosted users running on `latest` while we make tweaks to the migration
-        if not settings.TEST and not get_instance_setting("ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS"):
-            return (False, "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS is set to False")
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
@@ -185,7 +181,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperation(
                 fn=lambda query_id: run_optimize_table(
-                    unique_name="0006_persons_and_groups_on_events_backfill_person",
+                    unique_name="0007_persons_and_groups_on_events_backfill_person",
                     query_id=query_id,
                     table_name=f"{settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PERSONS_TABLE_NAME}",
                     final=True,
@@ -195,7 +191,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperation(
                 fn=lambda query_id: run_optimize_table(
-                    unique_name="0006_persons_and_groups_on_events_backfill_pdi2",
+                    unique_name="0007_persons_and_groups_on_events_backfill_pdi2",
                     query_id=query_id,
                     table_name=f"{settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PDI2_TABLE_NAME}",
                     final=True,
@@ -205,7 +201,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperation(
                 fn=lambda query_id: run_optimize_table(
-                    unique_name="0006_persons_and_groups_on_events_backfill_groups",
+                    unique_name="0007_persons_and_groups_on_events_backfill_groups",
                     query_id=query_id,
                     table_name=f"{settings.CLICKHOUSE_DATABASE}.{TEMPORARY_GROUPS_TABLE_NAME}",
                     final=True,
