@@ -4,7 +4,6 @@ set -e
 
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
 export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
-export TLS_BLOCK=""
 
 POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
 export POSTHOG_SECRET
