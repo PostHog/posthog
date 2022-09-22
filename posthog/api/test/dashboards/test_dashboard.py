@@ -206,7 +206,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         for i in range(5):
             self.dashboard_api.create_dashboard({"name": f"dashboard-{i}", "description": i})
 
-            with self.assertNumQueries(10):
+            with self.assertNumQueries(9):
                 response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
