@@ -30,6 +30,7 @@ class SessionRecordingMetadataSerializer(serializers.Serializer):
 class SessionRecordingSerializer(serializers.Serializer):
     session_id = serializers.CharField()
     viewed = serializers.BooleanField()
+    distinct_id = serializers.CharField()
     duration = serializers.DurationField()
     start_time = serializers.DateTimeField()
     end_time = serializers.DateTimeField()
@@ -37,12 +38,13 @@ class SessionRecordingSerializer(serializers.Serializer):
     last_event_timestamp = serializers.DateTimeField()
     click_count = serializers.IntegerField()
     keypress_count = serializers.IntegerField()
-    distinct_id = serializers.CharField()
+    url = serializers.CharField()
 
     def to_representation(self, instance):
         return {
             "id": instance["session_id"],
             "viewed": instance["viewed"],
+            "distinct_id": instance["distinct_id"],
             "recording_duration": instance.get("duration"),
             "start_time": instance["start_time"],
             "end_time": instance["end_time"],
@@ -50,7 +52,7 @@ class SessionRecordingSerializer(serializers.Serializer):
             "last_event_timestamp": instance["last_event_timestamp"],
             "click_count": instance["click_count"],
             "keypress_count": instance["keypress_count"],
-            "distinct_id": instance["distinct_id"],
+            "url": instance["url"],
         }
 
 

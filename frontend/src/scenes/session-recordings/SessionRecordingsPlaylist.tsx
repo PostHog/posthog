@@ -10,7 +10,7 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconAutocapture, IconChevronLeft, IconChevronRight, IconKeyboard } from 'lib/components/icons'
+import { IconAutocapture, IconChevronLeft, IconChevronRight, IconGlobeLock, IconKeyboard } from 'lib/components/icons'
 import { SessionRecordingsFilters } from './filters/SessionRecordingsFilters'
 
 interface SessionRecordingsTableProps {
@@ -29,17 +29,39 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
         {
             title: 'Recordings',
             render: function RenderPlayButton(_: any, sessionRecording: SessionRecordingType) {
+                // TODO: this is a quick hack to demo the feature.
+                const path = sessionRecording.url?.split('?')?.[0]?.split('/')?.slice(3)?.join('/')
+
                 return (
                     <div className="flex flex-col gap-2">
                         <div className="text-primary">{asDisplay(sessionRecording.person, 25)}</div>
-                        <div className="flex gap-1">
-                            <div className="flex items-center gap-1 rounded bg-primary-highlight p-1 text-xs">
-                                <IconAutocapture /> {sessionRecording.click_count || 0} clicks
-                            </div>
-                            <div className="flex items-center gap-1 rounded bg-primary-highlight p-1 text-xs">
-                                <IconKeyboard />
-                                {sessionRecording.keypress_count || 0} inputs
-                            </div>
+                        <div className="flex gap-1 text-xs items-center">
+                            {sessionRecording.url ? (
+                                <div
+                                    className="flex items-center gap-1 rounded bg-primary-highlight p-1"
+                                    title={`Starting URL - ${sessionRecording.url}`}
+                                >
+                                    <IconGlobeLock /> /{path}
+                                </div>
+                            ) : null}
+
+                            {sessionRecording.click_count ? (
+                                <div
+                                    className="flex items-center gap-1 rounded bg-primary-highlight p-1"
+                                    title="Number of clicks"
+                                >
+                                    <IconAutocapture /> {sessionRecording.click_count || 0} clicks
+                                </div>
+                            ) : null}
+                            {sessionRecording.keypress_count ? (
+                                <div
+                                    className="flex items-center gap-1 rounded bg-primary-highlight p-1"
+                                    title="Number of keyboard presses"
+                                >
+                                    <IconKeyboard />
+                                    {sessionRecording.keypress_count || 0} inputs
+                                </div>
+                            ) : null}
                         </div>
                         <div>
                             <span className="text-xs flex justify-between">

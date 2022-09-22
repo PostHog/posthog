@@ -31,6 +31,7 @@ SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
     , keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary))
     , first_event_timestamp DateTime64(3, 'UTC') MATERIALIZED toDateTime(arrayReduce('min', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)
     , last_event_timestamp DateTime64(3, 'UTC') MATERIALIZED toDateTime(arrayReduce('max', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)
+    , urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
 """
 
 SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = """
@@ -40,6 +41,7 @@ SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = """
     , keypress_count Int8 COMMENT 'column_materializer::keypress_count'
     , first_event_timestamp DateTime64(3, 'UTC') COMMENT 'column_materializer::first_event_timestamp'
     , last_event_timestamp DateTime64(3, 'UTC') COMMENT 'column_materializer::last_event_timestamp'
+    , urls Array(String) COMMENT 'column_materializer::urls'
 """
 
 SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(

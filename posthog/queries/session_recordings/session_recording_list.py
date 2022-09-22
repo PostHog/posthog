@@ -69,11 +69,12 @@ class SessionRecordingList(EventQuery):
             any(window_id) as window_id,
             MIN(timestamp) AS start_time,
             MAX(timestamp) AS end_time,
+            MIN(first_event_timestamp) as first_event_timestamp,
             MAX(last_event_timestamp) as last_event_timestamp,
-            MAX(first_event_timestamp) as first_event_timestamp,
             SUM(click_count) as click_count,
             SUM(keypress_count) as keypress_count,
-            dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
+            any(arrayJoin(urls)) as url,
+            dateDiff('second', first_event_timestamp, last_event_timestamp) as duration,
             any(distinct_id) as distinct_id,
             SUM(has_full_snapshot) as full_snapshots
         FROM session_recording_events
@@ -95,9 +96,9 @@ class SessionRecordingList(EventQuery):
         any(session_recordings.last_event_timestamp) as last_event_timestamp,
         any(session_recordings.click_count) as click_count,
         any(session_recordings.keypress_count) as keypress_count,
+        any(session_recordings.url) as url,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id
-        
         {event_filter_aggregate_select_clause}
     FROM (
         {core_events_query}
@@ -131,6 +132,7 @@ class SessionRecordingList(EventQuery):
         any(session_recordings.last_event_timestamp) as last_event_timestamp,
         any(session_recordings.click_count) as click_count,
         any(session_recordings.keypress_count) as keypress_count,
+        any(session_recordings.url) as url,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id
     FROM (
@@ -370,6 +372,7 @@ class SessionRecordingList(EventQuery):
                         "last_event_timestamp",
                         "click_count",
                         "keypress_count",
+                        "url",
                         "duration",
                         "distinct_id",
                         "start_url",

@@ -26,6 +26,10 @@ def create_events_summary_mat_columns(database):
             "schema": "DateTime64(6, 'UTC')",
             "materializer": "MATERIALIZED toDateTime(arrayReduce('max', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)",
         },
+        "urls": {
+            "schema": "Array(String)",
+            "materializer": "MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))",
+        },
     }
 
     for column, data in columns.items():
