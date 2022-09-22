@@ -90,7 +90,7 @@ def start_of_week_fix(filter: Filter) -> str:
     Mode is whether the week starts on sunday or monday, with 0 being sunday.
     This function adds mode to the trunc_func, but only if the interval is week
     """
-    return "0," if filter.interval == "week" else ""
+    return ", 0" if filter.interval == "week" else ""
 
 
 def convert_to_datetime_aware(date_obj):

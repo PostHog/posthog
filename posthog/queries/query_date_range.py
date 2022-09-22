@@ -1,13 +1,15 @@
+import re
 from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Dict, Optional, Tuple
 
+import pytz
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
-from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, format_ch_timestamp, get_earliest_timestamp
+from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earliest_timestamp
 
 
 class QueryDateRange:
@@ -18,16 +20,73 @@ class QueryDateRange:
         self._should_round = should_round
 
     @cached_property
-    def date_to_param(self) -> Optional[str]:
-        return self._date_param(
-            self._filter.date_to, self._filter._date_to and not self._filter.date_to_has_explicit_time
-        )
+    def date_to_param(self) -> datetime:
+        if isinstance(self._filter._date_to, str):
+            return self._parse_date(self._filter.date_to)
+        elif isinstance(self._filter._date_to, datetime):
+            return self._localize_to_team(self._filter._date_to)
+        else:
+            return self._now
 
-    def _date_param(self, target_date, should_convert) -> str:
-        return format_ch_timestamp(
-            target_date,
-            convert_to_timezone=self._team.timezone if should_convert else None,
-        )
+    def get_earliest_timestamp(self):
+        try:
+            earliest_date = get_earliest_timestamp(self._team.pk)
+        except IndexError:
+            return timezone.now()  # TODO: fix
+        else:
+            return earliest_date
+
+    @cached_property
+    def date_from_param(self) -> datetime:
+        if self._filter._date_from == "all":
+            return self.get_earliest_timestamp()
+        elif isinstance(self._filter._date_from, str):
+            return self._parse_date(self._filter._date_from)
+        elif isinstance(self._filter._date_from, datetime):
+            return pytz.timezone(self._team.timezone).localize(self._filter._date_from)
+        else:
+            return self.get_earliest_timestamp()
+
+    @cached_property
+    def _now(self):
+        return self._localize_to_team(timezone.now())
+
+    def _localize_to_team(self, target: datetime):
+        return target.astimezone(pytz.timezone(self._team.timezone))
+
+    def _parse_date(self, input):
+        regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
+        match = re.search(regex, input)
+        date = self._now
+        if not match:
+            return date
+        if match.group("type") == "h":
+            date -= relativedelta(hours=int(match.group("number")))
+            return date.replace(minute=0, second=0, microsecond=0)
+        elif match.group("type") == "d":
+            if match.group("number"):
+                date -= relativedelta(days=int(match.group("number")))
+        elif match.group("type") == "w":
+            if match.group("number"):
+                date -= relativedelta(weeks=int(match.group("number")))
+        elif match.group("type") == "m":
+            if match.group("number"):
+                date -= relativedelta(months=int(match.group("number")))
+            if match.group("position") == "Start":
+                date -= relativedelta(day=1)
+            if match.group("position") == "End":
+                date -= relativedelta(day=31)
+        elif match.group("type") == "q":
+            if match.group("number"):
+                date -= relativedelta(weeks=13 * int(match.group("number")))
+        elif match.group("type") == "y":
+            if match.group("number"):
+                date -= relativedelta(years=int(match.group("number")))
+            if match.group("position") == "Start":
+                date -= relativedelta(month=1, day=1)
+            if match.group("position") == "End":
+                date -= relativedelta(month=12, day=31)
+        return date
 
     @cached_property
     def interval_annotation(self) -> str:
@@ -41,7 +100,7 @@ class QueryDateRange:
 
     @cached_property
     def date_to_clause(self):
-        return f"AND {self._table}timestamp <= toDateTime(%(date_to)s)"
+        return f"AND {self._table}timestamp <= toDateTime(%(date_to)s, %(timezone)s)"
 
     @cached_property
     def date_from_clause(self):
@@ -50,29 +109,14 @@ class QueryDateRange:
     @cached_property
     def date_to(self) -> Tuple[str, Dict]:
         date_to_query = self.date_to_clause
-        date_to_param = {"date_to": self.date_to_param}
+        date_to_param = {"date_to": self.date_to_param.strftime("%Y-%m-%d %H:%M:%S")}
 
         return date_to_query, date_to_param
 
     @cached_property
     def date_from(self) -> Tuple[str, Dict]:
         date_from_query = self.date_from_clause
-        date_from_param = {}
-        if self._filter.date_from:
-            date_from_query = self.date_from_clause
-            date_from_param.update(
-                {"date_from": self._date_param(self._filter.date_from, not self._filter.date_from_has_explicit_time)}
-            )
-        else:
-            try:
-                earliest_date = get_earliest_timestamp(self._team.pk)
-            except IndexError:
-                date_from_query = ""
-            else:
-                date_from_query = self.date_from_clause
-                date_from_param.update(
-                    {"date_from": self._date_param(earliest_date, not self._filter.date_from_has_explicit_time)}
-                )
+        date_from_param = {"date_from": self.date_from_param.strftime("%Y-%m-%d %H:%M:%S")}
 
         return date_from_query, date_from_param
 

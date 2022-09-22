@@ -1,5 +1,5 @@
 VOLUME_SQL = """
-SELECT {aggregate_operation} as data, {interval}(toDateTime(timestamp), {start_of_week_fix} %(timezone)s) as date FROM ({event_query}) GROUP BY date
+SELECT {aggregate_operation} as data, {interval}(toDateTime(timestamp, %(timezone)s) {start_of_week_fix}) as date FROM ({event_query}) GROUP BY date
 """
 
 VOLUME_TOTAL_AGGREGATE_SQL = """
@@ -14,7 +14,7 @@ SELECT {aggregate_operation} as data FROM (
 
 SESSION_DURATION_VOLUME_SQL = """
 SELECT {aggregate_operation} as data, date FROM (
-    SELECT {interval}(toDateTime(timestamp), {start_of_week_fix} %(timezone)s) as date, any(session_duration) as session_duration
+    SELECT {interval}(toDateTime(timestamp) {start_of_week_fix} %(timezone)s) as date, any(session_duration) as session_duration
     FROM ({event_query})
     GROUP BY $session_id, date
 ) GROUP BY date
@@ -152,7 +152,7 @@ ORDER BY breakdown_value
 BREAKDOWN_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
+    {interval_annotation}(timestamp {start_of_week_fix} %(timezone)s) as day_start,
     {breakdown_value} as breakdown_value
 FROM events e
 {person_join}
@@ -167,7 +167,7 @@ SELECT
     {aggregate_operation} as total, day_start, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, day_start, breakdown_value FROM (
-        SELECT $session_id, session_duration, {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
+        SELECT $session_id, session_duration, {interval_annotation}(timestamp {start_of_week_fix} %(timezone)s) as day_start,
             {breakdown_value} as breakdown_value
         FROM events e
         {person_join}
@@ -183,7 +183,7 @@ GROUP BY day_start, breakdown_value
 BREAKDOWN_CUMULATIVE_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
+    {interval_annotation}(timestamp {start_of_week_fix} %(timezone)s) as day_start,
     breakdown_value
 FROM (
     SELECT
