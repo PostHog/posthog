@@ -6,7 +6,7 @@ import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsA
 import { groupAnalyticsConfigLogic } from 'scenes/project/Settings/groupAnalyticsConfigLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 export function GroupAnalytics(): JSX.Element | null {
     const { groupTypes, groupTypesLoading, singularChanges, pluralChanges, hasChanges } =
@@ -85,6 +85,7 @@ export function GroupAnalytics(): JSX.Element | null {
                     Cancel
                 </LemonButton>
             </div>
+            <LemonDivider className="my-6" />
         </div>
     )
 }

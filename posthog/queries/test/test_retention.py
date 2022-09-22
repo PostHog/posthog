@@ -419,41 +419,41 @@ def retention_test_factory(retention):
             )
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = retention().actors(
-                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 2}), self.team
+            result, _ = retention().actors_in_period(
+                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 0}), self.team
             )
             self.assertEqual(len(result), 1)
-            self.assertTrue(result[0]["id"] == person1.pk or result[0]["id"], person1.uuid)
+            self.assertTrue(result[0]["person"]["id"] == person1.uuid, person1.uuid)
 
         def test_retention_people_first_time(self):
             _, _, p3, _ = self._create_first_time_retention_events()
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
 
             target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
-            result = retention().actors(
+            result, _ = retention().actors_in_period(
                 RetentionFilter(
                     data={
                         "date_to": _date(10, hour=6),
                         RETENTION_TYPE: RETENTION_FIRST_TIME,
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
-                        "selected_interval": 1,
+                        "selected_interval": 0,
                     }
                 ),
                 self.team,
             )
 
             self.assertEqual(len(result), 1)
-            self.assertIn(result[0]["id"], [p3.pk, p3.uuid])
+            self.assertIn(result[0]["person"]["id"], [p3.uuid, p3.pk])
 
-            result = retention().actors(
+            result, _ = retention().actors_in_period(
                 RetentionFilter(
                     data={
                         "date_to": _date(14, hour=6),
                         RETENTION_TYPE: RETENTION_FIRST_TIME,
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
-                        "selected_interval": 1,
+                        "selected_interval": 0,
                     }
                 ),
                 self.team,
@@ -510,7 +510,7 @@ def retention_test_factory(retention):
             )
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = retention().actors_in_period(
+            result, _ = retention().actors_in_period(
                 RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 2}), self.team
             )
 
@@ -525,7 +525,7 @@ def retention_test_factory(retention):
             p1, p2, p3, p4 = self._create_first_time_retention_events()
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
-            result1 = retention().actors_in_period(
+            result1, _ = retention().actors_in_period(
                 RetentionFilter(
                     data={
                         "date_to": _date(10, hour=6),

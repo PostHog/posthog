@@ -9,7 +9,7 @@ from posthog.models.property.util import get_property_string_expr
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
-from posthog.queries.timestamp_query import TimestampQuery
+from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.util import get_active_user_params
 
 
@@ -145,9 +145,10 @@ class TrendsEventQuery(EventQuery):
     def _get_date_filter(self) -> Tuple[str, Dict]:
         date_filter = ""
         date_params: Dict[str, Any] = {}
-        timestamp_query = TimestampQuery(self._filter, self._team)
-        parsed_date_from, date_from_params = timestamp_query.date_from
-        parsed_date_to, date_to_params = timestamp_query.date_to
+        query_date_range = QueryDateRange(self._filter, self._team)
+        parsed_date_from, date_from_params = query_date_range.date_from
+        parsed_date_to, date_to_params = query_date_range.date_to
+
         date_params.update(date_from_params)
         date_params.update(date_to_params)
 

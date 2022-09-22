@@ -41,7 +41,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { authorizedUrlsLogic } from 'scenes/toolbar-launch/authorizedUrlsLogic'
+import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Tooltip } from 'lib/components/Tooltip'
 import Typography from 'antd/lib/typography'
@@ -255,7 +255,9 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
 }
 
 function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state: boolean) => void }): JSX.Element {
-    const { appUrls, launchUrl, suggestionsLoading } = useValues(authorizedUrlsLogic)
+    const { authorizedUrls, launchUrl, suggestionsLoading } = useValues(
+        authorizedUrlListLogic({ type: AuthorizedUrlListType.TOOLBAR_URLS })
+    )
     return (
         <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">
             <h5>TOOLBAR URLS</h5>
@@ -264,7 +266,7 @@ function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state:
                 <Spinner />
             ) : (
                 <>
-                    {appUrls.map((appUrl, index) => (
+                    {authorizedUrls.map((appUrl, index) => (
                         <LemonButton
                             className="LaunchToolbarButton"
                             status="stealth"

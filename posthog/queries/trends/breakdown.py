@@ -33,8 +33,8 @@ from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.query_date_range import TIME_IN_SECONDS, QueryDateRange
 from posthog.queries.session_query import SessionQuery
-from posthog.queries.timestamp_query import TIME_IN_SECONDS, TimestampQuery
 from posthog.queries.trends.sql import (
     BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
     BREAKDOWN_ACTIVE_USER_INNER_SQL,
@@ -103,12 +103,12 @@ class TrendsBreakdown:
     def get_query(self) -> Tuple[str, Dict, Callable]:
         date_params = {}
 
-        timestamp_query = TimestampQuery(filter=self.filter, team=self.team)
-        parsed_date_from, date_from_params = timestamp_query.date_from
-        parsed_date_to, date_to_params = timestamp_query.date_to
-        num_intervals = timestamp_query.num_intervals
+        query_date_range = QueryDateRange(filter=self.filter, team=self.team)
+        parsed_date_from, date_from_params = query_date_range.date_from
+        parsed_date_to, date_to_params = query_date_range.date_to
+        num_intervals = query_date_range.num_intervals
         seconds_in_interval = TIME_IN_SECONDS[self.filter.interval]
-        interval_annotation = timestamp_query.interval_annotation
+        interval_annotation = query_date_range.interval_annotation
 
         date_params.update(date_from_params)
         date_params.update(date_to_params)
@@ -382,7 +382,12 @@ class TrendsBreakdown:
     def breakdown_sort_function(self, value):
         if self.filter.using_histogram:
             return json.loads(value.get("breakdown_value"))[0]
-        return 0 if value.get("breakdown_value") != "all" else 1
+        if value.get("breakdown_value") == "all":
+            return (-1, "")
+        if self.filter.breakdown_type == "session":
+            # if session duration breakdown, we want ordering based on the time buckets, not the value
+            return (-1, "")
+        return (value.get("count", value.get("aggregated_value", 0)) * -1, value.get("label"))  # reverse it
 
     def _parse_single_aggregate_result(
         self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]

@@ -7,6 +7,7 @@ import { durationFilterLogic } from './durationFilterLogic'
 import { useActions, useValues } from 'kea'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { LemonButton } from '@posthog/lemon-ui'
+
 interface Props {
     initialFilter: RecordingDurationFilter
     onChange: (value: RecordingDurationFilter) => void

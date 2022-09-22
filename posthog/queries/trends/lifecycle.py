@@ -14,7 +14,7 @@ from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
-from posthog.queries.timestamp_query import TimestampQuery
+from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.sql import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.queries.trends.util import parse_response
 from posthog.utils import encode_get_request_params
@@ -180,9 +180,9 @@ class LifecycleEventQuery(EventQuery):
 
     def _get_date_filter(self):
         date_params: Dict[str, Any] = {}
-        timestamp_query = TimestampQuery(self._filter, self._team, should_round=False)
-        _, date_from_params = timestamp_query.date_from
-        _, date_to_params = timestamp_query.date_to
+        query_date_range = QueryDateRange(self._filter, self._team, should_round=False)
+        _, date_from_params = query_date_range.date_from
+        _, date_to_params = query_date_range.date_to
         date_params.update(date_from_params)
         date_params.update(date_to_params)
 

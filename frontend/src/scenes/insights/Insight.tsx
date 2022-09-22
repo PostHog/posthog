@@ -6,8 +6,6 @@ import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
-import { SaveCohortModal } from 'scenes/trends/persons-modal/SaveCohortModal'
-import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -67,8 +65,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
-    const { cohortModalVisible } = useValues(personsModalLogic)
-    const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
@@ -315,15 +311,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     <FeedbackCallCTA />
                 </>
             ) : null}
-
-            <SaveCohortModal
-                isOpen={cohortModalVisible}
-                onSave={(title: string) => {
-                    saveCohortWithUrl(title)
-                    setCohortModalVisible(false)
-                }}
-                onCancel={() => setCohortModalVisible(false)}
-            />
         </div>
     )
 
