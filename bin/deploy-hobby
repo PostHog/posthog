@@ -3,6 +3,9 @@
 set -e
 
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
+export USE_SELF_SIGNED_CERT=0
+export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
+export TLS_BLOCK=""
 
 POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
 export POSTHOG_SECRET
@@ -23,16 +26,6 @@ else
     echo "Using provided tag: $POSTHOG_APP_TAG"
 fi
 echo ""
-while true; do
-    echo "Should we setup a TLS certificate for you using Let's Encrypt?"
-    echo "Select no if you are using this internally and PostHog will not be reachable from the internet. y/n"
-    read -p "" yn
-    case $yn in
-        [Yy]* ) export USE_SELF_SIGNED_CERT=0; break ;;
-        [Nn]* ) export USE_SELF_SIGNED_CERT=1; break ;;
-        * ) echo "Please answer yes or no." ;;
-    esac
-done
 echo "Let's get the exact domain PostHog will be installed on"
 echo "Make sure that you have a Host A DNS record pointing to this instance!"
 echo "This will be used for TLS 🔐"
@@ -40,11 +33,6 @@ echo "ie: test.posthog.net (NOT an IP address)"
 read -r DOMAIN
 export DOMAIN=$DOMAIN
 echo "Ok we'll set up certs for https://$DOMAIN"
-echo ""
-echo "Do you have a Sentry DSN you would like for debugging should something go wrong?"
-echo "If you do enter it now, otherwise just hit enter to continue"
-read -r SENTRY_DSN
-export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 echo ""
 echo "We will need sudo access so the next question is for you to give us superuser access"
 echo "Please enter your sudo password now:"
@@ -55,6 +43,16 @@ echo "Ok! We'll take it from here 🚀"
 
 echo "Making sure any stack that might exist is stopped"
 sudo -E docker-compose -f docker-compose.yml stop &> /dev/null || true
+
+# send log of this install for continued support!
+curl -L --header "Content-Type: application/json" -d '{
+    "api_key": "sTMFPsFhdP1Ssg",
+    "distinct_id": "${DOMAIN}",
+    "properties": {"domain": "${DOMAIN}"},
+    "type": "capture",
+    "event": "magic_curl_install_start"
+}' https://app.posthog.com/batch/
+
 
 # update apt cache
 echo "Grabbing latest apt caches"
@@ -69,14 +67,7 @@ cd posthog
 git pull
 cd ..
 
-
 # rewrite caddyfile
-export TLS_BLOCK=""
-if [[ $USE_SELF_SIGNED_CERT -eq 1 ]]; then
-    echo "Using a self signed certificate as requested"
-    export TLS_BLOCK="tls internal"
-fi
-
 rm -f Caddyfile
 envsubst > Caddyfile <<EOF
 $DOMAIN, :80, :443 {
@@ -146,14 +137,6 @@ sudo chmod +x /usr/local/bin/docker-compose
 # enable docker without sudo
 sudo usermod -aG docker "${USER}"
 
-# send log of this install for continued support!
-curl -L --header "Content-Type: application/json" -d '{
-    "api_key": "sTMFPsFhdP1Ssg",
-    "properties": {"domain": "${DOMAIN}"},
-    "type": "capture",
-    "event": "magic_curl_install"
-}' https://app.posthog.com/batch/
-
 # start up the stack
 echo "Configuring Docker Compose...."
 rm -f docker-compose.yml
@@ -170,6 +153,14 @@ bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost/_health)
 echo "⌛️ PostHog looks up!"
 echo ""
 echo "🎉🎉🎉  Done! 🎉🎉🎉"
+# send log of this install for continued support!
+curl -L --header "Content-Type: application/json" -d '{
+    "api_key": "sTMFPsFhdP1Ssg",
+    "distinct_id": "${DOMAIN}",
+    "properties": {"domain": "${DOMAIN}"},
+    "type": "capture",
+    "event": "magic_curl_install_complete"
+}' https://app.posthog.com/batch/
 echo ""
 echo "To stop the stack run 'docker-compose stop'"
 echo "To start the stack again run 'docker-compose start'"
