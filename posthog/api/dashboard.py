@@ -1,4 +1,3 @@
-import datetime
 import json
 from typing import Any, Dict, List, Optional, cast
 
@@ -32,57 +31,85 @@ class CanEditDashboard(BasePermission):
         return dashboard.can_user_edit(cast(User, request.user).id)
 
 
-class TextTileListSerializer(serializers.ListSerializer):
-    def update(self, text_tiles: List[DashboardTile], validated_data: List[Dict]) -> List[DashboardTile]:
+class DashboardTileListSerializer(serializers.ListSerializer):
+    """see https://www.django-rest-framework.org/api-guide/serializers/#customizing-multiple-update"""
 
+    def update(self, instance: List[DashboardTile], validated_data: List[Dict]) -> List[DashboardTile]:
         if not isinstance(self.parent.instance, Dashboard):
             raise ValidationError("Text tiles must be updated on a dashboard")
+        else:
+            parent_dashboard: Dashboard = self.parent.instance
 
-        validated_tiles_by_id = {}
-        tiles = []
+        serializer = DashboardTileSerializer(context=self.context)
 
-        for validated_item in validated_data:
-            if "id" not in validated_item:
-                text = Text.objects.create(**validated_item, created_by=self.context["request"].user)
-                new_tile = DashboardTile.objects.create(
-                    **validated_item, dashboard_id=self.parent.instance.id, text=text
-                )
-                tiles.append(new_tile)
-            else:
-                validated_tiles_by_id[validated_item["id"]] = validated_item
+        tile_mapping: Dict[int, DashboardTile] = {tile.id: tile for tile in instance}
+        data_mapping = {item["id"]: item for item in validated_data if item.get("id", None)}
+        new_text_tiles = [item for item in validated_data if "id" not in item]
 
-        for tile in text_tiles:
-            if tile.text is None:
-                continue
-            validated_tile: Optional[Dict] = validated_tiles_by_id.get(tile.id, None)
-            if validated_tile:
-                if "body" in validated_tile and validated_tile["body"] != tile.text.body:
-                    tile.text.body = validated_tile["body"]
-                    tile.text.last_modified_by = self.context["request"].user
-                    tile.text.last_modified_at = datetime.datetime.now()
-                if "layouts" in validated_tile and validated_tile["layouts"] != tile.layouts:
-                    tile.layouts = validated_tile["layouts"]
-                if "color" in validated_tile and validated_tile["color"] != tile.color:
-                    tile.color = validated_tile["color"]
+        updated_tiles = []
+        for tile_id, data in data_mapping.items():
+            tile = tile_mapping.get(tile_id, None)
+            if tile is not None:
+                data["text"]["team"] = parent_dashboard.team_id
+                data["dashboard"] = parent_dashboard.id
+                updated_tiles.append(serializer.update(instance=tile, validated_data=data))
 
-                tile.save()
-                tiles.append(tile)
-            else:
+        for new_tile in new_text_tiles:
+            new_tile["team_id"] = parent_dashboard.team_id
+            new_tile["dashboard"] = parent_dashboard.id
+            updated_tiles.append(serializer.create(new_tile))
+
+        # Perform deletions.
+        for tile_id, tile in tile_mapping.items():
+            if tile_id not in data_mapping:
                 tile.delete()
 
-        return tiles
+        return updated_tiles
 
 
-class TextTileSerializer(serializers.ModelSerializer):
-    id: serializers.IntegerField = serializers.IntegerField()
+class TextSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
 
     class Meta:
-        model = DashboardTile
-        fields = ["id", "layouts", "color", "body", "created_by", "last_modified_by", "last_modified_at"]
+        model = Text
+        fields = "__all__"
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
-        list_serializer_class = TextTileListSerializer
+
+
+class DashboardTileSerializer(serializers.ModelSerializer):
+    id: serializers.IntegerField = serializers.IntegerField(required=False)
+    text = TextSerializer(required=False)
+
+    class Meta:
+        model = DashboardTile
+        list_serializer_class = DashboardTileListSerializer
+        fields = "__all__"
+        read_only_fields = ["id", "insight"]
+
+    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardTile:
+        if "text" in validated_data:
+            text = validated_data.pop("text")
+            user = self.context["request"].user
+            text["created_by"] = user
+            instance = DashboardTile.objects.create(**validated_data, text=Text.objects.create(**text))
+        else:
+            instance = DashboardTile.objects.create(**validated_data)
+        return instance
+
+    def update(self, instance: DashboardTile, validated_data: Dict, **kwargs) -> DashboardTile:
+        if "insight" in validated_data:
+            # insight is readonly from tile context
+            validated_data.pop("insight")
+        elif "text" in validated_data:
+            # this must be a text tile
+            assert instance.text is not None
+            instance.text.last_modified_at = now()
+            instance.text.last_modified_by = self.context["request"].user
+
+        updated_tile = super().update(instance, validated_data)
+
+        return updated_tile
 
 
 class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -92,7 +119,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
     effective_privilege_level = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
-    text_tiles = TextTileSerializer(many=True, required=False)
+    tiles = DashboardTileSerializer(many=True, required=False)
 
     class Meta:
         model = Dashboard
@@ -111,7 +138,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             "use_dashboard",
             "filters",
             "tags",
-            "text_tiles",
+            "tiles",
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
@@ -217,36 +244,29 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         validated_data.pop("use_template", None)  # Remove attribute if present
 
-        if "text_tiles" in validated_data:
-            # mypy thinks this doesn't work... but it does ¯\_(ツ)_/¯
-            self.fields["text_tiles"].update(  # type: ignore
-                list(instance.tiles.filter(text__isnull=False).all()),
-                validated_data.pop("text_tiles"),
-            )
-
         instance = super().update(instance, validated_data)
 
         if validated_data.get("deleted", False):
             DashboardTile.objects.filter(dashboard__id=instance.id).delete()
 
-        initial_data = dict(self.initial_data)
+        # initial_data = dict(self.initial_data)
 
-        tile_layouts = initial_data.pop("tile_layouts", {"insight_tiles": [], "text_tiles": []})
-        for insight_tile_layout in tile_layouts.get("insight_tiles", []):
-            DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(insight_tile_layout["id"])).update(
-                layouts=insight_tile_layout["layouts"]
-            )
-
-        for text_tile_layout in tile_layouts.get("text_tiles", []):
-            DashboardTile.objects.filter(dashboard__id=instance.id, id=text_tile_layout["id"]).update(
-                layouts=text_tile_layout["layouts"]
-            )
-
-        colors = initial_data.pop("colors", [])
-        for color in colors:
-            DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(color["id"])).update(
-                color=color["color"]
-            )
+        # tile_layouts = initial_data.pop("tile_layouts", {"insight_tiles": [], "text_tiles": []})
+        # for insight_tile_layout in tile_layouts.get("insight_tiles", []):
+        #     DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(insight_tile_layout["id"])).update(
+        #         layouts=insight_tile_layout["layouts"]
+        #     )
+        #
+        # for text_tile_layout in tile_layouts.get("text_tiles", []):
+        #     DashboardTile.objects.filter(dashboard__id=instance.id, id=text_tile_layout["id"]).update(
+        #         layouts=text_tile_layout["layouts"]
+        #     )
+        #
+        # colors = initial_data.pop("colors", [])
+        # for color in colors:
+        #     DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(color["id"])).update(
+        #         color=color["color"]
+        #     )
 
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
@@ -262,6 +282,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         tiles = (
             DashboardTile.objects.filter(dashboard=dashboard)
+            .exclude(insight=None)
             .select_related(
                 "insight__created_by",
                 "insight__last_modified_by",

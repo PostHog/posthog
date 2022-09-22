@@ -99,7 +99,7 @@ def update_filters_hashes(tile_update_candidates) -> None:
     tiles_to_update = []
 
     for tile in tile_update_candidates:
-        if tile.insight.filters and tile.insight.filters != {}:
+        if tile.insight and tile.insight.filters and tile.insight.filters != {}:
             candidate_filters_hash = generate_insight_cache_key(tile.insight, tile.dashboard)
             if tile.filters_hash != candidate_filters_hash:
                 tile.filters_hash = candidate_filters_hash

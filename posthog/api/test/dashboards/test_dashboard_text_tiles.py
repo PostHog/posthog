@@ -6,7 +6,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import User
+from posthog.models import DashboardTile, Text, User
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
@@ -16,45 +16,92 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     @freeze_time("2022-04-01 12:45")
+    def test_can_get_a_single_text_tile_on_a_dashboard(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        tile_text = Text.objects.create(body="I AM TEXT!", team=self.team)
+        tile = DashboardTile.objects.create(dashboard_id=dashboard_id, text=tile_text)
+
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+
+        self.assertEqual(
+            dashboard_json["tiles"],
+            [
+                {
+                    "id": tile.id,
+                    "filters_hash": None,
+                    "last_refresh": None,
+                    "refreshing": None,
+                    "refresh_attempt": None,
+                    "layouts": {},
+                    "color": None,
+                    "dashboard": dashboard_id,
+                    "insight": None,
+                    "text": {
+                        "body": "I AM TEXT!",
+                        "created_by": None,
+                        "id": tile_text.id,
+                        "last_modified_at": "2022-04-01T12:45:00Z",
+                        "last_modified_by": None,
+                        "team": self.team.id,
+                    },
+                }
+            ],
+        )
+
+    @freeze_time("2022-04-01 12:45")
     def test_can_add_a_single_text_tile_to_a_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"text_tiles": [{"body": "I AM TEXT!"}]}
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"tiles": [{"text": {"body": "I AM TEXT!"}}]}
         )
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            update_response.json()["text_tiles"],
-            [
-                {
-                    "id": mock.ANY,
-                    "layouts": {},
-                    "color": None,
-                    "body": "I AM TEXT!",
-                    "created_by": self._serialised_user(self.user),
-                    "last_modified_at": "2022-04-01T12:45:00Z",
-                    "last_modified_by": None,
-                }
-            ],
-        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK, update_response.json())
+        self.maxDiff = None
+        self.assertEqual(len(update_response.json()["tiles"]), 1)
+        assert update_response.json()["tiles"][0] == {
+            "id": mock.ANY,
+            "layouts": {},
+            "color": None,
+            "text": {
+                "id": mock.ANY,
+                "body": "I AM TEXT!",
+                "created_by": self._serialised_user(self.user),
+                "last_modified_at": "2022-04-01T12:45:00Z",
+                "last_modified_by": None,
+                "team": self.team.id,
+            },
+            "refresh_attempt": None,
+            "refreshing": None,
+            "last_refresh": None,
+            "insight": None,
+            "filters_hash": None,
+            "dashboard": dashboard_id,
+        }
 
     def test_can_remove_text_tiles_from_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {"text_tiles": [{"body": "I AM TEXT!"}, {"body": "YOU AM TEXT"}, {"body": "THEY AM TEXT"}]},
+            {
+                "tiles": [
+                    {"text": {"body": "I AM TEXT!"}},
+                    {"text": {"body": "YOU AM TEXT"}},
+                    {"text": {"body": "THEY AM TEXT"}},
+                ]
+            },
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        created_tiles = update_response.json()["text_tiles"]
+        created_tiles = update_response.json()["tiles"]
         self.assertEqual(len(created_tiles), 3)
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {"text_tiles": created_tiles[1:]},
+            {"tiles": created_tiles[1:]},
         )
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(update_response.json()["text_tiles"]), 2)
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK, update_response.json())
+        self.assertEqual(len(update_response.json()["tiles"]), 2)
 
     def test_can_update_text_tiles_on_a_dashboard(self) -> None:
         with freeze_time("2022-04-01 12:45") as frozen_time:
@@ -64,18 +111,18 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
 
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-                {"text_tiles": [{"body": "I AM TEXT!"}, {"body": "I AM ALSO TEXT!"}]},
+                {"tiles": [{"body": "I AM TEXT!"}, {"body": "I AM ALSO TEXT!"}]},
             )
             self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-            tiles = update_response.json()["text_tiles"]
+            tiles = update_response.json()["tiles"]
             tiles[0]["color"] = "red"
 
-            self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"text_tiles": tiles})
+            self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"tiles": tiles})
             self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
             self.assertEqual(
-                update_response.json()["text_tiles"],
+                update_response.json()["tiles"],
                 [
                     {
                         "id": tiles[0]["id"],
@@ -107,12 +154,12 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
             frozen_time.tick(delta=timedelta(hours=4))
 
             different_user_update_response = self.client.patch(
-                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"text_tiles": tiles}
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"tiles": tiles}
             )
             self.assertEqual(different_user_update_response.status_code, status.HTTP_200_OK)
 
             self.assertEqual(
-                different_user_update_response.json()["text_tiles"],
+                different_user_update_response.json()["tiles"],
                 [
                     {
                         "id": tiles[0]["id"],
@@ -140,11 +187,11 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {"text_tiles": [{"body": "Woah, text"}]},
+            {"tiles": [{"text": {"body": "Woah, text"}}]},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        text_tile_id = response.json()["text_tiles"][0]["id"]
+        text_tile_id = response.json()["tiles"][0]["id"]
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
@@ -174,10 +221,8 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        dashboard_json = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"refresh": False}
-        ).json()
-        text_tile_layouts = dashboard_json["text_tiles"][0]["layouts"]
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        text_tile_layouts = dashboard_json["tiles"][0]["layouts"]
         self.assertTrue("lg" in text_tile_layouts)
 
     @staticmethod
