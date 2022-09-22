@@ -116,7 +116,7 @@ services:
             - object_storage
 
     object_storage:
-        image: minio/minio
+        image: minio/minio:RELEASE.2022-09-17T00-09-45Z.fips
         restart: on-failure
         volumes:
             - object_storage:/data
