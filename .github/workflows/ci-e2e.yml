@@ -59,8 +59,8 @@ jobs:
                       type=registry,ref=ghcr.io/posthog/posthog/posthog:master
                       type=registry,ref=ghcr.io/posthog/posthog/posthog:pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }}
                   cache-to: |
-                      type=registry,ref=ghcr.io/posthog/posthog/posthog:master,mode=max
-                      type=registry,ref=ghcr.io/posthog/posthog/posthog:pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }},mode=max
+                      type=registry,ref=ghcr.io/posthog/posthog/posthog:master,mode=max,enable=${{ github.ref == 'refs/heads/master' }}
+                      type=registry,ref=ghcr.io/posthog/posthog/posthog:pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }},mode=max,enable=${{ github.ref != 'refs/heads/master' }}
                   outputs: |
                       type=docker,dest=/tmp/posthog-image.tar
 
