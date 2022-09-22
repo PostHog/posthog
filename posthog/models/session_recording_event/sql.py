@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 
@@ -47,7 +47,7 @@ SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
     SESSION_RECORDING_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
-{ttl_period}
+TTL toDate(timestamp) + INTERVAL 3 WEEK DELETE
 SETTINGS index_granularity=512
 """
 ).format(
@@ -56,7 +56,6 @@ SETTINGS index_granularity=512
     materialized_columns=SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS,
     extra_fields=KAFKA_COLUMNS,
     engine=SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE(),
-    ttl_period=ttl_period(),
 )
 
 KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
@@ -131,5 +130,5 @@ DROP_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
 )
 
 UPDATE_RECORDINGS_TABLE_TTL_SQL = lambda: (
-    f"ALTER TABLE {SESSION_RECORDING_EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY TTL toDate(created_at) + toIntervalWeek(%(weeks)s)"
+    f"ALTER TABLE {SESSION_RECORDING_EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY TTL toDate(timestamp) + toIntervalWeek(%(weeks)s) DELETE"
 )
