@@ -9,38 +9,29 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight, generate_insight_cache_key
 
 
-class BaseDashboardTile(models.Model):
-    layouts: models.JSONField = models.JSONField(default=dict)
-    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-
-    class Meta:
-        abstract = True
-
-
-class DashboardTextTile(BaseDashboardTile):
-    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="text_tiles")
+class Text(models.Model):
     body: models.CharField = models.CharField(max_length=4000, null=True, blank=True)
+
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_modified_by: models.ForeignKey = models.ForeignKey(
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_text_tiles"
     )
 
-    class Meta:
-        indexes = [
-            models.Index(fields=["dashboard"], name="query_by_dashboard_idx"),
-        ]
 
-
-class DashboardTile(BaseDashboardTile):
+class DashboardTile(models.Model):
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="insight_tiles")
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles")
+    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True)
+    text = models.ForeignKey("posthog.Text", on_delete=models.CASCADE, related_name="dashboard_text", null=True)
 
-    # caching for this dashboard & insight filter combination
+    # caching for a dashboard & insight filter combination
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     refreshing: models.BooleanField = models.BooleanField(null=True)
     refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
+
+    layouts: models.JSONField = models.JSONField(default=dict)
+    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
     class Meta:
         indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]

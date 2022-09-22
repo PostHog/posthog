@@ -18,7 +18,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, DashboardTextTile, DashboardTile, Insight, Team
+from posthog.models import Dashboard, DashboardTile, Insight, Team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -33,7 +33,7 @@ class CanEditDashboard(BasePermission):
 
 
 class TextTileListSerializer(serializers.ListSerializer):
-    def update(self, text_tiles: List[DashboardTextTile], validated_data: List[Dict]) -> List[DashboardTextTile]:
+    def update(self, text_tiles: List[DashboardTile], validated_data: List[Dict]) -> List[DashboardTile]:
 
         if not isinstance(self.parent.instance, Dashboard):
             raise ValidationError("Text tiles must be updated on a dashboard")
@@ -43,7 +43,7 @@ class TextTileListSerializer(serializers.ListSerializer):
 
         for validated_item in validated_data:
             if "id" not in validated_item:
-                new_tile = DashboardTextTile.objects.create(
+                new_tile = DashboardTile.objects.create(
                     **validated_item, dashboard_id=self.parent.instance.id, created_by=self.context["request"].user
                 )
                 tiles.append(new_tile)
@@ -80,7 +80,7 @@ class TextTileSerializer(serializers.ModelSerializer):
     last_modified_by = UserBasicSerializer(read_only=True)
 
     class Meta:
-        model = DashboardTextTile
+        model = DashboardTile
         fields = ["id", "layouts", "color", "body", "created_by", "last_modified_by", "last_modified_at"]
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
         list_serializer_class = TextTileListSerializer
@@ -239,7 +239,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             )
 
         for text_tile_layout in tile_layouts.get("text_tiles", []):
-            DashboardTextTile.objects.filter(dashboard__id=instance.id, id=text_tile_layout["id"]).update(
+            DashboardTile.objects.filter(dashboard__id=instance.id, id=text_tile_layout["id"]).update(
                 layouts=text_tile_layout["layouts"]
             )
 
