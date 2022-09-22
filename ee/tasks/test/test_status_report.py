@@ -18,12 +18,14 @@ class TestStatusReport(factory_status_report(_create_event, _create_person, crea
 
         for index in range(0, 2):
             sync_execute(
-                "INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, 1, %(timestamp)s, 0 VALUES",
+                "INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(is_deleted)s, %(version)s, %(timestamp)s, 0, 0 VALUES",
                 {
                     "distinct_id": "duplicate_id_old",
                     "person_id": str(UUIDT()),
                     "team_id": self.team.id,
                     "timestamp": "2020-01-01 12:01:0%s" % index,
+                    "is_deleted": 0,
+                    "version": 0,
                 },
             )
 

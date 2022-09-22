@@ -197,7 +197,7 @@ def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:
             SELECT distinct_id, count(*) as count, toDate(min(timestamp)) as startdate
             FROM (
                 SELECT person_id, distinct_id, max(_timestamp) as timestamp
-                FROM person_distinct_id
+                FROM person_distinct_id2
                 WHERE team_id = %(team_id)s
                 GROUP BY person_id, distinct_id, team_id
                 HAVING max(is_deleted) = 0
@@ -223,7 +223,7 @@ def count_total_persons_with_multiple_ids(team_id: Union[str, int], min_ids: int
         """
         SELECT count(*) as total_persons, max(_count) as max_distinct_ids_for_one_person FROM (
             SELECT person_id, count(distinct_id) as _count
-            FROM person_distinct_id
+            FROM person_distinct_id2
             WHERE team_id = %(team_id)s
             GROUP BY person_id, team_id
             HAVING max(is_deleted) = 0

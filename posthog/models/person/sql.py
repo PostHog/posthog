@@ -320,10 +320,6 @@ INSERT_PERSON_BULK_SQL = """
 INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) VALUES
 """
 
-INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(_sign)s, now(), 0 VALUES
-"""
-
 INSERT_PERSON_DISTINCT_ID2 = """
 INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
 """
@@ -404,6 +400,7 @@ GROUP BY actor_id
 {offset}
 """
 
+# TODO
 COMMENT_DISTINCT_ID_COLUMN_SQL = (
     lambda: f"ALTER TABLE person_distinct_id ON CLUSTER '{CLICKHOUSE_CLUSTER}' COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
 )
