@@ -125,6 +125,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
+            self.assertEqual(len(session_recordings[0]["matching_events"][0]["events"]), 1)
 
             filter = SessionRecordingsFilter(
                 team=self.team,
@@ -166,6 +167,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
+            self.assertEqual(len(session_recordings[0]["matching_events"][0]["events"]), 1)
 
             filter = SessionRecordingsFilter(
                 team=self.team,
@@ -213,6 +215,8 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
+            self.assertEqual(len(session_recordings[0]["matching_events"][0]["events"]), 1)
+            self.assertEqual(len(session_recordings[0]["matching_events"][1]["events"]), 1)
 
             filter = SessionRecordingsFilter(
                 team=self.team,
@@ -261,6 +265,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
+            self.assertEqual(len(session_recordings[0]["matching_events"][0]["events"]), 1)
 
             # Adding properties to an action
             filter = SessionRecordingsFilter(
@@ -306,6 +311,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["start_time"], self.base_time)
             self.assertEqual(session_recordings[0]["end_time"], self.base_time + relativedelta(seconds=30))
             self.assertEqual(session_recordings[0]["duration"], 30)
+            self.assertEqual(len(session_recordings[0]["matching_events"][0]["events"]), 1)
 
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_duration_filter(self):
