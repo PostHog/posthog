@@ -42,6 +42,12 @@ def create_event(
     group3_created_at: Optional[Union[timezone.datetime, str]] = None,
     group4_created_at: Optional[Union[timezone.datetime, str]] = None,
 ) -> str:
+    if not timestamp:
+        timestamp = timezone.now()
+    assert timestamp is not None
+
+    timestamp = isoparse(timestamp) if isinstance(timestamp, str) else timestamp.astimezone(pytz.utc)
+    
     elements_chain = ""
     if elements and len(elements) > 0:
         elements_chain = elements_to_string(elements=elements)
@@ -50,11 +56,11 @@ def create_event(
         "uuid": str(event_uuid),
         "event": event,
         "properties": json.dumps(properties),
-        "timestamp": format_clickhouse_timestamp(timestamp),
+        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.pk,
         "distinct_id": str(distinct_id),
         "elements_chain": elements_chain,
-        "created_at": format_clickhouse_timestamp(timestamp),
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "person_id": str(person_id) if person_id else "00000000-0000-0000-0000-000000000000",
         "person_properties": json.dumps(person_properties) if person_properties is not None else "",
         "person_created_at": format_clickhouse_timestamp(person_created_at, ZERO_DATE),
