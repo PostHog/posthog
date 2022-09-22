@@ -33,8 +33,6 @@ class PersonalAPIKeySerializerCreateOnly(serializers.ModelSerializer):
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         user = self.context["request"].user
         value = generate_random_token_personal()
-        # A constant salt is not nearly as good as user-specific, but we must be able to look up a personal API key
-        # by itself. Some salt is slightly better than none though.
         secure_value = hash_key_value(value)
         personal_api_key = PersonalAPIKey.objects.create(user=user, secure_value=secure_value, **validated_data)
         setattr(personal_api_key, "_value", value)

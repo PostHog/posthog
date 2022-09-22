@@ -4,6 +4,8 @@ from django.utils import timezone
 
 from .utils import generate_random_token
 
+# A constant salt is not nearly as good as user-specific, but we must be able to look up a personal API key
+# by itself. Some salt is slightly better than none though.
 PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 
 
