@@ -22,7 +22,7 @@ class QueryDateRange:
     @cached_property
     def date_to_param(self) -> datetime:
         if isinstance(self._filter._date_to, str):
-            return self._parse_date(self._filter.date_to)
+            return self._parse_date(self._filter._date_to)
         elif isinstance(self._filter._date_to, datetime):
             return self._localize_to_team(self._filter._date_to)
         else:
