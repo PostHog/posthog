@@ -3,7 +3,6 @@
 set -e
 
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
-export USE_SELF_SIGNED_CERT=0
 export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 export TLS_BLOCK=""
 
