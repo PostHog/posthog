@@ -145,8 +145,10 @@
 }
 
 .StepLegend {
+    --row-count: 4;
     border-left: 1px solid var(--border);
     white-space: nowrap;
+    height: calc(var(--row-count) * 1.5rem + (var(--row-count) - 1) * 0.25rem);
     > .LemonRow {
         min-height: 1.5rem;
         padding: 0 0.5rem;
