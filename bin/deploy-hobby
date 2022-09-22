@@ -166,7 +166,7 @@ sudo -E docker-compose -f docker-compose.yml up -d
 echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"
 echo ""
 echo "⏳ Waiting for PostHog web to boot (this will take a few minutes)"
-bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost:8000/_health)" != "200" ]]; do sleep 5; done'
+bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost/_health)" != "200" ]]; do sleep 5; done'
 echo "⌛️ PostHog looks up!"
 echo ""
 echo "🎉🎉🎉  Done! 🎉🎉🎉"
