@@ -27,6 +27,7 @@ import {
 } from './playerUtils'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+import { sessionRecordingsTableLogic } from '../sessionRecordingsTableLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -126,7 +127,8 @@ const makeEventsQueryable = (events: RecordingEventType[]): RecordingEventType[]
 }
 
 export interface SessionRecordingDataLogicProps {
-    sessionRecordingId: SessionRecordingId | null
+    sessionRecordingId: SessionRecordingId
+    recordingStartTime?: string
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -135,7 +137,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], sessionRecordingsTableLogic, ['sessionRecordings']],
     }),
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
@@ -273,6 +275,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
                     const params = toParams({
                         save_view: true,
+                        recording_start_time: props.recordingStartTime,
                     })
                     const response = await api.get(
                         `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}?${params}`
@@ -297,9 +300,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (!props.sessionRecordingId) {
                         return values.sessionPlayerData
                     }
+                    const params = toParams({
+                        recording_start_time: props.recordingStartTime,
+                    })
                     const apiUrl =
                         nextUrl ||
-                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots`
+                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
                     const response = await api.get(apiUrl)
                     breakpoint()
                     // If we have a next url, we need to append the new snapshots to the existing ones

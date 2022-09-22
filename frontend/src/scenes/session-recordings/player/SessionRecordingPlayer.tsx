@@ -27,9 +27,17 @@ export function useFrameRef({
     return frame
 }
 
-export function SessionRecordingPlayerV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { handleKeyDown } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const { isSmallScreen } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+export function SessionRecordingPlayerV2({
+    sessionRecordingId,
+    playerKey,
+    recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
+}: SessionRecordingPlayerProps): JSX.Element {
+    const { handleKeyDown } = useActions(
+        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime })
+    )
+    const { isSmallScreen } = useValues(
+        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime })
+    )
     const frame = useFrameRef({ sessionRecordingId, playerKey })
     return (
         <Col className="session-player-v2" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
@@ -51,8 +59,11 @@ export function SessionRecordingPlayerV3({
     sessionRecordingId,
     playerKey,
     includeMeta = true,
+    recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
 }: SessionRecordingPlayerProps): JSX.Element {
-    const { handleKeyDown } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const { handleKeyDown } = useActions(
+        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime })
+    )
     const frame = useFrameRef({ sessionRecordingId, playerKey })
     return (
         <Col className="session-player-v3" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
