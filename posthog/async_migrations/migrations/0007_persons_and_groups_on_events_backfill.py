@@ -13,7 +13,6 @@ from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_fo
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table, sleep_until_finished
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.models.instance_setting import get_instance_setting
 
 logger = structlog.get_logger(__name__)
 
@@ -91,9 +90,6 @@ class Migration(AsyncMigrationDefinition):
     }
 
     def precheck(self):
-        # Used to guard against self-hosted users running on `latest` while we make tweaks to the migration
-        if not settings.TEST and not get_instance_setting("ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS"):
-            return (False, "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS is set to False")
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
