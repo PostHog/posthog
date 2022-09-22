@@ -55,8 +55,12 @@ jobs:
               with:
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
+                  cache-from: |
+                      type=registry,ref=ghcr.io/posthog/posthog/posthog:master
+                      type=registry,ref=ghcr.io/posthog/posthog/posthog:pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }}
+                  cache-to: |
+                      type=registry,ghcr.io/posthog/posthog/posthog:master,mode=max
+                      type=registry,ref=ghcr.io/posthog/posthog/posthog:pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }},mode=max
                   outputs: |
                       type=docker,dest=/tmp/posthog-image.tar
 
