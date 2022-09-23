@@ -8,6 +8,7 @@ from . import (
     async_migration,
     authentication,
     dashboard,
+    dashboard_tiles,
     dead_letter_queue,
     event_definition,
     exports,
@@ -58,6 +59,7 @@ project_plugins_configs_router.register(
 )
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
+
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )
@@ -148,6 +150,13 @@ else:
 
 project_dashboards_router.register(
     r"sharing", sharing.SharingConfigurationViewSet, "project_dashboard_sharing", ["team_id", "dashboard_id"]
+)
+
+project_dashboards_router.register(
+    r"tiles",
+    dashboard_tiles.DashboardTilesViewSet,
+    "project_dashboard_tiles",
+    ["team_id", "dashboard_id"],
 )
 
 project_insights_router.register(

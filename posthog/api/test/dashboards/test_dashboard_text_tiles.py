@@ -50,22 +50,97 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
         )
 
     @freeze_time("2022-04-01 12:45")
+    def test_can_list_a_single_text_tile_for_a_dashboard(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        tile_text = Text.objects.create(body="I AM TEXT!", team=self.team)
+        tile = DashboardTile.objects.create(dashboard_id=dashboard_id, text=tile_text)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        tiles_json = response.json()
+
+        self.assertEqual(
+            tiles_json,
+            {
+                "count": 1,
+                "next": None,
+                "previous": None,
+                "results": [
+                    {
+                        "id": tile.id,
+                        "filters_hash": None,
+                        "last_refresh": None,
+                        "refreshing": None,
+                        "refresh_attempt": None,
+                        "layouts": {},
+                        "color": None,
+                        "dashboard": dashboard_id,
+                        "insight": None,
+                        "text": {
+                            "body": "I AM TEXT!",
+                            "created_by": None,
+                            "id": tile_text.id,
+                            "last_modified_at": "2022-04-01T12:45:00Z",
+                            "last_modified_by": None,
+                            "team": self.team.id,
+                        },
+                    }
+                ],
+            },
+        )
+
+    @freeze_time("2022-04-01 12:45")
     def test_can_add_a_single_text_tile_to_a_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"tiles": [{"text": {"body": "I AM TEXT!"}}]}
+        update_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles", {"text": {"body": "I AM TEXT!"}}
         )
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK, update_response.json())
+
+        self.assertEqual(update_response.status_code, status.HTTP_201_CREATED, update_response.json())
         self.maxDiff = None
-        self.assertEqual(len(update_response.json()["tiles"]), 1)
-        assert update_response.json()["tiles"][0] == {
+        expected_tile = self._expected_tile_with_text(dashboard_id, "I AM TEXT!")
+        self.assertEqual(
+            update_response.json(),
+            expected_tile,
+        )
+
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        self.assertEqual(dashboard_json["tiles"], [expected_tile])
+
+    @freeze_time("2022-04-01 12:45")
+    def test_can_add_a_multiple_text_tiles_to_a_dashboard(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        update_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles",
+            [{"text": {"body": "I AM TEXT!"}}, {"text": {"body": "I AM ALSO TEXT!"}}],
+        )
+
+        self.assertEqual(update_response.status_code, status.HTTP_201_CREATED, update_response.json())
+        self.maxDiff = None
+        expected_tiles = [
+            self._expected_tile_with_text(dashboard_id, "I AM TEXT!"),
+            self._expected_tile_with_text(dashboard_id, "I AM ALSO TEXT!"),
+        ]
+        self.assertEqual(
+            update_response.json(),
+            expected_tiles,
+        )
+
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        self.assertEqual(dashboard_json["tiles"], expected_tiles)
+
+    def _expected_tile_with_text(self, dashboard_id: int, body: str):
+        return {
             "id": mock.ANY,
             "layouts": {},
             "color": None,
             "text": {
                 "id": mock.ANY,
-                "body": "I AM TEXT!",
+                "body": body,
                 "created_by": self._serialised_user(self.user),
                 "last_modified_at": "2022-04-01T12:45:00Z",
                 "last_modified_by": None,

@@ -5,10 +5,11 @@ from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, response, serializers, viewsets
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 
+from posthog.api.dashboard_tiles import DashboardTileSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
@@ -17,7 +18,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
+from posthog.models import Dashboard, DashboardTile, Insight, Team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -31,87 +32,6 @@ class CanEditDashboard(BasePermission):
         return dashboard.can_user_edit(cast(User, request.user).id)
 
 
-class DashboardTileListSerializer(serializers.ListSerializer):
-    """see https://www.django-rest-framework.org/api-guide/serializers/#customizing-multiple-update"""
-
-    def update(self, instance: List[DashboardTile], validated_data: List[Dict]) -> List[DashboardTile]:
-        if not isinstance(self.parent.instance, Dashboard):
-            raise ValidationError("Text tiles must be updated on a dashboard")
-        else:
-            parent_dashboard: Dashboard = self.parent.instance
-
-        serializer = DashboardTileSerializer(context=self.context)
-
-        tile_mapping: Dict[int, DashboardTile] = {tile.id: tile for tile in instance}
-        data_mapping = {item["id"]: item for item in validated_data if item.get("id", None)}
-        new_text_tiles = [item for item in validated_data if "id" not in item]
-
-        updated_tiles = []
-        for tile_id, data in data_mapping.items():
-            tile = tile_mapping.get(tile_id, None)
-            if tile is not None:
-                data["text"]["team"] = parent_dashboard.team_id
-                data["dashboard"] = parent_dashboard.id
-                updated_tiles.append(serializer.update(instance=tile, validated_data=data))
-
-        for new_tile in new_text_tiles:
-            new_tile["team_id"] = parent_dashboard.team_id
-            new_tile["dashboard"] = parent_dashboard.id
-            updated_tiles.append(serializer.create(new_tile))
-
-        # Perform deletions.
-        for tile_id, tile in tile_mapping.items():
-            if tile_id not in data_mapping:
-                tile.delete()
-
-        return updated_tiles
-
-
-class TextSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
-    last_modified_by = UserBasicSerializer(read_only=True)
-
-    class Meta:
-        model = Text
-        fields = "__all__"
-        read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
-
-
-class DashboardTileSerializer(serializers.ModelSerializer):
-    id: serializers.IntegerField = serializers.IntegerField(required=False)
-    text = TextSerializer(required=False)
-
-    class Meta:
-        model = DashboardTile
-        list_serializer_class = DashboardTileListSerializer
-        fields = "__all__"
-        read_only_fields = ["id", "insight"]
-
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardTile:
-        if "text" in validated_data:
-            text = validated_data.pop("text")
-            user = self.context["request"].user
-            text["created_by"] = user
-            instance = DashboardTile.objects.create(**validated_data, text=Text.objects.create(**text))
-        else:
-            instance = DashboardTile.objects.create(**validated_data)
-        return instance
-
-    def update(self, instance: DashboardTile, validated_data: Dict, **kwargs) -> DashboardTile:
-        if "insight" in validated_data:
-            # insight is readonly from tile context
-            validated_data.pop("insight")
-        elif "text" in validated_data:
-            # this must be a text tile
-            assert instance.text is not None
-            instance.text.last_modified_at = now()
-            instance.text.last_modified_by = self.context["request"].user
-
-        updated_tile = super().update(instance, validated_data)
-
-        return updated_tile
-
-
 class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     items = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
@@ -119,7 +39,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
     effective_privilege_level = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
-    tiles = DashboardTileSerializer(many=True, required=False)
+    tiles = DashboardTileSerializer(many=True, required=False, read_only=True)
 
     class Meta:
         model = Dashboard
@@ -245,6 +165,14 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         validated_data.pop("use_template", None)  # Remove attribute if present
 
         instance = super().update(instance, validated_data)
+
+        if "tiles" in validated_data:
+            # mypy thinks this doesn't work... but it does ¯\_(ツ)_/¯
+            # if tiles is in validated_data then the TaggedItemMixin and DRF fight and won't update
+            self.fields["tiles"].update(  # type: ignore
+                list(instance.tiles.all()),
+                validated_data.pop("tiles"),
+            )
 
         if validated_data.get("deleted", False):
             DashboardTile.objects.filter(dashboard__id=instance.id).delete()
