@@ -182,7 +182,14 @@ export class EventsProcessor {
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         const groupIdentifiers = this.getGroupIdentifiers(properties)
-        const groupsColumns = await this.db.fetchGroupColumnsValues(teamId, groupIdentifiers)
+        const groupsColumns = {
+            'group0_properties': '{}',
+            'group1_properties': '{}',
+            'group2_properties': '{}',
+            'group3_properties': '{}',
+            'group4_properties': '{}',
+            ...await this.db.fetchGroupColumnsValues(teamId, groupIdentifiers)
+        }
 
         let eventPersonProperties: string | null = null
         let personInfo: IngestionPersonData | undefined = await personContainer.get()
@@ -215,7 +222,7 @@ export class EventsProcessor {
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
             person_id: personInfo?.uuid,
-            person_properties: eventPersonProperties ?? undefined,
+            person_properties: eventPersonProperties ?? '{}',
             person_created_at: personInfo
                 ? (castTimestampOrNow(
                       personInfo?.created_at,
