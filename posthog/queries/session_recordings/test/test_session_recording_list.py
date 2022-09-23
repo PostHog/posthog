@@ -253,9 +253,16 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             action1 = self.create_action(
                 "custom-event",
-                properties=[{"key": "$browser", "value": "Firefox", "$session_id": "1", "$window_id": "1"}],
+                properties=[
+                    {"key": "$browser", "value": "Firefox"},
+                    {"key": "$session_id", "value": "1"},
+                    {"key": "$window_id", "value": "1"},
+                ],
             )
-            action2 = self.create_action(name="custom-event", properties=[{"$session_id": "1", "$window_id": "1"}])
+            action2 = self.create_action(
+                name="custom-event",
+                properties=[{"key": "$session_id", "value": "1"}, {"key": "$window_id", "value": "1"}],
+            )
 
             create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
             self.create_event(
