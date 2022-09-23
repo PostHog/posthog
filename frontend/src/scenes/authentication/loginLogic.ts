@@ -88,7 +88,7 @@ export const loginLogic = kea<loginLogicType>([
                     const { code } = e as Record<string, any>
                     let { detail } = e as Record<string, any>
                     if (values.featureFlags[FEATURE_FLAGS.REGION_SELECT] && code === 'invalid_credentials') {
-                        detail = 'Invalid email or password. Make sure you have selected the right Data region.'
+                        detail = 'Invalid email or password. Make sure you have selected the right data region.'
                     }
                     actions.setLoginManualErrors({
                         generic: {
