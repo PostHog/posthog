@@ -4,8 +4,9 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { Hub, WorkerMethods } from '../../../types'
 import { formPluginEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
+import { EventPipelineResult } from '../../../worker/ingestion/event-pipeline/runner'
 import { KafkaQueue } from '../kafka-queue'
-import { eachBatch } from './each-batch'
+import { eachBatch, KafkaSkipCommitError } from './each-batch'
 
 export async function eachMessageIngestion(message: KafkaMessage, queue: KafkaQueue): Promise<void> {
     await ingestEvent(queue.pluginsServer, queue.workerMethods, formPluginEvent(message))
@@ -49,8 +50,11 @@ export async function ingestEvent(
 
     server.statsd?.increment('kafka_queue_ingest_event_hit')
 
-    await workerMethods.runEventPipeline(event)
+    const pipelineResult = (await workerMethods.runEventPipeline(event)) as EventPipelineResult
 
+    if (pipelineResult.error && pipelineResult.error === 'Postgres unavailable') {
+        throw new KafkaSkipCommitError()
+    }
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
     server.internalMetrics?.incr('$$plugin_server_events_processed')
 

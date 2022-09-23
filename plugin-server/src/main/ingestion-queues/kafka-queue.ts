@@ -98,8 +98,7 @@ export class KafkaQueue {
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
             await this.consumer.run({
                 eachBatchAutoResolve: false,
-                autoCommitInterval: 1000, // autocommit every 1000 ms…
-                autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
+                autoCommit: false,
                 partitionsConsumedConcurrently: this.pluginsServer.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                 eachBatch: async (payload) => {
                     const topic = payload.batch.topic

@@ -420,7 +420,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
-    runEventPipeline: (event: PluginEvent) => Promise<void>
+    runEventPipeline: (event: PluginEvent) => Promise<any>
 }
 
 export type VMMethods = {
