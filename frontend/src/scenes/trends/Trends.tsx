@@ -16,7 +16,7 @@ interface Props {
 
 export function TrendInsight({ view }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps, showTotalCount } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
 
@@ -37,7 +37,6 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
                     <InsightsTable
                         embedded
-                        showTotalCount={showTotalCount}
                         filterKey={`trends_${view}`}
                         canEditSeriesNameInline={insightMode === ItemMode.Edit}
                         isMainInsightView={true}

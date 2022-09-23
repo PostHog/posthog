@@ -35,7 +35,6 @@ interface InsightsTableProps {
     isLegend?: boolean
     /** Whether this is table is embedded in another card or whether it should be a card of its own. Default: false. */
     embedded?: boolean
-    showTotalCount?: boolean
     /** Key for the entityFilterLogic */
     filterKey: string
     canEditSeriesNameInline?: boolean
@@ -58,7 +57,7 @@ export function DashboardInsightsTable(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     return (
         <BindLogic logic={trendsLogic} props={insightProps}>
-            <InsightsTable showTotalCount filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded />
+            <InsightsTable filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded />
         </BindLogic>
     )
 }
@@ -66,7 +65,6 @@ export function DashboardInsightsTable(): JSX.Element {
 export function InsightsTable({
     isLegend = false,
     embedded = false,
-    showTotalCount = false,
     filterKey,
     canEditSeriesNameInline = false,
     canCheckUncheckSeries = true,
@@ -87,6 +85,10 @@ export function InsightsTable({
     const logic = insightsTableLogic({ hasMathUniqueFilter })
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
+
+    const showTotalCount =
+        filters.actions?.every((entity) => entity.math === 'total' || !entity.math) &&
+        filters.events?.every((entity) => entity.math === 'total' || !entity.math)
 
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 

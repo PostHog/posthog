@@ -668,15 +668,6 @@ export const insightLogic = kea<insightLogicType>({
                 )
             },
         ],
-
-        showTotalCount: [
-            (s) => [s.filters],
-            (filters: Partial<FilterType>): boolean => {
-                const entities = (filters.events || []).concat(filters.actions ?? [])
-                const isOnlyTotals = entities.every((entity) => entity.math === 'total' || !entity.math)
-                return isOnlyTotals
-            },
-        ],
     },
     listeners: ({ actions, selectors, values }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
