@@ -184,117 +184,134 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
 
             dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-            update_response = self.client.patch(
-                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-                {"tiles": [{"body": "I AM TEXT!"}, {"body": "I AM ALSO TEXT!"}]},
+            create_tiles_response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles",
+                [{"text": {"body": "I AM TEXT!"}}, {"text": {"body": "I AM ALSO TEXT!"}}],
             )
-            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+            self.assertEqual(create_tiles_response.status_code, status.HTTP_201_CREATED)
 
-            tiles = update_response.json()["tiles"]
+            tiles = create_tiles_response.json()
             tiles[0]["color"] = "red"
 
-            self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"tiles": tiles})
-            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+            update_tile_response = self.client.patch(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles/{tiles[0]['id']}", tiles[0]
+            )
+            self.assertEqual(update_tile_response.status_code, status.HTTP_200_OK)
 
             self.assertEqual(
-                update_response.json()["tiles"],
-                [
-                    {
-                        "id": tiles[0]["id"],
-                        "layouts": {},
-                        "color": "red",
+                update_tile_response.json(),
+                {
+                    "id": tiles[0]["id"],
+                    "layouts": {},
+                    "color": "red",
+                    "text": {
+                        "id": mock.ANY,
                         "body": "I AM TEXT!",
                         "created_by": self._serialised_user(self.user),
                         "last_modified_at": "2022-04-01T12:45:00Z",
                         "last_modified_by": None,
+                        "team": self.team.id,
                     },
-                    {
-                        "body": "I AM ALSO TEXT!",
-                        "color": None,
-                        "id": tiles[1]["id"],
-                        "layouts": {},
-                        "created_by": self._serialised_user(self.user),
-                        "last_modified_at": "2022-04-01T12:45:00Z",
-                        "last_modified_by": None,
-                    },
-                ],
+                    "refresh_attempt": None,
+                    "refreshing": None,
+                    "last_refresh": None,
+                    "insight": None,
+                    "filters_hash": None,
+                    "dashboard": dashboard_id,
+                },
             )
 
             new_user: User = User.objects.create_and_join(
                 organization=self.organization, email="second@posthog.com", password="Secretive"
             )
             self.client.force_login(new_user)
-            tiles[1]["body"] = "amended text"
+            tiles[1]["text"]["body"] = "amended text"
 
             frozen_time.tick(delta=timedelta(hours=4))
 
             different_user_update_response = self.client.patch(
-                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"tiles": tiles}
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles/{tiles[1]['id']}", tiles[1]
             )
             self.assertEqual(different_user_update_response.status_code, status.HTTP_200_OK)
 
+            dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+            updated_tiles = sorted(dashboard_json["tiles"], key=lambda d: d["id"])
+            self.assertEqual(len(updated_tiles), 2)
             self.assertEqual(
-                different_user_update_response.json()["tiles"],
-                [
-                    {
-                        "id": tiles[0]["id"],
-                        "layouts": {},
-                        "color": "red",
+                updated_tiles[0],
+                {
+                    "id": tiles[0]["id"],
+                    "layouts": {},
+                    "color": "red",
+                    "text": {
+                        "id": tiles[0]["text"]["id"],
+                        "team": self.team.id,
                         "body": "I AM TEXT!",
                         "created_by": self._serialised_user(self.user),
                         "last_modified_at": "2022-04-01T12:45:00Z",
                         "last_modified_by": self._serialised_user(self.user),
                     },
-                    {
+                    "refresh_attempt": None,
+                    "refreshing": None,
+                    "last_refresh": None,
+                    "insight": None,
+                    "filters_hash": None,
+                    "dashboard": dashboard_id,
+                },
+            )
+            self.assertEqual(
+                updated_tiles[1],
+                {
+                    "color": None,
+                    "id": tiles[1]["id"],
+                    "layouts": {},
+                    "text": {
+                        "id": tiles[1]["text"]["id"],
+                        "team": self.team.id,
                         "body": "amended text",
-                        "color": None,
-                        "id": tiles[1]["id"],
-                        "layouts": {},
                         "created_by": self._serialised_user(self.user),
                         "last_modified_at": "2022-04-01T16:45:00Z",
                         "last_modified_by": self._serialised_user(new_user),
                     },
-                ],
+                    "refresh_attempt": None,
+                    "refreshing": None,
+                    "last_refresh": None,
+                    "insight": None,
+                    "filters_hash": None,
+                    "dashboard": dashboard_id,
+                },
             )
 
     def test_dashboard_item_layout_can_update_text_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "asdasd", "pinned": True})
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {"tiles": [{"text": {"body": "Woah, text"}}]},
-            format="json",
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles",
+            {"text": {"body": "Woah, text"}},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        text_tile_id = response.json()["tiles"][0]["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        text_tile_id = response.json()["id"]
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+        add_layouts_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles/{text_tile_id}",
             {
-                "tile_layouts": {
-                    "text_tiles": [
-                        {
-                            "id": text_tile_id,
-                            "layouts": {
-                                "lg": {"x": "0", "y": "0", "w": "6", "h": "5"},
-                                "sm": {
-                                    "w": "7",
-                                    "h": "5",
-                                    "x": "0",
-                                    "y": "0",
-                                    "moved": "False",
-                                    "static": "False",
-                                },
-                                "xs": {"x": "0", "y": "0", "w": "6", "h": "5"},
-                                "xxs": {"x": "0", "y": "0", "w": "2", "h": "5"},
-                            },
-                        }
-                    ]
-                }
+                "id": text_tile_id,
+                "layouts": {
+                    "lg": {"x": "0", "y": "0", "w": "6", "h": "5"},
+                    "sm": {
+                        "w": "7",
+                        "h": "5",
+                        "x": "0",
+                        "y": "0",
+                        "moved": "False",
+                        "static": "False",
+                    },
+                    "xs": {"x": "0", "y": "0", "w": "6", "h": "5"},
+                    "xxs": {"x": "0", "y": "0", "w": "2", "h": "5"},
+                },
             },
-            format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(add_layouts_response.status_code, status.HTTP_200_OK)
 
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
         text_tile_layouts = dashboard_json["tiles"][0]["layouts"]

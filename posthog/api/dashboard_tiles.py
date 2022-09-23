@@ -81,17 +81,31 @@ class DashboardTileSerializer(serializers.ModelSerializer):
             validated_data.pop("insight")
         elif "text" in validated_data:
             # this must be a text tile
-            assert instance.text is not None
-            instance.text.last_modified_at = now()
-            instance.text.last_modified_by = self.context["request"].user
+            text = validated_data.pop("text")
+            assert text is not None
+            text.last_modified_at = now()
 
+            if "id" in text:
+                text["last_modified_by"] = self.context["request"].user
+                updated_text, created = Text.objects.update_or_create(
+                    id=text["id"],
+                    defaults=text,
+                )
+            else:
+                text["created_by"] = self.context["request"].user
+                updated_text = Text.objects.create(**text)
+            instance.text = updated_text
         updated_tile = super().update(instance, validated_data)
 
         return updated_tile
 
 
 class DashboardTilesViewSet(
-    StructuredViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet
+    StructuredViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
 ):
     queryset = DashboardTile.objects.select_related("dashboard", "insight", "text")
     filter_rewrite_rules = {"team_id": "dashboard__team_id"}
@@ -102,10 +116,6 @@ class DashboardTilesViewSet(
             kwargs["many"] = True
 
         return super(DashboardTilesViewSet, self).get_serializer(*args, **kwargs)
-
-    def update(self, request, *args, **kwargs):
-        breakpoint()
-        pass
 
     def create(self, request, *args, **kwargs):
         if isinstance(request.data, List):
