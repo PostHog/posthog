@@ -4,7 +4,7 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import DefaultDict, Dict, Generator, List, Optional
+from typing import DefaultDict, Dict, Generator, List, Optional, TypedDict, Union
 
 from sentry_sdk.api import capture_exception, capture_message
 
@@ -35,6 +35,13 @@ class RecordingSegment:
 class SnapshotDataTaggedWithWindowId:
     window_id: WindowId
     snapshot_data: SnapshotData
+
+
+# NOTE: EventSummary is a minimal version of full events, containing only some of the "data" content - strings and numbers
+class SessionRecordingEventSummary(TypedDict):
+    timestamp: int
+    type: int
+    data: Dict[str, Union[int, str]]
 
 
 @dataclasses.dataclass
@@ -84,6 +91,7 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
                     "data": chunk,
                     "compression": "gzip-base64",
                     "has_full_snapshot": has_full_snapshot,
+                    "events_summary": get_events_summary_from_snapshot_data(data_list) if index == 0 else None,
                 },
             },
         }
@@ -248,6 +256,33 @@ def get_active_segments_from_event_list(
         active_recording_segments.append(current_active_segment)
 
     return active_recording_segments
+
+
+EVENT_SUMMARY_DATA_EXCLUSIONS = ["text"]
+
+
+def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> List[SessionRecordingEventSummary]:
+    """
+    Extract a minimal representation of the snapshot data events for easier querying.
+    'data' values are included as long as they are strings or numbers and not in the exclusion list to keep the payload minimal
+    """
+    events_summary = [
+        SessionRecordingEventSummary(
+            timestamp=event["timestamp"],
+            type=event["type"],
+            data={
+                key: value
+                for key, value in event.get("data", {}).items()
+                if type(value) in [str, int] and key not in EVENT_SUMMARY_DATA_EXCLUSIONS
+            },
+        )
+        for event in snapshot_data
+    ]
+
+    # Not sure why, but events are sometimes slightly out of order
+    events_summary.sort(key=lambda x: x["timestamp"])
+
+    return events_summary
 
 
 def generate_inactive_segments_for_range(
