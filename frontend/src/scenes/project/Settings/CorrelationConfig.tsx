@@ -39,7 +39,7 @@ export function CorrelationConfig(): JSX.Element {
         <>
             <h2 className="subtitle" id="internal-users-filtering">
                 Correlation analysis exclusions{' '}
-                <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                <LemonTag type="warning" className="uppercase ml-2">
                     Beta
                 </LemonTag>
             </h2>

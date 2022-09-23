@@ -223,7 +223,7 @@ export function ProjectSettings(): JSX.Element {
                         <LemonDivider className="my-6" />
                         <h2 className="subtitle" id="path_cleaning_filtering">
                             Path cleaning rules
-                            <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                            <LemonTag type="warning" className="uppercase" style={{ marginLeft: 8 }}>
                                 Beta
                             </LemonTag>
                         </h2>
