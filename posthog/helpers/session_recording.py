@@ -276,7 +276,8 @@ def get_active_segments_from_event_list(
 def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> List[SessionRecordingEventSummary]:
     """
     Extract a minimal representation of the snapshot data events for easier querying.
-    'data' values are included as long as they are strings or numbers and not in the exclusion list to keep the payload minimal
+    'data' and 'data.payload' values are included as long as they are strings or numbers
+    and in the inclusion list to keep the payload minimal
     """
     events_summary = []
 
@@ -299,11 +300,7 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
             }
 
         events_summary.append(
-            SessionRecordingEventSummary(
-                timestamp=event["timestamp"],
-                type=event["type"],
-                data=data,
-            )
+            SessionRecordingEventSummary(timestamp=event["timestamp"], type=event["type"], data=data,)
         )
 
     # No guarantees are made about order so we sort here to be sure
