@@ -5,7 +5,7 @@ import type { annotationsModelType } from './annotationsModelType'
 import { RawAnnotationType, AnnotationType } from '~/types'
 import { loaders } from 'kea-loaders'
 import { teamLogic } from 'scenes/teamLogic'
-import { dayjsWithTimezone } from 'lib/dayjs'
+import { dayjsUtcToTimezone } from 'lib/dayjs'
 
 export type AnnotationData = Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
 export type AnnotationDataWithoutInsight = Omit<AnnotationData, 'dashboard_item'>
@@ -13,7 +13,7 @@ export type AnnotationDataWithoutInsight = Omit<AnnotationData, 'dashboard_item'
 export function deserializeAnnotation(annotation: RawAnnotationType, projectTimezone: string): AnnotationType {
     return {
         ...annotation,
-        date_marker: dayjsWithTimezone(annotation.date_marker, projectTimezone),
+        date_marker: dayjsUtcToTimezone(annotation.date_marker, projectTimezone),
     }
 }
 

@@ -23,20 +23,36 @@ const now = (): Dayjs => dayjs()
 
 export { dayjs, now }
 
-/** Parse datetime string using Day.js, taking into account time zone conversion edge cases. */
-export function dayjsWithTimezone(
+/** Parse UTC datetime string using Day.js, taking into account time zone conversion edge cases. */
+export function dayjsUtcToTimezone(
     isoString: string,
     timezone: string,
-    local = false,
+    explicitOffset = true,
     format?: dayjs.OptionType,
     strict?: boolean
 ): Dayjs {
     // Strings from the API have the timezone offset set to UTC ("Z" suffix), so they are explicitly non-local.
     // When there's no timezone offset in the string though, Day.js assumes it's a local datetime,
-    // which we need to correct - in that case the `local` arg should be `true`.
-    let datetime = dayjs(isoString, format, strict).utc(local)
+    // which we need to correct - in that case the `explicitOffset` arg should be `false`.
+    let datetime = dayjs(isoString, format, strict).utc(!explicitOffset)
     if (!['GMT', 'UTC'].includes(timezone)) {
         datetime = datetime.tz(timezone) // If the target is non-UTC, perform conversion
+    }
+    return datetime
+}
+
+/** Parse local datetime string using Day.js, taking into account time zone conversion edge cases. */
+export function dayjsLocalToTimezone(
+    isoString: string,
+    timezone: string,
+    format?: dayjs.OptionType,
+    strict?: boolean
+): Dayjs {
+    let datetime = dayjs(isoString, format, strict)
+    if (['GMT', 'UTC'].includes(timezone)) {
+        datetime = datetime.utc(true)
+    } else {
+        datetime = datetime.tz(timezone, true)
     }
     return datetime
 }
