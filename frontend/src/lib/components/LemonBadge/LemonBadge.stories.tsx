@@ -1,20 +1,20 @@
 import React, { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { LemonBubble, LemonBubbleProps } from './LemonBubble'
+import { LemonBadge, LemonBadgeProps } from './LemonBadge'
 import { LemonButton } from '../LemonButton'
 
 export default {
     title: 'Lemon UI/Lemon Bubble',
-    component: LemonBubble,
-} as ComponentMeta<typeof LemonBubble>
+    component: LemonBadge,
+} as ComponentMeta<typeof LemonBadge>
 
-const Template: ComponentStory<typeof LemonBubble> = ({ count, ...props }: LemonBubbleProps) => {
+const Template: ComponentStory<typeof LemonBadge> = ({ count, ...props }: LemonBadgeProps) => {
     const [countOverride, setCount] = useState(count as number)
 
     return (
         <>
             <div className="flex space-x-4">
-                Count: <LemonBubble count={countOverride} {...props} />
+                Count: <LemonBadge count={countOverride} {...props} />
             </div>
             <br />
             <div className="flex space-x-4">
@@ -38,41 +38,41 @@ OverNine.args = { count: 10 }
 export const ShowZero = Template.bind({})
 ShowZero.args = { count: 0, showZero: true }
 
-export const Positioning: ComponentStory<typeof LemonBubble> = () => {
+export const Positioning: ComponentStory<typeof LemonBadge> = () => {
     return (
         <div className="space-y-4">
             <LemonButton type="secondary">
                 top-right
-                <LemonBubble count={4} position="top-right" />
+                <LemonBadge count={4} position="top-right" />
             </LemonButton>
 
             <LemonButton type="secondary">
                 top-left
-                <LemonBubble count={4} position="top-left" />
+                <LemonBadge count={4} position="top-left" />
             </LemonButton>
 
             <LemonButton type="secondary">
                 bottom-right
-                <LemonBubble count={4} position="bottom-right" />
+                <LemonBadge count={4} position="bottom-right" />
             </LemonButton>
 
             <LemonButton type="secondary">
                 bottom-left
-                <LemonBubble count={4} position="bottom-left" />
+                <LemonBadge count={4} position="bottom-left" />
             </LemonButton>
         </div>
     )
 }
 
-export const Sizes: ComponentStory<typeof LemonBubble> = () => {
+export const Sizes: ComponentStory<typeof LemonBadge> = () => {
     return (
         <div className="flex space-x-2 items-center">
             <span>small:</span>
-            <LemonBubble count={4} size="small" />
+            <LemonBadge count={4} size="small" />
             <span>medium:</span>
-            <LemonBubble count={4} size="medium" />
+            <LemonBadge count={4} size="medium" />
             <span>large:</span>
-            <LemonBubble count={4} size="large" />
+            <LemonBadge count={4} size="large" />
         </div>
     )
 }
