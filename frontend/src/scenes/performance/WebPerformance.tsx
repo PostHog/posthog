@@ -88,7 +88,9 @@ export const WebPerformance = (): JSX.Element => {
                 title={
                     <div className="flex items-center gap-2">
                         Web Performance
-                        <LemonTag type="warning">Early Preview</LemonTag>
+                        <LemonTag type="warning" className="uppercase">
+                            Alpha
+                        </LemonTag>
                     </div>
                 }
                 caption={

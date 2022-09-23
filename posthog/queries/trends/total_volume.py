@@ -20,7 +20,7 @@ from posthog.queries.trends.sql import (
 )
 from posthog.queries.trends.trend_event_query import TrendsEventQuery
 from posthog.queries.trends.util import enumerate_time_range, parse_response, process_math
-from posthog.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch, start_of_week_fix
+from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch, start_of_week_fix
 from posthog.utils import encode_get_request_params
 
 
@@ -131,9 +131,7 @@ class TrendsTotalVolume:
 
     def _parse_aggregate_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:
         def _parse(result: List) -> List:
-            _, seconds_in_interval, _ = get_time_diff(
-                filter.interval, filter.date_from, filter.date_to, team_id=team_id
-            )
+            seconds_in_interval = TIME_IN_SECONDS[filter.interval]
             time_range = enumerate_time_range(filter, seconds_in_interval)
             filter_params = filter.to_params()
             extra_params = {

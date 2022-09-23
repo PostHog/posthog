@@ -34,6 +34,7 @@ export const billingLogic = kea<billingLogicType>([
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
+        actions: [eventUsageLogic, ['reportIngestionBillingCancelled']],
     }),
     reducers({
         showUsageTiers: [
@@ -203,9 +204,9 @@ export const billingLogic = kea<billingLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/ingestion/billing': (_, { reason }) => {
-            if (reason === 'cancelled') {
-                eventUsageLogic.actions.reportIngestionBillingCancelled()
+        '/ingestion/billing': (_, params) => {
+            if (params.reason === 'cancelled') {
+                actions.reportIngestionBillingCancelled()
             }
         },
         '/organization/billing/subscribed': (_, { referer }) => {

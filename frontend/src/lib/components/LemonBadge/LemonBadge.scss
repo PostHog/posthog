@@ -1,4 +1,4 @@
-.LemonBubble {
+.LemonBadge {
     --lemon-counter-size: 1.25rem;
     --lemon-counter-font-size: 0.75rem;
     --scale-small: 0.8;
@@ -25,68 +25,68 @@
     font-weight: 700;
     z-index: 1; // Make sure it is at least in front of non-absolute items
 
-    &.LemonBubble--position-none {
+    &.LemonBadge--position-none {
         position: relative;
     }
 
-    &.LemonBubble--position-top-left {
+    &.LemonBadge--position-top-left {
         top: calc(var(--position-offset) * -1);
         left: calc(var(--position-offset) * -1);
     }
 
-    &.LemonBubble--position-top-right {
+    &.LemonBadge--position-top-right {
         top: calc(var(--position-offset) * -1);
         right: calc(var(--position-offset) * -1);
     }
 
-    &.LemonBubble--position-bottom-left {
+    &.LemonBadge--position-bottom-left {
         bottom: calc(var(--position-offset) * -1);
         left: calc(var(--position-offset) * -1);
     }
 
-    &.LemonBubble--position-bottom-right {
+    &.LemonBadge--position-bottom-right {
         bottom: calc(var(--position-offset) * -1);
         right: calc(var(--position-offset) * -1);
     }
 
-    &.LemonBubble--small {
+    &.LemonBadge--small {
         width: calc(var(--lemon-counter-size) * var(--scale-small));
         height: calc(var(--lemon-counter-size) * var(--scale-small));
         font-size: calc(var(--lemon-counter-font-size) * var(--scale-small));
         line-height: calc(var(--lemon-counter-size) * var(--scale-small));
     }
 
-    &.LemonBubble--large {
+    &.LemonBadge--large {
         width: calc(var(--lemon-counter-size) * var(--scale-large));
         height: calc(var(--lemon-counter-size) * var(--scale-large));
         font-size: calc(var(--lemon-counter-font-size) * var(--scale-large));
         line-height: calc(var(--lemon-counter-size) * var(--scale-large));
     }
 
-    &.LemonBubble--large {
+    &.LemonBadge--large {
         width: calc(var(--lemon-counter-size) * var(--scale-large));
         height: calc(var(--lemon-counter-size) * var(--scale-large));
         font-size: calc(var(--lemon-counter-font-size) * var(--scale-large));
         line-height: calc(var(--lemon-counter-size) * var(--scale-large));
     }
 
-    &.LemonBubble--enter {
+    &.LemonBadge--enter {
         transform: scale(0.5);
         opacity: 0;
     }
 
-    &.LemonBubble--enter-active {
+    &.LemonBadge--enter-active {
         transform: scale(1);
         opacity: 1;
         transition: all 200ms ease-out;
     }
 
-    &.LemonBubble--exit {
+    &.LemonBadge--exit {
         transform: scale(1);
         opacity: 1;
     }
 
-    &.LemonBubble--exit-active {
+    &.LemonBadge--exit-active {
         transform: scale(0.5);
         opacity: 0;
         transition: all 200ms ease-in;

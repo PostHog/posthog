@@ -21,11 +21,9 @@ import {
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { D3Selector } from 'lib/hooks/useD3'
 import { userLogic } from 'scenes/userLogic'
-import { AvailableFeature, InsightType } from '~/types'
+import { AvailableFeature } from '~/types'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { PersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 
 const DEFAULT_PATHS_ID = 'default_paths'
@@ -44,9 +42,6 @@ export function Paths(): JSX.Element {
     const { user } = useValues(userLogic)
 
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
-
-    const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
-    const { setCohortModalVisible } = useActions(personsModalLogic)
 
     useEffect(() => {
         setPathItemCards([])
@@ -270,15 +265,6 @@ export function Paths(): JSX.Element {
 
     return (
         <>
-            <PersonsModal
-                isOpen={showingPeople && !cohortModalVisible}
-                view={InsightType.PATHS}
-                filters={filter}
-                onSaveCohort={() => {
-                    setCohortModalVisible(true)
-                }}
-                aggregationTargetLabel={{ singular: 'user', plural: 'users' }}
-            />
             <div className="paths-container" id={`'${insight?.short_id || DEFAULT_PATHS_ID}'`}>
                 <div ref={canvas} className="paths" data-attr="paths-viz">
                     {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <InsightEmptyState />}

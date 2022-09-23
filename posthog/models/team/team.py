@@ -208,8 +208,13 @@ class Team(UUIDClassicModel):
             return posthoganalytics.feature_enabled(
                 "person-on-events-enabled",
                 str(self.uuid),
-                groups={"project": str(self.uuid)},
-                group_properties={"project": {"id": str(self.pk)}},
+                groups={"organization": str(self.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(self.organization.id),
+                        "created_at": self.organization.created_at,
+                    }
+                },
                 only_evaluate_locally=True,
             )
 

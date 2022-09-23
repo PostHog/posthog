@@ -723,6 +723,15 @@ def get_instance_realm() -> str:
         return "hosted-clickhouse"
 
 
+def get_instance_region() -> Optional[str]:
+    """
+    Returns the region for the current instance. `US` or 'EU'.
+    """
+    if settings.MULTI_TENANCY:
+        return settings.REGION
+    return None
+
+
 def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:
     """Returns whether a new organization can be created in the current instance.
 

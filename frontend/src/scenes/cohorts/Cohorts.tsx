@@ -64,6 +64,7 @@ export function Cohorts(): JSX.Element {
         },
         {
             title: 'Users in cohort',
+            align: 'right',
             render: function RenderCount(_: any, cohort: CohortType) {
                 return cohort.count?.toLocaleString()
             },
@@ -138,7 +139,10 @@ export function Cohorts(): JSX.Element {
                                         tooltip="Export specific columns for users belonging to this cohort in CSV format. Includes distinct id, internal id, email, and name"
                                         fullWidth
                                     >
-                                        Export important columns for users&nbsp;<LemonTag type="warning">Beta</LemonTag>
+                                        Export important columns for users&nbsp;
+                                        <LemonTag type="warning" className="uppercase">
+                                            Beta
+                                        </LemonTag>
                                     </LemonButton>
                                 )}
                                 <LemonButton

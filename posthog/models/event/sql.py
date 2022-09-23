@@ -155,8 +155,58 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 
 INSERT_EVENT_SQL = (
     lambda: f"""
-INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset)
-VALUES (%(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_chain)s, %(created_at)s, now(), 0)
+INSERT INTO {EVENTS_DATA_TABLE()}
+(
+    uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    person_id,
+    person_properties,
+    person_created_at,
+    group0_properties,
+    group1_properties,
+    group2_properties,
+    group3_properties,
+    group4_properties,
+    group0_created_at,
+    group1_created_at,
+    group2_created_at,
+    group3_created_at,
+    group4_created_at,
+    created_at,
+    _timestamp,
+    _offset
+)
+VALUES
+(
+    %(uuid)s,
+    %(event)s,
+    %(properties)s,
+    %(timestamp)s,
+    %(team_id)s,
+    %(distinct_id)s,
+    %(elements_chain)s,
+    %(person_id)s,
+    %(person_properties)s,
+    %(person_created_at)s,
+    %(group0_properties)s,
+    %(group1_properties)s,
+    %(group2_properties)s,
+    %(group3_properties)s,
+    %(group4_properties)s,
+    %(group0_created_at)s,
+    %(group1_created_at)s,
+    %(group2_created_at)s,
+    %(group3_created_at)s,
+    %(group4_created_at)s,
+    %(created_at)s,
+    now(),
+    0
+)
 """
 )
 
