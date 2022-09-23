@@ -1,6 +1,5 @@
 import './ActionsPie.scss'
 import React, { useState, useEffect } from 'react'
-import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
 import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -10,6 +9,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
 export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
@@ -48,7 +48,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
         data[0] && data[0].labels ? (
             <div className="actions-pie-component">
                 <div className="pie-chart">
-                    <LineGraph
+                    <PieChart
                         data-attr="trend-pie-graph"
                         hiddenLegendKeys={hiddenLegendKeys}
                         type={GraphType.Pie}
