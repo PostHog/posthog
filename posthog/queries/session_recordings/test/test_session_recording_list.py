@@ -7,11 +7,11 @@ from freezegun.api import freeze_time
 from posthog.models import Person, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.session_recordings.test.test_factory import create_snapshot
-from posthog.test.base import BaseTest, test_with_materialized_columns
+from posthog.test.base import ClickhouseTestRemoveRecordingTTLMixin, test_with_materialized_columns
 
 
 def factory_session_recordings_list_test(session_recording_list, event_factory, action_factory, action_step_factory):
-    class TestSessionRecordingsList(BaseTest):
+    class TestSessionRecordingsList(ClickhouseTestRemoveRecordingTTLMixin):
         def create_action(self, name, team_id=None, properties=[]):
             if team_id is None:
                 team_id = self.team.pk

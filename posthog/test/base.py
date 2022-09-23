@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 import sqlparse
 from django.apps import apps
+from django.conf import settings
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
@@ -38,6 +39,7 @@ from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.session_recording_event.sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
+    SESSION_RECORDING_EVENTS_DATA_TABLE,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
 from posthog.settings import CLICKHOUSE_REPLICATION
@@ -491,6 +493,32 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
         with patch("posthog.client.ch_pool.get_client", wraps=get_client) as _:
             yield queries
+
+
+class ClickhouseTestRemoveRecordingTTLMixin(BaseTest):
+    """
+    The session_recording_events table has TTL on it that removes old data.
+    Many of our tests and query snapshots rely on the freeze_time function to hold
+    data in the past. The combination of this TTL + freeze_time makes our recording tests
+    flaky. This mixin removes the TTL on the table before each test, so they're reliable
+    """
+
+    def drop_and_create_session_recording_table(self):
+        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL())
+        sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
+        if CLICKHOUSE_REPLICATION:
+            sync_execute(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL())
+
+    def setUp(self):
+        super().setUp()
+        self.drop_and_create_session_recording_table()
+        sync_execute(
+            f"ALTER TABLE {SESSION_RECORDING_EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' REMOVE TTL"
+        )
+
+    def tearDown(self):
+        super().tearDown()
+        self.drop_and_create_session_recording_table()
 
 
 def run_clickhouse_statement_in_parallel(statements: List[str]):
