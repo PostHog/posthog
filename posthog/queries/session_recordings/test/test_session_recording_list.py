@@ -105,7 +105,6 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["end_time"], self.base_time + relativedelta(seconds=30))
             self.assertEqual(session_recordings[0]["duration"], 30)
 
-        @test_with_materialized_columns(["$session_id", "$window_id"])
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_event_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -139,7 +138,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
-        @test_with_materialized_columns(["$current_url", "$browser", "$session_id", "$window_id"])
+        @test_with_materialized_columns(["$current_url", "$browser"])
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_event_filter_with_properties(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -248,7 +247,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
-        @test_with_materialized_columns(["$current_url", "$browser", "$session_id", "$window_id"])
+        @test_with_materialized_columns(["$current_url", "$browser"])
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_action_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -316,7 +315,6 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
-        @test_with_materialized_columns(["$session_id", "$window_id"])
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_all_sessions_recording_object_keys_with_entity_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
