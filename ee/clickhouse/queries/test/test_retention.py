@@ -104,9 +104,8 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
             [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
         )
 
-        actor_result = Retention().actors(filter.with_data({"selected_interval": 0}), self.team)
-
-        assert [actor["id"] for actor in actor_result] == ["org:5", "org:6"]
+        actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+        self.assertCountEqual([actor["person"]["id"] for actor in actor_result], ["org:5", "org:6"])
 
         filter = RetentionFilter(
             data={
@@ -138,13 +137,13 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
             team=self.team,
         )
 
-        actor_result = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+        actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
 
-        self.assertTrue(actor_result[0]["person"]["id"] == "org:6")
-        self.assertEqual(actor_result[0]["appearances"], [1, 1, 0, 1, 1, 0, 1])
+        self.assertEqual(actor_result[0]["person"]["id"], "org:5")
+        self.assertEqual(actor_result[0]["appearances"], [1, 1, 1, 1, 1, 0, 0])
 
-        self.assertTrue(actor_result[1]["person"]["id"] == "org:5")
-        self.assertEqual(actor_result[1]["appearances"], [1, 1, 1, 1, 1, 0, 0])
+        self.assertEqual(actor_result[1]["person"]["id"], "org:6")
+        self.assertEqual(actor_result[1]["appearances"], [1, 1, 0, 1, 1, 0, 1])
 
     @test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
@@ -224,9 +223,9 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
                 [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
             )
 
-            actor_result = Retention().actors(filter.with_data({"selected_interval": 0}), self.team)
+            actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
 
-            assert [actor["id"] for actor in actor_result] == ["org:5", "org:6"]
+            self.assertCountEqual([actor["person"]["id"] for actor in actor_result], ["org:5", "org:6"])
 
             filter = RetentionFilter(
                 data={
@@ -263,10 +262,10 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            actor_result = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+            actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
 
-            self.assertTrue(actor_result[0]["person"]["id"] == "org:6")
-            self.assertEqual(actor_result[0]["appearances"], [1, 1, 0, 1, 1, 0, 1])
+            self.assertTrue(actor_result[0]["person"]["id"] == "org:5")
+            self.assertEqual(actor_result[0]["appearances"], [1, 1, 1, 1, 1, 0, 0])
 
-            self.assertTrue(actor_result[1]["person"]["id"] == "org:5")
-            self.assertEqual(actor_result[1]["appearances"], [1, 1, 1, 1, 1, 0, 0])
+            self.assertTrue(actor_result[1]["person"]["id"] == "org:6")
+            self.assertEqual(actor_result[1]["appearances"], [1, 1, 0, 1, 1, 0, 1])

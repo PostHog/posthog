@@ -12,6 +12,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import RegionSelect from './RegionSelect'
 
 export const scene: SceneExport = {
     component: Signup,
@@ -78,6 +79,7 @@ export function Signup(): JSX.Element | null {
                     </AlertMessage>
                 )}
                 <Form logic={signupLogic} formKey={'signup'} className="space-y-4" enableFormOnSubmit>
+                    <RegionSelect />
                     <Field name="email" label="Email">
                         <LemonInput
                             className="ph-ignore-input"

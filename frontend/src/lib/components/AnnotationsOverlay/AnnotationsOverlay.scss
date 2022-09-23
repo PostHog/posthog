@@ -21,9 +21,9 @@
     cursor: pointer;
     -webkit-appearance: none !important;
 
-    > .LemonBubble {
-        transition: transform 150ms ease; // Same as LemonBubble's transition
-        // Override .LemonBubble--position-self-centered
+    > .LemonBadge {
+        transition: transform 150ms ease; // Same as LemonBadge's transition
+        // Override .LemonBadge--position-self-centered
         transform: scale(var(--annotations-badge-scale));
         transform-origin: center;
     }

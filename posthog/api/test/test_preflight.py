@@ -30,6 +30,7 @@ class TestPreflight(APIBaseTest):
             "clickhouse": True,
             "kafka": True,
             "realm": "hosted-clickhouse",
+            "region": None,
             "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
             "can_create_org": False,
             "email_service_available": False,
@@ -121,6 +122,7 @@ class TestPreflight(APIBaseTest):
                         "can_create_org": True,
                         "cloud": True,
                         "realm": "cloud",
+                        "region": "US",
                     }
                 ),
             )
@@ -140,6 +142,7 @@ class TestPreflight(APIBaseTest):
                         "can_create_org": True,
                         "cloud": True,
                         "realm": "cloud",
+                        "region": "US",
                         "instance_preferences": {"debug_queries": False, "disable_paid_fs": False},
                         "site_url": "https://app.posthog.com",
                     }
@@ -170,6 +173,7 @@ class TestPreflight(APIBaseTest):
                         "can_create_org": True,
                         "cloud": True,
                         "realm": "cloud",
+                        "region": "US",
                         "instance_preferences": {"debug_queries": False, "disable_paid_fs": True},
                         "site_url": "http://localhost:8000",
                         "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False},
