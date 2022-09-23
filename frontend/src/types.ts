@@ -2048,6 +2048,7 @@ export interface SessionRecordingPlayerProps {
     sessionRecordingId: SessionRecordingId
     playerKey: string
     includeMeta?: boolean
+    recordingStartTime?: string
 }
 
 export enum FeatureFlagReleaseType {
