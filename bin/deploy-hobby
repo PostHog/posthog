@@ -152,7 +152,7 @@ echo "⏳ Waiting for PostHog web to boot (this will take a few minutes)"
 bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost/_health)" != "200" ]]; do sleep 5; done'
 echo "⌛️ PostHog looks up!"
 echo ""
-echo "🎉🎉🎉  Doe! 🎉🎉🎉"
+echo "🎉🎉🎉  Done! 🎉🎉🎉"
 # send log of this install for continued support!
 curl -o /dev/null -L --header "Content-Type: application/json" -d "{
     \"api_key\": \"sTMFPsFhdP1Ssg\",
