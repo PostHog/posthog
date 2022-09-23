@@ -78,7 +78,11 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                       label: (
                           <Label icon={<LineChartOutlined />}>
                               Trends
-                              <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
+                              <LemonTag
+                                  type="warning"
+                                  className="uppercase"
+                                  style={{ marginLeft: 6, lineHeight: '1.4em' }}
+                              >
                                   BETA
                               </LemonTag>
                           </Label>

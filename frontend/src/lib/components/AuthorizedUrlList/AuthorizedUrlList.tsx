@@ -131,7 +131,7 @@ export function AuthorizedUrlList({
                                 ) : (
                                     <>
                                         {keyedURL.type === 'suggestion' && (
-                                            <LemonTag type="highlight" className="mr-4">
+                                            <LemonTag type="highlight" className="mr-4 uppercase">
                                                 Suggestion
                                             </LemonTag>
                                         )}

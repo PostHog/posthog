@@ -3,9 +3,11 @@ from typing import Any, Dict, Tuple
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.action.util import format_action_filter
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
+from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_trunc_func_ch
 
 
@@ -57,6 +59,16 @@ class StickinessEventsQuery(EventQuery):
         """
 
         return query, self.params
+
+    @cached_property
+    def _person_query(self):
+        return PersonQuery(
+            self._filter,
+            self._team_id,
+            self._column_optimizer,
+            extra_fields=self._extra_person_fields,
+            entity=self._entity,
+        )
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
