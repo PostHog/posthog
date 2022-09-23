@@ -53,9 +53,9 @@ Constraints
 3. New columns need to be populated for new rows before running this async migration.
 """
 
-TEMPORARY_PERSONS_TABLE_NAME = "tmp_person_0006"
-TEMPORARY_PDI2_TABLE_NAME = "tmp_person_distinct_id2_0006"
-TEMPORARY_GROUPS_TABLE_NAME = "tmp_groups_0006"
+TEMPORARY_PERSONS_TABLE_NAME = "tmp_person_0007"
+TEMPORARY_PDI2_TABLE_NAME = "tmp_person_distinct_id2_0007"
+TEMPORARY_GROUPS_TABLE_NAME = "tmp_groups_0007"
 
 # :KLUDGE: On cloud, groups and person tables now have storage_policy sometimes attached
 STORAGE_POLICY_SETTING = lambda: ", storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
@@ -181,7 +181,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperation(
                 fn=lambda query_id: run_optimize_table(
-                    unique_name="0006_persons_and_groups_on_events_backfill_person",
+                    unique_name="0007_persons_and_groups_on_events_backfill_person",
                     query_id=query_id,
                     table_name=f"{settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PERSONS_TABLE_NAME}",
                     final=True,
@@ -191,7 +191,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperation(
                 fn=lambda query_id: run_optimize_table(
-                    unique_name="0006_persons_and_groups_on_events_backfill_pdi2",
+                    unique_name="0007_persons_and_groups_on_events_backfill_pdi2",
                     query_id=query_id,
                     table_name=f"{settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PDI2_TABLE_NAME}",
                     final=True,
@@ -201,7 +201,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperation(
                 fn=lambda query_id: run_optimize_table(
-                    unique_name="0006_persons_and_groups_on_events_backfill_groups",
+                    unique_name="0007_persons_and_groups_on_events_backfill_groups",
                     query_id=query_id,
                     table_name=f"{settings.CLICKHOUSE_DATABASE}.{TEMPORARY_GROUPS_TABLE_NAME}",
                     final=True,

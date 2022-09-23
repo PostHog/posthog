@@ -104,7 +104,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 dashboardItemId: null,
             } as AnnotationModalForm,
             errors: ({ content }) => ({
-                content: !content ? 'An annotation must have text content.' : null,
+                content: !content.trim() ? 'An annotation must have text content.' : null,
             }),
             submit: async (data) => {
                 const { dateMarker, content, scope, dashboardItemId } = data

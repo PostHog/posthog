@@ -23,7 +23,7 @@ export const scene: SceneExport = {
 }
 
 const BetaTag = (): JSX.Element => (
-    <LemonTag type="warning" style={{ verticalAlign: '0.125em', marginLeft: 6 }}>
+    <LemonTag type="warning" className="uppercase" style={{ verticalAlign: '0.125em', marginLeft: 6 }}>
         BETA
     </LemonTag>
 )
