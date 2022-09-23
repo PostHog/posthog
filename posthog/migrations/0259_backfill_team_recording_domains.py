@@ -8,7 +8,7 @@ from django.db import migrations
 # Populates the recording_domains field from domains of the app_urls
 def backfill_recording_domains(apps, _):
     logger = structlog.get_logger(__name__)
-    logger.info("starting 0259_alter_organization_plugins_access_level")
+    logger.info("starting 0258_team_recording_domains")
     Team = apps.get_model("posthog", "Team")
 
     all_teams = Team.objects.all().only("id", "app_urls", "recording_domains")
