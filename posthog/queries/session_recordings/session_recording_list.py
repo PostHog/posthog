@@ -6,7 +6,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
 from posthog.models.action.util import format_entity_filter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.property.util import get_property_string_expr, parse_prop_grouped_clauses
+from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
@@ -34,7 +34,9 @@ class SessionRecordingList(EventQuery):
             distinct_id,
             event,
             team_id,
-            timestamp
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
             {properties_select_clause}
         FROM events
         WHERE
@@ -156,13 +158,7 @@ class SessionRecordingList(EventQuery):
         return self._filter.entities and len(self._filter.entities) > 0
 
     def _get_properties_select_clause(self) -> str:
-        session_id_clause, _ = get_property_string_expr("events", "$session_id", "'$session_id'", "properties")
-        window_id_clause, _ = get_property_string_expr("events", "$window_id", "'$window_id'", "properties")
-        clause = f""",
-            {session_id_clause} as session_id,
-            {window_id_clause} as window_id
-        """
-        clause += (
+        clause = (
             f", events.elements_chain as elements_chain"
             if self._column_optimizer.should_query_elements_chain_column
             else ""
