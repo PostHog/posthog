@@ -2,6 +2,5 @@
   '
   /* user_id:0 request:_snapshot_ */
   ALTER TABLE sharded_session_recording_events ON CLUSTER 'posthog' MODIFY TTL toDate(timestamp) + toIntervalWeek(5)
-  DELETE
   '
 ---
