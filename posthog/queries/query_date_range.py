@@ -53,7 +53,11 @@ class QueryDateRange:
         return self._localize_to_team(timezone.now())
 
     def _localize_to_team(self, target: datetime):
-        return target.astimezone(pytz.timezone(self._team.timezone))
+        return (
+            target.astimezone(pytz.timezone(self._team.timezone))
+            if target.tzinfo is None
+            else target.astimezone(pytz.timezone(self._team.timezone))
+        )
 
     def _parse_date(self, input):
 
