@@ -12,12 +12,11 @@ from posthog.helpers.session_recording import (
     decompress_chunked_snapshot_data,
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
+    get_events_summary_from_snapshot_data,
     is_active_event,
     paginate_list,
     preprocess_session_recording_events_for_clickhouse,
-    get_events_summary_from_snapshot_data,
 )
-
 
 MILLISECOND_TIMESTAMP = round(datetime(2019, 1, 1).timestamp() * 1000)
 
