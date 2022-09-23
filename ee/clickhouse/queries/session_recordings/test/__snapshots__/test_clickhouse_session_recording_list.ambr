@@ -16,9 +16,9 @@
             distinct_id,
             event,
             team_id,
-            timestamp ,
-            "$session_id" as session_id,
-            "$window_id" as window_id
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -77,9 +77,9 @@
             distinct_id,
             event,
             team_id,
-            timestamp ,
-            "$session_id" as session_id,
-            "$window_id" as window_id
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
@@ -223,9 +223,9 @@
             distinct_id,
             event,
             team_id,
-            timestamp ,
-            "$session_id" as session_id,
-            "$window_id" as window_id
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -284,9 +284,9 @@
             distinct_id,
             event,
             team_id,
-            timestamp ,
-            "$session_id" as session_id,
-            "$window_id" as window_id
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
