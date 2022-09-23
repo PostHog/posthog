@@ -61,6 +61,11 @@ export enum Realm {
     SelfHostedClickHouse = 'hosted-clickhouse',
 }
 
+export enum Region {
+    US = 'US',
+    EU = 'EU',
+}
+
 export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
 export interface AuthBackends {
     'google-oauth2'?: boolean
@@ -233,6 +238,7 @@ export interface TeamType extends TeamBasicType {
     updated_at: string
     anonymize_ips: boolean
     app_urls: string[]
+    recording_domains: string[]
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
@@ -1460,6 +1466,7 @@ export interface PreflightStatus {
     demo: boolean
     celery: boolean
     realm: Realm
+    region: Region
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
@@ -1981,11 +1988,7 @@ export type Duration = {
     unit: SmallTimeUnit
 }
 
-export type CombinedEvent = EventDefinition | ActionType
-
-export enum CombinedEventType {
-    All = 'all',
-    ActionEvent = 'action_event',
+export enum EventDefinitionType {
     Event = 'event',
     EventCustom = 'event_custom',
     EventPostHog = 'event_posthog',

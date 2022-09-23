@@ -16,8 +16,8 @@ from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.session_query import SessionQuery
-from posthog.queries.util import parse_timestamps
 
 
 class EventQuery(metaclass=ABCMeta):
@@ -179,8 +179,12 @@ class EventQuery(metaclass=ABCMeta):
         return "", {}
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
-
-        parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team=self._team)
+        date_params = {}
+        query_date_range = QueryDateRange(filter=self._filter, team=self._team, should_round=False)
+        parsed_date_from, date_from_params = query_date_range.date_from
+        parsed_date_to, date_to_params = query_date_range.date_to
+        date_params.update(date_from_params)
+        date_params.update(date_to_params)
 
         query = f"""
         {parsed_date_from}

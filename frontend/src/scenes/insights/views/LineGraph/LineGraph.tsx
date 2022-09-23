@@ -19,18 +19,19 @@ import {
     TooltipOptions,
 } from 'chart.js'
 import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
-import 'chartjs-adapter-dayjs'
+import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay, annotationsOverlayLogic } from 'lib/components/AnnotationsOverlay'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
-import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { SeriesDatum, TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { formatAggregationAxisValue, AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 if (registerables) {
     // required for storybook to work, not found in esbuild
@@ -567,6 +568,23 @@ export function LineGraph_({
                                         timezone={timezone}
                                         seriesData={seriesData}
                                         hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                        renderSeries={(value: React.ReactNode, datum: SeriesDatum) => {
+                                            const hasBreakdown =
+                                                datum.breakdown_value !== undefined && !!datum.breakdown_value
+                                            return (
+                                                <div className="datum-label-column">
+                                                    <SeriesLetter
+                                                        className="mr-2"
+                                                        hasBreakdown={hasBreakdown}
+                                                        seriesIndex={datum?.action?.order ?? datum.id}
+                                                    />
+                                                    <div className="flex flex-col">
+                                                        {hasBreakdown && datum.breakdown_value}
+                                                        {value}
+                                                    </div>
+                                                </div>
+                                            )
+                                        }}
                                         renderCount={
                                             tooltipConfig?.renderCount ||
                                             ((value: number): string => {
@@ -613,7 +631,7 @@ export function LineGraph_({
     }, [datasets, hiddenLegendKeys])
 
     return (
-        <div className="LineGraph absolute w-full h-full" data-attr={dataAttr}>
+        <div className="LineGraph absolute w-full h-full overflow-hidden" data-attr={dataAttr}>
             <canvas ref={canvasRef} />
             {myLineChart && showAnnotations && (
                 <BindLogic

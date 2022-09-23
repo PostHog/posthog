@@ -66,7 +66,7 @@
   FROM
     (WITH 'day' as period,
           [0] as breakdown_values_filter,
-          0 as selected_interval,
+          NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                e.event AS event,
@@ -126,7 +126,7 @@
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
   GROUP BY actor_id
-  ORDER BY actor_id
+  ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
   '
@@ -139,7 +139,7 @@
   FROM
     (WITH 'day' as period,
           [1] as breakdown_values_filter,
-          0 as selected_interval,
+          NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                e.event AS event,
@@ -199,7 +199,7 @@
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
   GROUP BY actor_id
-  ORDER BY actor_id
+  ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
   '
@@ -394,7 +394,7 @@
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
   GROUP BY actor_id
-  ORDER BY actor_id
+  ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
   '
@@ -491,7 +491,7 @@
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
   GROUP BY actor_id
-  ORDER BY actor_id
+  ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
   '

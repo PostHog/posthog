@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 
@@ -12,14 +12,13 @@ import { ensureTooltipElement } from '../LineGraph/LineGraph'
 import { groupsModel } from '~/models/groupsModel'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/components/icons'
 import { LemonRow } from '@posthog/lemon-ui'
 import { percentage } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import './BoldNumber.scss'
-import { openPersonsModal, shouldUsePersonsModalV2 } from 'scenes/trends/persons-modal/PersonsModalV2'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
@@ -82,7 +81,6 @@ function useBoldNumberTooltip({
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insight, filters } = useValues(insightLogic)
-    const { loadPeople } = useActions(personsModalLogic)
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
@@ -99,22 +97,10 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                         // != is intentional to catch undefined too
                         showPersonsModal && resultSeries.aggregated_value != null
                             ? () => {
-                                  if (shouldUsePersonsModalV2()) {
-                                      if (resultSeries.persons?.url) {
-                                          openPersonsModal({
-                                              url: resultSeries.persons?.url,
-                                              title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
-                                          })
-                                      }
-                                  } else {
-                                      loadPeople({
-                                          action: resultSeries.action,
-                                          label: resultSeries.label,
-                                          date_from: resultSeries.filter?.date_from as string,
-                                          date_to: resultSeries.filter?.date_to as string,
-                                          filters,
-                                          saveOriginal: true,
-                                          pointValue: resultSeries.aggregated_value,
+                                  if (resultSeries.persons?.url) {
+                                      openPersonsModal({
+                                          url: resultSeries.persons?.url,
+                                          title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
                                       })
                                   }
                               }
@@ -135,8 +121,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
 }
 
 function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPersonsModal'>): JSX.Element {
-    const { insight, filters } = useValues(insightLogic)
-    const { loadPeople } = useActions(personsModalLogic)
+    const { insight } = useValues(insightLogic)
 
     const [currentPeriodSeries, previousPeriodSeries] = insight.result as TrendResult[]
 
@@ -183,22 +168,10 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                 ) : (
                     <a
                         onClick={() => {
-                            if (shouldUsePersonsModalV2()) {
-                                if (previousPeriodSeries.persons?.url) {
-                                    openPersonsModal({
-                                        url: previousPeriodSeries.persons?.url,
-                                        title: <PropertyKeyInfo value={previousPeriodSeries.label} disablePopover />,
-                                    })
-                                }
-                            } else {
-                                loadPeople({
-                                    action: previousPeriodSeries.action,
-                                    label: previousPeriodSeries.label,
-                                    date_from: previousPeriodSeries.filter?.date_from as string,
-                                    date_to: previousPeriodSeries.filter?.date_to as string,
-                                    filters,
-                                    saveOriginal: true,
-                                    pointValue: previousValue,
+                            if (previousPeriodSeries.persons?.url) {
+                                openPersonsModal({
+                                    url: previousPeriodSeries.persons?.url,
+                                    title: <PropertyKeyInfo value={previousPeriodSeries.label} disablePopover />,
                                 })
                             }
                         }}

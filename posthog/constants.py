@@ -36,7 +36,6 @@ TRENDS_LINEAR = "ActionsLineGraph"
 TRENDS_TABLE = "ActionsTable"
 TRENDS_FUNNEL = "FunnelViz"
 TRENDS_PIE = "ActionsPie"
-TRENDS_RETENTION = "RetentionTable"
 TRENDS_PATHS = "PathsViz"
 TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
@@ -62,7 +61,7 @@ INSIGHT_TO_DISPLAY = {
     INSIGHT_LIFECYCLE: TRENDS_LINEAR,
     INSIGHT_FUNNELS: TRENDS_FUNNEL,
     INSIGHT_PATHS: TRENDS_PATHS,
-    INSIGHT_RETENTION: TRENDS_RETENTION,
+    INSIGHT_RETENTION: TRENDS_TABLE,
     # :KLUDGE: Sessions insight is no longer supported, but this is needed to make updating these insights possible.
     "SESSIONS": TRENDS_LINEAR,
 }
@@ -259,8 +258,8 @@ BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 CSV_EXPORT_LIMIT = 10000
 
 
-class CombinedEventType(str, Enum):
-    # Mimics CombinedEventType in frontend/src/types.ts
+class EventDefinitionType(str, Enum):
+    # Mimics EventDefinitionType in frontend/src/types.ts
     ALL = "all"
     ACTION_EVENT = "action_event"
     EVENT = "event"

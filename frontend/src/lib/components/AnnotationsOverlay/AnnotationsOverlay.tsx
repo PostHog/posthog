@@ -4,7 +4,7 @@ import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
 import React, { useRef, useState } from 'react'
 import { AnnotationScope, IntervalType, AnnotationType } from '~/types'
 import { IconDelete, IconEdit, IconPlusMini } from '../icons'
-import { LemonBubble } from '../LemonBubble/LemonBubble'
+import { LemonBadge } from '../LemonBadge/LemonBadge'
 import { LemonModal } from '../LemonModal'
 import { annotationsOverlayLogic, determineAnnotationsDateGroup } from './annotationsOverlayLogic'
 import './AnnotationsOverlay.scss'
@@ -139,7 +139,7 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
                     : () => activateDate(date, buttonRef.current as HTMLButtonElement)
             }
         >
-            <LemonBubble
+            <LemonBadge
                 count={annotations.length || <IconPlusMini className="w-full h-full" />}
                 size="small"
                 style={active && isDateLocked ? { outline: '0.125rem solid var(--primary)' } : undefined}

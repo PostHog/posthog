@@ -29,13 +29,6 @@ export function PluginJobConfiguration({
     pluginConfigId,
     pluginId,
 }: PluginJobConfigurationProps): JSX.Element {
-    if ([HISTORICAL_EXPORT_JOB_NAME].includes(jobName)) {
-        jobSpec.payload = {
-            dateFrom: { type: 'date' },
-            dateTo: { type: 'date' },
-        }
-    }
-
     const logicProps = { jobName, pluginConfigId, pluginId, jobSpecPayload: jobSpec.payload }
     const { setIsJobModalOpen, playButtonOnClick, submitJobPayload } = useActions(interfaceJobsLogic(logicProps))
     const { runJobAvailable, isJobModalOpen } = useValues(interfaceJobsLogic(logicProps))

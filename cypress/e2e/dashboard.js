@@ -24,6 +24,8 @@ describe('Dashboard', () => {
     })
 
     it('Adding new insight to dashboard works', () => {
+        cy.intercept(/api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+
         cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
         cy.url().should('not.include', '/new') // wait for insight to complete and update URL
@@ -32,9 +34,11 @@ describe('Dashboard', () => {
         cy.get('[data-attr="insight-name"] [title="Save"]').click()
         cy.get('[data-attr="save-to-dashboard-button"]').click() // Open the Save to dashboard modal
         cy.get('[data-attr="dashboard-list-item"] button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
-        cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
-        cy.get('[data-attr="dashboard-list-item"] a').first().click({ force: true }) // Go to the dashboard
-        cy.get('[data-attr="insight-name"]').should('contain', 'Test Insight Zeus') // Check if the insight is there
+        cy.wait('@patchInsight').then(() => {
+            cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
+            cy.get('[data-attr="dashboard-list-item"] a').first().click({ force: true }) // Go to the dashboard
+            cy.get('[data-attr="insight-name"]').should('contain', 'Test Insight Zeus') // Check if the insight is there
+        })
     })
 
     it('Cannot see tags or description (non-FOSS feature)', () => {

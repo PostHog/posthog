@@ -21,7 +21,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     path((key) => ['lib', 'components', 'Annotations', 'annotationsOverlayLogic', key]),
     props({} as InsightAnnotationsLogicProps),
     key(({ insightNumericId }) => insightNumericId),
-    connect({
+    connect(() => ({
         values: [
             insightLogic,
             ['intervalUnit', 'insightId'],
@@ -31,7 +31,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             ['timezone'],
         ],
         actions: [annotationsModel, ['createAnnotationGenerically', 'updateAnnotation', 'deleteAnnotation']],
-    }),
+    })),
     actions({
         createAnnotation: (annotationData: AnnotationDataWithoutInsight) => ({ annotationData }),
         activateDate: (date: Dayjs, badgeElement: HTMLButtonElement) => ({ date, badgeElement }),

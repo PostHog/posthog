@@ -137,6 +137,9 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
     def test_reset_token(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
         self.team.api_token = "xyz"
         self.team.save()
 
@@ -144,10 +147,17 @@ class TestTeamAPI(APIBaseTest):
         response_data = response.json()
 
         self.team.refresh_from_db()
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotEqual(response_data["api_token"], "xyz")
         self.assertEqual(response_data["api_token"], self.team.api_token)
         self.assertTrue(response_data["api_token"].startswith("phc_"))
+
+    def test_reset_token_insufficient_priviledges(self):
+        self.team.api_token = "xyz"
+        self.team.save()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/reset_token/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_update_primary_dashboard(self):
         d = Dashboard.objects.create(name="Test", team=self.team)
