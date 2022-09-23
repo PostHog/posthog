@@ -16,6 +16,27 @@ Event = Dict
 SnapshotData = Dict
 WindowId = Optional[str]
 
+# List of properties from the event payload we care about for our uncompressed `events_summary`
+# NOTE: We should keep this as minimal as possible
+EVENT_SUMMARY_DATA_INCLUSIONS = [
+    "type",
+    "source",
+    "tag",
+    "plugin",
+    "href",
+    "width",
+    "height",
+    "payload.href",
+    "payload.level",
+]
+
+# NOTE: EventSummary is a minimal version of full events, containing only some of the "data" content - strings and numbers
+class SessionRecordingEventSummary(TypedDict):
+    timestamp: int
+    type: int
+    # keys of this object should be any of EVENT_SUMMARY_DATA_INCLUSIONS
+    data: Dict[str, Union[int, str]]
+
 
 @dataclasses.dataclass
 class EventActivityData:
@@ -35,13 +56,6 @@ class RecordingSegment:
 class SnapshotDataTaggedWithWindowId:
     window_id: WindowId
     snapshot_data: SnapshotData
-
-
-# NOTE: EventSummary is a minimal version of full events, containing only some of the "data" content - strings and numbers
-class SessionRecordingEventSummary(TypedDict):
-    timestamp: int
-    type: int
-    data: Dict[str, Union[int, str]]
 
 
 @dataclasses.dataclass
@@ -91,6 +105,7 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
                     "data": chunk,
                     "compression": "gzip-base64",
                     "has_full_snapshot": has_full_snapshot,
+                    # We only store this field on the first chunk as it contains all events, not just this chunk
                     "events_summary": get_events_summary_from_snapshot_data(data_list) if index == 0 else None,
                 },
             },
@@ -256,21 +271,6 @@ def get_active_segments_from_event_list(
         active_recording_segments.append(current_active_segment)
 
     return active_recording_segments
-
-
-# List of properties from the event payload we care about for our uncompressed `events_summary`
-# NOTE: We should keep this as minimal as possible
-EVENT_SUMMARY_DATA_INCLUSIONS = [
-    "type",
-    "source",
-    "tag",
-    "plugin",
-    "href",
-    "width",
-    "height",
-    "payload.href",
-    "payload.level",
-]
 
 
 def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> List[SessionRecordingEventSummary]:
