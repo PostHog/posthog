@@ -86,6 +86,7 @@ export function InsightsTable({
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
 
+    // Only allow table aggregation options when the math is total volume otherwise double counting will happen when the math is set to uniques
     const showTotalCount =
         filters.actions?.every((entity) => entity.math === 'total' || !entity.math) &&
         filters.events?.every((entity) => entity.math === 'total' || !entity.math)
