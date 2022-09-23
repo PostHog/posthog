@@ -47,7 +47,7 @@ SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
     SESSION_RECORDING_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
-TTL toDate(timestamp) + INTERVAL 3 WEEK DELETE
+TTL toDate(timestamp) + INTERVAL 3 WEEK
 SETTINGS index_granularity=512
 """
 ).format(
@@ -130,5 +130,5 @@ DROP_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
 )
 
 UPDATE_RECORDINGS_TABLE_TTL_SQL = lambda: (
-    f"ALTER TABLE {SESSION_RECORDING_EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY TTL toDate(timestamp) + toIntervalWeek(%(weeks)s) DELETE"
+    f"ALTER TABLE {SESSION_RECORDING_EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY TTL toDate(timestamp) + toIntervalWeek(%(weeks)s)"
 )
