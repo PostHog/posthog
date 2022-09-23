@@ -33,7 +33,7 @@ export function StaffUsersTab(): JSX.Element {
                 return (
                     <>
                         {user.first_name}
-                        {user.uuid === myself?.uuid && <LemonTag style={{ marginLeft: 4 }}>Me</LemonTag>}
+                        {user.uuid === myself?.uuid && <LemonTag className="uppercase ml-1">Me</LemonTag>}
                     </>
                 )
             },

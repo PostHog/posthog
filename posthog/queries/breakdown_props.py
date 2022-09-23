@@ -22,9 +22,9 @@ from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_ELEMENTS_ARRAY_OF_KEY_SQL
-from posthog.queries.util import parse_timestamps
 
 ALL_USERS_COHORT_ID = 0
 
@@ -47,7 +47,13 @@ def get_breakdown_prop_values(
     When dealing with a histogram though, buckets are returned instead of values.
     """
     column_optimizer = column_optimizer or ColumnOptimizer(filter, team.id)
-    parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team=team)
+
+    date_params = {}
+    query_date_range = QueryDateRange(filter=filter, team=team, should_round=False)
+    parsed_date_from, date_from_params = query_date_range.date_from
+    parsed_date_to, date_to_params = query_date_range.date_to
+    date_params.update(date_from_params)
+    date_params.update(date_to_params)
 
     if not use_all_funnel_entities:
         props_to_filter = filter.property_groups.combine_property_group(
@@ -235,7 +241,13 @@ def _to_bucketing_expression(bin_count: int) -> str:
 
 def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
     entity = kwargs.pop("entity", None)
-    parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team=team, table="all_events.")
+
+    date_params = {}
+    query_date_range = QueryDateRange(filter=filter, team=team, table="all_events", should_round=False)
+    parsed_date_from, date_from_params = query_date_range.date_from
+    parsed_date_to, date_to_params = query_date_range.date_to
+    date_params.update(date_from_params)
+    date_params.update(date_to_params)
 
     props_to_filter = filter.property_groups
 

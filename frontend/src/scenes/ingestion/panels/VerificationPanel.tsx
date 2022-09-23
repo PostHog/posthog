@@ -13,7 +13,8 @@ import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { setAddBilling } = useActions(ingestionLogic)
+    const { setAddBilling, completeOnboarding } = useActions(ingestionLogic)
+    const { showBillingStep } = useValues(ingestionLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     useInterval(() => {
@@ -40,7 +41,11 @@ export function VerificationPanel(): JSX.Element {
                                 center
                                 type="secondary"
                                 onClick={() => {
-                                    setAddBilling(true)
+                                    if (showBillingStep) {
+                                        setAddBilling(true)
+                                    } else {
+                                        completeOnboarding()
+                                    }
                                     reportIngestionContinueWithoutVerifying()
                                 }}
                             >
@@ -60,12 +65,16 @@ export function VerificationPanel(): JSX.Element {
                                 data-attr="wizard-complete-button"
                                 type="primary"
                                 onClick={() => {
-                                    setAddBilling(true)
+                                    if (showBillingStep) {
+                                        setAddBilling(true)
+                                    } else {
+                                        completeOnboarding()
+                                    }
                                 }}
                                 fullWidth
                                 center
                             >
-                                Next
+                                {showBillingStep ? 'Next' : 'Complete'}
                             </LemonButton>
                         </div>
                     </div>

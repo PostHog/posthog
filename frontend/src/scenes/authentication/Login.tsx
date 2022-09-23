@@ -15,6 +15,7 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import RegionSelect from './RegionSelect'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -98,6 +99,7 @@ export function Login(): JSX.Element {
                     </AlertMessage>
                 )}
                 <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
+                    <RegionSelect />
                     <Field name="email" label="Email">
                         <LemonInput
                             className="ph-ignore-input"

@@ -70,7 +70,7 @@ function VerifiedDomainsTable(): JSX.Element {
             title: 'Domain name',
             dataIndex: 'domain',
             render: function RenderDomainName(_, { domain }) {
-                return <LemonTag style={{ textTransform: 'lowercase' }}>{domain}</LemonTag>
+                return <LemonTag>{domain}</LemonTag>
             },
         },
         ...(preflight?.cloud

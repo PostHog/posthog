@@ -49,8 +49,12 @@ export function PlayerInspectorV2({ sessionRecordingId, playerKey }: SessionReco
                                 <Tooltip title="While console logs are in BETA, only 150 logs are displayed.">
                                     <div>
                                         Console
-                                        <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
-                                            BETA
+                                        <LemonTag
+                                            type="warning"
+                                            className="uppercase"
+                                            style={{ marginLeft: 6, lineHeight: '1.4em' }}
+                                        >
+                                            Beta
                                         </LemonTag>
                                     </div>
                                 </Tooltip>

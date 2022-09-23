@@ -31,6 +31,8 @@ import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 if (registerables) {
     // required for storybook to work, not found in esbuild
@@ -95,16 +97,15 @@ export function DoughnutChart({
             datasets = datasets.filter((data) => !hiddenLegendKeys?.[data.id])
         }
 
-        const processedDatasets = datasets.map((dataset) => dataset as ChartDataset<'doughnut'>)
+        const processedDatasets = datasets.map((dataset) => dataset as ChartDataset<'pie'>)
 
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
-            type: 'doughnut',
+            type: 'pie',
             data: {
                 labels,
                 datasets: processedDatasets,
             },
             options: {
-                cutout: '0%',
                 responsive: true,
                 maintainAspectRatio: false,
                 hover: {
@@ -162,6 +163,23 @@ export function DoughnutChart({
                                         timezone={timezone}
                                         seriesData={seriesData}
                                         hideColorCol={!!tooltipConfig?.hideColorCol}
+                                        renderSeries={(value: React.ReactNode, datum: SeriesDatum) => {
+                                            const hasBreakdown =
+                                                datum.breakdown_value !== undefined && !!datum.breakdown_value
+                                            return (
+                                                <div className="datum-label-column">
+                                                    <SeriesLetter
+                                                        className="mr-2"
+                                                        hasBreakdown={hasBreakdown}
+                                                        seriesIndex={datum?.action?.order ?? datum.id}
+                                                    />
+                                                    <div className="flex flex-col">
+                                                        {hasBreakdown && datum.breakdown_value}
+                                                        {value}
+                                                    </div>
+                                                </div>
+                                            )
+                                        }}
                                         renderCount={
                                             tooltipConfig?.renderCount ||
                                             ((value: number): string => {
@@ -194,7 +212,7 @@ export function DoughnutChart({
                         },
                     },
                 } as _DeepPartialObject<PluginOptionsByType<keyof ChartTypeRegistry>> & ChartPluginsOptions,
-            } as ChartOptions<'doughnut'>,
+            } as ChartOptions<'pie'>,
         })
         return () => newChart.destroy()
     }, [datasets, hiddenLegendKeys])
