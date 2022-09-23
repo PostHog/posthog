@@ -258,7 +258,19 @@ def get_active_segments_from_event_list(
     return active_recording_segments
 
 
-EVENT_SUMMARY_DATA_EXCLUSIONS = ["text"]
+# List of properties from the event payload we care about for our uncompressed `events_summary`
+# NOTE: We should keep this as minimal as possible
+EVENT_SUMMARY_DATA_INCLUSIONS = [
+    "type",
+    "source",
+    "tag",
+    "plugin",
+    "href",
+    "width",
+    "height",
+    "payload.href",
+    "payload.level",
+]
 
 
 def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> List[SessionRecordingEventSummary]:
@@ -266,18 +278,33 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
     Extract a minimal representation of the snapshot data events for easier querying.
     'data' values are included as long as they are strings or numbers and not in the exclusion list to keep the payload minimal
     """
-    events_summary = [
-        SessionRecordingEventSummary(
-            timestamp=event["timestamp"],
-            type=event["type"],
-            data={
+    events_summary = []
+
+    for event in snapshot_data:
+        if "timestamp" not in event or "type" not in event:
+            continue
+
+        # Get all top level data values
+        data = {
+            key: value
+            for key, value in event.get("data", {}).items()
+            if type(value) in [str, int] and key in EVENT_SUMMARY_DATA_INCLUSIONS
+        }
+        # Some events have a payload, some values of which we want
+        if event.get("data", {}).get("payload"):
+            data["payload"] = {
                 key: value
-                for key, value in event.get("data", {}).items()
-                if type(value) in [str, int] and key not in EVENT_SUMMARY_DATA_EXCLUSIONS
-            },
+                for key, value in event["data"]["payload"].items()
+                if type(value) in [str, int] and f"payload.{key}" in EVENT_SUMMARY_DATA_INCLUSIONS
+            }
+
+        events_summary.append(
+            SessionRecordingEventSummary(
+                timestamp=event["timestamp"],
+                type=event["type"],
+                data=data,
+            )
         )
-        for event in snapshot_data
-    ]
 
     # Not sure why, but events are sometimes slightly out of order
     events_summary.sort(key=lambda x: x["timestamp"])

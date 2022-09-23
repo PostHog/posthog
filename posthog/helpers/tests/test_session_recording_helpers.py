@@ -15,7 +15,11 @@ from posthog.helpers.session_recording import (
     is_active_event,
     paginate_list,
     preprocess_session_recording_events_for_clickhouse,
+    get_events_summary_from_snapshot_data,
 )
+
+
+MILLISECOND_TIMESTAMP = round(datetime(2019, 1, 1).timestamp() * 1000)
 
 
 def test_preprocess_with_no_recordings():
@@ -27,18 +31,26 @@ def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_i
     events = [
         {
             "event": "$snapshot",
-            "properties": {"$session_id": "1234", "$snapshot_data": {"type": 2, "foo": "bar"}, "distinct_id": "abc123"},
+            "properties": {
+                "$session_id": "1234",
+                "$snapshot_data": {"type": 2, "timestamp": MILLISECOND_TIMESTAMP},
+                "distinct_id": "abc123",
+            },
         },
         {
             "event": "$snapshot",
-            "properties": {"$session_id": "1234", "$snapshot_data": {"type": 1, "foo": "bar"}, "distinct_id": "abc123"},
+            "properties": {
+                "$session_id": "1234",
+                "$snapshot_data": {"type": 1, "timestamp": MILLISECOND_TIMESTAMP},
+                "distinct_id": "abc123",
+            },
         },
         {
             "event": "$snapshot",
             "properties": {
                 "$session_id": "5678",
                 "$window_id": "1",
-                "$snapshot_data": {"type": 1, "foo": "bar"},
+                "$snapshot_data": {"type": 1, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -47,7 +59,7 @@ def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_i
             "properties": {
                 "$session_id": "5678",
                 "$window_id": "2",
-                "$snapshot_data": {"type": 1, "foo": "bar"},
+                "$snapshot_data": {"type": 1, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -78,15 +90,16 @@ def test_compression_and_chunking(raw_snapshot_events, mocker: MockerFixture):
         {
             "event": "$snapshot",
             "properties": {
-                "$window_id": "1",
                 "$session_id": "1234",
+                "$window_id": "1",
                 "$snapshot_data": {
-                    "chunk_count": 1,
                     "chunk_id": "0178495e-8521-0000-8e1c-2652fa57099b",
                     "chunk_index": 0,
+                    "chunk_count": 1,
+                    "data": "H4sIAAAAAAAC/2WMywpAUABEz6fori28k1+RhQVlIYoN8uuY+9hpaprONPM+LReGnYOVQakhIiOWWzoxi25KvdIa+pSSgoqcRKqde91u+X/Mw+PIInlmONXbZ6Ndxwc14H+ijAAAAA==",
                     "compression": "gzip-base64",
-                    "data": "H4sIAAAAAAAC//v/L5qhmkGJoYShkqGAIRXIsmJQYDBi0AGSSgxpDPlACBFTYkhiSGQoAtK1YFlMXcZYdVUB5UuAOkH6YhkAxKw6nnAAAAA=",
                     "has_full_snapshot": True,
+                    "events_summary": [{"timestamp": 1546300800000, "type": 2, "data": {}}],
                 },
                 "distinct_id": "abc123",
             },
@@ -388,6 +401,68 @@ def test_paginate_list():
     assert paginate_list(list, 4, 5) == PaginatedList(has_next=True, paginated_list=list[5:9])
 
 
+def test_get_events_summary_from_snapshot_data():
+    timestamp = round(datetime.now().timestamp() * 1000)
+
+    snapshot_events = [
+        # ignore malformed events
+        {"type": 2, "foo": "bar"},
+        # ignore other props
+        {"type": 2, "timestamp": timestamp, "foo": "bar"},
+        # include standard properties
+        {"type": 1, "timestamp": timestamp, "data": {"source": 3}},
+        # include only allowed values
+        {
+            "type": 1,
+            "timestamp": timestamp,
+            "data": {
+                # Large values we dont want
+                "node": {},
+                "text": "long-useless-text",
+                # Standard core values we want
+                "source": 3,
+                "type": 1,
+                # Values for initial render meta event
+                "href": "https://app.posthog.com/events?foo=bar",
+                "width": 2056,
+                "height": 1120,
+                # Special case for custom pageview events
+                "tag": "$pageview",
+                "plugin": "rrweb/console@1",
+                "payload": {
+                    "href": "https://app.posthog.com/events?eventFilter=",  # from pageview
+                    "level": "log",  # from console plugin
+                    # random
+                    "dont-want": "this",
+                    "or-this": {"foo": "bar"},
+                },
+            },
+        },
+    ]
+
+    assert get_events_summary_from_snapshot_data(snapshot_events) == [
+        {"timestamp": timestamp, "type": 2, "data": {}},
+        {"timestamp": timestamp, "type": 1, "data": {"source": 3}},
+        {
+            "timestamp": timestamp,
+            "type": 1,
+            "data": {
+                "source": 3,
+                "type": 1,
+                "href": "https://app.posthog.com/events?foo=bar",
+                "width": 2056,
+                "height": 1120,
+                "tag": "$pageview",
+                "plugin": "rrweb/console@1",
+                "payload": {
+                    "href": "https://app.posthog.com/events?eventFilter=",
+                    "level": "log",
+                },
+            },
+        },
+    ]
+
+
 @pytest.fixture
 def raw_snapshot_events():
     return [
@@ -396,7 +471,7 @@ def raw_snapshot_events():
             "properties": {
                 "$session_id": "1234",
                 "$window_id": "1",
-                "$snapshot_data": {"type": 2, "foo": "bar"},
+                "$snapshot_data": {"type": 2, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
@@ -419,7 +494,11 @@ def chunked_and_compressed_snapshot_events():
             "event": "$snapshot",
             "properties": {
                 "$session_id": "1234",
-                "$snapshot_data": {"type": 4, "foo": "bar", "timestamp": "2019-01-01T00:00:00.000Z"},
+                "$snapshot_data": {
+                    "type": 4,
+                    "timestamp": MILLISECOND_TIMESTAMP,
+                    "timestamp": "2019-01-01T00:00:00.000Z",
+                },
                 "distinct_id": "abc123",
             },
         },
@@ -427,7 +506,11 @@ def chunked_and_compressed_snapshot_events():
             "event": "$snapshot",
             "properties": {
                 "$session_id": "1234",
-                "$snapshot_data": {"type": 2, "foo": "bar", "timestamp": "2019-01-01T00:00:00.000Z"},
+                "$snapshot_data": {
+                    "type": 2,
+                    "timestamp": MILLISECOND_TIMESTAMP,
+                    "timestamp": "2019-01-01T00:00:00.000Z",
+                },
                 "distinct_id": "abc123",
             },
         },
@@ -438,7 +521,11 @@ def chunked_and_compressed_snapshot_events():
             "properties": {
                 "$session_id": "1234",
                 "$window_id": "1",
-                "$snapshot_data": {"type": 3, "foo": "bar", "timestamp": "2019-01-01T00:00:00.000Z"},
+                "$snapshot_data": {
+                    "type": 3,
+                    "timestamp": MILLISECOND_TIMESTAMP,
+                    "timestamp": "2019-01-01T00:00:00.000Z",
+                },
                 "distinct_id": "abc123",
             },
         },
@@ -449,7 +536,7 @@ def chunked_and_compressed_snapshot_events():
                 "$window_id": "1",
                 "$snapshot_data": {
                     "type": 3,
-                    "foo": "bar",
+                    "timestamp": MILLISECOND_TIMESTAMP,
                     "timestamp": "2019-01-01T00:00:00.000Z",
                     "data": {"source": 2},
                 },
