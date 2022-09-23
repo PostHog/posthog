@@ -46,14 +46,13 @@ echo "Making sure any stack that might exist is stopped"
 sudo -E docker-compose -f docker-compose.yml stop &> /dev/null || true
 
 # send log of this install for continued support!
-curl -L --header "Content-Type: application/json" -d '{
-    "api_key": "sTMFPsFhdP1Ssg",
-    "distinct_id": "${DOMAIN}",
-    "properties": {"domain": "${DOMAIN}"},
-    "type": "capture",
-    "event": "magic_curl_install_start"
-}' https://app.posthog.com/batch/
-
+curl -o /dev/null -L --header "Content-Type: application/json" -d "{
+    \"api_key\": \"sTMFPsFhdP1Ssg\",
+    \"distinct_id\": \"${DOMAIN}\",
+    \"properties\": {\"domain\": \"${DOMAIN}\"},
+    \"type\": \capture\",
+    \"event\": \"magic_curl_install_start\"
+}" https://app.posthog.com/batch/ &> /dev/null
 
 # update apt cache
 echo "Grabbing latest apt caches"
@@ -153,15 +152,15 @@ echo "⏳ Waiting for PostHog web to boot (this will take a few minutes)"
 bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost/_health)" != "200" ]]; do sleep 5; done'
 echo "⌛️ PostHog looks up!"
 echo ""
-echo "🎉🎉🎉  Done! 🎉🎉🎉"
+echo "🎉🎉🎉  Doe! 🎉🎉🎉"
 # send log of this install for continued support!
-curl -L --header "Content-Type: application/json" -d '{
-    "api_key": "sTMFPsFhdP1Ssg",
-    "distinct_id": "${DOMAIN}",
-    "properties": {"domain": "${DOMAIN}"},
-    "type": "capture",
-    "event": "magic_curl_install_complete"
-}' https://app.posthog.com/batch/
+curl -o /dev/null -L --header "Content-Type: application/json" -d "{
+    \"api_key\": \"sTMFPsFhdP1Ssg\",
+    \"distinct_id\": \"${DOMAIN}\",
+    \"properties\": {\"domain\": \"${DOMAIN}\"},
+    \"type\": \capture\",
+    \"event\": \"magic_curl_install_complete\"
+}" https://app.posthog.com/batch/ &> /dev/null
 echo ""
 echo "To stop the stack run 'docker-compose stop'"
 echo "To start the stack again run 'docker-compose start'"
