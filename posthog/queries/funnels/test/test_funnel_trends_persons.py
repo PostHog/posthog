@@ -7,7 +7,12 @@ from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
 from posthog.models.filters import Filter
 from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    run_test_without_recording_ttl,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_journeys import journeys_for
 
 
@@ -40,6 +45,7 @@ filter_data = {
 
 class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
+    @run_test_without_recording_ttl
     def test_funnel_trend_persons_returns_recordings(self):
         persons = journeys_for(
             {
@@ -59,6 +65,7 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([person["matched_recordings"][0]["session_id"] for person in results], ["s1b"])
 
     @snapshot_clickhouse_queries
+    @run_test_without_recording_ttl
     def test_funnel_trend_persons_with_no_to_step(self):
         persons = journeys_for(
             {
@@ -78,6 +85,7 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([person["matched_recordings"][0]["session_id"] for person in results], ["s1c"])
 
     @snapshot_clickhouse_queries
+    @run_test_without_recording_ttl
     def test_funnel_trend_persons_with_drop_off(self):
         persons = journeys_for(
             {

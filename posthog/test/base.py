@@ -495,30 +495,30 @@ class ClickhouseTestMixin(QueryMatchingTest):
             yield queries
 
 
-class ClickhouseTestRemoveRecordingTTLMixin(BaseTest):
+def run_test_without_recording_ttl(fn):
     """
     The session_recording_events table has TTL on it that removes old data.
     Many of our tests and query snapshots rely on the freeze_time function to hold
     data in the past. The combination of this TTL + freeze_time makes our recording tests
-    flaky. This mixin removes the TTL on the table before each test, so they're reliable
+    flaky. This decorator removes the TTL on the table before the test, so the test is reliable
     """
 
-    def drop_and_create_session_recording_table(self):
-        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL())
-        sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
-        if CLICKHOUSE_REPLICATION:
-            sync_execute(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL())
+    def decorator(*args, **kwargs):
+        def drop_and_create_session_recording_table():
+            sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL())
+            sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
+            if CLICKHOUSE_REPLICATION:
+                sync_execute(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL())
 
-    def setUp(self):
-        super().setUp()
-        self.drop_and_create_session_recording_table()
+        drop_and_create_session_recording_table()
         sync_execute(
             f"ALTER TABLE {SESSION_RECORDING_EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' REMOVE TTL"
         )
+        if fn:
+            fn(*args, **kwargs)
+        drop_and_create_session_recording_table()
 
-    def tearDown(self):
-        super().tearDown()
-        self.drop_and_create_session_recording_table()
+    return decorator
 
 
 def run_clickhouse_statement_in_parallel(statements: List[str]):

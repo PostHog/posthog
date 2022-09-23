@@ -21,7 +21,13 @@ from posthog.models.session_recording_event.util import create_session_recording
 from posthog.queries.paths import Paths, PathsActors
 from posthog.queries.paths.paths_event_query import PathEventQuery
 from posthog.queries.test.test_paths import paths_test_factory
-from posthog.test.base import _create_event, _create_person, snapshot_clickhouse_queries, test_with_materialized_columns
+from posthog.test.base import (
+    _create_event,
+    _create_person,
+    run_test_without_recording_ttl,
+    snapshot_clickhouse_queries,
+    test_with_materialized_columns,
+)
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 
@@ -2908,6 +2914,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
     # Note: not using `@snapshot_clickhouse_queries` here because the ordering of the session_ids in the recording
     # query is not guaranteed, so adding it would lead to a flaky test.
     @freeze_time("2012-01-01T03:21:34.000Z")
+    @run_test_without_recording_ttl
     def test_path_recording(self):
         # User with 2 matching paths with recordings
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
@@ -3011,6 +3018,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
 
     @snapshot_clickhouse_queries
     @freeze_time("2012-01-01T03:21:34.000Z")
+    @run_test_without_recording_ttl
     def test_path_recording_with_no_window_or_session_id(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
 
@@ -3046,6 +3054,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
 
     @snapshot_clickhouse_queries
     @freeze_time("2012-01-01T03:21:34.000Z")
+    @run_test_without_recording_ttl
     def test_path_recording_with_start_and_end(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
 
@@ -3109,6 +3118,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
 
     @snapshot_clickhouse_queries
     @freeze_time("2012-01-01T03:21:34.000Z")
+    @run_test_without_recording_ttl
     def test_path_recording_for_dropoff(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
 

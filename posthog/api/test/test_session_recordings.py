@@ -11,11 +11,11 @@ from posthog.helpers.session_recording import Event, compress_and_chunk_snapshot
 from posthog.models import Organization, Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest, ClickhouseTestRemoveRecordingTTLMixin
+from posthog.test.base import APIBaseTest
 
 
 def factory_test_session_recordings_api(session_recording_event_factory):
-    class TestSessionRecordings(ClickhouseTestRemoveRecordingTTLMixin, APIBaseTest):
+    class TestSessionRecordings(APIBaseTest):
         def create_snapshot(
             self,
             distinct_id,

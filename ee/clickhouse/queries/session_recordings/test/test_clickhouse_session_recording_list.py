@@ -11,6 +11,7 @@ from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
+    run_test_without_recording_ttl,
     snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
@@ -20,6 +21,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(person_properties=["email"])
+    @run_test_without_recording_ttl
     def test_event_filter_with_person_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "bla2"})
@@ -50,6 +52,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
 
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(["$current_url"])
+    @run_test_without_recording_ttl
     def test_event_filter_with_cohort_properties(self):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2021-08-21T20:00:00.000Z"):
@@ -92,6 +95,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(["$current_url"])
+    @run_test_without_recording_ttl
     def test_event_filter_with_matching_on_session_id(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         create_snapshot(
@@ -125,6 +129,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(["$current_url"])
+    @run_test_without_recording_ttl
     def test_event_filter_matching_with_no_session_id(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         create_snapshot(

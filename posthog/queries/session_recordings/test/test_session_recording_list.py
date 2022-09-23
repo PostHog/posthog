@@ -7,11 +7,11 @@ from freezegun.api import freeze_time
 from posthog.models import Person, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.session_recordings.test.test_factory import create_snapshot
-from posthog.test.base import ClickhouseTestRemoveRecordingTTLMixin, test_with_materialized_columns
+from posthog.test.base import BaseTest, run_test_without_recording_ttl, test_with_materialized_columns
 
 
 def factory_session_recordings_list_test(session_recording_list, event_factory, action_factory, action_step_factory):
-    class TestSessionRecordingsList(ClickhouseTestRemoveRecordingTTLMixin):
+    class TestSessionRecordingsList(BaseTest):
         def create_action(self, name, team_id=None, properties=[]):
             if team_id is None:
                 team_id = self.team.pk
@@ -39,6 +39,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
 
         @test_with_materialized_columns(["$current_url"])
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_basic_query(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
@@ -70,6 +71,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(more_recordings_available, False)
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_recordings_dont_leak_data_between_teams(self):
             another_team = Team.objects.create(organization=self.organization)
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -86,6 +88,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["distinct_id"], "user")
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_all_sessions_recording_object_keys(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
@@ -106,6 +109,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["duration"], 30)
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_event_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
@@ -136,6 +140,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
 
         @test_with_materialized_columns(["$current_url", "$browser"])
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_event_filter_with_properties(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
@@ -188,6 +193,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(len(session_recordings), 0)
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_multiple_event_filters(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
@@ -229,6 +235,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
 
         @test_with_materialized_columns(["$current_url", "$browser"])
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_action_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             action1 = self.create_action("custom-event", properties=[{"key": "$browser", "value": "Firefox"}])
@@ -284,6 +291,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(len(session_recordings), 0)
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_all_sessions_recording_object_keys_with_entity_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
@@ -308,6 +316,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["duration"], 30)
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_duration_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
@@ -344,6 +353,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_date_from_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(
@@ -373,6 +383,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_date_to_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(
@@ -402,6 +413,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_recording_that_spans_time_bounds(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             day_line = datetime(2021, 11, 5)
@@ -426,6 +438,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["duration"], 6 * 60 * 60)
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_person_id_filter(self):
             p = Person.objects.create(team=self.team, distinct_ids=["user", "user2"], properties={"email": "bla"})
             create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
@@ -450,6 +463,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[1]["session_id"], "1")
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_all_filters_at_once(self):
             p = Person.objects.create(team=self.team, distinct_ids=["user", "user2"], properties={"email": "bla"})
             action2 = self.create_action(name="custom-event")
@@ -491,6 +505,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_pagination(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
@@ -539,6 +554,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(more_recordings_available, False)
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_recording_without_fullsnapshot_dont_appear(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(
@@ -554,6 +570,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(len(session_recordings), 0)
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @run_test_without_recording_ttl
         def test_teams_dont_leak_event_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             another_team = Team.objects.create(organization=self.organization)

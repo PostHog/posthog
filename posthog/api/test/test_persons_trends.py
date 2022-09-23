@@ -12,6 +12,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    run_test_without_recording_ttl,
     snapshot_clickhouse_queries,
 )
 
@@ -796,6 +797,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(people["results"][0]["people"]), 1)
 
     @snapshot_clickhouse_queries
+    @run_test_without_recording_ttl
     def test_trends_people_endpoint_includes_recordings(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={})
         _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-09T14:00:00Z")

@@ -15,6 +15,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    run_test_without_recording_ttl,
     snapshot_clickhouse_queries,
 )
 
@@ -36,6 +37,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     # Note: not using `@snapshot_clickhouse_queries` here because the ordering of the session_ids in the recording
     # query is not guaranteed, so adding it would lead to a flaky test.
     @freeze_time("2021-01-21T20:00:00.000Z")
+    @run_test_without_recording_ttl
     def test_person_query_includes_recording_events(self):
         _create_person(team_id=self.team.pk, distinct_ids=["u1"], properties={"email": "bla"})
         _create_event(
@@ -98,6 +100,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
+    @run_test_without_recording_ttl
     def test_person_query_does_not_include_recording_events_if_flag_not_set(self):
         _create_person(team_id=self.team.pk, distinct_ids=["u1"], properties={"email": "bla"})
         _create_event(event="pageview", distinct_id="u1", team=self.team, timestamp=timezone.now())
@@ -113,6 +116,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
+    @run_test_without_recording_ttl
     def test_group_query_includes_recording_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bla", properties={})

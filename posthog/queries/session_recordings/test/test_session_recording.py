@@ -13,7 +13,7 @@ from posthog.models import Filter
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording import RecordingMetadata, SessionRecording
 from posthog.session_recordings.test.test_factory import create_chunked_snapshots, create_snapshot
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, run_test_without_recording_ttl
 
 
 def factory_session_recording_test(session_recording: SessionRecording):
@@ -34,6 +34,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
     class TestSessionRecording(BaseTest):
         maxDiff = None
 
+        @run_test_without_recording_ttl
         def test_get_snapshots(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 create_snapshot(
@@ -78,6 +79,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
                 )
                 self.assertEqual(recording.has_next, False)
 
+        @run_test_without_recording_ttl
         def test_get_snapshots_does_not_leak_teams(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 another_team = Team.objects.create(organization=self.organization)
@@ -108,6 +110,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
                     {"": [{"data": {"source": 0}, "timestamp": 1600000000.0, "has_full_snapshot": False, "type": 2}]},
                 )
 
+        @run_test_without_recording_ttl
         def test_get_snapshots_with_no_such_session(self):
             req, filter = create_recording_request_and_filter("xxx")
             recording: DecompressedRecordingData = session_recording(  # type: ignore
@@ -115,6 +118,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
             ).get_snapshots(filter.limit, filter.offset)
             self.assertEqual(recording, DecompressedRecordingData(has_next=False, snapshot_data_by_window_id={}))
 
+        @run_test_without_recording_ttl
         def test_get_chunked_snapshots(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 chunked_session_id = "7"
@@ -136,6 +140,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
                 self.assertEqual(len(recording.snapshot_data_by_window_id[""]), chunk_limit * snapshots_per_chunk)
                 self.assertTrue(recording.has_next)
 
+        @run_test_without_recording_ttl
         def test_get_chunked_snapshots_with_specific_limit_and_offset(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 chunked_session_id = "7"
@@ -160,6 +165,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
                 self.assertEqual(recording.snapshot_data_by_window_id[""][0]["timestamp"], 1_600_000_300_000)
                 self.assertTrue(recording.has_next)
 
+        @run_test_without_recording_ttl
         def test_get_metadata(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 timestamp = now()
@@ -355,12 +361,14 @@ def factory_session_recording_test(session_recording: SessionRecording):
                     ),
                 )
 
+        @run_test_without_recording_ttl
         def test_get_metadata_for_non_existant_session_id(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 req, _ = create_recording_request_and_filter("99")
                 recording = session_recording(team=self.team, session_recording_id="1", request=req).get_metadata()  # type: ignore
                 self.assertEqual(recording, None)
 
+        @run_test_without_recording_ttl
         def test_get_metadata_does_not_leak_teams(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 another_team = Team.objects.create(organization=self.organization)

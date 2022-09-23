@@ -8,7 +8,7 @@ from freezegun import freeze_time
 from posthog.models import Organization, Plugin, Team
 from posthog.models.plugin import PluginConfig
 from posthog.tasks.status_report import status_report
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, run_test_without_recording_ttl
 from posthog.version import VERSION
 
 
@@ -32,6 +32,7 @@ def factory_status_report(_create_event: Callable, _create_person: Callable, _cr
             self.assertLess(report["table_sizes"]["posthog_event"], 10**7)  # <10MB
             self.assertLess(report["table_sizes"]["posthog_sessionrecordingevent"], 10**7)  # <10MB
 
+        @run_test_without_recording_ttl
         def test_instance_status_report_event_counts(self) -> None:
             with freeze_time("2020-11-02"):
                 _create_person("old_user1", team=self.team)

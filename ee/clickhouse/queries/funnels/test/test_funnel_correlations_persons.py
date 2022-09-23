@@ -17,6 +17,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    run_test_without_recording_ttl,
     snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
@@ -257,6 +258,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
+    @run_test_without_recording_ttl
     def test_funnel_correlation_on_event_with_recordings(self):
         p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
         _create_event(
@@ -356,6 +358,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
+    @run_test_without_recording_ttl
     def test_funnel_correlation_on_properties_with_recordings(self):
         p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
         _create_event(
@@ -413,6 +416,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
+    @run_test_without_recording_ttl
     def test_strict_funnel_correlation_with_recordings(self):
 
         # First use that successfully completes the strict funnel
