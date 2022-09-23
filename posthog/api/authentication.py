@@ -86,7 +86,10 @@ class LoginSerializer(serializers.Serializer):
         )
 
         if not user:
-            raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
+            raise serializers.ValidationError(
+                "Invalid email or password. Make sure you have selected the right region.",
+                code="invalid_credentials",
+            )
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         report_user_logged_in(user, social_provider="")

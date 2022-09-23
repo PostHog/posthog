@@ -29,7 +29,10 @@ describe('Auth', () => {
         cy.get('[data-attr=password]').type('wrong password').should('have.value', 'wrong password')
         cy.get('[type=submit]').click()
 
-        cy.get('.AlertMessage').should('contain', 'Invalid email or password.')
+        cy.get('.AlertMessage').should(
+            'contain',
+            'Invalid email or password. Make sure you have selected the right region.'
+        )
     })
 
     it('Redirect to appropriate place after login', () => {
