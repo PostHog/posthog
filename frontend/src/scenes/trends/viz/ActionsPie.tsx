@@ -33,14 +33,6 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                 personsValues: _data.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,
-                hoverBackgroundColor: colorList,
-                hoverBorderColor: colorList,
-                borderColor: colorList,
-                hoverBorderWidth: 8,
-                borderWidth: 0,
-                borderRadius: 0,
-                borderJoinStyle: 'miter',
-                hoverBorderJoinStyle: 'miter',
             },
         ])
         setTotal(_data.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0))

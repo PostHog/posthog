@@ -31,7 +31,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { AggregationAxisFormat, formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { DoughnutChart } from 'scenes/insights/views/LineGraph/DoughnutChart'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
 if (registerables) {
     // required for storybook to work, not found in esbuild
@@ -151,7 +151,7 @@ export function onChartClick(
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     return (
         <ErrorBoundary>
-            {props.type === GraphType.Pie ? <DoughnutChart {...props} /> : <LineGraph_ {...props} />}
+            {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
         </ErrorBoundary>
     )
 }
@@ -206,7 +206,7 @@ export function LineGraph_({
     const isHorizontal = type === GraphType.HorizontalBar
     const isPie = type === GraphType.Pie
     if (isPie) {
-        throw new Error('Use DoughnutChart not LineGraph for this `GraphType`')
+        throw new Error('Use PieChart not LineGraph for this `GraphType`')
     }
 
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)

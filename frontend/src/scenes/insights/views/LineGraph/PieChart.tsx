@@ -56,7 +56,7 @@ function setTooltipPosition(chart: Chart, tooltipEl: HTMLElement): void {
     }, 25)
 }
 
-export function DoughnutChart({
+export function PieChart({
     datasets: _datasets,
     hiddenLegendKeys,
     labels,
@@ -117,6 +117,9 @@ export function DoughnutChart({
                         bottom: 8,
                     },
                 },
+                borderWidth: 0,
+                borderRadius: 0,
+                hoverOffset: 16,
                 onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
                     onChartHover(event, chart, onClick)
                 },
