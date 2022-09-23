@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
 from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earliest_timestamp
+from posthog.utils import DEFAULT_DATE_FROM_DAYS
 
 
 class QueryDateRange:
@@ -46,7 +47,10 @@ class QueryDateRange:
         elif isinstance(self._filter._date_from, datetime):
             return pytz.timezone(self._team.timezone).localize(self._filter._date_from)
         else:
-            return self.get_earliest_timestamp()
+            return self._localize_to_team(
+                timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                - relativedelta(days=DEFAULT_DATE_FROM_DAYS)
+            )
 
     @cached_property
     def _now(self):
