@@ -300,7 +300,11 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
             }
 
         events_summary.append(
-            SessionRecordingEventSummary(timestamp=event["timestamp"], type=event["type"], data=data,)
+            SessionRecordingEventSummary(
+                timestamp=event["timestamp"],
+                type=event["type"],
+                data=data,
+            )
         )
 
     # No guarantees are made about order so we sort here to be sure
