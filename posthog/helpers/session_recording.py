@@ -306,7 +306,7 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
             )
         )
 
-    # Not sure why, but events are sometimes slightly out of order
+    # No guarantees are made about order so we sort here to be sure
     events_summary.sort(key=lambda x: x["timestamp"])
 
     return events_summary
