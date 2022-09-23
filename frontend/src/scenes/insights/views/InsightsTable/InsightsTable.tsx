@@ -128,17 +128,22 @@ export function InsightsTable({
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
     if (isLegend) {
+        const isAnySeriesChecked = indexedResults.some((series) => !hiddenLegendKeys[series.id])
+        const areAllSeriesChecked = isAnySeriesChecked && indexedResults.every((series) => !hiddenLegendKeys[series.id])
         columns.push({
             title: (
                 <LemonCheckbox
-                    checked={indexedResults.every((i) => !hiddenLegendKeys[i.id])}
-                    defaultChecked={true}
-                    onChange={(checked) => indexedResults.forEach((i) => {
-                        if (checked && hiddenLegendKeys[i.id])
-                            toggleVisibility(i.id);
-                        else if (!checked && !hiddenLegendKeys[i.id])
-                            toggleVisibility(i.id);
-                    })}
+                    checked={areAllSeriesChecked || (isAnySeriesChecked ? 'indeterminate' : false)}
+                    onChange={(checked) =>
+                        indexedResults.forEach((i) => {
+                            if (checked && hiddenLegendKeys[i.id]) {
+                                toggleVisibility(i.id)
+                            } else if (!checked && !hiddenLegendKeys[i.id]) {
+                                toggleVisibility(i.id)
+                            }
+                        })
+                    }
+                    disabled={!canCheckUncheckSeries}
                 />
             ),
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
