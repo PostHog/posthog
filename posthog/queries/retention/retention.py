@@ -1,11 +1,11 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 from posthog.client import substitute_params, sync_execute
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
-from posthog.queries.retention.actors_query import RetentionActors, RetentionActorsByPeriod, build_actor_activity_query
+from posthog.queries.retention.actors_query import RetentionActorsByPeriod, build_actor_activity_query
 from posthog.queries.retention.event_query import RetentionEventsQuery
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_SQL
 from posthog.queries.retention.types import BreakdownValues, CohortKey
@@ -13,7 +13,6 @@ from posthog.queries.retention.types import BreakdownValues, CohortKey
 
 class Retention:
     event_query = RetentionEventsQuery
-    actors_query = RetentionActors
     actors_by_period_query = RetentionActorsByPeriod
 
     def __init__(self, base_uri="/"):
@@ -110,13 +109,7 @@ class Retention:
 
         return result
 
-    def actors(self, filter: RetentionFilter, team: Team):
-
-        _, serialized_actors, _ = self.actors_query(team=team, filter=filter).get_actors()
-
-        return serialized_actors
-
-    def actors_in_period(self, filter: RetentionFilter, team: Team):
+    def actors_in_period(self, filter: RetentionFilter, team: Team) -> Tuple[list, int]:
         """
         Creates a response of the form
 

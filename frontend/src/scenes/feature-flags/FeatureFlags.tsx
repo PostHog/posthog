@@ -74,9 +74,13 @@ function OverViewTab(): JSX.Element {
                 return (
                     <>
                         {featureFlag.active ? (
-                            <LemonTag type="success">Enabled</LemonTag>
+                            <LemonTag type="success" className="uppercase">
+                                Enabled
+                            </LemonTag>
                         ) : (
-                            <LemonTag type="default">Disabled</LemonTag>
+                            <LemonTag type="default" className="uppercase">
+                                Disabled
+                            </LemonTag>
                         )}
                     </>
                 )
