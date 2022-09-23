@@ -46,14 +46,13 @@ echo "Making sure any stack that might exist is stopped"
 sudo -E docker-compose -f docker-compose.yml stop &> /dev/null || true
 
 # send log of this install for continued support!
-curl -L --header "Content-Type: application/json" -d '{
-    "api_key": "sTMFPsFhdP1Ssg",
-    "distinct_id": "${DOMAIN}",
-    "properties": {"domain": "${DOMAIN}"},
-    "type": "capture",
-    "event": "magic_curl_install_start"
-}' https://app.posthog.com/batch/
-
+curl -o /dev/null -L --header "Content-Type: application/json" -d "{
+    \"api_key\": \"sTMFPsFhdP1Ssg\",
+    \"distinct_id\": \"${DOMAIN}\",
+    \"properties\": {\"domain\": \"${DOMAIN}\"},
+    \"type\": \"capture\",
+    \"event\": \"magic_curl_install_start\"
+}" https://app.posthog.com/batch/ &> /dev/null
 
 # update apt cache
 echo "Grabbing latest apt caches"
@@ -124,7 +123,7 @@ chmod +x compose/wait
 echo "Setting up Docker"
 sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo -E apt-key add -
-sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
+sudo add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
 sudo apt update
 sudo apt-cache policy docker-ce
 sudo apt install -y docker-ce
@@ -155,13 +154,13 @@ echo "⌛️ PostHog looks up!"
 echo ""
 echo "🎉🎉🎉  Done! 🎉🎉🎉"
 # send log of this install for continued support!
-curl -L --header "Content-Type: application/json" -d '{
-    "api_key": "sTMFPsFhdP1Ssg",
-    "distinct_id": "${DOMAIN}",
-    "properties": {"domain": "${DOMAIN}"},
-    "type": "capture",
-    "event": "magic_curl_install_complete"
-}' https://app.posthog.com/batch/
+curl -o /dev/null -L --header "Content-Type: application/json" -d "{
+    \"api_key\": \"sTMFPsFhdP1Ssg\",
+    \"distinct_id\": \"${DOMAIN}\",
+    \"properties\": {\"domain\": \"${DOMAIN}\"},
+    \"type\": \"capture\",
+    \"event\": \"magic_curl_install_complete\"
+}" https://app.posthog.com/batch/ &> /dev/null
 echo ""
 echo "To stop the stack run 'docker-compose stop'"
 echo "To start the stack again run 'docker-compose start'"
