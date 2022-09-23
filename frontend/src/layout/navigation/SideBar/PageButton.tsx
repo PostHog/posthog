@@ -60,11 +60,11 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
                 >
                     <span className="text-default grow">{title || sceneConfigurations[identifier].name}</span>
                     {highlight === 'beta' ? (
-                        <LemonTag type="warning" className="ml-1 float-right">
+                        <LemonTag type="warning" className="ml-1 float-right uppercase">
                             Beta
                         </LemonTag>
                     ) : highlight === 'new' ? (
-                        <LemonTag type="success" className="ml-1 float-right">
+                        <LemonTag type="success" className="ml-1 float-right uppercase">
                             New
                         </LemonTag>
                     ) : null}
