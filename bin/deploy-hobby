@@ -50,7 +50,7 @@ curl -o /dev/null -L --header "Content-Type: application/json" -d "{
     \"api_key\": \"sTMFPsFhdP1Ssg\",
     \"distinct_id\": \"${DOMAIN}\",
     \"properties\": {\"domain\": \"${DOMAIN}\"},
-    \"type\": \capture\",
+    \"type\": \"capture\",
     \"event\": \"magic_curl_install_start\"
 }" https://app.posthog.com/batch/ &> /dev/null
 
@@ -158,7 +158,7 @@ curl -o /dev/null -L --header "Content-Type: application/json" -d "{
     \"api_key\": \"sTMFPsFhdP1Ssg\",
     \"distinct_id\": \"${DOMAIN}\",
     \"properties\": {\"domain\": \"${DOMAIN}\"},
-    \"type\": \capture\",
+    \"type\": \"capture\",
     \"event\": \"magic_curl_install_complete\"
 }" https://app.posthog.com/batch/ &> /dev/null
 echo ""
