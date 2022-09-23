@@ -61,6 +61,11 @@ export enum Realm {
     SelfHostedClickHouse = 'hosted-clickhouse',
 }
 
+export enum Region {
+    US = 'US',
+    EU = 'EU',
+}
+
 export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
 export interface AuthBackends {
     'google-oauth2'?: boolean
@@ -1461,6 +1466,7 @@ export interface PreflightStatus {
     demo: boolean
     celery: boolean
     realm: Realm
+    region: Region
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
