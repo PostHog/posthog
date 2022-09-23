@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
+import { dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
 import React, { useRef, useState } from 'react'
-import { AnnotationScope, IntervalType, AnnotationType } from '~/types'
+import { IntervalType, AnnotationType } from '~/types'
 import { IconDelete, IconEdit, IconPlusMini } from '../icons'
 import { LemonBubble } from '../LemonBubble/LemonBubble'
 import { LemonModal } from '../LemonModal'
@@ -10,7 +10,7 @@ import { annotationsOverlayLogic, determineAnnotationsDateGroup } from './annota
 import './AnnotationsOverlay.scss'
 import { LemonButton } from '../LemonButton'
 import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
-import { annotationModalLogic } from 'scenes/annotations/annotationModalLogic'
+import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
 import { ProfilePicture } from '../ProfilePicture'
 import { annotationsModel } from '~/models/annotationsModel'
 import { Chart } from 'chart.js'
@@ -23,12 +23,6 @@ const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     day: 'MMMM D, YYYY',
     week: '[Week of] MMMM D, YYYY',
     month: 'MMMM D',
-}
-
-export const annotationScopeToLabel: Record<AnnotationScope, string> = {
-    [AnnotationScope.Insight]: 'Only this insight',
-    [AnnotationScope.Project]: 'All insights in this project',
-    [AnnotationScope.Organization]: 'All insights in this organization',
 }
 
 export interface AnnotationsOverlayProps {
@@ -47,7 +41,7 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
 }
 
 export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: AnnotationsOverlayProps): JSX.Element {
-    const { activeBadgeElement } = useValues(annotationsOverlayLogic)
+    const { activeBadgeElement, timezone } = useValues(annotationsOverlayLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
     const overlayRef = useRef<HTMLDivElement | null>(null)
@@ -55,7 +49,9 @@ export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: An
     const modalOverlayRef = useRef<HTMLDivElement | null>(null)
 
     const tickPointIndices: number[] = chart.scales.x.ticks.map(({ value }) => value)
-    const tickDates: dayjs.Dayjs[] = tickPointIndices.map((dateIndex) => dayjs(dates[dateIndex]))
+    const tickDates: dayjs.Dayjs[] = tickPointIndices.map((dateIndex) =>
+        dayjsLocalToTimezone(dates[dateIndex], timezone)
+    )
 
     return (
         <div
@@ -170,6 +166,7 @@ function AnnotationsPopover({
             additionalRefs={overlayRefs}
             className="AnnotationsPopover"
             placement="top"
+            fallbackPlacements={['top-end', 'top-start']}
             referenceElement={activeBadgeElement as HTMLElement}
             visible={isPopoverShown}
             onClickOutside={closePopover}
@@ -215,7 +212,10 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
     return (
         <li className="AnnotationCard flex flex-col gap-2 w-full p-3 rounded border list-none">
             <div className="flex items-center gap-2">
-                <h5 className="grow m-0 text-muted">{annotationScopeToLabel[annotation.scope]}</h5>
+                <h5 className="grow m-0 text-muted">
+                    {annotation.date_marker.format('MMM DD, YYYY h:mm A')} – {annotationScopeToName[annotation.scope]}
+                    -level
+                </h5>
                 <LemonButton
                     size="small"
                     icon={<IconEdit />}
@@ -239,7 +239,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                     showName
                     size="md"
                 />{' '}
-                • {humanFriendlyDetailedTime(annotation.created_at)}
+                • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
             </div>
         </li>
     )
