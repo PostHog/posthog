@@ -265,10 +265,29 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         text_tile_layouts = dashboard_json["tiles"][0]["layouts"]
         self.assertTrue("lg" in text_tile_layouts)
 
+    @freeze_time("2022-04-01 12:45")
     def test_can_have_mixed_collection_of_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard", "pinned": True})
-        insight_id, _ = self.dashboard_api.create_insight({})
-        self.fail("not written yet")
+        insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+        tile_id, tile_json = self.dashboard_api.create_text_tile(dashboard_id, "i am text")
+
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+
+        assert dashboard_json["tiles"] == [
+            {
+                "color": None,
+                "dashboard": dashboard_id,
+                "filters_hash": mock.ANY,
+                "id": mock.ANY,
+                "insight": insight_id,
+                "last_refresh": "2022-04-01T12:45:00Z",
+                "layouts": {},
+                "refresh_attempt": None,
+                "refreshing": None,
+                "text": None,
+            },
+            self._expected_tile_with_text(dashboard_id, "i am text", tile_id=tile_id, text_id=tile_json["text"]["id"]),
+        ]
 
     @staticmethod
     def _serialised_user(user: Optional[User]) -> Optional[Dict[str, Union[int, str]]]:
