@@ -45,7 +45,7 @@ class QueryDateRange:
         elif isinstance(self._filter._date_from, str):
             return self._parse_date(self._filter._date_from)
         elif isinstance(self._filter._date_from, datetime):
-            return pytz.timezone(self._team.timezone).localize(self._filter._date_from)
+            return self._localize_to_team(self._filter._date_from)
         else:
             return self._localize_to_team(
                 timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
