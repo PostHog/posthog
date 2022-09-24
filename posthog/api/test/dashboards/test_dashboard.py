@@ -357,48 +357,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/").json()
         self.assertEqual(response["filters"]["date_from"], "-7d")
 
-    def test_dashboard_item_layout(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "asdasd", "pinned": True})
-
-        insight_id, _ = self.dashboard_api.create_insight(
-            {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "another"},
-        )
-
-        # layouts used to live on insights, but moved onto the relation from a dashboard to its insights
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {
-                "tile_layouts": {
-                    "insight_tiles": [
-                        {
-                            "id": insight_id,
-                            "layouts": {
-                                "lg": {"x": "0", "y": "0", "w": "6", "h": "5"},
-                                "sm": {
-                                    "w": "7",
-                                    "h": "5",
-                                    "x": "0",
-                                    "y": "0",
-                                    "moved": "False",
-                                    "static": "False",
-                                },
-                                "xs": {"x": "0", "y": "0", "w": "6", "h": "5"},
-                                "xxs": {"x": "0", "y": "0", "w": "2", "h": "5"},
-                            },
-                        }
-                    ]
-                }
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        dashboard_json = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"refresh": False}
-        ).json()
-        first_tile_layouts = dashboard_json["items"][0]["layouts"]
-        self.assertTrue("lg" in first_tile_layouts)
-
     def test_dashboard_from_template(self) -> None:
         _, response_json = self.dashboard_api.create_dashboard({"name": "another", "use_template": "DEFAULT_APP"})
 
