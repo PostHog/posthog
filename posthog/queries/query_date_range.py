@@ -23,12 +23,17 @@ class QueryDateRange:
 
     @cached_property
     def date_to_param(self) -> datetime:
+
+        if not self._filter._date_to and self._filter.interval == "hour":  # type: ignore
+            return self._localize_to_team(self._now) + relativedelta(minutes=1)
+
+        date_to = self._now
         if isinstance(self._filter._date_to, str):
-            return self._parse_date(self._filter._date_to)
+            date_to = self._parse_date(self._filter._date_to)
         elif isinstance(self._filter._date_to, datetime):
-            return self._localize_to_team(self._filter._date_to)
-        else:
-            return self._now
+            date_to = self._localize_to_team(self._filter._date_to)
+
+        return date_to.replace(hour=23, minute=59, second=59, microsecond=99999)
 
     def get_earliest_timestamp(self):
         try:
