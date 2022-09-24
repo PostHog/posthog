@@ -157,26 +157,26 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
     def test_can_remove_text_tiles_from_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {
-                "tiles": [
-                    {"text": {"body": "I AM TEXT!"}},
-                    {"text": {"body": "YOU AM TEXT"}},
-                    {"text": {"body": "THEY AM TEXT"}},
-                ]
-            },
+        update_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles",
+            [
+                {"text": {"body": "I AM TEXT!"}},
+                {"text": {"body": "YOU AM TEXT"}},
+                {"text": {"body": "THEY AM TEXT"}},
+            ],
         )
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        created_tiles = update_response.json()["tiles"]
+        self.assertEqual(update_response.status_code, status.HTTP_201_CREATED)
+        created_tiles = update_response.json()
         self.assertEqual(len(created_tiles), 3)
 
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {"tiles": created_tiles[1:]},
+        delete_response = self.client.delete(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles/{created_tiles[0]['id']}"
         )
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK, update_response.json())
-        self.assertEqual(len(update_response.json()["tiles"]), 2)
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        tiles = dashboard_json["tiles"]
+        self.assertCountEqual([t["id"] for t in tiles], [t["id"] for t in created_tiles[1:]])
 
     def test_can_update_text_tiles_on_a_dashboard(self) -> None:
         with freeze_time("2022-04-01 12:45") as frozen_time:
@@ -209,7 +209,7 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
                         "body": "I AM TEXT!",
                         "created_by": self._serialised_user(self.user),
                         "last_modified_at": "2022-04-01T12:45:00Z",
-                        "last_modified_by": None,
+                        "last_modified_by": self._serialised_user(self.user),
                         "team": self.team.id,
                     },
                     "refresh_attempt": None,
@@ -229,6 +229,9 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
 
             frozen_time.tick(delta=timedelta(hours=4))
 
+            self.assertIn("id", tiles[1])
+            self.assertIn("id", tiles[1]["text"])
+
             different_user_update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles/{tiles[1]['id']}", tiles[1]
             )
@@ -236,6 +239,7 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
 
             dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
             updated_tiles = sorted(dashboard_json["tiles"], key=lambda d: d["id"])
+
             self.assertEqual(len(updated_tiles), 2)
             self.assertEqual(
                 updated_tiles[0],

@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, cast
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, response, serializers, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -201,6 +202,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return instance
 
+    @extend_schema(deprecated=True, description="items is deprecated, use tiles instead")
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
             return None
