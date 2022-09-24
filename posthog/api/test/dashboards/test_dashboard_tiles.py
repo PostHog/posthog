@@ -19,35 +19,31 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
     def test_can_get_a_single_text_tile_on_a_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-        tile_text = Text.objects.create(body="I AM TEXT!", team=self.team)
-        tile = DashboardTile.objects.create(dashboard_id=dashboard_id, text=tile_text)
+        tile_id, tile_json = self.dashboard_api.create_text_tile(dashboard_id)
 
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
 
-        self.assertEqual(
-            dashboard_json["tiles"],
-            [
-                {
-                    "id": tile.id,
-                    "filters_hash": None,
-                    "last_refresh": None,
-                    "refreshing": None,
-                    "refresh_attempt": None,
-                    "layouts": {},
-                    "color": None,
-                    "dashboard": dashboard_id,
-                    "insight": None,
-                    "text": {
-                        "body": "I AM TEXT!",
-                        "created_by": None,
-                        "id": tile_text.id,
-                        "last_modified_at": "2022-04-01T12:45:00Z",
-                        "last_modified_by": None,
-                        "team": self.team.id,
-                    },
-                }
-            ],
-        )
+        assert dashboard_json["tiles"] == [
+            {
+                "id": tile_id,
+                "filters_hash": None,
+                "last_refresh": None,
+                "refreshing": None,
+                "refresh_attempt": None,
+                "layouts": {},
+                "color": None,
+                "dashboard": dashboard_id,
+                "insight": None,
+                "text": {
+                    "body": "I AM TEXT!",
+                    "created_by": None,
+                    "id": tile_json["text"]["id"],
+                    "last_modified_at": "2022-04-01T12:45:00Z",
+                    "last_modified_by": None,
+                    "team": self.team.id,
+                },
+            }
+        ]
 
     @freeze_time("2022-04-01 12:45")
     def test_can_list_a_single_text_tile_for_a_dashboard(self) -> None:
@@ -95,15 +91,11 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
     def test_can_add_a_single_text_tile_to_a_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-        update_response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles", {"text": {"body": "I AM TEXT!"}}
-        )
-
-        self.assertEqual(update_response.status_code, status.HTTP_201_CREATED, update_response.json())
+        _, tile_json = self.dashboard_api.create_text_tile(dashboard_id)
         self.maxDiff = None
         expected_tile = self._expected_tile_with_text(dashboard_id, "I AM TEXT!")
         self.assertEqual(
-            update_response.json(),
+            tile_json,
             expected_tile,
         )
 
@@ -320,6 +312,11 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
         text_tile_layouts = dashboard_json["tiles"][0]["layouts"]
         self.assertTrue("lg" in text_tile_layouts)
+
+    def test_can_have_mixed_collection_of_tiles(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "asdasd", "pinned": True})
+        insight_id, _ = self.dashboard_api.create_insight({})
+        self.fail("not written yet")
 
     @staticmethod
     def _serialised_user(user: User) -> Dict[str, Union[int, str]]:

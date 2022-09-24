@@ -80,3 +80,22 @@ class DashboardAPI:
 
         response_json = response.json()
         return response_json.get("id", None), response_json
+
+    def create_text_tile(
+        self,
+        dashboard_id: int,
+        text: str = "I AM TEXT!",
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_201_CREATED,
+    ) -> Tuple[int, Dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+
+        response = self.client.post(
+            f"/api/projects/{team_id}/dashboards/{dashboard_id}/tiles", {"text": {"body": text}}
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+        response_json = response.json()
+        return response_json.get("id", None), response_json
