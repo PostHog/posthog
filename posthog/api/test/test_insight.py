@@ -212,25 +212,17 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_get_insight_in_dashboard_context(self):
         filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
 
-        dashboard_id, _ = self._create_dashboard({"name": "the dashboard"})
+        dashboard_id, _ = self._create_dashboard({"name": "the dashboard", "filters": {"date_from": "-180d"}})
 
-        blue_insight_id, _ = self._create_insight(
-            {"filters": filter_dict, "name": "blue insight", "dashboards": [dashboard_id]}
-        )
+        insight_id, _ = self._create_insight({"filters": filter_dict, "name": "insight", "dashboards": [dashboard_id]})
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {"colors": [{"id": blue_insight_id, "color": "blue"}]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        insight_in_isolation = self._get_insight(insight_id)
+        self.assertIsNotNone(insight_in_isolation.get("filters_hash", None))
 
-        blue_insight_in_isolation = self._get_insight(blue_insight_id)
-        self.assertEqual(blue_insight_in_isolation["name"], "blue insight")
-        self.assertEqual(blue_insight_in_isolation.get("color", None), None)
+        insight_on_dashboard = self._get_insight(insight_id, query_params={"from_dashboard": dashboard_id})
+        self.assertIsNotNone(insight_on_dashboard.get("filters_hash", None))
 
-        blue_insight_on_dashboard = self._get_insight(blue_insight_id, query_params={"from_dashboard": dashboard_id})
-        self.assertEqual(blue_insight_on_dashboard["name"], "blue insight")
-        self.assertEqual(blue_insight_on_dashboard.get("color", None), "blue")
+        self.assertNotEqual(insight_in_isolation["filters_hash"], insight_on_dashboard["filters_hash"])
 
     def test_get_insight_by_short_id(self):
         filter_dict = {"events": [{"id": "$pageview"}]}
