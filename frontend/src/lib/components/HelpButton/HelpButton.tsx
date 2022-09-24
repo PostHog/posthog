@@ -14,10 +14,11 @@ import {
     IconMail,
     IconQuestionAnswer,
     IconMessages,
+    IconTrendUp,
 } from '../icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react-dom-interactions'
-import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { DEFAULT_ACTIONS, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -139,6 +140,19 @@ export function HelpButton({
                             </LemonButton>
                         </a>
                     )}
+                    {!isPromptVisible && (
+                        <LemonButton
+                            icon={<IconTrendUp />}
+                            status="stealth"
+                            fullWidth
+                            onClick={() => {
+                                promptAction('activation-checklist')
+                                hideHelp()
+                            }}
+                        >
+                            How to be successful with PostHog
+                        </LemonButton>
+                    )}
                     {validSequences.length > 0 && (
                         <LemonButton
                             icon={<IconMessages />}
@@ -146,7 +160,7 @@ export function HelpButton({
                             fullWidth
                             onClick={() => {
                                 if (isPromptVisible) {
-                                    promptAction('skip')
+                                    promptAction(DEFAULT_ACTIONS.SKIP)
                                 } else {
                                     runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
                                 }

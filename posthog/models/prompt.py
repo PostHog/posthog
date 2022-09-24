@@ -17,23 +17,6 @@ class UserPromptSequenceState(models.Model):
     dismissed: models.BooleanField = models.BooleanField(default=False)
 
 
-# DEPRECATED model
-class PromptSequenceState(models.Model):
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["team", "person", "key"], name="unique sequence key for person for team")
-        ]
-
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
-    key: models.CharField = models.CharField(max_length=400)
-
-    last_updated_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
-    step: models.IntegerField = models.IntegerField(default=0)
-    completed: models.BooleanField = models.BooleanField(default=False)
-    dismissed: models.BooleanField = models.BooleanField(default=False)
-
-
 experiment_config = [
     {
         "key": "start-flow",  # sequence key
@@ -41,20 +24,104 @@ experiment_config = [
             {
                 "step": 0,  # step in the flow
                 "type": "tooltip",  # type of prompt, for now only tooltip
-                "text": "Welcome to PostHog! We’d like to give you a quick overview of how things work. You can skip this introduction at any time, or restart it from the help menu.",
+                "title": "Welcome to PostHog!",  # title of the prompt
+                "text": "We have prepared a list of suggestions and resources to improve your experience with the tool. You can access it at any time by clicking on the question mark icon in the top right corner of the screen, and then selecting 'How to be successful with PostHog'.",
                 "placement": "bottom-start",
                 "buttons": [
-                    {"action": "skip", "label": "Skip tutorial"},
-                    {"action": "run-tutorial", "label": "Show me tips"},
+                    {"action": "activation-checklist", "label": "Show me suggestions"},
                 ],  # buttons, can open external urls or trigger actions
                 "reference": "help-button",  # should match a `data-tooltip` reference to attach to a component
-                "icon": "messages",  # tbd if makes sense to add to the config, displays a different icon in the tooltips
+                # "icon": "trend-up",  # tbd if makes sense to add to the config, displays a different icon in the tooltips
             }
         ],
         "rule": {
             "path": {"must_match": ["/*"], "exclude": ["/ingestion", "/ingestion/*"]}
         },  # currently two rules enabled: `path` triggers the sequence by pathname, using wildcard matching; `must_be_completed`: allows to run a sequence only if others are completed;
         "type": "one-off",  # can be used to toggle different behaviors in the frontend
+    },
+    {
+        "key": "activation-checklist",
+        "prompts": [
+            {
+                "step": 0,
+                "type": "tooltip",
+                "title": "Track your marketing websites",
+                "text": "PostHog may have been built for product analytics, but that doesn’t mean you can only deploy it on your core product — you can also use it to gather analytics from your marketing website too.",
+                "placement": "bottom-start",
+                "buttons": [
+                    {
+                        "url": "https://posthog.com/blog/how-and-why-track-your-website-with-posthog",
+                        "label": "How (and why) to track your website with PostHog",
+                    }
+                ],
+                "reference": "help-button",
+            },
+            {
+                "step": 1,
+                "type": "tooltip",
+                "title": "Start tracking the right events",
+                "text": "If you haven’t used product analytics before, it can be tricky to know which events you should start tracking first. This guide outlines five of the most essential events we recommend tracking with PostHog.",
+                "placement": "bottom-start",
+                "buttons": [
+                    {
+                        "url": "https://posthog.com/blog/five-events-everyone-should-track-with-product-analytics",
+                        "label": "Five events all teams should track with PostHog",
+                    }
+                ],
+                "reference": "help-button",
+            },
+            {
+                "step": 2,
+                "type": "tooltip",
+                "title": "Introduce PostHog to your teams",
+                "text": "While PostHog is obviously useful for product managers, engineers and analysts, there’s a lot it can do for other teams too — including marketing and customer success.",
+                "placement": "bottom-start",
+                "buttons": [
+                    {
+                        "url": "https://posthog.com/blog/analytics-tips-for-marketing-teams",
+                        "label": "Five analytics ideas for Marketing teams using PostHog",
+                    },
+                    {
+                        "url": "https://posthog.com/blog/analytics-tips-for-customer-success-teams",
+                        "label": "Five essential tips for Customer Success teams on PostHog",
+                    },
+                ],
+                "reference": "help-button",
+            },
+            {
+                "step": 3,
+                "type": "tooltip",
+                "title": "Enrich your PostHog experience with Apps",
+                "text": "PostHog apps are a powerful, but ill-defined part of the platform. They’re powerful because they can do almost anything — and they’re ill-defined because they do almost anything.",
+                "placement": "bottom-start",
+                "buttons": [
+                    {
+                        "url": "https://posthog.com/blog/five-essential-posthog-apps.md",
+                        "label": "Getting started: Your five essential PostHog apps",
+                    }
+                ],
+                "reference": "help-button",
+            },
+            {
+                "step": 4,
+                "type": "tooltip",
+                "title": "Get to know the tool better",
+                "text": "Finally, you can start a product tour to help you familiarize with the tool. If you decide to skip it, you can click on the question mark icon in the top right corner of the screen, and select 'Explain this page' to show useful tips.",
+                "placement": "bottom-start",
+                "buttons": [
+                    {
+                        "action": "start-product-tour",
+                        "label": "Start product tour",
+                    }
+                ],
+                "reference": "help-button",
+            },
+        ],
+        "rule": {
+            "path": {"must_match": ["/*"], "exclude": ["/ingestion", "/ingestion/*"]},
+            "must_be_completed": ["start-flow"],
+        },
+        "type": "one-off",
     },
     {
         "key": "home-product-tour",
