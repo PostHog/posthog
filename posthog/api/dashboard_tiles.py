@@ -1,8 +1,10 @@
 import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Union
 
 from django.utils.timezone import now
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, request, response, serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -95,3 +97,25 @@ class DashboardTilesViewSet(
             request.data["dashboard"] = kwargs["parent_lookup_dashboard_id"]
 
         return super().create(request, *args, **kwargs)
+
+    @action(methods=["PATCH"], detail=False)
+    def layouts(self, request: request.Request, *args: Any, **kwargs: Any):
+        data: Union[Dict, List] = request.data
+        if isinstance(data, List):
+            ids = [x["id"] for x in data]
+            tiles = {}
+            for dashboard_tile in DashboardTile.objects.filter(id__in=ids).all():
+                tiles[dashboard_tile.id] = dashboard_tile
+
+            updated = []
+            for tile in data:
+                tile_to_update: Optional[DashboardTile] = tiles.get(tile["id"], None)
+                if tile_to_update and tile_to_update.layouts != tile["layouts"]:
+                    tile_to_update.layouts = tile["layouts"]
+                    updated.append(tile_to_update)
+
+            DashboardTile.objects.bulk_update(updated, fields=["layouts"])
+
+            return response.Response(status.HTTP_200_OK)
+        else:
+            raise ValidationError("must send a list of {'id', 'layout'}")

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from rest_framework import status
 
@@ -99,3 +99,12 @@ class DashboardAPI:
 
         response_json = response.json()
         return response_json.get("id", None), response_json
+
+    def update_tile_layouts(self, dashboard_id: int, layouts: List[Dict]) -> List[Dict]:
+        add_layouts_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles/layouts",
+            layouts,
+        )
+        self.assertEqual(add_layouts_response.status_code, status.HTTP_200_OK)
+        dashboard_json = self.get_dashboard(dashboard_id)
+        return [t["layouts"] for t in dashboard_json["tiles"]]
