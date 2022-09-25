@@ -468,14 +468,18 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
                 overflowX: 'hidden',
                 overflowY: enableFixedColumnScroll ? 'auto' : 'hidden',
                 position: 'absolute',
+                zIndex: 10,
                 ...styleBottomLeftGrid,
             }
         }
 
         if (resetAll || leftSizeChange || styleBottomRightGrid !== this._lastRenderedStyleBottomRightGrid) {
             this._bottomRightGridStyle = {
-                left: this._getLeftGridWidth(this.props),
+                left: 0,
+                paddingLeft: this._getLeftGridWidth(this.props),
                 position: 'absolute',
+                zIndex: 2,
+                width,
                 ...styleBottomRightGrid,
             }
         }
@@ -487,17 +491,21 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
                 overflowY: 'hidden',
                 position: 'absolute',
                 top: 0,
+                zIndex: 11,
                 ...styleTopLeftGrid,
             }
         }
 
         if (resetAll || leftSizeChange || styleTopRightGrid !== this._lastRenderedStyleTopRightGrid) {
             this._topRightGridStyle = {
-                left: this._getLeftGridWidth(this.props),
+                left: 0,
+                paddingLeft: this._getLeftGridWidth(this.props),
                 overflowX: enableFixedRowScroll ? 'auto' : 'hidden',
                 overflowY: 'hidden',
                 position: 'absolute',
                 top: 0,
+                zIndex: 2,
+                width,
                 ...styleTopRightGrid,
             }
         }
@@ -689,6 +697,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
             fixedRowCount,
             scrollLeft,
             hideTopRightGridScrollbar,
+            // width,
         } = props
         const { showHorizontalScrollbar, scrollbarSize } = this.state
 
@@ -706,7 +715,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
 
         if (hideTopRightGridScrollbar) {
             gridHeight = height + additionalHeight
-            style = { ...this._topRightGridStyle, left: 0 }
+            style = { ...this._topRightGridStyle, left: 0, width: props.width }
         }
 
         const topRightGrid = (
