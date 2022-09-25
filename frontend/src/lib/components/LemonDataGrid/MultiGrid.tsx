@@ -284,7 +284,8 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
     }
 
     _renderScrollHelpers(adjustScrollHeight: boolean): JSX.Element {
-        const { scrollLeft } = this.state
+        const { scrollLeft, showHorizontalScrollbar, scrollbarSize } = this.state
+        const { width } = this.props
         return (
             <>
                 {scrollLeft > 0 ? (
@@ -295,14 +296,13 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
                             pointerEvents: 'none',
                             position: 'absolute',
                             top: 0,
-                            bottom:
-                                adjustScrollHeight && this.state.showHorizontalScrollbar ? this.state.scrollbarSize : 0,
+                            bottom: adjustScrollHeight && showHorizontalScrollbar ? scrollbarSize : 0,
                             left: this._getLeftGridWidth(),
                             zIndex: 22,
                         }}
                     />
                 ) : null}
-                {scrollLeft < this._getScrollWidth() - this.props.width ? (
+                {scrollLeft < this._getScrollWidth() - width ? (
                     <div
                         style={{
                             boxShadow: '-16px 0 16px -16px rgba(0, 0, 0, 0.25) inset',
@@ -311,8 +311,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
                             position: 'absolute',
                             top: 0,
                             right: 0,
-                            bottom:
-                                adjustScrollHeight && this.state.showHorizontalScrollbar ? this.state.scrollbarSize : 0,
+                            bottom: adjustScrollHeight && showHorizontalScrollbar ? scrollbarSize : 0,
                             zIndex: 22,
                         }}
                     />
