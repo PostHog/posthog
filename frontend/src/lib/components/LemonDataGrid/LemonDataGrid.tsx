@@ -74,7 +74,7 @@ export function LemonDataGrid<T extends Record<string, any>>(props: LemonDataGri
                     className={clsx('LemonDataGrid', props.className)}
                 >
                     <MultiGrid
-                        columnCount={props.columns.length + 1}
+                        columnCount={props.columns.length}
                         columnWidth={cache.columnWidth}
                         deferredMeasurementCache={cache}
                         fixedColumnCount={props.fixedColumnCount ?? 0}
