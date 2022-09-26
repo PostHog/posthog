@@ -776,6 +776,7 @@ describe('vm tests', () => {
                 await posthog.api.get('/api/event', { data: { url: 'param' } })
                 await posthog.api.post('/api/event', { data: { a: 1 }})
                 await posthog.api.put('/api/event', { data: { b: 2 } })
+                await posthog.api.patch('/api/event', { data: { c: 3 }})
                 await posthog.api.delete('/api/event')
 
                 // test auth defaults override
@@ -797,7 +798,7 @@ describe('vm tests', () => {
         await vm.methods.processEvent!(event)
 
         expect(event.properties?.get).toEqual({ hello: 'world' })
-        expect((fetch as any).mock.calls.length).toEqual(7)
+        expect((fetch as any).mock.calls.length).toEqual(8)
         expect((fetch as any).mock.calls).toEqual([
             [
                 'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
@@ -830,6 +831,14 @@ describe('vm tests', () => {
                     headers: { Authorization: expect.stringContaining('Bearer phx_') },
                     method: 'PUT',
                     body: JSON.stringify({ b: 2 }),
+                },
+            ],
+            [
+                'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+                {
+                    headers: { Authorization: expect.stringContaining('Bearer phx_') },
+                    method: 'PATCH',
+                    body: JSON.stringify({ c: 3 }),
                 },
             ],
             [
