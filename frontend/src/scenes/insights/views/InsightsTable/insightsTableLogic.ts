@@ -25,7 +25,7 @@ export const insightsTableLogic = kea<insightsTableLogicType>({
         // Only allow table aggregation options when the math is total volume otherwise double counting will happen when the math is set to uniques
         showTotalCount: [
             () => [(_, props) => props.filters],
-            (filters) => {
+            (filters: Partial<FilterType>) => {
                 return (
                     filters.actions?.every(
                         (entity) => entity.math === 'total' || entity.math === 'sum' || !entity.math
