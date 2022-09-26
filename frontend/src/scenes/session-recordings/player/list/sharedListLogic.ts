@@ -16,6 +16,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
     actions(() => ({
         setTab: (tab: SessionRecordingTab) => ({ tab }),
         setWindowIdFilter: (windowId: WindowOption) => ({ windowId }),
+        setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
     })),
     reducers(() => ({
         windowIdFilter: [
@@ -28,6 +29,12 @@ export const sharedListLogic = kea<sharedListLogicType>([
             SessionRecordingTab.EVENTS as SessionRecordingTab,
             {
                 setTab: (_, { tab }) => tab,
+            },
+        ],
+        showOnlyMatching: [
+            false,
+            {
+                setShowOnlyMatching: (_, { showOnlyMatching }) => showOnlyMatching,
             },
         ],
     })),

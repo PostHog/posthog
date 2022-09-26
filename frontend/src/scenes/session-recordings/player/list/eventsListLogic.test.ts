@@ -205,6 +205,19 @@ describe('eventsListLogic', () => {
                     ],
                 })
         })
+        it('should filter events by fuzzy query', async () => {
+            await expectLogic(logic, () => {
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.setFilters({ query: 'blah blah' })
+            })
+                .toDispatchActionsInAnyOrder([
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadEventsSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.setFilters,
+                ])
+                .toMatchValues({
+                    eventListData: [expect.objectContaining(recordingEventsJson[2])],
+                })
+        })
         it('should filter events by specified window id', async () => {
             await expectLogic(logic, () => {
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
