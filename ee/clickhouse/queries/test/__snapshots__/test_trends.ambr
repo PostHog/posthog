@@ -1397,9 +1397,9 @@
      from
        (SELECT toUInt16(0) AS total,
                toStartOfWeek(toDateTime('2020-01-25 23:59:59', 'US/Pacific') - toIntervalWeek(number), 0) AS day_start
-        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-11 23:00:00', 'US/Pacific'), 0), toDateTime('2020-01-25 23:59:59', 'US/Pacific')))
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'), 0), toDateTime('2020-01-25 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfWeek(toDateTime('2020-01-11 23:00:00', 'US/Pacific'), 0)
+                         toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'), 0)
         UNION ALL SELECT count(*) as data,
                          toStartOfWeek(toDateTime(timestamp, 'US/Pacific'), 0) as date
         FROM
@@ -1407,7 +1407,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2020-01-11 23:00:00'), 0), 'US/Pacific'), 'UTC')
+             AND timestamp >= toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'), 0)
              AND timestamp <= toDateTime('2020-01-25 23:59:59', 'US/Pacific') )
         GROUP BY date)
      group by day_start
