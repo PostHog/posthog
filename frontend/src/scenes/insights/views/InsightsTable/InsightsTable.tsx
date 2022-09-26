@@ -88,8 +88,8 @@ export function InsightsTable({
 
     // Only allow table aggregation options when the math is total volume otherwise double counting will happen when the math is set to uniques
     const showTotalCount =
-        filters.actions?.every((entity) => entity.math === 'total' || !entity.math) &&
-        filters.events?.every((entity) => entity.math === 'total' || !entity.math)
+        filters.actions?.every((entity) => entity.math === 'total' || entity.math === 'sum' || !entity.math) &&
+        filters.events?.every((entity) => entity.math === 'total' || entity.math === 'sum' || !entity.math)
 
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
