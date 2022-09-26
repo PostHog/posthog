@@ -9,11 +9,9 @@
         font-size: 1.125rem;
         font-weight: 500;
         line-height: 1.75rem;
-        padding: 0 0.5rem;
     }
     .LemonActionableTooltip__icon {
         color: var(--primary);
-        margin-left: 0.5rem;
         display: flex;
         align-items: center;
         width: 1.5rem;
@@ -24,7 +22,7 @@
         }
     }
     .LemonActionableTooltip__body {
-        padding: 0.5rem;
+        padding: 0.25rem 0.5rem;
         > * + * {
             margin-top: 0.5rem;
         }
