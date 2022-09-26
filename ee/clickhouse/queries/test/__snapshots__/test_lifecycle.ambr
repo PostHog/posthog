@@ -3,7 +3,7 @@
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2021-04-28 00:00:00')), dateTrunc('day', toDateTime('2021-05-05 23:59:59') + INTERVAL 1 day))))
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2021-04-28 12:00:00')), dateTrunc('day', toDateTime('2021-05-05 23:59:59') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -68,11 +68,11 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00'))) - INTERVAL 1 day
+                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 12:00:00'))) - INTERVAL 1 day
                       AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59'))) + INTERVAL 1 day )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
-          AND start_of_period >= dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))
+          AND start_of_period >= dateTrunc('day', toDateTime('2021-04-28 12:00:00', 'UTC'))
         GROUP BY start_of_period,
                  status)
      GROUP BY start_of_period,
@@ -86,7 +86,7 @@
   WITH 'month' AS selected_period,
        periods AS
     (SELECT dateSub(month, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('month', dateTrunc('month', toDateTime('2021-02-04 00:00:00')), dateTrunc('month', toDateTime('2021-05-05 23:59:59') + INTERVAL 1 month))))
+     FROM numbers(dateDiff('month', dateTrunc('month', toDateTime('2021-02-04 12:00:00')), dateTrunc('month', toDateTime('2021-05-05 23:59:59') + INTERVAL 1 month))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -151,11 +151,11 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('month', toDateTime('2021-02-04 00:00:00'))) - INTERVAL 1 month
+                      AND timestamp >= toDateTime(dateTrunc('month', toDateTime('2021-02-04 12:00:00'))) - INTERVAL 1 month
                       AND timestamp < toDateTime(dateTrunc('month', toDateTime('2021-05-05 23:59:59'))) + INTERVAL 1 month )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('month', toDateTime('2021-05-05 23:59:59', 'UTC'))
-          AND start_of_period >= dateTrunc('month', toDateTime('2021-02-04 00:00:00', 'UTC'))
+          AND start_of_period >= dateTrunc('month', toDateTime('2021-02-04 12:00:00', 'UTC'))
         GROUP BY start_of_period,
                  status)
      GROUP BY start_of_period,
@@ -169,7 +169,7 @@
   WITH 'week' AS selected_period,
        periods AS
     (SELECT dateSub(week, number, dateTrunc(selected_period, toDateTime('2021-05-06 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('week', dateTrunc('week', toDateTime('2021-04-06 00:00:00')), dateTrunc('week', toDateTime('2021-05-06 23:59:59') + INTERVAL 1 week))))
+     FROM numbers(dateDiff('week', dateTrunc('week', toDateTime('2021-04-06 12:00:00')), dateTrunc('week', toDateTime('2021-05-06 23:59:59') + INTERVAL 1 week))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -234,11 +234,11 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('week', toDateTime('2021-04-06 00:00:00'))) - INTERVAL 1 week
+                      AND timestamp >= toDateTime(dateTrunc('week', toDateTime('2021-04-06 12:00:00'))) - INTERVAL 1 week
                       AND timestamp < toDateTime(dateTrunc('week', toDateTime('2021-05-06 23:59:59'))) + INTERVAL 1 week )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('week', toDateTime('2021-05-06 23:59:59', 'UTC'))
-          AND start_of_period >= dateTrunc('week', toDateTime('2021-04-06 00:00:00', 'UTC'))
+          AND start_of_period >= dateTrunc('week', toDateTime('2021-04-06 12:00:00', 'UTC'))
         GROUP BY start_of_period,
                  status)
      GROUP BY start_of_period,
