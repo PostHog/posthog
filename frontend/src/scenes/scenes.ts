@@ -34,6 +34,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Dashboard]: {
         projectBased: true,
     },
+    [Scene.Explore]: {
+        projectBased: true,
+        name: 'Explore',
+    },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -248,6 +252,7 @@ export const routes: Record<string, Scene> = {
     [urls.dashboardSharing(':id')]: Scene.Dashboard,
     [urls.dashboardSubcriptions(':id')]: Scene.Dashboard,
     [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
+    [urls.explore()]: Scene.Explore,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
     [urls.insightNew()]: Scene.Insight,

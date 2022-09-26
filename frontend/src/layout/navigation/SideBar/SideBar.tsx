@@ -12,6 +12,7 @@ import {
     IconExperiment,
     IconFlag,
     IconGauge,
+    IconLegend,
     IconLive,
     IconOpenInApp,
     IconPerson,
@@ -169,6 +170,7 @@ function Pages(): JSX.Element {
                         <LemonDivider />
                     )}
 
+                    <PageButton icon={<IconLegend />} identifier={Scene.Explore} to={urls.explore()} />
                     <PageButton icon={<IconLive />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
                         icon={<UnverifiedEvent />}

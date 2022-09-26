@@ -21,8 +21,8 @@ export const urls = {
     dashboardSubcriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
     dashboardSubcription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
-
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
+    explore: (): string => '/explore',
     createAction: (): string => `/data-management/actions/new`,
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
