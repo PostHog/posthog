@@ -226,6 +226,12 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
         },
     }),
     selectors: {
+        activeSessionRecording: [
+            (s) => [s.activeSessionRecordingId, s.sessionRecordings],
+            (sessionRecordingId, sessionRecordings) => {
+                return sessionRecordings.find((sessionRecording) => sessionRecording.id === sessionRecordingId)
+            },
+        ],
         hasPrev: [(s) => [s.offset], (offset) => offset > 0],
         hasNext: [
             (s) => [s.sessionRecordingsResponse],

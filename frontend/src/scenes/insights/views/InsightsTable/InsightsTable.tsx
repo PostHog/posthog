@@ -270,7 +270,7 @@ export function InsightsTable({
             render: function RenderCalc(_: any, item: IndexedTrendResult) {
                 let value: number | undefined = undefined
                 if (calcColumnState === 'total' || isDisplayModeNonTimeSeries) {
-                    value = item.count || item.aggregated_value
+                    value = item.count ?? item.aggregated_value
                 } else if (calcColumnState === 'average') {
                     value = average(item.data)
                 } else if (calcColumnState === 'median') {

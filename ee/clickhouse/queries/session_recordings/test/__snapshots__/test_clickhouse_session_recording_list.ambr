@@ -6,13 +6,19 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         countIf(event = '$pageview') as count_event_match_0
+         countIf(event = '$pageview') as count_event_match_0 ,
+         groupUniqArrayIf(100)((events.timestamp,
+                                events.uuid,
+                                events.session_id,
+                                events.window_id), event = '$pageview') as matching_events_0
   FROM
-    (SELECT distinct_id,
+    (SELECT uuid,
+            distinct_id,
             event,
             team_id,
-            timestamp ,
-            "$session_id" as session_id
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -61,13 +67,19 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         countIf(event = '$autocapture') as count_event_match_0
+         countIf(event = '$autocapture') as count_event_match_0 ,
+         groupUniqArrayIf(100)((events.timestamp,
+                                events.uuid,
+                                events.session_id,
+                                events.window_id), event = '$autocapture') as matching_events_0
   FROM
-    (SELECT distinct_id,
+    (SELECT uuid,
+            distinct_id,
             event,
             team_id,
-            timestamp ,
-            "$session_id" as session_id
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
@@ -201,13 +213,19 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         countIf(event = '$pageview') as count_event_match_0
+         countIf(event = '$pageview') as count_event_match_0 ,
+         groupUniqArrayIf(100)((events.timestamp,
+                                events.uuid,
+                                events.session_id,
+                                events.window_id), event = '$pageview') as matching_events_0
   FROM
-    (SELECT distinct_id,
+    (SELECT uuid,
+            distinct_id,
             event,
             team_id,
-            timestamp ,
-            "$session_id" as session_id
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -256,13 +274,19 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         countIf(event = '$autocapture') as count_event_match_0
+         countIf(event = '$autocapture') as count_event_match_0 ,
+         groupUniqArrayIf(100)((events.timestamp,
+                                events.uuid,
+                                events.session_id,
+                                events.window_id), event = '$autocapture') as matching_events_0
   FROM
-    (SELECT distinct_id,
+    (SELECT uuid,
+            distinct_id,
             event,
             team_id,
-            timestamp ,
-            "$session_id" as session_id
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']

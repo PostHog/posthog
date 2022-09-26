@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/components/LemonTable'
-import { BreakdownKeyType, FlattenedFunnelStepByBreakdown } from '~/types'
+import { FlattenedFunnelStepByBreakdown } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getVisibilityIndex } from 'scenes/funnels/funnelUtils'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
@@ -21,7 +21,7 @@ import { formatBreakdownLabel } from 'scenes/insights/utils'
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { insightLoading, steps, flattenedBreakdowns, hiddenLegendKeys, visibleStepsWithConversionMetrics } =
+    const { insightLoading, filters, steps, flattenedBreakdowns, hiddenLegendKeys, visibleStepsWithConversionMetrics } =
         useValues(logic)
     const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForSeries } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
@@ -72,18 +72,36 @@ export function FunnelStepsTable(): JSX.Element | null {
                         />
                     ),
                     dataIndex: 'breakdown_value',
-                    render: function RenderBreakdownValue(breakdownValue: BreakdownKeyType | undefined): JSX.Element {
-                        const label = formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, breakdownValue)
+                    render: function RenderBreakdownValue(
+                        _: void,
+                        breakdown: FlattenedFunnelStepByBreakdown
+                    ): JSX.Element {
+                        // :KLUDGE: `BreakdownStepValues` is always wrapped into an array, which doesn't work for the
+                        // formatBreakdownLabel logic. Instead, we unwrap speculatively
+                        const value =
+                            breakdown.breakdown_value?.length == 1
+                                ? breakdown.breakdown_value[0]
+                                : breakdown.breakdown_value
+                        const label = formatBreakdownLabel(
+                            cohorts,
+                            formatPropertyValueForDisplay,
+                            value,
+                            breakdown.breakdown,
+                            filters.breakdown_type
+                        )
                         return isOnlySeries ? (
                             <span className="font-medium">{label}</span>
                         ) : (
                             <LemonCheckbox
                                 checked={
                                     !hiddenLegendKeys[
-                                        getVisibilityIndex(visibleStepsWithConversionMetrics?.[0], breakdownValue)
+                                        getVisibilityIndex(
+                                            visibleStepsWithConversionMetrics?.[0],
+                                            breakdown.breakdown_value
+                                        )
                                     ]
                                 } // assume visible status from first step's visibility
-                                onChange={() => toggleVisibilityByBreakdown(breakdownValue)}
+                                onChange={() => toggleVisibilityByBreakdown(breakdown.breakdown_value)}
                                 label={label}
                             />
                         )
