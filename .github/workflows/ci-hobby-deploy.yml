@@ -1,8 +1,9 @@
 name: e2e - hobby ingestion test
 
 on:
-  workflow_dispatch:
-  push:
+  pull_request:
+    types:
+      - opened
     paths:
       - docker-compose.hobby.yml 
       - bin/deploy-hobby 
