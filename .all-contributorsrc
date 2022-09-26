@@ -2133,6 +2133,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "jrozanski",
+      "name": "Jarek Rozanski",
+      "avatar_url": "https://avatars.githubusercontent.com/u/4896588?v=4",
+      "profile": "https://jarekrozanski.eu",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
