@@ -255,7 +255,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
         ],
         userState: [
             {} as PromptUserState,
-            // { persist: true, prefix: CACHE_PREFIX },
+            { persist: true, prefix: CACHE_PREFIX },
             {
                 setUserState: (_, { state }) => state,
             },
