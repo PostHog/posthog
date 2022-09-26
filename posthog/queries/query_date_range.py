@@ -33,7 +33,7 @@ class QueryDateRange:
         elif isinstance(self._filter._date_to, datetime):
             date_to = self._localize_to_team(self._filter._date_to)
 
-        return date_to.replace(hour=23, minute=59, second=59, microsecond=99999)
+        return date_to
 
     def get_earliest_timestamp(self):
         try:
@@ -45,17 +45,20 @@ class QueryDateRange:
 
     @cached_property
     def date_from_param(self) -> datetime:
+        date_from: datetime
         if self._filter._date_from == "all":
-            return self.get_earliest_timestamp()
+            date_from = self.get_earliest_timestamp()
         elif isinstance(self._filter._date_from, str):
-            return self._parse_date(self._filter._date_from, self.date_to_param)
+            date_from = self._parse_date(self._filter._date_from, self.date_to_param)
         elif isinstance(self._filter._date_from, datetime):
-            return self._localize_to_team(self._filter._date_from)
+            date_from = self._localize_to_team(self._filter._date_from)
         else:
-            return self._localize_to_team(
+            date_from = self._localize_to_team(
                 timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
                 - relativedelta(days=DEFAULT_DATE_FROM_DAYS)
             )
+
+        return date_from
 
     @cached_property
     def _now(self):
@@ -144,15 +147,24 @@ class QueryDateRange:
     @cached_property
     def date_to(self) -> Tuple[str, Dict]:
         date_to_query = self.date_to_clause
-        date_to_param = {"date_to": self.date_to_param.strftime("%Y-%m-%d %H:%M:%S")}
+        date_to = self.date_to_param
+
+        if self._filter.interval != "hour":
+            date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=99999)
+
+        date_to_param = {"date_to": date_to.strftime("%Y-%m-%d %H:%M:%S")}
 
         return date_to_query, date_to_param
 
     @cached_property
     def date_from(self) -> Tuple[str, Dict]:
         date_from_query = self.date_from_clause
+        date_from = self.date_from_param
 
-        date_from_param = {"date_from": self.date_from_param.strftime("%Y-%m-%d %H:%M:%S")}
+        if self._filter.interval != "hour":
+            date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        date_from_param = {"date_from": date_from.strftime("%Y-%m-%d %H:%M:%S")}
 
         return date_from_query, date_from_param
 
@@ -171,7 +183,7 @@ class QueryDateRange:
         clause = f"{self.interval_annotation}(toDateTime(%({date_clause})s, %(timezone)s))"
 
         if self.interval_annotation == "toStartOfWeek":
-            return f"toTimezone(toDateTime(toStartOfWeek(toDateTime(%({date_clause})s), 0), %(timezone)s), 'UTC')"
+            return f"toStartOfWeek(toDateTime(%({date_clause})s, %(timezone)s), 0)"
 
         return clause
 
