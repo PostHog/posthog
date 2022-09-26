@@ -51,7 +51,7 @@ export const eventsListLogic = kea<eventsListLogicType>([
         ],
         values: [
             sessionRecordingDataLogic({ sessionRecordingId }),
-            ['filters', 'sessionEventsData', 'sessionEventsDataLoading'],
+            ['filters', 'sessionEventsData', 'sessionEventsDataLoading', 'matchingEvents'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['currentPlayerTime'],
             sharedListLogic({ sessionRecordingId, playerKey }),
@@ -124,8 +124,14 @@ export const eventsListLogic = kea<eventsListLogicType>([
     })),
     selectors(() => ({
         eventListData: [
-            (selectors) => [selectors.sessionEventsData, selectors.filters, selectors.windowIdFilter],
-            (sessionEventsData, filters, windowIdFilter): RecordingEventType[] => {
+            (selectors) => [
+                selectors.sessionEventsData,
+                selectors.filters,
+                selectors.windowIdFilter,
+                selectors.matchingEvents,
+            ],
+            (sessionEventsData, filters, windowIdFilter, matchingEvents): RecordingEventType[] => {
+                console.log('MATCHING EVENTS', matchingEvents)
                 const eventsBeforeFiltering: RecordingEventType[] = sessionEventsData?.events ?? []
                 const events: RecordingEventType[] = filters?.query
                     ? new Fuse<RecordingEventType>(makeEventsQueryable(eventsBeforeFiltering), {

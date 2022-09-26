@@ -1,5 +1,6 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { sum, toParams } from 'lib/utils'
 import {
@@ -13,6 +14,7 @@ import {
     SessionRecordingEvents,
     SessionRecordingId,
     SessionRecordingMeta,
+    SessionRecordingType,
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -115,6 +117,7 @@ const calculateBufferedTo = (
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
     recordingStartTime?: string
+    matching?: SessionRecordingType['matching_events']
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -125,8 +128,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         logic: [eventUsageLogic],
         values: [teamLogic, ['currentTeamId']],
     }),
+    propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
+        console.log('MATCHING', matching, oldMatching)
+        if (!equal(matching, oldMatching)) {
+            actions.setMatching(matching)
+        }
+    }),
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
+        setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
         reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({
             recordingData,
             loadTime,
@@ -147,6 +157,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionRecordingId | null,
             {
                 loadRecording: (_, { sessionRecordingId }) => sessionRecordingId ?? null,
+            },
+        ],
+        matching: [
+            [] as SessionRecordingType['matching_events'],
+            {
+                setMatching: (_, { matching }) => matching ?? [],
             },
         ],
         chunkPaginationIndex: [
@@ -422,6 +438,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     before: dayjs.utc(recordingEndTime).add(buffer_ms, 'ms').format(),
                     orderBy: ['timestamp'],
                 }
+            },
+        ],
+        matchingEvents: [
+            (s) => [s.matching],
+            (matching) => {
+                console.log('MATCHING EVENTS data', matching)
+                return (matching ?? []).map((filterMatches) => filterMatches.events).flat()
             },
         ],
     }),

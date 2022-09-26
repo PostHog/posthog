@@ -38,6 +38,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                             <SessionRecordingPlayerV3
                                 playerKey="drawer"
                                 sessionRecordingId={activeSessionRecording?.id}
+                                matching={activeSessionRecording?.matching_events}
                                 includeMeta={false}
                             />
                         )}

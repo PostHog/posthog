@@ -749,7 +749,7 @@ export interface SessionRecordingType {
     /** When the recording ends in ISO format. */
     end_time: string
     /** List of matching events. **/
-    matching_events?: MatchedRecordingEvents[]
+    matching_events?: MatchedRecording[]
     distinct_id?: string
     email?: string
     person?: PersonType
@@ -2053,6 +2053,7 @@ export interface SessionRecordingPlayerProps {
     playerKey: string
     includeMeta?: boolean
     recordingStartTime?: string
+    matching?: MatchedRecording[]
 }
 
 export enum FeatureFlagReleaseType {

@@ -32,10 +32,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect(({ sessionRecordingId, playerKey, recordingStartTime }: SessionRecordingPlayerLogicProps) => ({
+    connect(({ sessionRecordingId, playerKey, recordingStartTime, matching }: SessionRecordingPlayerLogicProps) => ({
         logic: [eventUsageLogic],
         values: [
-            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
+            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime, matching }),
             [
                 'sessionRecordingId',
                 'sessionPlayerData',
@@ -49,7 +49,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['speed', 'skipInactivitySetting'],
         ],
         actions: [
-            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
+            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime, matching }),
             ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess'],
             sharedListLogic({ sessionRecordingId, playerKey }),
             ['setTab'],
