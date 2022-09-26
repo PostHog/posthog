@@ -67,7 +67,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                         onClick: (e) => {
                             // Lets the link to the person open the person's page and not the session recording
                             if (!(e.target as HTMLElement).closest('a')) {
-                                openSessionPlayer(sessionRecording.id)
+                                openSessionPlayer({ id: sessionRecording.id })
                                 window.scrollTo({
                                     left: 0,
                                     top: playlistRef?.current?.offsetTop ? playlistRef.current.offsetTop - 8 : 0,

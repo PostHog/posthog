@@ -16,7 +16,7 @@ describe('sessionPlayerDrawerLogic', () => {
             expectLogic(logic).toMatchValues({ activeSessionRecordingId: null })
         })
         it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
-            expectLogic(logic, () => logic.actions.openSessionPlayer('abc')).toMatchValues({
+            expectLogic(logic, () => logic.actions.openSessionPlayer({ id: 'abc' })).toMatchValues({
                 activeSessionRecordingId: 'abc',
             })
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')

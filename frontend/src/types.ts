@@ -569,12 +569,13 @@ export interface PersonListParams {
 }
 
 interface MatchedRecordingEvents {
-    uuid: string
+    id: string
+    session_id: string
     window_id: string
     timestamp: string
 }
 export interface MatchedRecording {
-    session_id: string
+    session_id?: string
     events: MatchedRecordingEvents[]
 }
 
@@ -747,6 +748,8 @@ export interface SessionRecordingType {
     start_time: string
     /** When the recording ends in ISO format. */
     end_time: string
+    /** List of matching events. **/
+    matching_events?: MatchedRecordingEvents[]
     distinct_id?: string
     email?: string
     person?: PersonType

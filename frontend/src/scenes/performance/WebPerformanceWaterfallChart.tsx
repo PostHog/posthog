@@ -271,7 +271,8 @@ function WaterfallChart(): JSX.Element {
                                 <MultiRecordingButton
                                     sessionRecordings={sessionRecording}
                                     onOpenRecording={(matchedRecording) => {
-                                        openSessionPlayer(matchedRecording.session_id)
+                                        matchedRecording?.session_id &&
+                                            openSessionPlayer({ id: matchedRecording.session_id })
                                     }}
                                 />
                             </div>

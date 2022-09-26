@@ -91,7 +91,7 @@ describe('sessionRecordingsTableLogic', () => {
                 expectLogic(logic).toMatchValues({ activeSessionRecordingId: null })
             })
             it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
-                expectLogic(logic, () => logic.actions.openSessionPlayer('abc')).toMatchValues({
+                expectLogic(logic, () => logic.actions.openSessionPlayer({ id: 'abc' })).toMatchValues({
                     activeSessionRecordingId: 'abc',
                 })
                 expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
@@ -229,7 +229,7 @@ describe('sessionRecordingsTableLogic', () => {
                 })
 
                 expectLogic(logic, () => {
-                    logic.actions.openSessionPlayer('abc')
+                    logic.actions.openSessionPlayer({ id: 'abc' })
                 }).toMatchValues({
                     sessionRecordings: [
                         {
@@ -298,7 +298,7 @@ describe('sessionRecordingsTableLogic', () => {
             logic.mount()
         })
         it('mounts and loads the recording when a recording is opened', () => {
-            expectLogic(logic, async () => await logic.actions.openSessionPlayer('abcd'))
+            expectLogic(logic, async () => await logic.actions.openSessionPlayer({ id: 'abcd' }))
                 .toMount(sessionRecordingDataLogic({ sessionRecordingId: 'abcd' }))
                 .toDispatchActions(['loadEntireRecording'])
         })

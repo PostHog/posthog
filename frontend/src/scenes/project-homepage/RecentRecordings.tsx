@@ -30,7 +30,7 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
         <LemonButton
             fullWidth
             onClick={() => {
-                openSessionPlayer(recording.id)
+                openSessionPlayer(recording)
                 reportRecordingOpenedFromRecentRecordingList()
             }}
         >

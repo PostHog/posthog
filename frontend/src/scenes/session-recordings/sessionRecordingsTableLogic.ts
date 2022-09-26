@@ -74,8 +74,8 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
     },
     actions: {
         getSessionRecordings: true,
-        openSessionPlayer: (sessionRecordingId: SessionRecordingId | null) => ({
-            sessionRecordingId,
+        openSessionPlayer: (sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'> | null) => ({
+            sessionRecording,
         }),
         closeSessionPlayer: true,
         setEntityFilters: (filters: Partial<FilterType>) => ({ filters }),
@@ -138,16 +138,16 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
                 getSessionRecordingsSuccess: (_, { sessionRecordingsResponse }) => {
                     return [...sessionRecordingsResponse.results]
                 },
-                openSessionPlayer: (sessionRecordings, { sessionRecordingId }) => {
+                openSessionPlayer: (prevSessionRecordings, { sessionRecording }) => {
                     return [
-                        ...sessionRecordings.map((sessionRecording) => {
-                            if (sessionRecording.id === sessionRecordingId) {
+                        ...prevSessionRecordings.map((s) => {
+                            if (s.id === sessionRecording?.id) {
                                 return {
-                                    ...sessionRecording,
+                                    ...s,
                                     viewed: true,
                                 }
                             } else {
-                                return { ...sessionRecording }
+                                return { ...s }
                             }
                         }),
                     ]
@@ -157,7 +157,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
         activeSessionRecordingId: [
             null as SessionRecordingId | null,
             {
-                openSessionPlayer: (_, { sessionRecordingId }) => sessionRecordingId,
+                openSessionPlayer: (_, { sessionRecording }) => sessionRecording?.id ?? null,
                 closeSessionPlayer: () => null,
             },
         ],
@@ -221,7 +221,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
         },
         getSessionRecordingsSuccess: () => {
             if (props.isPlaylist && !values.activeSessionRecordingId && values.sessionRecordings.length > 0) {
-                actions.openSessionPlayer(values.sessionRecordings[0].id)
+                actions.openSessionPlayer(values.sessionRecordings[0])
             }
         },
     }),
@@ -294,8 +294,8 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
     urlToAction: ({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
             const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
-            if (nulledSessionRecordingId !== values.activeSessionRecordingId) {
-                actions.openSessionPlayer(nulledSessionRecordingId)
+            if (nulledSessionRecordingId && nulledSessionRecordingId !== values.activeSessionRecordingId) {
+                actions.openSessionPlayer({ id: nulledSessionRecordingId })
             }
 
             const filters = params.filters
