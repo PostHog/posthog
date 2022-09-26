@@ -7,7 +7,7 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+       AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
        AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC') ) events
   '
 ---
@@ -30,7 +30,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+       AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
        AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC') )
   GROUP BY actor_id
   LIMIT 100
@@ -48,9 +48,9 @@
      from
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+                         toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
                          toStartOfDay(toDateTime(timestamp, 'UTC')) as date
         FROM
@@ -66,7 +66,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -110,9 +110,9 @@
      from
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+                         toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toDateTime(timestamp, 'UTC')) as date
         FROM
@@ -121,7 +121,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
-             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC')
              AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
         GROUP BY date)
@@ -168,9 +168,9 @@
      from
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+                         toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toDateTime(timestamp, 'UTC')) as date
         FROM
@@ -178,7 +178,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
-             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -221,7 +221,7 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2012-01-01 04:01:34', 'UTC')
+       AND timestamp >= toDateTime('2012-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -248,7 +248,7 @@
            FROM
              (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - number * 86400) as day_start
               FROM numbers(15)
-              UNION ALL SELECT toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -277,7 +277,7 @@
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
-                   AND timestamp >= toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+                   AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
                    AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC')
                    AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']) )
               GROUP BY person_id,
@@ -331,9 +331,9 @@
      from
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+                         toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
                          toStartOfDay(toDateTime(timestamp, 'UTC')) as date
         FROM
@@ -352,7 +352,7 @@
                  HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
               WHERE team_id = 2
                 AND event = '$pageview'
-                AND timestamp >= toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+                AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
                 AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC') )
            GROUP BY person_id)
         GROUP BY date)
@@ -396,7 +396,7 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2012-01-01 04:01:34', 'UTC')
+       AND timestamp >= toDateTime('2012-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -423,7 +423,7 @@
            FROM
              (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - number * 86400) as day_start
               FROM numbers(15)
-              UNION ALL SELECT toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -437,7 +437,7 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
-             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval'])
            GROUP BY day_start,
@@ -509,7 +509,7 @@
              AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2012-01-01 04:01:34', 'UTC')
+       AND timestamp >= toDateTime('2012-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -536,7 +536,7 @@
            FROM
              (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - number * 86400) as day_start
               FROM numbers(15)
-              UNION ALL SELECT toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -597,7 +597,7 @@
                        breakdown_value
               ORDER BY d.timestamp)
            WHERE 11111 = 11111
-             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC') ))
      GROUP BY day_start,
               breakdown_value
@@ -660,9 +660,9 @@
      from
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+                         toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
                          toStartOfDay(toDateTime(timestamp, 'UTC')) as date
         FROM
@@ -678,7 +678,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 04:01:34', 'UTC'))
+             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -696,9 +696,9 @@
      from
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-14 04:01:34', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-14 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-14 04:01:34', 'UTC'))
+                         toStartOfDay(toDateTime('2012-01-14 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
                          toStartOfDay(toDateTime(timestamp, 'UTC')) as date
         FROM
@@ -714,7 +714,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND timestamp >= toDateTime('2012-01-14 04:01:34', 'UTC')
+             AND timestamp >= toDateTime('2012-01-14 00:00:00', 'UTC')
              AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -732,9 +732,9 @@
      from
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2012-01-14 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 04:01:34', 'UTC')), toDateTime('2012-01-14 23:59:59', 'UTC')))
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC')), toDateTime('2012-01-14 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2011-12-31 04:01:34', 'UTC'))
+                         toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
                          toStartOfDay(toDateTime(timestamp, 'UTC')) as date
         FROM
@@ -750,7 +750,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND timestamp >= toStartOfDay(toDateTime('2011-12-31 04:01:34', 'UTC'))
+             AND timestamp >= toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2012-01-14 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -768,9 +768,9 @@
      from
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2012-01-16 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-02 04:01:34', 'UTC')), toDateTime('2012-01-16 23:59:59', 'UTC')))
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC')), toDateTime('2012-01-16 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-02 04:01:34', 'UTC'))
+                         toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
                          toStartOfDay(toDateTime(timestamp, 'UTC')) as date
         FROM
@@ -786,7 +786,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND timestamp >= toStartOfDay(toDateTime('2012-01-02 04:01:34', 'UTC'))
+             AND timestamp >= toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2012-01-16 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
