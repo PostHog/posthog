@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import {
     registerables,
     ActiveElement,
@@ -22,7 +22,7 @@ import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
-import { AnnotationsOverlay, annotationsOverlayLogic } from 'lib/components/AnnotationsOverlay'
+import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
@@ -634,20 +634,14 @@ export function LineGraph_({
         <div className="LineGraph absolute w-full h-full overflow-hidden" data-attr={dataAttr}>
             <canvas ref={canvasRef} />
             {myLineChart && showAnnotations && (
-                <BindLogic
-                    logic={annotationsOverlayLogic}
-                    props={{
-                        dashboardItemId: insightProps.dashboardItemId,
-                        insightNumericId: insight.id || 'new',
-                    }}
-                >
-                    <AnnotationsOverlay
-                        chart={myLineChart}
-                        dates={datasets[0]?.days || []}
-                        chartWidth={chartWidth}
-                        chartHeight={chartHeight}
-                    />
-                </BindLogic>
+                <AnnotationsOverlay
+                    chart={myLineChart}
+                    dates={datasets[0]?.days || []}
+                    chartWidth={chartWidth}
+                    chartHeight={chartHeight}
+                    dashboardItemId={insightProps.dashboardItemId}
+                    insightNumericId={insight.id || 'new'}
+                />
             )}
         </div>
     )
