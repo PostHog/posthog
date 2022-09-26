@@ -522,7 +522,6 @@ export interface SessionRecordingsResponse {
 export enum ExploreCategory {
     'People' = 'people',
     'Events' = 'events',
-    'Cohorts' = 'cohorts',
     'Recordings' = 'recordings',
 }
 

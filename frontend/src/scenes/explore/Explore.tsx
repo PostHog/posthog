@@ -7,6 +7,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { LemonTable } from 'lib/components/LemonTable'
 import { ExploreCategory } from '~/types'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 export const scene: SceneExport = {
     component: Explore,
@@ -14,23 +15,23 @@ export const scene: SceneExport = {
 }
 
 export function Explore(): JSX.Element {
-    const { category, rows, rawDataLoading } = useValues(exploreLogic)
-    const { setCategory } = useActions(exploreLogic)
+    const { category, rows, rawDataLoading, filters } = useValues(exploreLogic)
+    const { setCategory, setFilters } = useActions(exploreLogic)
 
     return (
         <div className="ExploreScene space-y-2">
-            <PageHeader title="Explore Data" />
+            <PageHeader title="Explore" />
 
             <div className="flex items-center">
-                Show me
+                <div className="mr-2">Show me</div>
                 <LemonSelect
                     onChange={(e) => setCategory(e as ExploreCategory)}
                     value={category}
                     options={categorySelectOptions}
                     size="small"
-                    className="ml-2 mr-2"
                 />
-                that [Have property | Belong to COHORT | Have done Y]
+                <div className="ml-2 mr-2">where</div>
+                <PropertyFilters propertyFilters={filters} onChange={setFilters} pageKey={'explore-filters'} />
             </div>
 
             <LemonTable
