@@ -1,14 +1,10 @@
 import React, { useEffect, useRef } from 'react'
 import {
-    registerables,
     ActiveElement,
     Chart,
     ChartEvent,
     ChartItem,
     ChartType,
-    ChartPluginsOptions,
-    PluginOptionsByType,
-    ChartTypeRegistry,
     TooltipModel,
     ChartOptions,
     ChartDataset,
@@ -23,8 +19,7 @@ import {
     onChartClick,
     onChartHover,
 } from 'scenes/insights/views/LineGraph/LineGraph'
-import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
-import { _DeepPartialObject } from 'chart.js/types/utils'
+import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import ReactDOM from 'react-dom'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useValues } from 'kea'
@@ -34,12 +29,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
-if (registerables) {
-    // required for storybook to work, not found in esbuild
-    Chart.register(...registerables)
-}
-Chart.register(CrosshairPlugin)
-Chart.defaults.animation['duration'] = 0
+import './chartjsSetup'
 
 let timer: NodeJS.Timeout | null = null
 
@@ -214,7 +204,7 @@ export function PieChart({
                             setTooltipPosition(chart, tooltipEl)
                         },
                     },
-                } as _DeepPartialObject<PluginOptionsByType<keyof ChartTypeRegistry>> & ChartPluginsOptions,
+                },
             } as ChartOptions<'pie'>,
         })
         return () => newChart.destroy()

@@ -12,13 +12,11 @@ import {
     ChartType,
     Color,
     InteractionItem,
-    registerables,
     TickOptions,
-    Tooltip,
     TooltipModel,
     TooltipOptions,
 } from 'chart.js'
-import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
+import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
@@ -33,17 +31,7 @@ import { AggregationAxisFormat, formatAggregationAxisValue } from 'scenes/insigh
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
-if (registerables) {
-    // required for storybook to work, not found in esbuild
-    Chart.register(...registerables)
-}
-Chart.register(CrosshairPlugin)
-Chart.defaults.animation['duration'] = 0
-
-// Create positioner to put tooltip at cursor position
-Tooltip.positioners.cursor = function (_, coordinates) {
-    return coordinates
-}
+import './chartjsSetup'
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
