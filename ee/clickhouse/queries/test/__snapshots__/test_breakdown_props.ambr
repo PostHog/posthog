@@ -76,7 +76,7 @@
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2019-12-21 13:01:01', 'UTC')
+       AND timestamp >= toDateTime('2019-12-21 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -108,7 +108,7 @@
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2019-12-21 13:01:01', 'UTC')
+       AND timestamp >= toDateTime('2019-12-21 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -146,7 +146,7 @@
         AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '') ILIKE '%test%'))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2019-12-21 13:01:01', 'UTC')
+       AND timestamp >= toDateTime('2019-12-21 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
        AND ((has(['test2'], replaceRegexpAll(JSONExtractRaw(person_props, '$os'), '^"|"$', ''))
              OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
