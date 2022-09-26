@@ -1396,19 +1396,19 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfWeek(toDateTime('2020-01-26 23:59:59') - toIntervalWeek(number), 0, 'US/Pacific') AS day_start
-        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 08:00:00'), 0, 'US/Pacific'), toDateTime('2020-01-26 23:59:59'), 'US/Pacific'))
+               toStartOfWeek(toDateTime('2020-01-25 23:59:59', 'US/Pacific') - toIntervalWeek(number), 0) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-11 23:00:00', 'US/Pacific'), 0), toDateTime('2020-01-25 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfWeek(toDateTime('2020-01-12 08:00:00'), 0, 'US/Pacific')
+                         toStartOfWeek(toDateTime('2020-01-11 23:00:00', 'US/Pacific'), 0)
         UNION ALL SELECT count(*) as data,
-                         toStartOfWeek(toDateTime(timestamp), 0, 'US/Pacific') as date
+                         toStartOfWeek(toDateTime(timestamp, 'US/Pacific'), 0) as date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2020-01-12 08:00:00'), 0), 'US/Pacific'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-26 23:59:59') )
+             AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2020-01-11 23:00:00'), 0), 'US/Pacific'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-25 23:59:59', 'US/Pacific') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1424,19 +1424,19 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-05 23:59:59') - toIntervalDay(number), 'US/Pacific') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 23:59:59'), 'US/Pacific'))
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'US/Pacific') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 05:01:01', 'US/Pacific')), toDateTime('2020-01-05 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+                         toStartOfDay(toDateTime('2019-12-29 05:01:01', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
+                         toStartOfDay(toDateTime(timestamp, 'US/Pacific')) as date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-29 08:00:00')), 'US/Pacific'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-05 23:59:59') )
+             AND timestamp >= toStartOfDay(toDateTime('2019-12-29 05:01:01', 'US/Pacific'))
+             AND timestamp <= toDateTime('2020-01-05 23:59:59', 'US/Pacific') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1452,12 +1452,12 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-05 23:59:59') - toIntervalDay(number), 'US/Pacific') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 23:59:59'), 'US/Pacific'))
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'US/Pacific') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 05:01:01', 'US/Pacific')), toDateTime('2020-01-05 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-22 08:00:00'), 'US/Pacific')
+                         toStartOfDay(toDateTime('2019-12-22 05:01:01', 'US/Pacific'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
+                         toStartOfDay(toDateTime(timestamp, 'US/Pacific')) as date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -1471,8 +1471,8 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-22 08:00:00')), 'US/Pacific'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-05 23:59:59') )
+             AND timestamp >= toStartOfDay(toDateTime('2019-12-22 05:01:01', 'US/Pacific'))
+             AND timestamp <= toDateTime('2020-01-05 23:59:59', 'US/Pacific') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1488,10 +1488,10 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-05 23:59:59') - toIntervalDay(number), 'US/Pacific') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 23:59:59'), 'US/Pacific'))
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'US/Pacific') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 05:01:01', 'US/Pacific')), toDateTime('2020-01-05 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+                         toStartOfDay(toDateTime('2019-12-29 05:01:01', 'US/Pacific'))
         UNION ALL SELECT counts as total,
                          timestamp as day_start
         FROM
@@ -1502,7 +1502,7 @@
               FROM events
               WHERE team_id = 2
                 AND timestamp >= '2019-12-22 00:00:00'
-                AND timestamp <= toDateTime('2020-01-05 23:59:59')
+                AND timestamp <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
               GROUP BY timestamp) d
            CROSS JOIN
              (SELECT toStartOfDay(toDateTime(timestamp, 'US/Pacific')) as timestamp,
@@ -1521,10 +1521,10 @@
                  WHERE team_id = 2
                    AND event = 'sign up'
                    AND timestamp >= '2019-12-22 00:00:00'
-                   AND timestamp <= toDateTime('2020-01-05 23:59:59') ) events
+                   AND timestamp <= toDateTime('2020-01-05 23:59:59', 'US/Pacific') ) events
               WHERE 1 = 1
                 AND timestamp >= '2019-12-22 00:00:00'
-                AND timestamp <= toDateTime('2020-01-05 23:59:59')
+                AND timestamp <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
               GROUP BY timestamp,
                        person_id) e
            WHERE e.timestamp <= d.timestamp
@@ -1532,8 +1532,8 @@
            GROUP BY d.timestamp
            ORDER BY d.timestamp)
         WHERE 1 = 1
-          AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-29 08:00:00')), 'US/Pacific'), 'UTC')
-          AND timestamp <= toDateTime('2020-01-05 23:59:59') )
+          AND timestamp >= toStartOfDay(toDateTime('2019-12-29 05:01:01', 'US/Pacific'))
+          AND timestamp <= toDateTime('2020-01-05 23:59:59', 'US/Pacific') )
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
@@ -1548,19 +1548,19 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-05 23:59:59') - toIntervalDay(number), 'US/Pacific') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 23:59:59'), 'US/Pacific'))
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'US/Pacific') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 05:01:01', 'US/Pacific')), toDateTime('2020-01-05 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+                         toStartOfDay(toDateTime('2019-12-29 05:01:01', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
+                         toStartOfDay(toDateTime(timestamp, 'US/Pacific')) as date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-29 08:00:00')), 'US/Pacific'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-05 23:59:59') )
+             AND timestamp >= toStartOfDay(toDateTime('2019-12-29 05:01:01', 'US/Pacific'))
+             AND timestamp <= toDateTime('2020-01-05 23:59:59', 'US/Pacific') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1576,8 +1576,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2019-12-29 08:00:00')
-       AND timestamp <= toDateTime('2020-01-05 23:59:59')
+       AND timestamp >= toDateTime('2019-12-29 05:01:01', 'US/Pacific')
+       AND timestamp <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1603,7 +1603,7 @@
            FROM
              (SELECT toStartOfDay(toDateTime('2020-01-05 23:59:59', 'US/Pacific') - number * 86400) as day_start
               FROM numbers(8)
-              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-29 08:00:00', 'US/Pacific')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-29 05:01:01', 'US/Pacific')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -1624,8 +1624,8 @@
               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-29 08:00:00')), 'US/Pacific'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-05 23:59:59')
+             AND timestamp >= toStartOfDay(toDateTime('2019-12-29 05:01:01', 'US/Pacific'))
+             AND timestamp <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
            GROUP BY day_start,
                     breakdown_value))
@@ -1647,19 +1647,19 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfHour(toDateTime('2020-01-04 07:59:59') - toIntervalHour(number), 'US/Pacific') AS day_start
-        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-03 08:00:00'), 'US/Pacific'), toDateTime('2020-01-04 07:59:59'), 'US/Pacific'))
+               toStartOfHour(toDateTime('2020-01-03 23:59:59', 'US/Pacific') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-03 00:00:00', 'US/Pacific')), toDateTime('2020-01-03 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfHour(toDateTime('2020-01-03 08:00:00'), 'US/Pacific')
+                         toStartOfHour(toDateTime('2020-01-03 00:00:00', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
-                         toStartOfHour(toDateTime(timestamp), 'US/Pacific') as date
+                         toStartOfHour(toDateTime(timestamp, 'US/Pacific')) as date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toTimezone(toDateTime(toStartOfHour(toDateTime('2020-01-03 08:00:00')), 'US/Pacific'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-04 07:59:59') )
+             AND timestamp >= toStartOfHour(toDateTime('2020-01-03 00:00:00', 'US/Pacific'))
+             AND timestamp <= toDateTime('2020-01-03 23:59:59', 'US/Pacific') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1675,19 +1675,19 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-04 07:59:59') - toIntervalDay(number), 'US/Pacific') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 08:00:00'), 'US/Pacific'), toDateTime('2020-01-04 07:59:59'), 'US/Pacific'))
+               toStartOfDay(toDateTime('2020-01-03 23:59:59', 'US/Pacific') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'US/Pacific')), toDateTime('2020-01-03 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-03 08:00:00'), 'US/Pacific')
+                         toStartOfDay(toDateTime('2020-01-03 00:00:00', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
+                         toStartOfDay(toDateTime(timestamp, 'US/Pacific')) as date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toDateTime('2020-01-03 08:00:00')
-             AND timestamp <= toDateTime('2020-01-04 07:59:59') )
+             AND timestamp >= toDateTime('2020-01-03 00:00:00', 'US/Pacific')
+             AND timestamp <= toDateTime('2020-01-03 23:59:59', 'US/Pacific') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -2195,13 +2195,13 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfWeek(toDateTime('2020-01-04 23:59:59') - toIntervalWeek(number), 0, 'UTC') AS day_start
-        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+               toStartOfWeek(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalWeek(number), 0) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
+                         toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0)
         UNION ALL SELECT quantile(0.50)(session_duration) as data, date
         FROM
-          (SELECT toStartOfWeek(toDateTime(timestamp), 0, 'UTC') as date,
+          (SELECT toStartOfWeek(toDateTime(timestamp, 'UTC'), 0) as date,
                   any(session_duration) as session_duration
            FROM
              (SELECT e.timestamp as timestamp,
@@ -2215,13 +2215,13 @@
                  FROM events
                  WHERE $session_id != ''
                    AND team_id = 2
-                   AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
-                   AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+                   AND timestamp >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                   AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
                  GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
               WHERE team_id = 2
                 AND event = 'sign up'
                 AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0), 'UTC'), 'UTC')
-                AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+                AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC') )
            GROUP BY $session_id, date)
         GROUP BY date)
      group by day_start
@@ -2238,13 +2238,13 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-04 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+                         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
         UNION ALL SELECT quantile(0.50)(session_duration) as data, date
         FROM
-          (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as date,
+          (SELECT toStartOfDay(toDateTime(timestamp, 'UTC')) as date,
                   any(session_duration) as session_duration
            FROM
              (SELECT e.timestamp as timestamp,
@@ -2258,13 +2258,13 @@
                  FROM events
                  WHERE $session_id != ''
                    AND team_id = 2
-                   AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
-                   AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+                   AND timestamp >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                   AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
                  GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
               WHERE team_id = 2
                 AND event = 'sign up'
-                AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
-                AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+                AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+                AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC') )
            GROUP BY $session_id, date)
         GROUP BY date)
      group by day_start
@@ -2285,13 +2285,13 @@
         FROM events
         WHERE $session_id != ''
           AND team_id = 2
-          AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
-          AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+          AND timestamp >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2019-12-28 00:00:00')
-       AND timestamp <= toDateTime('2020-01-04 23:59:59')
+       AND timestamp >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2335,7 +2335,7 @@
               FROM
                 (SELECT $session_id,
                         session_duration,
-                        toStartOfWeek(timestamp, 0, 'UTC') as day_start,
+                        toStartOfWeek(toTimezone(timestamp, 'UTC'), 0) as day_start,
                         replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
                  FROM events e
                  INNER JOIN
@@ -2344,13 +2344,13 @@
                     FROM events
                     WHERE $session_id != ''
                       AND team_id = 2
-                      AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
-                      AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+                      AND timestamp >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                      AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
                     GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
                  WHERE e.team_id = 2
                    AND event = 'sign up'
                    AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0), 'UTC'), 'UTC')
-                   AND timestamp <= toDateTime('2020-01-04 23:59:59')
+                   AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
               GROUP BY $session_id,
                        day_start,
@@ -2379,13 +2379,13 @@
         FROM events
         WHERE $session_id != ''
           AND team_id = 2
-          AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
-          AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+          AND timestamp >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2019-12-28 00:00:00')
-       AND timestamp <= toDateTime('2020-01-04 23:59:59')
+       AND timestamp >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2429,7 +2429,7 @@
               FROM
                 (SELECT $session_id,
                         session_duration,
-                        toStartOfDay(timestamp, 'UTC') as day_start,
+                        toStartOfDay(toTimezone(timestamp, 'UTC')) as day_start,
                         replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
                  FROM events e
                  INNER JOIN
@@ -2438,13 +2438,13 @@
                     FROM events
                     WHERE $session_id != ''
                       AND team_id = 2
-                      AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
-                      AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+                      AND timestamp >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                      AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
                     GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
                  WHERE e.team_id = 2
                    AND event = 'sign up'
-                   AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
-                   AND timestamp <= toDateTime('2020-01-04 23:59:59')
+                   AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+                   AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
               GROUP BY $session_id,
                        day_start,

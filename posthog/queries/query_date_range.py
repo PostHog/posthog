@@ -93,6 +93,11 @@ class QueryDateRange:
         elif match.group("type") == "d":
             if match.group("number"):
                 date -= relativedelta(days=int(match.group("number")))
+
+            if match.group("position") == "Start":
+                date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+            if match.group("position") == "End":
+                date = date.replace(hour=23, minute=59, second=59, microsecond=59)
         elif match.group("type") == "w":
             if match.group("number"):
                 date -= relativedelta(weeks=int(match.group("number")))
@@ -113,6 +118,7 @@ class QueryDateRange:
                 date -= relativedelta(month=1, day=1)
             if match.group("position") == "End":
                 date -= relativedelta(month=12, day=31)
+
         return date
 
     @cached_property
@@ -160,9 +166,7 @@ class QueryDateRange:
             return f"AND {self._table}timestamp {operator} toDateTime(%({date_clause})s, %(timezone)s)"
 
     def _timezone_date_clause(self, date_clause: str) -> str:
-        clause = (
-            f"toTimezone(toDateTime({self.interval_annotation}(toDateTime(%({date_clause})s)), %(timezone)s), 'UTC')"
-        )
+        clause = f"{self.interval_annotation}(toDateTime(%({date_clause})s, %(timezone)s))"
 
         if self.interval_annotation == "toStartOfWeek":
             return f"toTimezone(toDateTime(toStartOfWeek(toDateTime(%({date_clause})s), 0), %(timezone)s), 'UTC')"
