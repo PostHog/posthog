@@ -82,14 +82,9 @@ export function InsightsTable({
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
-    const logic = insightsTableLogic({ hasMathUniqueFilter })
-    const { calcColumnState } = useValues(logic)
+    const logic = insightsTableLogic({ hasMathUniqueFilter, filters })
+    const { calcColumnState, showTotalCount } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
-
-    // Only allow table aggregation options when the math is total volume otherwise double counting will happen when the math is set to uniques
-    const showTotalCount =
-        filters.actions?.every((entity) => entity.math === 'total' || entity.math === 'sum' || !entity.math) &&
-        filters.events?.every((entity) => entity.math === 'total' || entity.math === 'sum' || !entity.math)
 
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
