@@ -81,7 +81,7 @@ export type PromptState = {
 
 export type ValidSequenceWithState = {
     sequence: PromptSequence
-    state: { step: number; completed?: boolean; dismissed?: boolean }
+    state: { step: number; completed?: boolean; canRun?: boolean }
 }
 
 export type PromptUserState = {
@@ -265,11 +265,11 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             { persist: true, prefix: CACHE_PREFIX },
             {
                 optIntProductTour: () => true,
-                optOutProductTour: () => true,
+                optOutProductTour: () => false,
             },
         ],
         validSequences: [
-            [] as { sequence: PromptSequence; state: { step: number; completed?: boolean; dismissed?: boolean } }[],
+            [] as ValidSequenceWithState[],
             {
                 setValidSequences: (_, { validSequences }) => validSequences,
             },
@@ -403,10 +403,10 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                     if (values.userState[sequence.key]) {
                         const sequenceState = values.userState[sequence.key]
                         const completed = !!sequenceState.completed || sequenceState.step === sequence.prompts.length
-                        const dismissed = !!sequenceState.dismissed || isProductTourDismissed
+                        const canRun = sequenceState.dismissed && !isProductTourDismissed
                         if (
                             sequence.type !== 'product-tour' &&
-                            (completed || dismissed || sequenceState.step === sequence.prompts.length)
+                            (completed || !canRun || sequenceState.step === sequence.prompts.length)
                         ) {
                             continue
                         }
@@ -415,11 +415,11 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                             state: {
                                 step: sequenceState.step + 1,
                                 completed,
-                                dismissed,
+                                canRun,
                             },
                         })
                     } else {
-                        valid.push({ sequence, state: { step: 0, dismissed: isProductTourDismissed } })
+                        valid.push({ sequence, state: { step: 0, canRun: !isProductTourDismissed } })
                     }
                 }
             }
@@ -438,7 +438,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                     firstValid = values.validSequences[0]
                 } else {
                     firstValid = values.validSequences.filter(
-                        (sequence) => !sequence.state.completed && !sequence.state.dismissed
+                        (sequence) => !sequence.state.completed && sequence.state.canRun
                     )?.[0]
                 }
                 if (firstValid) {
