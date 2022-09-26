@@ -273,7 +273,6 @@ class TrendsBreakdown:
                 interval=interval_annotation, num_intervals=num_intervals, inner_sql=inner_sql
             )
             self.params.update({"seconds_in_interval": seconds_in_interval, "num_intervals": num_intervals})
-
             return breakdown_query, self.params, self._parse_trend_result(self.filter, self.entity)
 
     def _breakdown_cohort_params(self):

@@ -160,7 +160,6 @@ def get_breakdown_prop_values(
             sessions_join_clauses=sessions_join_clause,
             **entity_format_params,
         )
-
     return sync_execute(
         elements_query,
         {
