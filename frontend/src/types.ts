@@ -519,6 +519,13 @@ export interface SessionRecordingsResponse {
     has_next: boolean
 }
 
+export enum ExploreCategory {
+    'People' = 'people',
+    'Events' = 'events',
+    'Cohorts' = 'cohorts',
+    'Recordings' = 'recordings',
+}
+
 export type EntityType = 'actions' | 'events' | 'new_entity'
 
 export interface Entity {

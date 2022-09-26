@@ -228,6 +228,11 @@ class ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
     }
 
+    // # Sessoin Recordings
+    public sessionRecordings(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings')
+    }
+
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('dashboards')
@@ -816,6 +821,12 @@ const api = {
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
+        },
+    },
+
+    sessionRecordings: {
+        async list(): Promise<PaginatedResponse<IntegrationType>> {
+            return await new ApiRequest().sessionRecordings().get()
         },
     },
 
