@@ -5,9 +5,11 @@ import importlib
 import structlog
 from django.core.management.base import BaseCommand
 
-from posthog.async_migrations.definition import AsyncMigrationOperation, AsyncMigrationOperationSQL
+from posthog.async_migrations.definition import AsyncMigrationOperation
 
-mig_0007_module = importlib.import_module("posthog.async_migrations.migrations.0007_persons_and_groups_on_events_backfill")
+mig_0007_module = importlib.import_module(
+    "posthog.async_migrations.migrations.0007_persons_and_groups_on_events_backfill"
+)
 
 logger = structlog.get_logger(__name__)
 

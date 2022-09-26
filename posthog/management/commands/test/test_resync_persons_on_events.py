@@ -6,7 +6,7 @@ from django.conf import settings
 
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
-from posthog.management.commands.backfill_persons_and_groups_on_events import run_backfill
+from posthog.management.commands.resync_persons_on_events import run_resync
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
@@ -23,7 +23,7 @@ def create_test_events(properties=""):
 
 
 @pytest.mark.ee
-class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
+class TestOnEvents(BaseTest, ClickhouseTestMixin):
     def tearDown(self):
         self.recreate_database()
         super().tearDown()
@@ -66,7 +66,7 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
             ],
         )
 
-        run_backfill({"team_id": 1, "live_run": True})
+        run_resync({"team_id": 1, "live_run": True})
 
         # even running the backfill synchronusly on tests seems to not be enough to ensure it's done yet
         sleep(10)
@@ -93,7 +93,7 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         events_before = sync_execute("select event, $group_0, group0_properties from events")
         self.assertEqual(events_before, [("event1", "my_group", ""), ("event2", "my_group", "")])
 
-        run_backfill({"team_id": 1, "live_run": True})
+        run_resync({"team_id": 1, "live_run": True})
 
         # even running the backfill synchronusly on tests seems to not be enough to ensure it's done yet
         sleep(10)
