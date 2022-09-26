@@ -149,7 +149,7 @@ class QueryDateRange:
         date_to_query = self.date_to_clause
         date_to = self.date_to_param
 
-        if self._filter.interval != "hour":
+        if self._filter.interval != "hour" and "h" not in self._filter._date_from:
             date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=99999)
 
         date_to_param = {"date_to": date_to.strftime("%Y-%m-%d %H:%M:%S")}
@@ -161,7 +161,7 @@ class QueryDateRange:
         date_from_query = self.date_from_clause
         date_from = self.date_from_param
 
-        if self._filter.interval != "hour":
+        if self._filter.interval != "hour" and "h" not in self._filter._date_from:
             date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
         date_from_param = {"date_from": date_from.strftime("%Y-%m-%d %H:%M:%S")}
