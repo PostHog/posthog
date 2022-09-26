@@ -49,7 +49,7 @@ class QueryDateRange:
         if self._filter._date_from == "all":
             date_from = self.get_earliest_timestamp()
         elif isinstance(self._filter._date_from, str):
-            date_from = self._parse_date(self._filter._date_from, self.date_to_param)
+            date_from = self._parse_date(self._filter._date_from)
         elif isinstance(self._filter._date_from, datetime):
             date_from = self._localize_to_team(self._filter._date_from)
         else:
@@ -71,7 +71,7 @@ class QueryDateRange:
             else target.astimezone(pytz.timezone(self._team.timezone))
         )
 
-    def _parse_date(self, input, reference_date=None):
+    def _parse_date(self, input):
 
         try:
             return datetime.strptime(input, "%Y-%m-%d")
@@ -87,7 +87,7 @@ class QueryDateRange:
 
         regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
         match = re.search(regex, input)
-        date = reference_date or self._now
+        date = self._now
 
         if not match:
             return date
