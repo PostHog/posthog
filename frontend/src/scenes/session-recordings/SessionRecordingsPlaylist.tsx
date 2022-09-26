@@ -20,15 +20,8 @@ interface SessionRecordingsTableProps {
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID, isPlaylist: true })
-    const {
-        sessionRecordings,
-        sessionRecordingsResponseLoading,
-        hasNext,
-        hasPrev,
-        activeSessionRecording,
-        activeSessionRecordingId,
-        offset,
-    } = useValues(sessionRecordingsTableLogicInstance)
+    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecording, offset } =
+        useValues(sessionRecordingsTableLogicInstance)
     const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
     const playlistRef = useRef<HTMLDivElement>(null)
 
@@ -76,7 +69,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                             }
                         },
                     })}
-                    rowStatus={(recording) => (activeSessionRecordingId === recording.id ? 'highlighted' : null)}
+                    rowStatus={(recording) => (activeSessionRecording?.id === recording.id ? 'highlighted' : null)}
                     rowClassName="cursor-pointer"
                     data-attr="session-recording-table"
                     data-tooltip="session-recording-table"
@@ -109,11 +102,11 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                 </div>
             </div>
             <div className="SessionRecordingsPlaylist__right-column">
-                {activeSessionRecordingId ? (
+                {activeSessionRecording?.id ? (
                     <div className="border rounded h-full">
                         <SessionRecordingPlayerV3
                             playerKey="playlist"
-                            sessionRecordingId={activeSessionRecordingId}
+                            sessionRecordingId={activeSessionRecording.id}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                         />
                     </div>

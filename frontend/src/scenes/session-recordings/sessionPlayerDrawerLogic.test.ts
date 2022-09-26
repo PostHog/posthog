@@ -11,29 +11,29 @@ describe('sessionPlayerDrawerLogic', () => {
         logic = sessionPlayerDrawerLogic()
         logic.mount()
     })
-    describe('activeSessionRecordingId', () => {
+    describe('activeSessionRecording', () => {
         it('starts as null', () => {
-            expectLogic(logic).toMatchValues({ activeSessionRecordingId: null })
+            expectLogic(logic).toMatchValues({ activeSessionRecording: null })
         })
         it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
             expectLogic(logic, () => logic.actions.openSessionPlayer({ id: 'abc' })).toMatchValues({
-                activeSessionRecordingId: 'abc',
+                activeSessionRecording: { id: 'abc' },
             })
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
             expectLogic(logic, () => logic.actions.closeSessionPlayer()).toMatchValues({
-                activeSessionRecordingId: null,
+                activeSessionRecording: null,
             })
             expect(router.values.hashParams).not.toHaveProperty('sessionRecordingId')
         })
 
         it('is read from the URL on the session recording page', async () => {
-            router.actions.push('/recordings', {}, { sessionRecordingId: 'recording1212' })
+            router.actions.push('/recordings', {}, { sessionRecording: { id: 'recording1212' } })
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'recording1212')
 
             await expectLogic(logic)
                 .toDispatchActions(['openSessionPlayer'])
-                .toMatchValues({ activeSessionRecordingId: 'recording1212' })
+                .toMatchValues({ activeSessionRecording: { id: 'recording1212' } })
         })
     })
 })

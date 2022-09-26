@@ -154,10 +154,10 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
                 },
             },
         ],
-        activeSessionRecordingId: [
-            null as SessionRecordingId | null,
+        partialSessionRecording: [
+            null as Pick<SessionRecordingType, 'id' | 'matching_events'> | null,
             {
-                openSessionPlayer: (_, { sessionRecording }) => sessionRecording?.id ?? null,
+                openSessionPlayer: (_, { sessionRecording }) => sessionRecording ?? null,
                 closeSessionPlayer: () => null,
             },
         ],
@@ -220,16 +220,16 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
             actions.getSessionRecordings()
         },
         getSessionRecordingsSuccess: () => {
-            if (props.isPlaylist && !values.activeSessionRecordingId && values.sessionRecordings.length > 0) {
+            if (props.isPlaylist && !values.partialSessionRecording?.id && values.sessionRecordings.length > 0) {
                 actions.openSessionPlayer(values.sessionRecordings[0])
             }
         },
     }),
     selectors: {
         activeSessionRecording: [
-            (s) => [s.activeSessionRecordingId, s.sessionRecordings],
-            (sessionRecordingId, sessionRecordings) => {
-                return sessionRecordings.find((sessionRecording) => sessionRecording.id === sessionRecordingId)
+            (s) => [s.partialSessionRecording, s.sessionRecordings],
+            (partialSessionRecording, sessionRecordings) => {
+                return sessionRecordings.find((sessionRecording) => sessionRecording.id === partialSessionRecording?.id)
             },
         ],
         hasPrev: [(s) => [s.offset], (offset) => offset > 0],
@@ -269,10 +269,10 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
             const hashParams: HashParams = {
                 ...router.values.hashParams,
             }
-            if (!values.activeSessionRecordingId) {
+            if (!values.partialSessionRecording?.id) {
                 delete hashParams.sessionRecordingId
             } else {
-                hashParams.sessionRecordingId = values.activeSessionRecordingId
+                hashParams.sessionRecordingId = values.partialSessionRecording.id
             }
 
             return [router.values.location.pathname, params, hashParams, { replace }]
@@ -294,7 +294,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
     urlToAction: ({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
             const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
-            if (nulledSessionRecordingId && nulledSessionRecordingId !== values.activeSessionRecordingId) {
+            if (nulledSessionRecordingId && nulledSessionRecordingId !== values.partialSessionRecording?.id) {
                 actions.openSessionPlayer({ id: nulledSessionRecordingId })
             }
 

@@ -16,10 +16,10 @@ export const sessionPlayerDrawerLogic = kea<sessionPlayerDrawerLogicType>([
         closeSessionPlayer: true,
     }),
     reducers({
-        activeSessionRecordingId: [
-            null as SessionRecordingId | null,
+        activeSessionRecording: [
+            null as Pick<SessionRecordingType, 'id' | 'matching_events'> | null,
             {
-                openSessionPlayer: (_, { sessionRecording }) => sessionRecording?.id,
+                openSessionPlayer: (_, { sessionRecording }) => sessionRecording,
                 closeSessionPlayer: () => null,
             },
         ],
@@ -39,10 +39,10 @@ export const sessionPlayerDrawerLogic = kea<sessionPlayerDrawerLogicType>([
                 ...router.values.hashParams,
             }
 
-            if (!values.activeSessionRecordingId) {
+            if (!values.activeSessionRecording?.id) {
                 delete hashParams.sessionRecordingId
             } else {
-                hashParams.sessionRecordingId = values.activeSessionRecordingId
+                hashParams.sessionRecordingId = values.activeSessionRecording.id
             }
 
             return [router.values.location.pathname, router.values.searchParams, hashParams, { replace }]
@@ -58,7 +58,7 @@ export const sessionPlayerDrawerLogic = kea<sessionPlayerDrawerLogicType>([
             // Check if the logic is still mounted. Because this is called on every URL change, the logic might have been unmounted already.
             if (sessionPlayerDrawerLogic.isMounted()) {
                 const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
-                if (nulledSessionRecordingId && nulledSessionRecordingId !== values.activeSessionRecordingId) {
+                if (nulledSessionRecordingId && nulledSessionRecordingId !== values.activeSessionRecording?.id) {
                     actions.openSessionPlayer({ id: nulledSessionRecordingId })
                 }
             }
