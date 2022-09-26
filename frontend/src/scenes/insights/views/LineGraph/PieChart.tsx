@@ -88,7 +88,7 @@ export function PieChart({
         }
 
         const processedDatasets = datasets.map((dataset) => dataset as ChartDataset<'pie'>)
-
+        const onlyOneValue = processedDatasets?.[0]?.data?.length === 1
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: 'pie',
             data: {
@@ -109,7 +109,7 @@ export function PieChart({
                 },
                 borderWidth: 0,
                 borderRadius: 0,
-                hoverOffset: 16,
+                hoverOffset: onlyOneValue ? 0 : 16, // don't offset hovered segment if it is 100%
                 onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
                     onChartHover(event, chart, onClick)
                 },
