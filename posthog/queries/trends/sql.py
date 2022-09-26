@@ -183,7 +183,7 @@ GROUP BY day_start, breakdown_value
 BREAKDOWN_CUMULATIVE_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    {interval_annotation}(timestamp {start_of_week_fix} %(timezone)s) as day_start,
+    {interval_annotation}(timestamp {start_of_week_fix}, %(timezone)s) as day_start,
     breakdown_value
 FROM (
     SELECT

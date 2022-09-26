@@ -24,7 +24,7 @@ class QueryDateRange:
     @cached_property
     def date_to_param(self) -> datetime:
 
-        if not self._filter._date_to and self._filter.interval == "hour":  # type: ignore
+        if not self._filter._date_to and self._filter.interval == "hour":
             return self._localize_to_team(self._now) + relativedelta(minutes=1)
 
         date_to = self._now
