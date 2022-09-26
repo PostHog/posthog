@@ -4,7 +4,7 @@ import { LemonBadge, LemonBadgeProps } from './LemonBadge'
 import { LemonButton } from '../LemonButton'
 
 export default {
-    title: 'Lemon UI/Lemon Bubble',
+    title: 'Lemon UI/Lemon Badge',
     component: LemonBadge,
 } as ComponentMeta<typeof LemonBadge>
 
