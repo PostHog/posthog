@@ -353,10 +353,13 @@ export function formatBreakdownLabel(
         )
         return `${formattedBucketStart} – ${formattedBucketEnd}`
     }
-    if (typeof breakdown_value == 'number') {
-        if (breakdown_type === 'cohort') {
-            return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? breakdown_value.toString()
+    if (breakdown_type === 'cohort') {
+        // :TRICKY: Different endpoints represent the all users cohort breakdown differently
+        if (breakdown_value === 0 || breakdown_value === 'all') {
+            return 'All Users'
         }
+        return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
+    } else if (typeof breakdown_value == 'number') {
         return formatPropertyValueForDisplay
             ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
             : breakdown_value.toString()
