@@ -26,6 +26,7 @@ import { addGroupProperties } from './groups'
 import { LazyPersonContainer } from './lazy-person-container'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
+import { captureWarning } from './utils'
 
 export class EventsProcessor {
     pluginsServer: Hub
@@ -53,6 +54,13 @@ export class EventsProcessor {
         eventUuid: string
     ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
+            void captureWarning(
+                this.pluginsServer.jobQueueManager,
+                teamId,
+                `Invalid event uuid "${eventUuid}"`,
+                { type: 'invalid_event_uuid' },
+                (eventUuid = eventUuid)
+            )
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
         }
         const singleSaveTimer = new Date()

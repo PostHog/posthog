@@ -13,6 +13,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.DataManagement]: () => import('./data-management/events/EventDefinitionsTable'),
     [Scene.Events]: () => import('./events/Events'),
     [Scene.Actions]: () => import('./actions/ActionsTable'),
+    [Scene.UsageWarnings]: () => import('./data-management/warnings/UsageWarningsTable'),
     [Scene.EventDefinitions]: () => import('./data-management/events/EventDefinitionsTable'),
     [Scene.EventDefinition]: () => import('./data-management/definition/DefinitionView'),
     [Scene.EventPropertyDefinitions]: () => import('./data-management/event-properties/EventPropertyDefinitionsTable'),

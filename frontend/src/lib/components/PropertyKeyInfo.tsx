@@ -604,6 +604,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
         },
+        $warning: {
+            label: 'Usage Warning',
+            description: 'Warnings based on suboptimal PostHog usage',
+        },
     },
     element: {
         tag_name: {

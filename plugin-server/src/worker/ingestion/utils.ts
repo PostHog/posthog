@@ -1,8 +1,9 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { JobQueueManager } from 'main/job-queues/job-queue-manager'
 
-import { TimestampFormat } from '../../types'
+import { JobName, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../config/kafka-topics'
@@ -53,4 +54,36 @@ export function generateEventDeadLetterQueueMessage(
         ],
     }
     return message
+}
+
+export async function captureWarning(
+    jobQueueManager: JobQueueManager,
+    team_id: number,
+    description: string,
+    extraProperties: Record<string, any>,
+    eventUuid: string | null = null
+): Promise<void> {
+    if (eventUuid) {
+        extraProperties['event_uuid'] = eventUuid
+    }
+    extraProperties['description'] = description
+
+    const event: PluginEvent = {
+        event: '$warning',
+        distinct_id: '$posthog_warnings',
+        team_id: team_id,
+        properties: extraProperties,
+        ip: null,
+        site_url: '',
+        now: Date.now().toString(),
+        uuid: new UUIDT().toString(),
+    }
+    const job = {
+        eventPayload: event,
+        timestamp: Date.now(),
+    }
+    await jobQueueManager.enqueue(JobName.BUFFER_JOB, job, {
+        key: 'team_id',
+        tag: team_id.toString(),
+    })
 }

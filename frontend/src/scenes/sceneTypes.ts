@@ -13,6 +13,7 @@ export enum Scene {
     Cohort = 'Cohort',
     Events = 'Events',
     DataManagement = 'DataManagement',
+    UsageWarnings = 'UsageWarningsTable',
     EventDefinitions = 'EventDefinitionsTable',
     EventDefinition = 'EventDefinition',
     EventPropertyDefinitions = 'EventPropertyDefinitionsTable',

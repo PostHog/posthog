@@ -22,7 +22,8 @@ export async function processPersonsStep(
         runner.hub.db,
         runner.hub.statsd,
         runner.hub.personManager,
-        personContainer
+        personContainer,
+        runner.hub.jobQueueManager
     )
 
     return runner.nextStep('prepareEventStep', event, newPersonContainer)

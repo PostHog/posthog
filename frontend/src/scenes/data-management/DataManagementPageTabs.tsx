@@ -11,12 +11,14 @@ export enum DataManagementTab {
     Actions = 'actions',
     EventDefinitions = 'events',
     EventPropertyDefinitions = 'properties',
+    UsageWarnings = 'warnings',
 }
 
 const tabUrls = {
     [DataManagementTab.EventPropertyDefinitions]: urls.eventPropertyDefinitions(),
     [DataManagementTab.EventDefinitions]: urls.eventDefinitions(),
     [DataManagementTab.Actions]: urls.actions(),
+    [DataManagementTab.UsageWarnings]: urls.usageWarnings(),
 }
 
 const eventsTabsLogic = kea<eventsTabsLogicType>({
@@ -87,6 +89,21 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                 }
                 key={DataManagementTab.EventPropertyDefinitions}
             />
+            <Tabs.TabPane
+                tab={
+                    <TitleWithIcon
+                        icon={
+                            <Tooltip title="Usage warnings tell you if something went wrong during ingestion, e.g. trying to merge with an illegal distinctID.">
+                                <IconInfo />
+                            </Tooltip>
+                        }
+                        data-attr="data-management-warnings-tab"
+                    >
+                        Warnings
+                    </TitleWithIcon>
+                }
+                key={DataManagementTab.UsageWarnings}
+             />
         </Tabs>
     )
 }

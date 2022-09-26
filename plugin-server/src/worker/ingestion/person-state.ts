@@ -4,6 +4,7 @@ import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { JobQueueManager } from 'main/job-queues/job-queue-manager'
 import { DatabaseError, PoolClient } from 'pg'
 
 import { Person, PropertyUpdateOperation } from '../../types'
@@ -13,6 +14,7 @@ import { status } from '../../utils/status'
 import { NoRowsUpdatedError, UUIDT } from '../../utils/utils'
 import { LazyPersonContainer } from './lazy-person-container'
 import { PersonManager } from './person-manager'
+import { captureWarning } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
 
@@ -52,6 +54,7 @@ export class PersonState {
     private statsd: StatsD | undefined
     private personManager: PersonManager
     private updateIsIdentified: boolean
+    private jobQueueManager: JobQueueManager // Used for capturing ingestion warning events
 
     constructor(
         event: PluginEvent,
@@ -62,6 +65,7 @@ export class PersonState {
         statsd: StatsD | undefined,
         personManager: PersonManager,
         personContainer: LazyPersonContainer,
+        jobQueueManager: JobQueueManager,
         uuid: UUIDT | undefined = undefined
     ) {
         this.event = event
@@ -74,6 +78,7 @@ export class PersonState {
         this.db = db
         this.statsd = statsd
         this.personManager = personManager
+        this.jobQueueManager = jobQueueManager
 
         // Used to avoid unneeded person fetches and to respond with updated person details
         // :KLUDGE: May change through these flows.
@@ -262,6 +267,12 @@ export class PersonState {
     async handleIdentifyOrAlias(): Promise<void> {
         if (isDistinctIdIllegal(this.distinctId)) {
             this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId: this.distinctId })
+            void captureWarning(
+                this.jobQueueManager,
+                this.teamId,
+                `Ignoring identify and alias for illegal distinct id "${this.distinctId}"`,
+                { type: 'person_merge_failed_illegal_distinct_id', distinct_id: this.distinctId }
+            )
             return
         }
 
@@ -397,6 +408,19 @@ export class PersonState {
 
             if (isIdentifyCallToMergeAnIdentifiedUser) {
                 status.warn('🤔', 'refused to merge an already identified user via an $identify call')
+                // todo future changes warning
+                void captureWarning(
+                    this.jobQueueManager,
+                    teamId,
+                    `Failed to merge "${previousDistinctId}" and "${distinctId}" already identified`,
+                    {
+                        type: 'person_merge_failed_two_identified',
+                        distinct_id1: previousDistinctId,
+                        distinct_id2: distinctId,
+                        person_id1: oldPerson.id,
+                        person_id12: newPerson.id,
+                    }
+                )
                 this.updateIsIdentified = shouldIdentifyPerson
             } else {
                 await this.mergePeople({
@@ -486,6 +510,18 @@ export class PersonState {
 
                 failedAttempts++
                 if (failedAttempts === MAX_FAILED_PERSON_MERGE_ATTEMPTS) {
+                    void captureWarning(
+                        this.jobQueueManager,
+                        teamId,
+                        `Failed to merge "{mergeIntoDistinctId}" and "{otherPersonDistinctId}" too many attempts`,
+                        {
+                            type: 'person_merge_failed_too_many_attempts',
+                            distinct_id1: mergeIntoDistinctId,
+                            distinct_id2: otherPersonDistinctId,
+                            person_id1: mergeInto.id,
+                            person_id12: otherPerson.id,
+                        }
+                    )
                     throw error // Very much not OK, failed repeatedly so rethrowing the error
                 }
 

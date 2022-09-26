@@ -26,6 +26,7 @@ export const urls = {
     createAction: (): string => `/data-management/actions/new`,
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    usageWarnings: (): string => '/data-management/warnings',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     eventPropertyDefinitions: (): string => '/data-management/event-properties',
