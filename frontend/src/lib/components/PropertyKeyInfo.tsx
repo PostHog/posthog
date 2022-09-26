@@ -413,6 +413,17 @@ export const keyMapping: KeyMappingInterface = {
             description: 'Raw Sentry exception data',
             hide: true,
         },
+        $sentry_exception_message: {
+            label: 'Sentry exception message',
+        },
+        $sentry_exception_type: {
+            label: 'Sentry exception type',
+            description: 'Class name of the exception object',
+        },
+        $sentry_tags: {
+            label: 'Sentry tags',
+            description: 'Tags sent to Sentry along with the exception',
+        },
         $ce_version: {
             label: '$ce_version',
             description: '',
