@@ -48,7 +48,7 @@ class QueryDateRange:
         if self._filter._date_from == "all":
             return self.get_earliest_timestamp()
         elif isinstance(self._filter._date_from, str):
-            return self._parse_date(self._filter._date_from)
+            return self._parse_date(self._filter._date_from, self.date_to_param)
         elif isinstance(self._filter._date_from, datetime):
             return self._localize_to_team(self._filter._date_from)
         else:
@@ -68,7 +68,7 @@ class QueryDateRange:
             else target.astimezone(pytz.timezone(self._team.timezone))
         )
 
-    def _parse_date(self, input):
+    def _parse_date(self, input, reference_date=None):
 
         try:
             return datetime.strptime(input, "%Y-%m-%d")
@@ -84,7 +84,8 @@ class QueryDateRange:
 
         regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
         match = re.search(regex, input)
-        date = self._now
+        date = reference_date or self._now
+
         if not match:
             return date
         if match.group("type") == "h":
@@ -93,6 +94,7 @@ class QueryDateRange:
         elif match.group("type") == "d":
             if match.group("number"):
                 date -= relativedelta(days=int(match.group("number")))
+                date += timedelta(seconds=1)  # prevent timestamps from capturing the previous day
 
             if match.group("position") == "Start":
                 date = date.replace(hour=0, minute=0, second=0, microsecond=0)
