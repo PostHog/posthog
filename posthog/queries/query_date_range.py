@@ -71,14 +71,14 @@ class QueryDateRange:
     def _parse_date(self, input):
 
         try:
-            return self._localize_to_team(datetime.strptime(input, "%Y-%m-%d"))
+            return datetime.strptime(input, "%Y-%m-%d")
         except ValueError:
             pass
 
         # when input also contains the time for intervals "hour" and "minute"
         # the above try fails. Try one more time from isoformat.
         try:
-            return self._localize_to_team(parser.isoparse(input))
+            return parser.isoparse(input)
         except ValueError:
             pass
 
@@ -143,6 +143,7 @@ class QueryDateRange:
     @cached_property
     def date_from(self) -> Tuple[str, Dict]:
         date_from_query = self.date_from_clause
+
         date_from_param = {"date_from": self.date_from_param.strftime("%Y-%m-%d %H:%M:%S")}
 
         return date_from_query, date_from_param
@@ -156,7 +157,7 @@ class QueryDateRange:
 
             return f"AND {self._table}timestamp {operator} {self._timezone_date_clause(date_clause)}"
         else:
-            return f"AND {self._table}timestamp {operator} toDateTime(%({date_clause})s)"
+            return f"AND {self._table}timestamp {operator} toDateTime(%({date_clause})s, %(timezone)s)"
 
     def _timezone_date_clause(self, date_clause: str) -> str:
         clause = (
