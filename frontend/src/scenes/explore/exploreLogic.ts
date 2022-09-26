@@ -3,6 +3,8 @@ import api from 'lib/api'
 import type { exploreLogicType } from './exploreLogicType'
 import { ExploreCategory } from '~/types'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, urlToAction } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const categories: Record<ExploreCategory, any> = {
     [ExploreCategory.Events]: 'Events',
@@ -50,4 +52,21 @@ export const exploreLogic = kea<exploreLogicType>([
     afterMount(({ actions }) => {
         actions.reloadData()
     }),
+    actionToUrl(({ values }) => ({
+        reloadData: () => {
+            const { category } = values
+            return [urls.explore(), { category }, {}, { replace: true }]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.explore()]: (_, { category }) => {
+            if (category && category !== values.category) {
+                actions.setCategory(category)
+            }
+            if (!category) {
+                // came from a blank url after the logic was already loaded
+                actions.setCategory(ExploreCategory.Events)
+            }
+        },
+    })),
 ])
