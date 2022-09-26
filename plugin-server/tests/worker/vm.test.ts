@@ -836,7 +836,10 @@ describe('vm tests', () => {
             [
                 'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
                 {
-                    headers: { Authorization: expect.stringContaining('Bearer phx_') },
+                    headers: {
+                        Authorization: expect.stringContaining('Bearer phx_'),
+                        'Content-Type': 'application/json',
+                    },
                     method: 'PATCH',
                     body: JSON.stringify({ c: 3 }),
                 },
