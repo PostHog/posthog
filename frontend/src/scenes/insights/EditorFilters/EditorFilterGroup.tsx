@@ -5,7 +5,7 @@ import './EditorFilterGroup.scss'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { slugify } from 'lib/utils'
-import { LemonBubble } from 'lib/components/LemonBubble/LemonBubble'
+import { LemonBadge } from 'lib/components/LemonBadge/LemonBadge'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -44,7 +44,7 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
                     >
                         <div className="flex items-center space-x-2 font-semibold">
                             <span>{title}</span>
-                            <LemonBubble count={count} />
+                            <LemonBadge count={count} />
                         </div>
                     </LemonButton>
                 </div>

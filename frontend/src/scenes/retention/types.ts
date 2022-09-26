@@ -1,4 +1,4 @@
-import { ActorType, PersonType } from '~/types'
+import { ActorType } from '~/types'
 
 export interface RetentionTablePayload {
     date: string
@@ -18,11 +18,7 @@ export interface RetentionTrendPayload {
 export interface RetentionTablePeoplePayload {
     next?: string
     result?: RetentionTableAppearanceType[]
-}
-
-export interface RetentionTrendPeoplePayload {
-    next?: string
-    result?: PersonType[]
+    missing_persons?: number
 }
 
 export interface RetentionTableAppearanceType {

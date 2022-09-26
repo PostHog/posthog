@@ -9,6 +9,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { PlayerListExpandableConfig } from 'scenes/session-recordings/player/list/PlayerList'
 
 export interface ListRowOption<T> {
+    value: T
     label: string | JSX.Element
     disabled?: boolean
     tooltip?: string

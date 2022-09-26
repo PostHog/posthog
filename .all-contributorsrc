@@ -2115,6 +2115,33 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "thmsobrmlr",
+      "name": "Thomas Obermüller",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1851359?v=4",
+      "profile": "https://www.passion-climb.com/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "jafarlihi",
+      "name": "Hikmat Jafarli",
+      "avatar_url": "https://avatars.githubusercontent.com/u/43515211?v=4",
+      "profile": "https://github.com/jafarlihi",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "jrozanski",
+      "name": "Jarek Rozanski",
+      "avatar_url": "https://avatars.githubusercontent.com/u/4896588?v=4",
+      "profile": "https://jarekrozanski.eu",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

@@ -20,8 +20,15 @@ interface SessionRecordingsTableProps {
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID, isPlaylist: true })
-    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecordingId, offset } =
-        useValues(sessionRecordingsTableLogicInstance)
+    const {
+        sessionRecordings,
+        sessionRecordingsResponseLoading,
+        hasNext,
+        hasPrev,
+        activeSessionRecording,
+        activeSessionRecordingId,
+        offset,
+    } = useValues(sessionRecordingsTableLogicInstance)
     const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
     const playlistRef = useRef<HTMLDivElement>(null)
 
@@ -104,7 +111,11 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
             <div className="SessionRecordingsPlaylist__right-column">
                 {activeSessionRecordingId ? (
                     <div className="border rounded h-full">
-                        <SessionRecordingPlayerV3 playerKey="playlist" sessionRecordingId={activeSessionRecordingId} />
+                        <SessionRecordingPlayerV3
+                            playerKey="playlist"
+                            sessionRecordingId={activeSessionRecordingId}
+                            recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
+                        />
                     </div>
                 ) : (
                     <EmptyMessage

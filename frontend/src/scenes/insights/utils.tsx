@@ -328,11 +328,11 @@ export function formatAggregationValue(
 }
 
 export function formatBreakdownLabel(
-    cohorts?: CohortType[],
-    formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction,
-    breakdown_value?: BreakdownKeyType,
-    breakdown?: BreakdownKeyType,
-    breakdown_type?: BreakdownType | null,
+    cohorts: CohortType[] | undefined,
+    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
+    breakdown_value: BreakdownKeyType | undefined,
+    breakdown: BreakdownKeyType | undefined,
+    breakdown_type: BreakdownType | null | undefined,
     isHistogram?: boolean
 ): string {
     if (isHistogram && typeof breakdown_value === 'string') {
@@ -353,10 +353,13 @@ export function formatBreakdownLabel(
         )
         return `${formattedBucketStart} – ${formattedBucketEnd}`
     }
-    if (typeof breakdown_value == 'number') {
-        if (breakdown_type === 'cohort') {
-            return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? breakdown_value.toString()
+    if (breakdown_type === 'cohort') {
+        // :TRICKY: Different endpoints represent the all users cohort breakdown differently
+        if (breakdown_value === 0 || breakdown_value === 'all') {
+            return 'All Users'
         }
+        return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
+    } else if (typeof breakdown_value == 'number') {
         return formatPropertyValueForDisplay
             ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
             : breakdown_value.toString()
