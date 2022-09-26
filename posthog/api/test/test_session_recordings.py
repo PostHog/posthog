@@ -11,7 +11,7 @@ from posthog.helpers.session_recording import Event, compress_and_chunk_snapshot
 from posthog.models import Organization, Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, run_test_without_recording_ttl
 
 
 def factory_test_session_recordings_api(session_recording_event_factory):
@@ -94,6 +94,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                     snapshot_data=snapshot_chunk["properties"].get("$snapshot_data"),
                 )
 
+        @run_test_without_recording_ttl
         def test_get_session_recordings(self):
             p = Person.objects.create(
                 team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
@@ -129,6 +130,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(second_session["viewed"], False)
             self.assertEqual(second_session["person"]["id"], p.pk)
 
+        @run_test_without_recording_ttl
         def test_session_recordings_dont_leak_teams(self):
             another_team = Team.objects.create(organization=self.organization)
             Person.objects.create(
@@ -147,6 +149,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(len(response_data["results"]), 1)
             self.assertEqual(response_data["results"][0]["id"], "2")
 
+        @run_test_without_recording_ttl
         def test_session_recording_for_user_with_multiple_distinct_ids(self):
             base_time = now() - timedelta(days=1)
             p = Person.objects.create(
@@ -162,6 +165,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["results"][0]["person"]["id"], p.pk)
             self.assertEqual(response_data["results"][1]["person"]["id"], p.pk)
 
+        @run_test_without_recording_ttl
         def test_viewed_state_of_session_recording(self):
             Person.objects.create(
                 team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
@@ -178,6 +182,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["results"][1]["id"], "1")
             self.assertEqual(response_data["results"][1]["viewed"], True)
 
+        @run_test_without_recording_ttl
         def test_setting_viewed_state_of_session_recording(self):
             Person.objects.create(
                 team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
@@ -205,6 +210,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             # In the metadata response too
             self.assertEqual(response_data["result"]["session_recording"]["viewed"], True)
 
+        @run_test_without_recording_ttl
         def test_get_single_session_recording_metadata(self):
             p = Person.objects.create(
                 team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
@@ -239,6 +245,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
             self.assertEqual(response_data["result"]["session_recording"]["session_id"], session_recording_id)
 
+        @run_test_without_recording_ttl
         def test_get_default_limit_of_chunks(self):
             base_time = now()
             num_snapshots = DEFAULT_RECORDING_CHUNK_LIMIT + 10
@@ -252,6 +259,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                 len(response_data["result"]["snapshot_data_by_window_id"][""]), DEFAULT_RECORDING_CHUNK_LIMIT
             )
 
+        @run_test_without_recording_ttl
         def test_get_snapshots_is_compressed(self):
             base_time = now()
             num_snapshots = 2  # small contents aren't compressed, needs to be enough data to trigger compression
@@ -271,6 +279,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.headers.get("Content-Encoding", None), "gzip")
 
+        @run_test_without_recording_ttl
         def test_get_snapshots_for_chunked_session_recording(self):
             chunked_session_id = "chunk_id"
             expected_num_requests = 3
@@ -309,6 +318,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
                     next_url = response_data["result"]["next"]
 
+        @run_test_without_recording_ttl
         def test_get_metadata_for_chunked_session_recording(self):
 
             with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -352,6 +362,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                 self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
                 self.assertEqual(response_data["result"]["session_recording"]["session_id"], chunked_session_id)
 
+        @run_test_without_recording_ttl
         def test_single_session_recording_doesnt_leak_teams(self):
             another_team = Team.objects.create(organization=self.organization)
             self.create_snapshot("user", "id_no_team_leaking", now() - relativedelta(days=1), team_id=another_team.pk)
@@ -361,12 +372,14 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_team_leaking/snapshots")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+        @run_test_without_recording_ttl
         def test_session_recording_with_no_person(self):
             self.create_snapshot("d1", "id_no_person", now() - relativedelta(days=1))
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_person")
             response_data = response.json()
             self.assertEqual(response_data["result"]["person"], {"properties": None})
 
+        @run_test_without_recording_ttl
         def test_session_recording_doesnt_exist(self):
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -374,6 +387,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id/snapshots")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+        @run_test_without_recording_ttl
         def test_request_to_another_teams_endpoint_returns_401(self):
             org = Organization.objects.create(name="Separate Org")
             another_team = Team.objects.create(organization=org)
