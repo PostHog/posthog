@@ -106,6 +106,7 @@ class Team(UUIDClassicModel):
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
+    capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
@@ -210,10 +211,7 @@ class Team(UUIDClassicModel):
                 str(self.uuid),
                 groups={"organization": str(self.organization.id)},
                 group_properties={
-                    "organization": {
-                        "id": str(self.organization.id),
-                        "created_at": self.organization.created_at,
-                    }
+                    "organization": {"id": str(self.organization.id), "created_at": self.organization.created_at,}
                 },
                 only_evaluate_locally=True,
             )

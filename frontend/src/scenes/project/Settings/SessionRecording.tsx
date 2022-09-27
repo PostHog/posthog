@@ -8,14 +8,25 @@ export function SessionRecording(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <LemonSwitch
-            data-attr="opt-in-session-recording-switch"
-            onChange={(checked) => {
-                updateCurrentTeam({ session_recording_opt_in: checked })
-            }}
-            checked={!!currentTeam?.session_recording_opt_in}
-            label="Record user sessions on Authorized URLs"
-            bordered
-        />
+        <>
+            <LemonSwitch
+                data-attr="opt-in-session-recording-switch"
+                onChange={(checked) => {
+                    updateCurrentTeam({ session_recording_opt_in: checked })
+                }}
+                checked={!!currentTeam?.session_recording_opt_in}
+                label="Record user sessions"
+                bordered
+            />
+            <LemonSwitch
+                data-attr="opt-in-capture-console-log-switch"
+                onChange={(checked) => {
+                    updateCurrentTeam({ session_recording_opt_in: checked })
+                }}
+                checked={!!currentTeam?.session_recording_opt_in}
+                label="Record user sessions"
+                bordered
+            />
+        </>
     )
 }
