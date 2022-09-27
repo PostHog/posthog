@@ -18,10 +18,10 @@ class IngestionWarningsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             SELECT type, timestamp, details
             FROM ingestion_warnings
             WHERE team_id = %(team_id)s
-              AND timestamp > %(now)s
+              AND timestamp > %(start_date)s
             ORDER BY timestamp DESC
         """,
-            {"team_id": self.team_id, "now": start_date.strftime("%Y-%m-%d %H:%M:%S")},
+            {"team_id": self.team_id, "start_date": start_date.strftime("%Y-%m-%d %H:%M:%S")},
         )
 
         return Response({"results": _calculate_summaries(warning_events)})
