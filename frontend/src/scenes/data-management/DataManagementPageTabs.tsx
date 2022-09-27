@@ -13,14 +13,14 @@ export enum DataManagementTab {
     Actions = 'actions',
     EventDefinitions = 'events',
     EventPropertyDefinitions = 'properties',
-    Warnings = 'warnings',
+    IngestionWarnings = 'warnings',
 }
 
 const tabUrls = {
     [DataManagementTab.EventPropertyDefinitions]: urls.eventPropertyDefinitions(),
     [DataManagementTab.EventDefinitions]: urls.eventDefinitions(),
     [DataManagementTab.Actions]: urls.actions(),
-    [DataManagementTab.Warnings]: urls.ingestionWarnings(),
+    [DataManagementTab.IngestionWarnings]: urls.ingestionWarnings(),
 }
 
 const eventsTabsLogic = kea<eventsTabsLogicType>({
@@ -104,7 +104,7 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
             {showWarningsTab && (
                 <Tabs.TabPane
                     tab={<span data-attr="data-management-warnings-tab">Ingestion Warnings</span>}
-                    key={DataManagementTab.Warnings}
+                    key={DataManagementTab.IngestionWarnings}
                 />
             )}
         </Tabs>
