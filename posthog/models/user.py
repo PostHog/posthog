@@ -4,7 +4,6 @@ from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
-from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
@@ -13,7 +12,7 @@ from posthog.utils import get_instance_realm
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey
 from .team import Team
-from .utils import UUIDClassicModel, generate_random_token, sane_repr
+from .utils import LowercaseEmailField, UUIDClassicModel, generate_random_token, sane_repr
 
 
 class UserManager(BaseUserManager):
@@ -26,6 +25,7 @@ class UserManager(BaseUserManager):
         if email is None:
             raise ValueError("Email must be provided!")
         email = self.normalize_email(email)
+
         extra_fields.setdefault("distinct_id", generate_random_token())
         user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:
@@ -103,7 +103,7 @@ class User(AbstractUser, UUIDClassicModel):
         "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+"
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
-    email = models.EmailField(_("email address"), unique=True)
+    email = LowercaseEmailField(unique=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
 

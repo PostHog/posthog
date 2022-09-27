@@ -215,3 +215,22 @@ def get_deferred_field_set_for_model(
         field_prefix: a prefix to add to the field names e.g. ("team__organization__") to work in the query set
     """
     return {f"{field_prefix}{x.name}" for x in model._meta.fields if x.name not in fields_not_deferred}
+
+
+# method to convert email field to lowercaser
+
+
+class LowercaseEmailField(models.EmailField):
+    """
+    Override EmailField to convert emails to lowercase before saving.
+    """
+
+    def to_python(self, value):
+        """
+        Convert email to lowercase.
+        """
+        value = super(LowercaseEmailField, self).to_python(value)
+        # Value can be None so check that it's a string before lowercasing.
+        if isinstance(value, str):
+            return value.lower()
+        return value
