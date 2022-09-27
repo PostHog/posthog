@@ -3,7 +3,7 @@
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2021-04-28 00:00:00')), dateTrunc('day', toDateTime('2021-05-05 23:59:59') + INTERVAL 1 day))))
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -86,7 +86,7 @@
   WITH 'month' AS selected_period,
        periods AS
     (SELECT dateSub(month, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('month', dateTrunc('month', toDateTime('2021-02-04 00:00:00')), dateTrunc('month', toDateTime('2021-05-05 23:59:59') + INTERVAL 1 month))))
+     FROM numbers(dateDiff('month', dateTrunc('month', toDateTime('2021-02-04 00:00:00', 'UTC')), dateTrunc('month', toDateTime('2021-05-05 23:59:59', 'UTC') + INTERVAL 1 month))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -169,7 +169,7 @@
   WITH 'week' AS selected_period,
        periods AS
     (SELECT dateSub(week, number, dateTrunc(selected_period, toDateTime('2021-05-06 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('week', dateTrunc('week', toDateTime('2021-04-06 00:00:00')), dateTrunc('week', toDateTime('2021-05-06 23:59:59') + INTERVAL 1 week))))
+     FROM numbers(dateDiff('week', dateTrunc('week', toDateTime('2021-04-06 00:00:00', 'UTC')), dateTrunc('week', toDateTime('2021-05-06 23:59:59', 'UTC') + INTERVAL 1 week))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -252,7 +252,7 @@
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-18 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-11 00:00:00')), dateTrunc('day', toDateTime('2020-01-18 23:59:59') + INTERVAL 1 day))))
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'UTC') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -335,7 +335,7 @@
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00')), dateTrunc('day', toDateTime('2020-01-19 23:59:59') + INTERVAL 1 day))))
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -426,7 +426,7 @@
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00')), dateTrunc('day', toDateTime('2020-01-19 23:59:59') + INTERVAL 1 day))))
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -509,7 +509,7 @@
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'US/Pacific'))) AS start_of_period
-     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00')), dateTrunc('day', toDateTime('2020-01-19 23:59:59') + INTERVAL 1 day))))
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
