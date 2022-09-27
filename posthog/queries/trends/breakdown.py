@@ -241,7 +241,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter),
+                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                     **breakdown_filter_params,
                 )
             elif self.entity.math_property == "$session_duration":
@@ -255,7 +255,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter),
+                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                 )
             else:
                 inner_sql = BREAKDOWN_INNER_SQL.format(
@@ -266,7 +266,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter),
+                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                 )
 
             breakdown_query = BREAKDOWN_QUERY_SQL.format(

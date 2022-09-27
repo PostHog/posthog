@@ -991,7 +991,7 @@ def retention_test_factory(retention):
                     ("person1", _date(0, 1)),
                     ("person1", _date(1, 1)),  # this is the only event in US Pacific on the first day
                     ("person2", _date(6, 1)),
-                    ("person2", _date(6, 23)),
+                    ("person2", _date(6, 9)),
                 ],
             )
 
@@ -1002,6 +1002,7 @@ def retention_test_factory(retention):
             result_pacific = retention().run(
                 RetentionFilter(data={"date_to": _date(10, hour=0)}, team=self.team), self.team
             )
+
             self.assertEqual(
                 pluck(result_pacific, "label"),
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
@@ -1029,13 +1030,13 @@ def retention_test_factory(retention):
             self.assertEqual(
                 pluck(result_pacific, "values", "count"),
                 [
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 0],  # person 2 is across two dates in US/Pacific
+                    [1, 1, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0],  # person 2 is across two dates in US/Pacific
                     [0, 0, 0, 0],
                     [0, 0, 0],
                     [0, 0],

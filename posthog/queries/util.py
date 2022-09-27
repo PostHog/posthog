@@ -7,7 +7,6 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.client import sync_execute
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
-from posthog.models.filters.filter import Filter
 
 EARLIEST_TIMESTAMP = "2015-01-01"
 
@@ -70,14 +69,14 @@ def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
     return params
 
 
-def start_of_week_fix(filter: Filter) -> str:
+def start_of_week_fix(interval: Optional[str]) -> str:
     """
     toStartOfWeek is the only trunc function that takes three arguments:
       toStartOfWeek(timestamp, mode, timezone)
     Mode is whether the week starts on sunday or monday, with 0 being sunday.
     This function adds mode to the trunc_func, but only if the interval is week
     """
-    return ", 0" if filter.interval == "week" else ""
+    return ", 0" if interval and interval.lower() == "week" else ""
 
 
 def convert_to_datetime_aware(date_obj):
