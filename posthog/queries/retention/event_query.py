@@ -14,7 +14,7 @@ from posthog.models.property.util import get_single_or_multi_property_string_exp
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
-from posthog.queries.util import format_ch_timestamp, get_trunc_func_ch
+from posthog.queries.util import get_trunc_func_ch
 
 
 class RetentionEventsQuery(EventQuery):
@@ -216,9 +216,9 @@ class RetentionEventsQuery(EventQuery):
 
     def _get_date_filter(self):
         query = (
-            f"event_date >= toDateTime(%({self._event_query_type}_start_date)s) AND event_date <= toDateTime(%({self._event_query_type}_end_date)s)"
+            f"event_date >= toDateTime(%({self._event_query_type}_start_date)s, %(timezone)s) AND event_date <= toDateTime(%({self._event_query_type}_end_date)s, %(timezone)s)"
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-            else f"toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) >= toDateTime(%({self._event_query_type}_start_date)s) AND toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) <= toDateTime(%({self._event_query_type}_end_date)s)"
+            else f"toDateTime({self.EVENT_TABLE_ALIAS}.timestamp,  %(timezone)s) >= toDateTime(%({self._event_query_type}_start_date)s,  %(timezone)s) AND toDateTime({self.EVENT_TABLE_ALIAS}.timestamp,  %(timezone)s) <= toDateTime(%({self._event_query_type}_end_date)s, %(timezone)s)"
         )
         start_date = self._filter.date_from
         end_date = (
@@ -230,11 +230,7 @@ class RetentionEventsQuery(EventQuery):
             start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
         params = {
-            f"{self._event_query_type}_start_date": format_ch_timestamp(
-                start_date, convert_to_timezone=self._team.timezone
-            ),
-            f"{self._event_query_type}_end_date": format_ch_timestamp(
-                end_date, convert_to_timezone=self._team.timezone
-            ),
+            f"{self._event_query_type}_start_date": start_date.strftime("%Y-%m-%d %H:%M:%S"),
+            f"{self._event_query_type}_end_date": end_date.strftime("%Y-%m-%d %H:%M:%S"),
         }
         return query, params
