@@ -115,7 +115,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             pluginConfig.vm?.failInitialization!()
 
             // if we transpiled a frontend app, don't save an error if no backend app
-            if (!pluginFrontend) {
+            if (!pluginFrontend && !pluginWeb) {
                 await processError(
                     hub,
                     pluginConfig,
