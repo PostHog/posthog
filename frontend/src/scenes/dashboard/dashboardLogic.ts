@@ -373,7 +373,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 setSubscriptionMode: (_, { enabled }) => enabled,
             },
         ],
-
         subscriptionId: [
             null as number | 'new' | null,
             {
@@ -578,9 +577,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
             ],
         ],
         shortIdToId: [
-            (s) => [s.allItems],
-            (allItems) => {
-                return allItems?.items.reduce((acc, curr) => {
+            (s) => [s.items],
+            (items) => {
+                return (items ?? []).reduce((acc, curr) => {
                     acc[curr.short_id] = Number(curr.id)
                     return acc
                 }, {} as Record<InsightShortId, number>)
