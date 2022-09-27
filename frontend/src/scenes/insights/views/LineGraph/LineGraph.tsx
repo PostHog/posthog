@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { BindLogic, useValues } from 'kea'
 import {
-    registerables,
     ActiveElement,
     Chart,
     ChartDataset,
@@ -14,11 +13,10 @@ import {
     Color,
     InteractionItem,
     TickOptions,
-    Tooltip,
     TooltipModel,
     TooltipOptions,
 } from 'chart.js'
-import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
+import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
@@ -26,24 +24,14 @@ import { AnnotationsOverlay, annotationsOverlayLogic } from 'lib/components/Anno
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
-import { SeriesDatum, TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { formatAggregationAxisValue, AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { AggregationAxisFormat, formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
-if (registerables) {
-    // required for storybook to work, not found in esbuild
-    Chart.register(...registerables)
-}
-Chart.register(CrosshairPlugin)
-Chart.defaults.animation['duration'] = 0
-
-// Create positioner to put tooltip at cursor position
-Tooltip.positioners.cursor = function (_, coordinates) {
-    return coordinates
-}
+import './chartjsSetup'
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
@@ -73,27 +61,107 @@ export function ensureTooltipElement(): HTMLElement {
     return tooltipEl
 }
 
+export function onChartClick(
+    event: ChartEvent,
+    chart: Chart,
+    datasets: GraphDataset[],
+    onClick?: { (payload: GraphPointPayload): void | undefined }
+): void {
+    const nativeEvent = event.native
+    if (!nativeEvent) {
+        return
+    }
+    // Get all points along line
+    const sortDirection = 'y'
+    const sortPoints = (a: InteractionItem, b: InteractionItem): number =>
+        Math.abs(a.element[sortDirection] - (event[sortDirection] ?? 0)) -
+        Math.abs(b.element[sortDirection] - (event[sortDirection] ?? 0))
+    const pointsIntersectingLine = chart
+        .getElementsAtEventForMode(
+            nativeEvent,
+            'index',
+            {
+                intersect: false,
+            },
+            true
+        )
+        .sort(sortPoints)
+    // Get all points intersecting clicked point
+    const pointsIntersectingClick = chart
+        .getElementsAtEventForMode(
+            nativeEvent,
+            'point',
+            {
+                intersect: true,
+            },
+            true
+        )
+        .sort(sortPoints)
+
+    if (!pointsIntersectingClick.length && !pointsIntersectingLine.length) {
+        return
+    }
+
+    const clickedPointNotLine = pointsIntersectingClick.length !== 0
+
+    // Take first point when clicking a specific point.
+    const referencePoint: GraphPoint = clickedPointNotLine
+        ? { ...pointsIntersectingClick[0], dataset: datasets[pointsIntersectingClick[0].datasetIndex] }
+        : { ...pointsIntersectingLine[0], dataset: datasets[pointsIntersectingLine[0].datasetIndex] }
+
+    const crossDataset = datasets
+        .filter((_dt) => !_dt.dotted)
+        .map((_dt) => ({
+            ..._dt,
+            personUrl: _dt.persons_urls?.[referencePoint.index].url,
+            pointValue: _dt.data[referencePoint.index],
+        }))
+
+    onClick?.({
+        points: {
+            pointsIntersectingLine: pointsIntersectingLine.map((p) => ({
+                ...p,
+                dataset: datasets[p.datasetIndex],
+            })),
+            pointsIntersectingClick: pointsIntersectingClick.map((p) => ({
+                ...p,
+                dataset: datasets[p.datasetIndex],
+            })),
+            clickedPointNotLine,
+            referencePoint,
+        },
+        index: referencePoint.index,
+        crossDataset,
+        seriesId: datasets[referencePoint.datasetIndex].id,
+    })
+}
+
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     return (
         <ErrorBoundary>
-            <LineGraph_ {...props} />
+            {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
         </ErrorBoundary>
     )
 }
 
-let timer: NodeJS.Timeout | null = null
-
-function setTooltipPosition(chart: Chart, tooltipEl: HTMLElement): void {
-    if (timer) {
-        clearTimeout(timer)
+export function onChartHover(
+    event: ChartEvent,
+    chart: Chart,
+    onClick?: ((payload: GraphPointPayload) => void) | undefined
+): void {
+    const nativeEvent = event.native
+    if (!nativeEvent) {
+        return
     }
-    timer = setTimeout(() => {
-        const position = chart.canvas.getBoundingClientRect()
 
-        tooltipEl.style.position = 'absolute'
-        tooltipEl.style.left = position.left + window.pageXOffset + (chart.tooltip?.caretX || 0) + 8 + 'px'
-        tooltipEl.style.top = position.top + window.pageYOffset + (chart.tooltip?.caretY || 0) + 8 + 'px'
-    }, 25)
+    const target = nativeEvent?.target as HTMLDivElement
+    const point = chart.getElementsAtEventForMode(nativeEvent, 'index', { intersect: true }, true)
+
+    if (onClick && point.length) {
+        // FIXME: Whole graph should have cursor: pointer from the get-go if it's persons modal-enabled
+        // This code gives it that style, but only once the user hovers over a data point
+        target.style.cursor = 'pointer'
+    }
 }
 
 export function LineGraph_({
@@ -125,9 +193,13 @@ export function LineGraph_({
     const insightType = insight.filters?.insight
     const isHorizontal = type === GraphType.HorizontalBar
     const isPie = type === GraphType.Pie
+    if (isPie) {
+        throw new Error('Use PieChart not LineGraph for this `GraphType`')
+    }
+
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
-    const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie].includes(type)
-    const showAnnotations = (!insightType || insightType === InsightType.TRENDS) && !isHorizontal && !isPie
+    const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
+    const showAnnotations = (!insightType || insightType === InsightType.TRENDS) && !isHorizontal
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -166,7 +238,7 @@ export function LineGraph_({
     useEffect(() => {
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
-            if (isHorizontal || type === GraphType.Pie) {
+            if (isHorizontal) {
                 // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
                 const filterFn = (_: any, i: number): boolean => !hiddenLegendKeys?.[i]
                 datasets = datasets.map((_data) => {
@@ -233,7 +305,7 @@ export function LineGraph_({
             itemSort: (a, b) => a.label.localeCompare(b.label),
         }
 
-        let options: ChartOptions & { plugins: ChartPluginsOptions } = {
+        const options: ChartOptions & { plugins: ChartPluginsOptions } = {
             responsive: true,
             maintainAspectRatio: false,
             elements: {
@@ -348,88 +420,10 @@ export function LineGraph_({
                 intersect: false,
             },
             onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
-                const nativeEvent = event.native
-                if (!nativeEvent) {
-                    return
-                }
-
-                const target = nativeEvent?.target as HTMLDivElement
-                const point = chart.getElementsAtEventForMode(nativeEvent, 'index', { intersect: true }, true)
-
-                if (onClick && point.length) {
-                    // FIXME: Whole graph should have cursor: pointer from the get-go if it's persons modal-enabled
-                    // This code gives it that style, but only once the user hovers over a data point
-                    target.style.cursor = 'pointer'
-                }
+                onChartHover(event, chart, onClick)
             },
             onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
-                const nativeEvent = event.native
-                if (!nativeEvent) {
-                    return
-                }
-                // Get all points along line
-                const sortDirection = isHorizontal ? 'x' : 'y'
-                const sortPoints = (a: InteractionItem, b: InteractionItem): number =>
-                    Math.abs(a.element[sortDirection] - (event[sortDirection] ?? 0)) -
-                    Math.abs(b.element[sortDirection] - (event[sortDirection] ?? 0))
-                const pointsIntersectingLine = chart
-                    .getElementsAtEventForMode(
-                        nativeEvent,
-                        isHorizontal ? 'y' : 'index',
-                        {
-                            intersect: false,
-                        },
-                        true
-                    )
-                    .sort(sortPoints)
-                // Get all points intersecting clicked point
-                const pointsIntersectingClick = chart
-                    .getElementsAtEventForMode(
-                        nativeEvent,
-                        'point',
-                        {
-                            intersect: true,
-                        },
-                        true
-                    )
-                    .sort(sortPoints)
-
-                if (!pointsIntersectingClick.length && !pointsIntersectingLine.length) {
-                    return
-                }
-
-                const clickedPointNotLine = pointsIntersectingClick.length !== 0
-
-                // Take first point when clicking a specific point.
-                const referencePoint: GraphPoint = clickedPointNotLine
-                    ? { ...pointsIntersectingClick[0], dataset: datasets[pointsIntersectingClick[0].datasetIndex] }
-                    : { ...pointsIntersectingLine[0], dataset: datasets[pointsIntersectingLine[0].datasetIndex] }
-
-                const crossDataset = datasets
-                    .filter((_dt) => !_dt.dotted)
-                    .map((_dt) => ({
-                        ..._dt,
-                        personUrl: _dt.persons_urls?.[referencePoint.index].url,
-                        pointValue: _dt.data[referencePoint.index],
-                    }))
-
-                onClick?.({
-                    points: {
-                        pointsIntersectingLine: pointsIntersectingLine.map((p) => ({
-                            ...p,
-                            dataset: datasets[p.datasetIndex],
-                        })),
-                        pointsIntersectingClick: pointsIntersectingClick.map((p) => ({
-                            ...p,
-                            dataset: datasets[p.datasetIndex],
-                        })),
-                        clickedPointNotLine,
-                        referencePoint,
-                    },
-                    index: referencePoint.index,
-                    crossDataset,
-                    seriesId: datasets[referencePoint.datasetIndex].id,
-                })
+                onChartClick(event, chart, datasets, onClick)
             },
             onResize: (_, { width, height }) => setChartDimensions([width, height]),
         }
@@ -514,111 +508,6 @@ export function LineGraph_({
                 },
             }
             options.indexAxis = 'y'
-        } else if (type === GraphType.Pie) {
-            options = {
-                responsive: true,
-                maintainAspectRatio: false,
-                hover: {
-                    mode: 'index',
-                },
-                onHover: options.onHover,
-                plugins: {
-                    legend: {
-                        display: false,
-                    },
-                    crosshair: false as CrosshairOptions,
-                    tooltip: {
-                        position: 'cursor',
-                        enabled: false,
-                        intersect: true,
-                        external({ chart, tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
-                            if (!canvasRef.current) {
-                                return
-                            }
-
-                            const tooltipEl = ensureTooltipElement()
-                            if (tooltip.opacity === 0) {
-                                tooltipEl.style.opacity = '0'
-                                return
-                            }
-
-                            // Set caret position
-                            // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
-                            tooltipEl.classList.remove('above', 'below', 'no-transform')
-                            tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                            tooltipEl.style.opacity = '1'
-
-                            if (tooltip.body) {
-                                const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
-                                const dataset = datasets[referenceDataPoint.datasetIndex]
-                                const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
-                                    const hasDotted =
-                                        datasets.some((d) => d.dotted) &&
-                                        dp.dataIndex - datasets?.[dp.datasetIndex]?.data?.length >=
-                                            incompletenessOffsetFromEnd
-                                    return (
-                                        dp.datasetIndex >= (hasDotted ? _datasets.length : 0) &&
-                                        dp.datasetIndex < (hasDotted ? _datasets.length * 2 : _datasets.length)
-                                    )
-                                })
-
-                                ReactDOM.render(
-                                    <InsightTooltip
-                                        date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
-                                        timezone={timezone}
-                                        seriesData={seriesData}
-                                        hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
-                                        renderSeries={(value: React.ReactNode, datum: SeriesDatum) => {
-                                            const hasBreakdown =
-                                                datum.breakdown_value !== undefined && !!datum.breakdown_value
-                                            return (
-                                                <div className="datum-label-column">
-                                                    <SeriesLetter
-                                                        className="mr-2"
-                                                        hasBreakdown={hasBreakdown}
-                                                        seriesIndex={datum?.action?.order ?? datum.id}
-                                                    />
-                                                    <div className="flex flex-col">
-                                                        {hasBreakdown && datum.breakdown_value}
-                                                        {value}
-                                                    </div>
-                                                </div>
-                                            )
-                                        }}
-                                        renderCount={
-                                            tooltipConfig?.renderCount ||
-                                            ((value: number): string => {
-                                                const total = dataset.data.reduce((a: number, b: number) => a + b, 0)
-                                                const percentageLabel: number = parseFloat(
-                                                    ((value / total) * 100).toFixed(1)
-                                                )
-                                                return `${formatAggregationAxisValue(
-                                                    aggregationAxisFormat,
-                                                    value
-                                                )} (${percentageLabel}%)`
-                                            })
-                                        }
-                                        forceEntitiesAsColumns={isHorizontal}
-                                        hideInspectActorsSection={!onClick || !showPersonsModal}
-                                        groupTypeLabel={
-                                            labelGroupType === 'people'
-                                                ? 'people'
-                                                : labelGroupType === 'none'
-                                                ? ''
-                                                : aggregationLabel(labelGroupType).plural
-                                        }
-                                        {...tooltipConfig}
-                                    />,
-                                    tooltipEl
-                                )
-                            }
-
-                            setTooltipPosition(chart, tooltipEl)
-                        },
-                    },
-                },
-                onClick: options.onClick,
-            }
         }
 
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
