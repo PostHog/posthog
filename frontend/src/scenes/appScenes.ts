@@ -56,4 +56,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.PasswordResetComplete]: () => import('./authentication/PasswordResetComplete'),
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
+    [Scene.IngestionWarnings]: () => import('./data-management/ingestion-warnings/IngestionWarningsView'),
 }
