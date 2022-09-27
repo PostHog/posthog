@@ -12,6 +12,7 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    ingestion_warnings,
     instance_settings,
     instance_status,
     integration,
@@ -64,6 +65,9 @@ project_dashboards_router = projects_router.register(
 
 projects_router.register(r"exports", exports.ExportedAssetViewSet, "exports", ["team_id"])
 projects_router.register(r"integrations", integration.IntegrationViewSet, "integrations", ["team_id"])
+projects_router.register(
+    r"ingestion_warnings", ingestion_warnings.IngestionWarningsViewSet, "ingestion_warnings", ["team_id"]
+)
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
