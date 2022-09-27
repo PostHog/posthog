@@ -1703,12 +1703,12 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfHour(toDateTime('2020-01-05 18:02:01') - toIntervalHour(number), 'US/Pacific') AS day_start
-        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 18:02:01'), 'US/Pacific'))
+               toStartOfHour(toDateTime('2020-01-05 10:02:01', 'US/Pacific') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 10:02:01', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific')
+                         toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfHour(toDateTime(timestamp), 'US/Pacific') as date
+                         toStartOfHour(toDateTime(timestamp, 'US/Pacific')) as date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -1722,8 +1722,8 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toTimezone(toDateTime(toStartOfHour(toDateTime('2020-01-05 08:00:00')), 'US/Pacific'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-05 18:02:01') )
+             AND timestamp >= toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific'))
+             AND timestamp <= toDateTime('2020-01-05 10:02:01', 'US/Pacific') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1748,8 +1748,8 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2020-01-05 15:00:00')
-       AND timestamp <= toDateTime('2020-01-05 16:00:00') )
+       AND timestamp >= toDateTime('2020-01-05 07:00:00', 'US/Pacific')
+       AND timestamp <= toDateTime('2020-01-05 08:00:00', 'US/Pacific') )
   GROUP BY actor_id
   LIMIT 100
   OFFSET 0
@@ -1765,19 +1765,19 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfHour(toDateTime('2020-01-05 18:02:01') - toIntervalHour(number), 'US/Pacific') AS day_start
-        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 18:02:01'), 'US/Pacific'))
+               toStartOfHour(toDateTime('2020-01-05 10:02:01', 'US/Pacific') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 10:02:01', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific')
+                         toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
-                         toStartOfHour(toDateTime(timestamp), 'US/Pacific') as date
+                         toStartOfHour(toDateTime(timestamp, 'US/Pacific')) as date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toTimezone(toDateTime(toStartOfHour(toDateTime('2020-01-05 08:00:00')), 'US/Pacific'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-05 18:02:01') )
+             AND timestamp >= toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific'))
+             AND timestamp <= toDateTime('2020-01-05 10:02:01', 'US/Pacific') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60

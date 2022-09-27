@@ -2,8 +2,6 @@ import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
 
-import pytz
-
 from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.event.sql import NULL_SQL
@@ -161,22 +159,13 @@ class TrendsTotalVolume:
     ) -> List[Dict[str, Any]]:
         persons_url = []
         for date in dates:
-            date_in_utc = datetime(
-                date.year,
-                date.month,
-                date.day,
-                getattr(date, "hour", 0),
-                getattr(date, "minute", 0),
-                getattr(date, "second", 0),
-                tzinfo=getattr(date, "tzinfo", pytz.UTC),
-            ).astimezone(pytz.UTC)
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
-                "date_to": date_in_utc,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
+                "date_to": date,
                 "entity_order": entity.order,
             }
 
