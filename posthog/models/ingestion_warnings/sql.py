@@ -64,3 +64,9 @@ DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL = lambda: INGESTION_WARNINGS_TABLE_BASE
     extra_fields=KAFKA_COLUMNS,
     materialized_columns="",
 )
+
+
+INSERT_INGESTION_WARNING = f"""
+INSERT INTO sharded_ingestion_warnings (team_id, source, type, details, timestamp, _timestamp, _offset)
+SELECT %(team_id)s, %(source)s, %(type)s, %(details)s, %(timestamp)s, now(), 0
+"""
