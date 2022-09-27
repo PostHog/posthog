@@ -61,6 +61,11 @@ export function IngestionWarningsView(): JSX.Element {
                         },
                     },
                     {
+                        title: 'Events',
+                        dataIndex: 'count',
+                        align: 'right',
+                    },
+                    {
                         title: 'Last Seen',
                         dataIndex: 'lastSeen',
                         render: function Render(_, summary: IngestionWarningSummary) {

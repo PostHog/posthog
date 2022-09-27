@@ -10,6 +10,7 @@ import { teamLogic } from '../../teamLogic'
 export interface IngestionWarningSummary {
     type: string
     lastSeen: string
+    count: number
     warnings: IngestionWarning[]
 }
 

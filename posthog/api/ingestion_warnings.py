@@ -34,11 +34,12 @@ def _calculate_summaries(warning_events):
             warning_details = properties["details"]
 
             if warning_type not in summaries:
-                summaries[warning_type] = {"type": warning_type, "lastSeen": timestamp, "warnings": []}
+                summaries[warning_type] = {"type": warning_type, "lastSeen": timestamp, "warnings": [], "count": 0}
 
             summaries[warning_type]["warnings"].append(
                 {"type": warning_type, "timestamp": timestamp, "details": warning_details}
             )
+            summaries[warning_type]["count"] += 1
         except:
             # Ignore invalid events
             pass
