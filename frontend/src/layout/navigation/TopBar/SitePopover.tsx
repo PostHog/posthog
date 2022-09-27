@@ -23,7 +23,7 @@ import { navigationLogic } from '../navigationLogic'
 import { LicenseType, OrganizationBasicType } from '../../../types'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
-import { licenseLogic, isLicenseExpired } from '../../../scenes/instance/Licenses/licenseLogic'
+import { licenseLogic, isLicenseExpired } from '../../../scenes/billing/license/licenseLogic'
 import { identifierToHuman } from '../../../lib/utils'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 import {
@@ -143,7 +143,7 @@ function License({ license, expired }: { license: LicenseType | null; expired: b
                         ))}
                 </div>
                 <Link
-                    to={urls.instanceLicenses()}
+                    to={urls.organizationBilling()}
                     onClick={closeSitePopover}
                     className="SitePopover__side-link"
                     data-attr="top-menu-item-licenses"

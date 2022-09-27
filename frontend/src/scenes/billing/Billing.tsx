@@ -9,8 +9,10 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { useActions, useValues } from 'kea'
-import { licenseLogic } from 'scenes/instance/Licenses/licenseLogic'
+import { licenseLogic } from 'scenes/billing/license/licenseLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { LicenseForms } from './license/LicenseForms'
+import { LicensesTable } from './license/LicensesTable'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -26,7 +28,7 @@ export function Billing(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
     return (
-        <div className="flex flex-col space-y-6">
+        <div className="flex flex-col gap-6">
             <PageHeader title="Billing &amp; usage" />
             {billing?.should_setup_billing && (
                 <AlertMessage
@@ -43,10 +45,12 @@ export function Billing(): JSX.Element {
                 </AlertMessage>
             )}
             <div className="flex flex-row gap-4 flex-wrap justify-center">
-                <div className="flex-1">
+                <div className="flex-1 space-y-4">
                     <CurrentUsage />
+                    <LicensesTable />
                 </div>
-                <div className="shrink-0">
+                <div className="shrink-0 space-y-4">
+                    <LicenseForms />
                     {billing?.plan && !billing?.should_setup_billing ? (
                         <Plan plan={billing.plan} currentPlan />
                     ) : (

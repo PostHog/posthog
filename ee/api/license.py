@@ -18,7 +18,6 @@ class LicenseSerializer(serializers.ModelSerializer):
         model = License
         fields = [
             "id",
-            "key",
             "plan",
             "valid_until",
             "max_users",

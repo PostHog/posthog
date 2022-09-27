@@ -4,7 +4,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Form } from 'kea-forms'
 import { LemonCheckbox, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { Field } from 'lib/forms/Field'
-import { licenseLogic } from 'scenes/instance/Licenses/licenseLogic'
+import { licenseLogic } from 'scenes/billing/license/licenseLogic'
 
 export function LicenseForms(): JSX.Element {
     const { isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(licenseLogic)
