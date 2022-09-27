@@ -169,7 +169,9 @@ def get_decide(request: HttpRequest):
             if len(source_files) > 0:
                 response["inject"] = []
                 for source_file in source_files:
-                    response["inject"].append({"source": source_file.transpiled})
+                    response["inject"].append(
+                        {"id": source_file.plugin_id, "source": source_file.transpiled, "payload": {}}
+                    )
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
