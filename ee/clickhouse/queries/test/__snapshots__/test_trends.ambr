@@ -81,7 +81,7 @@
                 (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp
                  FROM events e
                  WHERE team_id = 2
-                   AND timestamp >= '2019-12-25 00:00:00'
+                   AND timestamp >= toDateTime('2019-12-25 00:00:00', 'UTC')
                    AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
                  GROUP BY timestamp) d
               CROSS JOIN
@@ -104,7 +104,7 @@
                     GROUP BY id
                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
-                   AND timestamp >= '2019-12-25 00:00:00'
+                   AND timestamp >= toDateTime('2019-12-25 00:00:00', 'UTC')
                    AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
                    AND ((event = '$pageview'
                          AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
@@ -1501,7 +1501,7 @@
              (SELECT toStartOfDay(toDateTime(timestamp, 'US/Pacific')) as timestamp
               FROM events
               WHERE team_id = 2
-                AND timestamp >= '2019-12-22 00:00:00'
+                AND timestamp >= toDateTime('2019-12-22 00:00:00', 'US/Pacific')
                 AND timestamp <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
               GROUP BY timestamp) d
            CROSS JOIN
@@ -1520,10 +1520,10 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND event = 'sign up'
-                   AND timestamp >= '2019-12-22 00:00:00'
+                   AND timestamp >= toDateTime('2019-12-22 00:00:00', 'US/Pacific')
                    AND timestamp <= toDateTime('2020-01-05 23:59:59', 'US/Pacific') ) events
               WHERE 1 = 1
-                AND timestamp >= '2019-12-22 00:00:00'
+                AND timestamp >= toDateTime('2019-12-22 00:00:00', 'US/Pacific')
                 AND timestamp <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
               GROUP BY timestamp,
                        person_id) e
