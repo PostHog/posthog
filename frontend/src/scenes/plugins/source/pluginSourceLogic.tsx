@@ -30,10 +30,16 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
     actions({
         setCurrentFile: (currentFile: string) => ({ currentFile }),
         closePluginSource: true,
+        addFilePrompt: true,
+        addSourceFile: (file: string) => ({ file }),
     }),
 
     reducers({
         currentFile: ['plugin.json', { setCurrentFile: (_, { currentFile }) => currentFile }],
+        pluginSource: [
+            {} as Record<string, string>,
+            { addSourceFile: (state, { file }) => ({ ...state, [file]: '' }) },
+        ],
     }),
 
     forms(({ actions, props, values }) => ({
@@ -108,15 +114,21 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
             },
         ],
         fileNames: [
-            (s) => [s.featureFlags],
-            (featureFlags): string[] =>
-                featureFlags[FEATURE_FLAGS.FRONTEND_APPS]
-                    ? ['plugin.json', 'index.ts', 'frontend.tsx']
-                    : ['plugin.json', 'index.ts'],
+            (s) => [s.featureFlags, s.pluginSource],
+            (featureFlags, pluginSource): string[] => {
+                return Array.from(
+                    new Set([
+                        ...(featureFlags[FEATURE_FLAGS.FRONTEND_APPS]
+                            ? ['plugin.json', 'index.ts', 'frontend.tsx']
+                            : ['plugin.json', 'index.ts']),
+                        ...Object.keys(pluginSource),
+                    ])
+                )
+            },
         ],
     }),
 
-    listeners(({ props, values }) => ({
+    listeners(({ props, values, actions }) => ({
         closePluginSource: () => {
             const close = (): void => props.onClose?.()
             if (values.pluginSourceChanged) {
@@ -146,6 +158,20 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
                 </>,
                 { position: 'top-right' }
             )
+        },
+        addFilePrompt: () => {
+            let file: string | null = null
+            while (!file) {
+                file = window.prompt('Enter filename:')
+                if (file && !file.endsWith('.ts') && !file.endsWith('.tsx')) {
+                    window.alert('Files must end with .ts or .tsx')
+                    file = null
+                } else if (file) {
+                    actions.addSourceFile(file)
+                } else {
+                    break
+                }
+            }
         },
     })),
 
