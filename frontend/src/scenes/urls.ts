@@ -31,6 +31,7 @@ export const urls = {
     eventPropertyDefinitions: (): string => '/data-management/event-properties',
     eventPropertyDefinition: (id: string | number): string => `/data-management/event-properties/${id}`,
     events: (): string => '/events',
+    ingestionWarnings: (): string => 'data-management/ingestion-warnings',
     insightNew: (filters?: Partial<FilterType>, dashboardId?: DashboardType['id'] | null): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, filters ? { filters } : {}).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,

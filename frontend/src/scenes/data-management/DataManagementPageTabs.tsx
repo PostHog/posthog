@@ -1,26 +1,33 @@
 import React from 'react'
-import { kea, useActions } from 'kea'
+import { kea, useActions, useValues } from 'kea'
 import { Tabs } from 'antd'
 import { urls } from 'scenes/urls'
 import type { eventsTabsLogicType } from './DataManagementPageTabsType'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconInfo } from 'lib/components/icons'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export enum DataManagementTab {
     Actions = 'actions',
     EventDefinitions = 'events',
     EventPropertyDefinitions = 'properties',
+    Warnings = 'warnings',
 }
 
 const tabUrls = {
     [DataManagementTab.EventPropertyDefinitions]: urls.eventPropertyDefinitions(),
     [DataManagementTab.EventDefinitions]: urls.eventDefinitions(),
     [DataManagementTab.Actions]: urls.actions(),
+    [DataManagementTab.Warnings]: urls.ingestionWarnings(),
 }
 
 const eventsTabsLogic = kea<eventsTabsLogicType>({
     path: ['scenes', 'events', 'eventsTabsLogic'],
+    connect: {
+        values: [featureFlagLogic, ['featureFlags']],
+    },
     actions: {
         setTab: (tab: DataManagementTab) => ({ tab }),
     },
@@ -30,6 +37,12 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
             {
                 setTab: (_, { tab }) => tab,
             },
+        ],
+    },
+    selectors: {
+        showWarningsTab: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED],
         ],
     },
     actionToUrl: () => ({
@@ -50,6 +63,7 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
 })
 
 export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX.Element {
+    const { showWarningsTab } = useValues(eventsTabsLogic)
     const { setTab } = useActions(eventsTabsLogic)
     return (
         <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(t) => setTab(t as DataManagementTab)}>
@@ -87,6 +101,12 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                 }
                 key={DataManagementTab.EventPropertyDefinitions}
             />
+            {showWarningsTab && (
+                <Tabs.TabPane
+                    tab={<span data-attr="data-management-warnings-tab">Ingestion Warnings</span>}
+                    key={DataManagementTab.Warnings}
+                />
+            )}
         </Tabs>
     )
 }
