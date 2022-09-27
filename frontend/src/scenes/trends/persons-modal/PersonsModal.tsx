@@ -296,7 +296,6 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                                                           key={i}
                                                           fullWidth
                                                           onClick={() => {
-                                                              console.log('BLAH', recording)
                                                               recording.session_id &&
                                                                   onOpenRecording({ id: recording.session_id })
                                                           }}

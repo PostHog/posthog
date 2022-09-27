@@ -13,6 +13,7 @@ import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recordin
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import { MatchedRecordingEvents } from '~/types'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -247,6 +248,61 @@ describe('eventsListLogic', () => {
                             },
                             timestamp: '2021-12-09T19:39:39.223000Z',
                             type: 'events',
+                        }),
+                    ],
+                })
+        })
+        it('should highlight matching events', async () => {
+            await expectLogic(logic, () => {
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
+                sessionRecordingPlayerLogic(playerLogicProps).actions.setMatching([
+                    {
+                        events: [{ uuid: 'nightly' }, { uuid: 'gooddog' }] as MatchedRecordingEvents[],
+                    },
+                ])
+            })
+                .toDispatchActionsInAnyOrder([
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadEventsSuccess,
+                    sessionRecordingPlayerLogic(playerLogicProps).actionTypes.setMatching,
+                ])
+                .toMatchValues({
+                    eventListData: expect.arrayContaining([
+                        expect.objectContaining({
+                            id: '$pageview',
+                        }),
+                        expect.objectContaining({
+                            id: 'nightly',
+                        }),
+                        expect.objectContaining({
+                            id: 'gooddog',
+                        }),
+                    ]),
+                })
+        })
+        it('should filter only matching events', async () => {
+            await expectLogic(logic, () => {
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
+                sessionRecordingPlayerLogic(playerLogicProps).actions.setMatching([
+                    {
+                        events: [{ uuid: 'nightly' }, { uuid: 'gooddog' }] as MatchedRecordingEvents[],
+                    },
+                ])
+                sharedListLogic(playerLogicProps).actions.setShowOnlyMatching(true)
+            })
+                .toDispatchActionsInAnyOrder([
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadEventsSuccess,
+                    sharedListLogic(playerLogicProps).actionTypes.setShowOnlyMatching,
+                    sessionRecordingPlayerLogic(playerLogicProps).actionTypes.setMatching,
+                ])
+                .toMatchValues({
+                    eventListData: [
+                        expect.objectContaining({
+                            id: 'nightly',
+                        }),
+                        expect.objectContaining({
+                            id: 'gooddog',
                         }),
                     ],
                 })

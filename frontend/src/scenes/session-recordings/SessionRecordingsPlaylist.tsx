@@ -25,8 +25,6 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
     const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
     const playlistRef = useRef<HTMLDivElement>(null)
 
-    console.log('activeSessionRecording', activeSessionRecording)
-
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
             title: 'Recordings',
