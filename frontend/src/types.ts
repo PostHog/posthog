@@ -569,8 +569,8 @@ export interface PersonListParams {
     distinct_id?: string
 }
 
-interface MatchedRecordingEvents {
-    id: string
+export interface MatchedRecordingEvents {
+    uuid: string
     session_id: string
     window_id: string
     timestamp: string

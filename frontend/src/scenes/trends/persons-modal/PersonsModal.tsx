@@ -125,7 +125,10 @@ function PersonsModal({ url: _url, urlsIndex, urls, title, onAfterClose }: Perso
                                     <ActorRow
                                         key={x.id}
                                         actor={x}
-                                        onOpenRecording={(sessionRecording) => openSessionPlayer(sessionRecording)}
+                                        onOpenRecording={(sessionRecording) => {
+                                            console.log('BLAH', sessionRecording)
+                                            openSessionPlayer(sessionRecording)
+                                        }}
                                     />
                                 ))}
                             </>
@@ -212,7 +215,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
             actor.matched_recordings[0].session_id &&
                 onOpenRecording({
                     id: actor.matched_recordings[0].session_id,
-                    matching_events: actor.matched_recordings[0].events,
+                    matching_events: actor.matched_recordings,
                 })
         }
     }
@@ -294,6 +297,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                                                           key={i}
                                                           fullWidth
                                                           onClick={() => {
+                                                              console.log('BLAH', recording)
                                                               recording.session_id &&
                                                                   onOpenRecording({ id: recording.session_id })
                                                           }}

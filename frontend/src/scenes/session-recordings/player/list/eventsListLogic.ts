@@ -56,7 +56,7 @@ export const eventsListLogic = kea<eventsListLogicType>([
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['currentPlayerTime', 'matchingEvents'],
             sharedListLogic({ sessionRecordingId, playerKey }),
-            ['windowIdFilter'],
+            ['windowIdFilter', 'showOnlyMatching'],
         ],
     })),
     actions({
@@ -130,9 +130,9 @@ export const eventsListLogic = kea<eventsListLogicType>([
                 selectors.filters,
                 selectors.windowIdFilter,
                 selectors.matchingEvents,
+                selectors.showOnlyMatching,
             ],
-            (sessionEventsData, filters, windowIdFilter, matchingEvents): RecordingEventType[] => {
-                const matchingEventIds = new Set(matchingEvents.map((e) => e.id))
+            (sessionEventsData, filters, windowIdFilter, matchingEvents, showOnlyMatching): RecordingEventType[] => {
                 const eventsBeforeFiltering: RecordingEventType[] = sessionEventsData?.events ?? []
                 const events: RecordingEventType[] = filters?.query
                     ? new Fuse<RecordingEventType>(makeEventsQueryable(eventsBeforeFiltering), {
@@ -147,16 +147,19 @@ export const eventsListLogic = kea<eventsListLogicType>([
                           .search(filters.query)
                           .map((result) => result.item)
                     : eventsBeforeFiltering
+
+                const matchingEventIds = new Set(matchingEvents.map((e) => e.uuid))
                 return events
                     .filter(
                         (e) =>
-                            windowIdFilter === RecordingWindowFilter.All ||
-                            e.playerPosition?.windowId === windowIdFilter
+                            (windowIdFilter === RecordingWindowFilter.All ||
+                                e.playerPosition?.windowId === windowIdFilter) &&
+                            (!showOnlyMatching || matchingEventIds.has(String(e.id)))
                     )
                     .map((e) => ({
                         ...e,
                         colonTimestamp: colonDelimitedDuration(Math.floor((e.playerTime ?? 0) / 1000)),
-                        level: matchingEventIds.has(e.id) ? RowStatus.Match : undefined,
+                        level: matchingEventIds.has(String(e.id)) ? RowStatus.Match : undefined,
                     }))
             },
         ],
