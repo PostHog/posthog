@@ -1,6 +1,5 @@
 import './ActionsPie.scss'
 import React, { useState, useEffect } from 'react'
-import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
 import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -10,6 +9,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
 export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
@@ -33,11 +33,6 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                 personsValues: _data.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,
-                hoverBackgroundColor: colorList,
-                hoverBorderColor: colorList,
-                borderColor: colorList,
-                hoverBorderWidth: 10,
-                borderWidth: 1,
             },
         ])
         setTotal(_data.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0))
@@ -53,7 +48,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
         data[0] && data[0].labels ? (
             <div className="actions-pie-component">
                 <div className="pie-chart">
-                    <LineGraph
+                    <PieChart
                         data-attr="trend-pie-graph"
                         hiddenLegendKeys={hiddenLegendKeys}
                         type={GraphType.Pie}
@@ -85,8 +80,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                         }
                     />
                 </div>
-                <h1>
-                    <span className="label">Total: </span>
+                <h1 className="text-7xl text-center">
                     {formatAggregationAxisValue(insight.filters?.aggregation_axis_format, total)}
                 </h1>
             </div>
