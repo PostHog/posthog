@@ -5,10 +5,13 @@ import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function SessionRecording(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -49,22 +52,26 @@ export function SessionRecording(): JSX.Element {
 
             {currentTeam?.session_recording_opt_in ? (
                 <>
-                    <h3 className="my-6" id="urls">
-                        Capture console logs within recordings
-                    </h3>
-                    <p>
-                        This setting controls if browser console logs wil captured as a part of recordings. The console
-                        logs will be shown in the recording player to help you debug any issues.
-                    </p>
-                    <LemonSwitch
-                        data-attr="opt-in-capture-console-log-switch"
-                        onChange={(checked) => {
-                            updateCurrentTeam({ capture_console_log_opt_in: checked })
-                        }}
-                        checked={!!currentTeam?.capture_console_log_opt_in}
-                        label="Capture console logs"
-                        bordered
-                    />
+                    {featureFlags[FEATURE_FLAGS.SESSION_CONSOLE] ? (
+                        <>
+                            <h3 className="my-6" id="urls">
+                                Capture console logs within recordings
+                            </h3>
+                            <p>
+                                This setting controls if browser console logs wil captured as a part of recordings. The
+                                console logs will be shown in the recording player to help you debug any issues.
+                            </p>
+                            <LemonSwitch
+                                data-attr="opt-in-capture-console-log-switch"
+                                onChange={(checked) => {
+                                    updateCurrentTeam({ capture_console_log_opt_in: checked })
+                                }}
+                                checked={!!currentTeam?.capture_console_log_opt_in}
+                                label="Capture console logs"
+                                bordered
+                            />
+                        </>
+                    ) : null}
                     <h3 className="my-6" id="urls">
                         Authorized domains for recordings
                     </h3>
