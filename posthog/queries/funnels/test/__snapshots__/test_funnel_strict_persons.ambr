@@ -120,8 +120,8 @@
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND timestamp >= toDateTime('2021-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
+                      AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -265,8 +265,8 @@
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND timestamp >= toDateTime('2021-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
+                      AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -410,8 +410,8 @@
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND timestamp >= toDateTime('2021-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
+                      AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                      AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
