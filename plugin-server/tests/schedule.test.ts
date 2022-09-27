@@ -71,9 +71,9 @@ describe('schedule', () => {
         const event1 = await ingestEvent(createEvent())
         expect(event1.properties['counter']).toBe(0)
 
-        await runScheduleDebounced(hub, piscina, 'runEveryMinute')
-        await runScheduleDebounced(hub, piscina, 'runEveryMinute')
-        await runScheduleDebounced(hub, piscina, 'runEveryMinute')
+        runScheduleDebounced(hub, piscina, 'runEveryMinute')
+        runScheduleDebounced(hub, piscina, 'runEveryMinute')
+        runScheduleDebounced(hub, piscina, 'runEveryMinute')
         await delay(100)
 
         const event2 = await ingestEvent(createEvent())
@@ -103,7 +103,7 @@ describe('schedule', () => {
         const [hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         hub.pluginSchedule = await loadPluginSchedule(piscina)
 
-        await runScheduleDebounced(hub, piscina, 'runEveryMinute')
+        runScheduleDebounced(hub, piscina, 'runEveryMinute')
 
         await waitForTasksToFinish(hub)
 
