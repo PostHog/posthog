@@ -157,7 +157,6 @@ class RetentionEventsQuery(EventQuery):
             {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
             {prop_query}
             {f"GROUP BY target HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
-            {f"GROUP BY target, event_date" if self._event_query_type == RetentionQueryType.TARGET else ''}
         """
 
         return query, self.params
