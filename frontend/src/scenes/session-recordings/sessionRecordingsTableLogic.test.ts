@@ -12,6 +12,7 @@ import { sessionRecordingDataLogic } from './player/sessionRecordingDataLogic'
 
 describe('sessionRecordingsTableLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsTableLogic.build>
+    const listOfSessionRecordings = [{ id: 'abc', viewed: false, recording_duration: 10 }]
 
     beforeEach(() => {
         useMocks({
@@ -63,7 +64,7 @@ describe('sessionRecordingsTableLogic', () => {
                     return [
                         200,
                         {
-                            results: ['List of recordings from server'],
+                            results: listOfSessionRecordings,
                         },
                     ]
                 },
@@ -82,33 +83,38 @@ describe('sessionRecordingsTableLogic', () => {
             it('loads session recordings after mounting', async () => {
                 await expectLogic(logic)
                     .toDispatchActions(['getSessionRecordingsSuccess'])
-                    .toMatchValues({ sessionRecordings: ['List of recordings from server'] })
+                    .toMatchValues({ sessionRecordings: listOfSessionRecordings })
             })
         })
 
-        describe('sessionRecordingId', () => {
+        describe('activeSessionRecording', () => {
             it('starts as null', () => {
-                expectLogic(logic).toMatchValues({ activeSessionRecordingId: null })
+                expectLogic(logic).toMatchValues({ activeSessionRecording: null })
             })
             it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
-                expectLogic(logic, () => logic.actions.openSessionPlayer({ id: 'abc' })).toMatchValues({
-                    activeSessionRecordingId: 'abc',
-                })
+                expectLogic(logic, () => logic.actions.openSessionPlayer({ id: 'abc' }))
+                    .toDispatchActions(['getSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        partialSessionRecording: { id: 'abc' },
+                        activeSessionRecording: listOfSessionRecordings[0],
+                    })
                 expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
                 expectLogic(logic, () => logic.actions.closeSessionPlayer()).toMatchValues({
-                    activeSessionRecordingId: null,
+                    activeSessionRecording: null,
                 })
                 expect(router.values.hashParams).not.toHaveProperty('sessionRecordingId')
             })
-
             it('is read from the URL on the session recording page', async () => {
-                router.actions.push('/recordings', {}, { sessionRecordingId: 'recording1212' })
-                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'recording1212')
+                router.actions.push('/recordings', {}, { sessionRecordingId: 'abc' })
+                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
                 await expectLogic(logic)
-                    .toDispatchActions(['openSessionPlayer'])
-                    .toMatchValues({ activeSessionRecordingId: 'recording1212' })
+                    .toDispatchActionsInAnyOrder(['openSessionPlayer', 'getSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        partialSessionRecording: { id: 'abc' },
+                        activeSessionRecording: listOfSessionRecordings[0],
+                    })
             })
         })
 
@@ -148,7 +154,7 @@ describe('sessionRecordingsTableLogic', () => {
                 })
                     .toMatchValues({ offset: 0 })
                     .toDispatchActions(['loadPrev', 'getSessionRecordingsSuccess'])
-                    .toMatchValues({ sessionRecordings: ['List of recordings from server'] })
+                    .toMatchValues({ sessionRecordings: listOfSessionRecordings })
                 expect(router.values.searchParams.filters).toHaveProperty('offset', 0)
             })
         })
@@ -320,8 +326,8 @@ describe('sessionRecordingsTableLogic', () => {
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'recording1212')
 
             await expectLogic(logic)
-                .toDispatchActions(['openSessionPlayer'])
-                .toMatchValues({ activeSessionRecordingId: 'recording1212' })
+                .toDispatchActionsInAnyOrder(['openSessionPlayer', 'getSessionRecordingsSuccess'])
+                .toMatchValues({ activeSessionRecording: listOfSessionRecordings[0] })
         })
     })
 })

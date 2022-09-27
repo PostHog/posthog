@@ -54,7 +54,6 @@ export function SessionRecordingPlayerV3({
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
     matching,
 }: SessionRecordingPlayerProps): JSX.Element {
-    console.log('PLAYER', matching)
     const { handleKeyDown } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
     )

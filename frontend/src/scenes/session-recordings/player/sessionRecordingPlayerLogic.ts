@@ -65,6 +65,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     })),
     propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
+        // Ensures that if filter results change, then matching results in this player logic will also change
         if (!equal(matching, oldMatching)) {
             actions.setMatching(matching)
         }

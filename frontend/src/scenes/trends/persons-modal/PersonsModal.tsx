@@ -126,7 +126,6 @@ function PersonsModal({ url: _url, urlsIndex, urls, title, onAfterClose }: Perso
                                         key={x.id}
                                         actor={x}
                                         onOpenRecording={(sessionRecording) => {
-                                            console.log('BLAH', sessionRecording)
                                             openSessionPlayer(sessionRecording)
                                         }}
                                     />

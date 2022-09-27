@@ -229,7 +229,10 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
         activeSessionRecording: [
             (s) => [s.partialSessionRecording, s.sessionRecordings],
             (partialSessionRecording, sessionRecordings) => {
-                return sessionRecordings.find((sessionRecording) => sessionRecording.id === partialSessionRecording?.id)
+                return (
+                    sessionRecordings.find((sessionRecording) => sessionRecording.id === partialSessionRecording?.id) ??
+                    null
+                )
             },
         ],
         hasPrev: [(s) => [s.offset], (offset) => offset > 0],
