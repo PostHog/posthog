@@ -38,7 +38,7 @@ const WARNING_TYPE_RENDERER = {
 }
 
 export function IngestionWarningsView(): JSX.Element {
-    const { data } = useValues(ingestionWarningsLogic)
+    const { data, dataLoading } = useValues(ingestionWarningsLogic)
 
     return (
         <div data-attr="manage-events-table">
@@ -51,6 +51,7 @@ export function IngestionWarningsView(): JSX.Element {
 
             <LemonTable
                 dataSource={data}
+                loading={dataLoading}
                 columns={[
                     {
                         title: 'Warning',

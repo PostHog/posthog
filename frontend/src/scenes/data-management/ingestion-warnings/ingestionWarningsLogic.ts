@@ -1,8 +1,11 @@
-import { kea, path, selectors } from 'kea'
-import { urls } from 'scenes/urls'
+import { kea, connect, path, selectors, events } from 'kea'
+import { loaders } from 'kea-loaders'
 import { Breadcrumb } from '~/types'
+import { urls } from 'scenes/urls'
+import api from 'lib/api'
 
 import type { ingestionWarningsLogicType } from './ingestionWarningsLogicType'
+import { teamLogic } from '../../teamLogic'
 
 export interface IngestionWarningSummary {
     type: string
@@ -18,6 +21,22 @@ export interface IngestionWarning {
 
 export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
     path(['scenes', 'data-management', 'ingestion-warnings', 'ingestionWarningsLogic']),
+
+    connect({
+        values: [teamLogic, ['currentTeamId']],
+    }),
+
+    loaders(({ values }) => ({
+        data: [
+            [] as IngestionWarningSummary[],
+            {
+                loadData: async () => {
+                    const { results } = await api.get(`api/projects/${values.currentTeamId}/ingestion_warnings`)
+                    return results
+                },
+            },
+        ],
+    })),
 
     selectors({
         breadcrumbs: [
@@ -35,36 +54,11 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
                 ]
             },
         ],
-        data: [
-            () => [],
-            () => [
-                {
-                    type: 'cannot_merge_already_identified',
-                    lastSeen: '2022-09-27T07:49:51.713000+00:00',
-                    warnings: [
-                        {
-                            type: 'cannot_merge_already_identified',
-                            timestamp: '2022-09-27T07:49:51.713000+00:00',
-                            details: {
-                                sourcePerson: 'some-uuid',
-                                sourcePersonDistinctId: 'some-distinct-id',
-                                targetPerson: 'another-uuid',
-                                targetPersonDistinctId: 'another-distinct-id',
-                            },
-                        },
-                        {
-                            type: 'cannot_merge_already_identified',
-                            timestamp: '2022-08-27T07:49:51.713000+00:00',
-                            details: {
-                                sourcePerson: 'x-uuid',
-                                sourcePersonDistinctId: 'Alice',
-                                targetPerson: 'y-uuid',
-                                targetPersonDistinctId: 'Bob',
-                            },
-                        },
-                    ],
-                } as IngestionWarningSummary,
-            ],
-        ],
     }),
+
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.loadData()
+        },
+    })),
 ])
