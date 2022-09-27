@@ -64,6 +64,7 @@ export function IngestionWarningsView(): JSX.Element {
                         title: 'Events',
                         dataIndex: 'count',
                         align: 'right',
+                        sorter: (a, b) => a.count - b.count,
                     },
                     {
                         title: 'Last Seen',
@@ -72,11 +73,17 @@ export function IngestionWarningsView(): JSX.Element {
                             return <TZLabel time={summary.lastSeen} showSeconds />
                         },
                         align: 'right',
+                        sorter: (a, b) => (new Date(a.lastSeen) > new Date(b.lastSeen) ? 1 : -1),
                     },
                 ]}
                 expandable={{
                     expandedRowRender: RenderNestedWarnings,
                 }}
+                defaultSorting={{
+                    columnKey: 'lastSeen',
+                    order: -1,
+                }}
+                noSortingCancellation
             />
         </div>
     )
