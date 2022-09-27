@@ -1,7 +1,6 @@
 from typing import Optional, TypedDict
 
 import structlog
-from django.conf import settings
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 from rest_framework import status

@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Optional, cast
 
-from django.conf import settings
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, serializers, viewsets

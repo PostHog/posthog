@@ -1,24 +1,21 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from django.http import HttpRequest
-from django.shortcuts import redirect
-from django.conf import settings
-
-from ee.settings import BILLING_SERVICE_URL
-from django.http import HttpRequest, HttpResponse
-from rest_framework import serializers, viewsets, mixins
-
-from rest_framework.authentication import BasicAuthentication, SessionAuthentication
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.exceptions import NotAuthenticated
-
-from posthog.auth import PersonalAPIKeyAuthentication
-from ee.models import License
-from posthog.models import Organization
 import jwt
 import requests
+from django.conf import settings
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import redirect
+from rest_framework import mixins, serializers, viewsets
+from rest_framework.authentication import BasicAuthentication, SessionAuthentication
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotAuthenticated
+from rest_framework.response import Response
+
+from ee.models import License
+from ee.settings import BILLING_SERVICE_URL
+from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.models import Organization
 
 UNLICENSED_BILLING_RESPONSE = {
     "should_setup_billing": False,

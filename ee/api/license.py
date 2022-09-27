@@ -1,6 +1,5 @@
 import posthoganalytics
 import requests
-from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import mixins, request, serializers, viewsets

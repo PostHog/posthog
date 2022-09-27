@@ -1,6 +1,5 @@
 from typing import cast
 
-from django.conf import settings
 from django.db.models import Model
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request

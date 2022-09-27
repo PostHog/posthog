@@ -1,7 +1,6 @@
 import re
 from typing import Any, Dict, cast
 
-from django.conf import settings
 from rest_framework import exceptions, request, response, serializers
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
