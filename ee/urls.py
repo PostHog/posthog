@@ -24,7 +24,7 @@ def extend_api_router(
     projects_router: NestedRegistryItem,
     project_dashboards_router: NestedRegistryItem,
 ) -> None:
-    root_router.register(r"billing", billing.BillingViewset, "billing")
+    root_router.register(r"billing-v2", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
