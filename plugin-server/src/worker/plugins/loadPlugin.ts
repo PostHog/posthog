@@ -5,7 +5,7 @@ import { Hub, Plugin, PluginConfig, PluginJsonConfig } from '../../types'
 import { processError } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
-import { transpileFrontend } from '../frontend/transpile'
+import { transpileFrontend, transpileWeb } from '../frontend/transpile'
 
 function readFileIfExists(baseDir: string, plugin: Plugin, file: string): string | null {
     const fullPath = path.resolve(baseDir, plugin.url!.substring(5), file)
@@ -65,6 +65,35 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
                     })
                 }
                 hub.statsd?.timing(`transpile_frontend`, transpilationStartTimer, {
+                    plugin: plugin.name ?? '?',
+                    pluginId: `${plugin.id ?? '?'}`,
+                })
+            }
+        }
+
+        // transpile "web" app if needed
+        const webFilename = 'web.ts'
+        const pluginWeb = isLocalPlugin ? readFileIfExists(hub.BASE_DIR, plugin, webFilename) : plugin.source__web_ts
+        if (pluginWeb) {
+            if (await hub.db.getPluginTranspilationLock(plugin.id, webFilename)) {
+                status.info('🔌', `Transpiling ${pluginDigest(plugin)}`)
+                const transpilationStartTimer = new Date()
+                try {
+                    const transpiled = transpileWeb(pluginWeb)
+                    await hub.db.setPluginTranspiled(plugin.id, webFilename, transpiled)
+                } catch (error: any) {
+                    await processError(hub, pluginConfig, error)
+                    await hub.db.setPluginTranspiledError(
+                        plugin.id,
+                        webFilename,
+                        typeof error === 'string' ? error : [error.message, error.stack].filter((a) => !!a).join('\n')
+                    )
+                    hub.statsd?.increment(`transpile_web.ERROR`, {
+                        plugin: plugin.name ?? '?',
+                        pluginId: `${plugin.id ?? '?'}`,
+                    })
+                }
+                hub.statsd?.timing(`transpile_web`, transpilationStartTimer, {
                     plugin: plugin.name ?? '?',
                     pluginId: `${plugin.id ?? '?'}`,
                 })
