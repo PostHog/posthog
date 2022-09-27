@@ -26,6 +26,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { dayjs, now } from 'lib/dayjs'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -174,6 +175,20 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         colors: [{ id: insightNumericId, color }],
                     })
                 },
+                removeItem: async ({ insight }) => {
+                    try {
+                        await api.update(`api/projects/${values.currentTeamId}/insights/${insight.id}`, {
+                            dashboards: insight.dashboards?.filter((id) => id !== props.id) ?? [],
+                        } as Partial<InsightModel>)
+
+                        return {
+                            ...values.allItems,
+                            items: values.allItems?.items.filter((i) => i.id !== insight.id),
+                        } as DashboardType
+                    } catch (e) {
+                        lemonToast.error('could not remove item: ' + e)
+                    }
+                },
             },
         ],
     }),
@@ -264,12 +279,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                   }
                                 : i
                         ),
-                    } as DashboardType
-                },
-                removeItem: (state, { insight }) => {
-                    return {
-                        ...state,
-                        items: state?.items.filter((i) => i.id !== insight.id),
                     } as DashboardType
                 },
                 [insightsModel.actionTypes.duplicateInsightSuccess]: (state, { item }): DashboardType => {
@@ -625,11 +634,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
             if (values.dashboard) {
                 dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
             }
-        },
-        removeItem: async ({ insight }) => {
-            return api.update(`api/projects/${values.currentTeamId}/insights/${insight.id}`, {
-                dashboards: insight.dashboards?.filter((id) => id !== props.id) ?? [],
-            } as Partial<InsightModel>)
         },
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
