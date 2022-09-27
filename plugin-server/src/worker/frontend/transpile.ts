@@ -26,13 +26,10 @@ export function transpileWeb(rawCode: string): string {
         babelrc: false,
         configFile: false,
         filename: 'web.ts',
-        presets: [
-            ['typescript', { isTSX: false, allExtensions: true }],
-            ['env', { targets: { esmodules: false } }],
-        ],
+        presets: [['typescript', { isTSX: false, allExtensions: true }], 'env'],
     })
     if (!code) {
         throw new Error('Could not transpile web code')
     }
-    return `"use strict";\nexport function getInject(){let exports={};${code};return exports;}`
+    return `(function () {let exports={};${code};return exports;})`
 }
