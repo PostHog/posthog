@@ -352,8 +352,8 @@ WITH
         FROM numbers(
             dateDiff(
                 %(interval)s,
-                dateTrunc(%(interval)s, toDateTime(%(date_from)s)),
-                dateTrunc(%(interval)s, toDateTime(%(date_to)s) + INTERVAL 1 {{interval_expr}})
+                dateTrunc(%(interval)s, toDateTime(%(date_from)s, %(timezone)s)),
+                dateTrunc(%(interval)s, toDateTime(%(date_to)s, %(timezone)s) + INTERVAL 1 {{interval_expr}})
             )
         )
     )

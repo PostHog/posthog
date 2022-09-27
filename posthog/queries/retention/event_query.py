@@ -93,7 +93,7 @@ class RetentionEventsQuery(EventQuery):
                     [
                         dateDiff(
                             %(period)s,
-                            {self._trunc_func}(toDateTime(%(start_date)s)),
+                            {self._trunc_func}(toDateTime(%(start_date)s, %(timezone)s)),
                             {self._trunc_func}(min(e.timestamp))
                         )
                     ] as breakdown_values
@@ -105,7 +105,7 @@ class RetentionEventsQuery(EventQuery):
                     [
                         dateDiff(
                             %(period)s,
-                            {self._trunc_func}(toDateTime(%(start_date)s)),
+                            {self._trunc_func}(toDateTime(%(start_date)s, %(timezone)s)),
                             {self._trunc_func}(e.timestamp)
                         )
                     ] as breakdown_values
@@ -165,11 +165,11 @@ class RetentionEventsQuery(EventQuery):
 
     def get_timestamp_field(self) -> str:
         if self._event_query_type == RetentionQueryType.TARGET:
-            return f"DISTINCT {self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp, %(timezone)s)) AS event_date"
+            return f"DISTINCT {self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp)) AS event_date"
         elif self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            return f"min({self._trunc_func}(toDateTime(e.timestamp, %(timezone)s))) as event_date"
+            return f"min({self._trunc_func}(toDateTime(e.timestamp))) as event_date"
         else:
-            return f"{self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp, %(timezone)s)) AS event_date"
+            return f"{self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp)) AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
         if (
@@ -212,7 +212,7 @@ class RetentionEventsQuery(EventQuery):
         query = (
             f"event_date >= toDateTime(%({self._event_query_type}_start_date)s, %(timezone)s) AND event_date <= toDateTime(%({self._event_query_type}_end_date)s, %(timezone)s)"
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-            else f"toDateTime({self.EVENT_TABLE_ALIAS}.timestamp,  %(timezone)s) >= toDateTime(%({self._event_query_type}_start_date)s,  %(timezone)s) AND toDateTime({self.EVENT_TABLE_ALIAS}.timestamp,  %(timezone)s) <= toDateTime(%({self._event_query_type}_end_date)s, %(timezone)s)"
+            else f"toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) >= toDateTime(%({self._event_query_type}_start_date)s,  %(timezone)s) AND toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) <= toDateTime(%({self._event_query_type}_end_date)s, %(timezone)s)"
         )
         start_date = self._filter.date_from
         end_date = (
