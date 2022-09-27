@@ -22,6 +22,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import Fuse from 'fuse.js'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 
 export const DEFAULT_ROW_HEIGHT = 65 // Two lines
 export const OVERSCANNED_ROW_COUNT = 50
@@ -51,9 +52,9 @@ export const eventsListLogic = kea<eventsListLogicType>([
         ],
         values: [
             sessionRecordingDataLogic({ sessionRecordingId }),
-            ['filters', 'sessionEventsData', 'sessionEventsDataLoading', 'matchingEvents'],
+            ['filters', 'sessionEventsData', 'sessionEventsDataLoading'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
-            ['currentPlayerTime'],
+            ['currentPlayerTime', 'matchingEvents'],
             sharedListLogic({ sessionRecordingId, playerKey }),
             ['windowIdFilter'],
         ],
@@ -131,7 +132,7 @@ export const eventsListLogic = kea<eventsListLogicType>([
                 selectors.matchingEvents,
             ],
             (sessionEventsData, filters, windowIdFilter, matchingEvents): RecordingEventType[] => {
-                console.log('MATCHING EVENTS', matchingEvents)
+                const matchingEventIds = new Set(matchingEvents.map((e) => e.id))
                 const eventsBeforeFiltering: RecordingEventType[] = sessionEventsData?.events ?? []
                 const events: RecordingEventType[] = filters?.query
                     ? new Fuse<RecordingEventType>(makeEventsQueryable(eventsBeforeFiltering), {
@@ -155,6 +156,7 @@ export const eventsListLogic = kea<eventsListLogicType>([
                     .map((e) => ({
                         ...e,
                         colonTimestamp: colonDelimitedDuration(Math.floor((e.playerTime ?? 0) / 1000)),
+                        level: matchingEventIds.has(e.id) ? RowStatus.Match : undefined,
                     }))
             },
         ],

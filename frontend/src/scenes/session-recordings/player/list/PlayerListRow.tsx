@@ -86,7 +86,7 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                         {
                             'text-warning-dark bg-warning-highlight': statusDetermined === RowStatus.Warning,
                             'text-danger-dark bg-danger-highlight': statusDetermined === RowStatus.Error,
-                            'text-indigo bg-purple-light': statusDetermined === RowStatus.Match,
+                            'text-purple-dark bg-purple-light': statusDetermined === RowStatus.Match,
                             'text-black bg-light': !statusDetermined || statusDetermined === RowStatus.Information,
                         },
                         !isExpanded && 'h-10'
@@ -120,7 +120,7 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                         </div>
                     </div>
                     <div className={clsx('grow h-full', !isExpanded && 'overflow-hidden')}>{contentDetermined}</div>
-                    <div className="flex shrink-0 flex-row gap-3 items-center text-muted leading-6">
+                    <div className="flex shrink-0 flex-row gap-3 items-center leading-6">
                         {sideContentDetermined}
                         <div className="text-xs leading-6">{record.colonTimestamp}</div>
                         {allOptions.length > 0 && (
