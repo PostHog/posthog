@@ -90,7 +90,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             actions.createAnnotationGenerically({ ...annotationData, dashboard_item: insightNumericId })
         },
     })),
-    selectors(({ props }) => ({
+    selectors({
         pointsPerTick: [
             () => [(_, props) => props.ticks],
             (ticks): number => {
@@ -101,7 +101,11 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             },
         ],
         tickDates: [
-            (s) => [s.timezone, (_, props) => props.dates, (_, props) => props.ticks],
+            (s) => [
+                s.timezone,
+                (_, props: AnnotationsOverlayLogicProps) => props.dates,
+                (_, props: AnnotationsOverlayLogicProps) => props.ticks,
+            ],
             (timezone, dates, ticks): Dayjs[] => {
                 const tickPointIndices: number[] = ticks.map(({ value }) => value)
                 const tickDates: Dayjs[] = tickPointIndices.map((dateIndex) =>
@@ -120,8 +124,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             },
         ],
         relevantAnnotations: [
-            (s) => [s.annotations, s.dateRange],
-            (annotations, dateRange) => {
+            (s) => [s.annotations, s.dateRange, (_, props) => props.insightNumericId],
+            (annotations, dateRange, insightNumericId) => {
                 // This assumes that there are no more than AnnotationsViewSet.default_limit (500) annotations
                 // in the project. Right now this is true on Cloud, though some projects are getting close (400+).
                 // If we see the scale increasing, we might need to fetch annotations on a per-insight basis here.
@@ -130,7 +134,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                     ? annotations.filter(
                           (annotation) =>
                               (annotation.scope !== AnnotationScope.Insight ||
-                                  annotation.dashboard_item === props.insightNumericId) &&
+                                  annotation.dashboard_item === insightNumericId) &&
                               annotation.date_marker >= dateRange[0] &&
                               annotation.date_marker < dateRange[1]
                       )
@@ -157,5 +161,5 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 )
             },
         ],
-    })),
+    }),
 ])
