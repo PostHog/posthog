@@ -28,19 +28,22 @@ export async function startPluginSchedules(
     server.pluginSchedule = await pluginSchedulePromise
 
     schedule.scheduleJob('* * * * *', async () => {
-        if (!stopped && weHaveTheLock && (await pluginSchedulePromise)) {
-            await runScheduleDebounced(server!, piscina!, 'runEveryMinute')
-        }
+        !stopped &&
+            weHaveTheLock &&
+            (await pluginSchedulePromise) &&
+            runScheduleDebounced(server!, piscina!, 'runEveryMinute')
     })
     schedule.scheduleJob('0 * * * *', async () => {
-        if (!stopped && weHaveTheLock && (await pluginSchedulePromise)) {
-            await runScheduleDebounced(server!, piscina!, 'runEveryHour')
-        }
+        !stopped &&
+            weHaveTheLock &&
+            (await pluginSchedulePromise) &&
+            runScheduleDebounced(server!, piscina!, 'runEveryHour')
     })
     schedule.scheduleJob('0 0 * * *', async () => {
-        if (!stopped && weHaveTheLock && (await pluginSchedulePromise)) {
-            await runScheduleDebounced(server!, piscina!, 'runEveryDay')
-        }
+        !stopped &&
+            weHaveTheLock &&
+            (await pluginSchedulePromise) &&
+            runScheduleDebounced(server!, piscina!, 'runEveryDay')
     })
 
     const unlock = await startRedlock({
@@ -97,7 +100,7 @@ export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000)
     throw new Error('Could not load plugin schedule in time')
 }
 
-export async function runScheduleDebounced(server: Hub, piscina: Piscina, taskName: string): Promise<void> {
+export function runScheduleDebounced(server: Hub, piscina: Piscina, taskName: string): void {
     const runTask = (pluginConfigId: PluginConfigId) => {
         status.info('⏲️', `Running ${taskName} for plugin config with ID ${pluginConfigId}`)
         return piscina.run({ task: taskName, args: { pluginConfigId } })
@@ -120,9 +123,6 @@ export async function runScheduleDebounced(server: Hub, piscina: Piscina, taskNa
                 await processError(server, server.pluginConfigs.get(pluginConfigId) || null, error)
                 server.pluginSchedulePromises[taskName][pluginConfigId] = null
             })
-
-        server.promiseManager.trackPromise(promise)
-        await server.promiseManager.awaitPromisesIfNeeded()
     }
 }
 
