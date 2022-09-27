@@ -187,6 +187,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         } as DashboardType
                     } catch (e) {
                         lemonToast.error('could not remove item: ' + e)
+                        return values.allItems
                     }
                 },
             },
