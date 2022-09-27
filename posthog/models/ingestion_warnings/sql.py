@@ -53,7 +53,9 @@ _timestamp,
 _offset
 FROM {database}.kafka_ingestion_warnings
 """.format(
-    target_table="ingestion_warnings", cluster=settings.CLICKHOUSE_CLUSTER, database=settings.CLICKHOUSE_DATABASE,
+    target_table="ingestion_warnings",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
 )
 
 # This table is responsible for writing to sharded_ingestion_warnings based on a sharding key.

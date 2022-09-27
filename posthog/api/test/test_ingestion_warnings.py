@@ -42,18 +42,30 @@ class TestIngestionWarningsAPI(ClickhouseTestMixin, APIBaseTest):
             timestamp="2021-12-03T00:00:00Z",
         )
         create_ingestion_warning(
-            team_id=self.team.id, type="cannot_merge_already_identified", details={}, timestamp="2021-12-02T00:00:00Z",
+            team_id=self.team.id,
+            type="cannot_merge_already_identified",
+            details={},
+            timestamp="2021-12-02T00:00:00Z",
         )
         create_ingestion_warning(
-            team_id=self.team.id, type="another_type", details={}, timestamp="2021-11-15T00:00:00Z",
+            team_id=self.team.id,
+            type="another_type",
+            details={},
+            timestamp="2021-11-15T00:00:00Z",
         )
         create_ingestion_warning(
-            team_id=self.team.id, type="too_old", details={}, timestamp="2021-11-01T00:00:00Z",
+            team_id=self.team.id,
+            type="too_old",
+            details={},
+            timestamp="2021-11-01T00:00:00Z",
         )
 
         team2 = Organization.objects.bootstrap(None)[2]
         create_ingestion_warning(
-            team_id=team2.id, type="too_old", details={}, timestamp="2021-12-01T00:00:00Z",
+            team_id=team2.id,
+            type="too_old",
+            details={},
+            timestamp="2021-12-01T00:00:00Z",
         )
 
         response = self.client.get(f"/api/projects/{self.team.pk}/ingestion_warnings")
