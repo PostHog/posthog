@@ -28,22 +28,19 @@ export async function startPluginSchedules(
     server.pluginSchedule = await pluginSchedulePromise
 
     schedule.scheduleJob('* * * * *', async () => {
-        !stopped &&
-            weHaveTheLock &&
-            (await pluginSchedulePromise) &&
-            runScheduleDebounced(server!, piscina!, 'runEveryMinute')
+        if (!stopped && weHaveTheLock && (await pluginSchedulePromise)) {
+            await runScheduleDebounced(server!, piscina!, 'runEveryMinute')
+        }
     })
     schedule.scheduleJob('0 * * * *', async () => {
-        !stopped &&
-            weHaveTheLock &&
-            (await pluginSchedulePromise) &&
-            runScheduleDebounced(server!, piscina!, 'runEveryHour')
+        if (!stopped && weHaveTheLock && (await pluginSchedulePromise)) {
+            await runScheduleDebounced(server!, piscina!, 'runEveryHour')
+        }
     })
     schedule.scheduleJob('0 0 * * *', async () => {
-        !stopped &&
-            weHaveTheLock &&
-            (await pluginSchedulePromise) &&
-            runScheduleDebounced(server!, piscina!, 'runEveryDay')
+        if (!stopped && weHaveTheLock && (await pluginSchedulePromise)) {
+            await runScheduleDebounced(server!, piscina!, 'runEveryDay')
+        }
     })
 
     const unlock = await startRedlock({
@@ -100,8 +97,11 @@ export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000)
     throw new Error('Could not load plugin schedule in time')
 }
 
-export function runScheduleDebounced(server: Hub, piscina: Piscina, taskName: string): void {
-    const runTask = (pluginConfigId: PluginConfigId) => piscina.run({ task: taskName, args: { pluginConfigId } })
+export async function runScheduleDebounced(server: Hub, piscina: Piscina, taskName: string): Promise<void> {
+    const runTask = (pluginConfigId: PluginConfigId) => {
+        status.info('⏲️', `Running ${taskName} for plugin config with ID ${pluginConfigId}`)
+        return piscina.run({ task: taskName, args: { pluginConfigId } })
+    }
 
     for (const pluginConfigId of server.pluginSchedule?.[taskName] || []) {
         // last task still running? skip rerunning!
@@ -120,6 +120,9 @@ export function runScheduleDebounced(server: Hub, piscina: Piscina, taskName: st
                 await processError(server, server.pluginConfigs.get(pluginConfigId) || null, error)
                 server.pluginSchedulePromises[taskName][pluginConfigId] = null
             })
+
+        server.promiseManager.trackPromise(promise)
+        await server.promiseManager.awaitPromisesIfNeeded()
     }
 }
 

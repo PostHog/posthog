@@ -7,7 +7,7 @@ import './LemonSelect.scss'
 import clsx from 'clsx'
 
 export interface LemonSelectOption<T> {
-    value?: T
+    value: T
     label: string | JSX.Element
     icon?: React.ReactElement
     sideIcon?: React.ReactElement

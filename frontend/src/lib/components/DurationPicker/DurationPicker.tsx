@@ -60,7 +60,7 @@ export function DurationPicker({ initialValue, onChange, autoFocus }: DurationPi
                 onChange={(newValue) => {
                     setUnit(newValue as SmallTimeUnit)
                 }}
-                options={durationOptions.map((value) => ({ key: value, label: value }))}
+                options={durationOptions.map((value) => ({ value, label: value }))}
             />
         </div>
     )

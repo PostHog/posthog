@@ -61,6 +61,11 @@ export enum Realm {
     SelfHostedClickHouse = 'hosted-clickhouse',
 }
 
+export enum Region {
+    US = 'US',
+    EU = 'EU',
+}
+
 export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
 export interface AuthBackends {
     'google-oauth2'?: boolean
@@ -1349,7 +1354,8 @@ export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
     breakdown?: BreakdownKeyType
-    breakdown_value?: BreakdownKeyType
+    // :KLUDGE: Data transforms done in `getBreakdownStepValues`
+    breakdown_value?: Array<string | number>
     breakdownIndex?: number
     conversionRates?: {
         total: number
@@ -1461,6 +1467,7 @@ export interface PreflightStatus {
     demo: boolean
     celery: boolean
     realm: Realm
+    region: Region
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
@@ -2042,6 +2049,7 @@ export interface SessionRecordingPlayerProps {
     sessionRecordingId: SessionRecordingId
     playerKey: string
     includeMeta?: boolean
+    recordingStartTime?: string
 }
 
 export enum FeatureFlagReleaseType {

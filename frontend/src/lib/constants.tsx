@@ -1,5 +1,5 @@
 import { urls } from 'scenes/urls'
-import { AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
+import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProviders } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -124,6 +124,8 @@ export const FEATURE_FLAGS = {
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     ACTOR_ON_EVENTS_QUERYING: 'person-on-events-enabled', //owner: @EDsCODE
     FEATURE_FLAGS_UX: 'feature-flags-ux', //owner: @liyiy
+    REGION_SELECT: 'region-select', //owner: @kappa90
+    INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -185,3 +187,8 @@ export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' 
 
 export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
 export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:\/?#[\]@!\$&'\(\)\*\+,;=.]+$/gi
+
+export const CLOUD_HOSTNAMES = {
+    [Region.US]: 'app.posthog.com',
+    [Region.EU]: 'eu.posthog.com',
+}

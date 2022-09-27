@@ -38,6 +38,7 @@ isort==5.2.2
 pytest==6.2.2
 pytest-django==4.1.0
 pytest-env==0.6.2
+pytest-icdiff==0.5
 pytest-mock==3.5.1
 pytest-cov==2.12.1
 pytest-split==0.6.0

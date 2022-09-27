@@ -53,8 +53,9 @@ class TestLoginAPI(APIBaseTest):
 
     CONFIG_AUTO_LOGIN = False
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_logs_in_with_email_and_password(self, mock_capture):
+    def test_user_logs_in_with_email_and_password(self, mock_capture, mock_identify):
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
@@ -292,8 +293,9 @@ class TestPasswordResetAPI(APIBaseTest):
 
     # Password reset completion
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_can_reset_password(self, mock_capture):
+    def test_user_can_reset_password(self, mock_capture, mock_identify):
         self.client.logout()  # extra precaution to test login
 
         token = default_token_generator.make_token(self.user)
