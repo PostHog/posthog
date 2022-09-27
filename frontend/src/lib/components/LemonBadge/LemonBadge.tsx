@@ -13,7 +13,7 @@ export interface LemonBadgeProps {
     style?: React.CSSProperties
 }
 
-/** An icon-sized Bubble for displaying a count.
+/** An icon-sized badge for displaying a count.
  *
  * Numbers up to 9 are displayed in full, in integer form, with 9+ for higher values.
  * JSX elements are rendered outright to support use cases where the badge is meant to show an icon.

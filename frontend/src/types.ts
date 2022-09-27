@@ -1354,7 +1354,8 @@ export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
     breakdown?: BreakdownKeyType
-    breakdown_value?: BreakdownKeyType
+    // :KLUDGE: Data transforms done in `getBreakdownStepValues`
+    breakdown_value?: Array<string | number>
     breakdownIndex?: number
     conversionRates?: {
         total: number
@@ -2048,6 +2049,7 @@ export interface SessionRecordingPlayerProps {
     sessionRecordingId: SessionRecordingId
     playerKey: string
     includeMeta?: boolean
+    recordingStartTime?: string
 }
 
 export enum FeatureFlagReleaseType {

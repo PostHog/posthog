@@ -1098,6 +1098,13 @@ class TestCapture(BaseTest):
                                 }
                             ]
                         ),
+                        "events_summary": [
+                            {
+                                "type": snapshot_type,
+                                "data": {"source": snapshot_source},
+                                "timestamp": timestamp,
+                            }
+                        ],
                         "compression": "gzip-base64",
                         "has_full_snapshot": False,
                     },

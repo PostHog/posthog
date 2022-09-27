@@ -8,7 +8,6 @@ import {
     BreakdownKeyType,
     FunnelAPIResponse,
     FunnelStepReference,
-    FlattenedFunnelStepByBreakdown,
     FunnelConversionWindow,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
@@ -161,7 +160,7 @@ interface BreakdownStepValues {
 }
 
 export const getBreakdownStepValues = (
-    breakdownStep: Pick<FlattenedFunnelStepByBreakdown, 'breakdown' | 'breakdown_value'>,
+    breakdownStep: Pick<FunnelStep, 'breakdown' | 'breakdown_value'>,
     index: number,
     isBaseline: boolean = false
 ): BreakdownStepValues => {

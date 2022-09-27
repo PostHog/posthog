@@ -160,7 +160,7 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
                         {convertedCountPresentationWithPercentage}
                     </ValueInspectorButton>
                 ) : (
-                    convertedCountPresentationWithPercentage
+                    <span>{convertedCountPresentationWithPercentage}</span>
                 )}
             </LemonRow>
             {stepIndex > 0 && (
@@ -179,7 +179,7 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
                                 {droppedOffCountPresentationWithPercentage}
                             </ValueInspectorButton>
                         ) : (
-                            droppedOffCountPresentationWithPercentage
+                            <span>{droppedOffCountPresentationWithPercentage}</span>
                         )}
                     </LemonRow>
                     {showTime && (

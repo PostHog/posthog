@@ -101,7 +101,10 @@ export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000)
 }
 
 export function runScheduleDebounced(server: Hub, piscina: Piscina, taskName: string): void {
-    const runTask = (pluginConfigId: PluginConfigId) => piscina.run({ task: taskName, args: { pluginConfigId } })
+    const runTask = (pluginConfigId: PluginConfigId) => {
+        status.info('⏲️', `Running ${taskName} for plugin config with ID ${pluginConfigId}`)
+        return piscina.run({ task: taskName, args: { pluginConfigId } })
+    }
 
     for (const pluginConfigId of server.pluginSchedule?.[taskName] || []) {
         // last task still running? skip rerunning!
