@@ -4,6 +4,8 @@ from typing import Any, Optional
 from django.http import HttpRequest
 from django.shortcuts import redirect
 from django.conf import settings
+
+from ee.settings import BILLING_SERVICE_URL
 from django.http import HttpRequest, HttpResponse
 from rest_framework import serializers, viewsets, mixins
 
@@ -18,7 +20,7 @@ from posthog.models import Organization
 import jwt
 import requests
 
-mock_billing_info = {
+UNLICENSED_BILLING_RESPONSE = {
     "should_setup_billing": False,
     "is_billing_active": False,
     "billing_period_ends": None,
@@ -57,13 +59,13 @@ class BillingViewset(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewset
             billing_service_token = self._build_token(org)
 
             res = requests.get(
-                f"{settings.BILLING_SERVICE_URL}/api/billing/{org.id}",
+                f"{BILLING_SERVICE_URL}/api/billing/{org.id}",
                 headers={"Authorization": f"bearer {billing_service_token}"},
             )
-            return Response(mock_billing_info)
+            return Response(res.json())
 
         # TODO: Return default unlicensed response...
-        return Response(mock_billing_info)
+        return Response(UNLICENSED_BILLING_RESPONSE)
 
     @action(methods=["GET"], detail=False)
     def activation(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -71,7 +73,7 @@ class BillingViewset(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewset
         organization = self._get_org()
         redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/organization/billing"  # Get from request
 
-        url = settings.BILLING_SERVICE_URL + f"/activation?redirect_uri={redirect_uri}"
+        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}"
 
         if license and organization:
             billing_service_token = self._build_token(organization)
@@ -80,7 +82,8 @@ class BillingViewset(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewset
         return redirect(url)
 
     def update(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
-        return Response(mock_billing_info)
+        # TODO
+        return Response(UNLICENSED_BILLING_RESPONSE)
 
     def _get_org(self) -> Optional[Organization]:
         return None if self.request.user.is_anonymous else self.request.user.organization
