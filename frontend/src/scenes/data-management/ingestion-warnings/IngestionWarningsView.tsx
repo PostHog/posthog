@@ -49,6 +49,8 @@ export function IngestionWarningsView(): JSX.Element {
             />
             <DataManagementPageTabs tab={DataManagementTab.IngestionWarnings} />
 
+            <div className="mb-4">Data ingestion related warnings from past 30 days.</div>
+
             <LemonTable
                 dataSource={data}
                 loading={dataLoading}
