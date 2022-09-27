@@ -137,6 +137,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
     MAX_PENDING_PROMISES_PER_WORKER: number
+    MAX_PENDING_PROMISES_MAIN_THREAD: number
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string

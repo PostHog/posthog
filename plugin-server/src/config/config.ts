@@ -79,6 +79,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
         SITE_URL: null,
+        MAX_PENDING_PROMISES_MAIN_THREAD: 20,
         MAX_PENDING_PROMISES_PER_WORKER: 100,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
@@ -166,7 +167,9 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: '(advanced) enable experimental feature to track lastSeenAt',
         EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: '(advanced) enable experimental feature to track event properties',
         MAX_PENDING_PROMISES_PER_WORKER:
-            '(advanced) maximum number of promises that a worker can have running at once in the background. currently only targets the exportEvents buffer.',
+            '(advanced) maximum number of promises that a worker can have running at once in the background.',
+        MAX_PENDING_PROMISES_MAIN_THREAD:
+            '(advanced) maximum number of promises that the main thread can have running at once in the background.',
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY:
             '(advanced) how many kafka partitions the plugin server should consume from concurrently',
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS:
