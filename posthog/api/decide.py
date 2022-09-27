@@ -13,7 +13,7 @@ from posthog.api.geoip import get_geoip_properties
 from posthog.api.utils import get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
-from posthog.models import Team, User
+from posthog.models import PluginSourceFile, Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
@@ -159,5 +159,17 @@ def get_decide(request: HttpRequest):
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):
                 response["sessionRecording"] = {"endpoint": "/s/"}
+
+            source_files = PluginSourceFile.objects.filter(
+                plugin__pluginconfig__team=team,
+                plugin__pluginconfig__enabled=True,
+                filename="web.ts",
+                status=PluginSourceFile.Status.TRANSPILED,
+            ).all()
+            if len(source_files) > 0:
+                response["inject"] = []
+                for source_file in source_files:
+                    response["inject"].append({"source": source_file.transpiled})
+
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
