@@ -70,9 +70,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
     },
 
     actions: {
-        setReceivedErrorsFromAPI: (receivedErrors: boolean) => ({
-            receivedErrors,
-        }),
         loadExportedDashboard: (dashboard: DashboardType | null) => ({ dashboard }),
         loadDashboardItems: ({
             refresh,
@@ -113,8 +110,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
             null as DashboardType | null,
             {
                 loadDashboardItems: async ({ refresh }) => {
-                    actions.setReceivedErrorsFromAPI(false)
-
                     if (!props.id) {
                         console.warn('Called `loadDashboardItems` but ID is not set.')
                         return
@@ -126,7 +121,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         return dashboard
                     } catch (error: any) {
-                        actions.setReceivedErrorsFromAPI(true)
                         if (error.status === 404) {
                             return null
                         }
@@ -197,14 +191,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
         receivedErrorsFromAPI: [
             false,
             {
-                setReceivedErrorsFromAPI: (
-                    _: boolean,
-                    {
-                        receivedErrors,
-                    }: {
-                        receivedErrors: boolean
-                    }
-                ) => receivedErrors,
+                loadDashboardItemsSuccess: () => false,
+                loadDashboardItemsFailure: () => true,
             },
         ],
         filters: [
