@@ -11,8 +11,8 @@
         FROM events e
         WHERE team_id = 2
           AND e.event = 'target event'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-04 00:00:00') ),
+          AND toDateTime(e.timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp, 'UTC') <= toDateTime('2020-01-04 00:00:00', 'UTC') ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
@@ -29,10 +29,10 @@
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
-        HAVING event_date >= toDateTime('2020-01-01 00:00:00')
-        AND event_date <= toDateTime('2020-01-04 00:00:00')) SELECT DISTINCT breakdown_values,
-                                                                             intervals_from_base,
-                                                                             actor_id
+        HAVING event_date >= toDateTime('2020-01-01 00:00:00', 'UTC')
+        AND event_date <= toDateTime('2020-01-04 00:00:00', 'UTC')) SELECT DISTINCT breakdown_values,
+                                                                                    intervals_from_base,
+                                                                                    actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -81,8 +81,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = 'target event'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-04 00:00:00') ),
+          AND toDateTime(e.timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp, 'UTC') <= toDateTime('2020-01-04 00:00:00', 'UTC') ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
@@ -106,10 +106,10 @@
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
-        HAVING event_date >= toDateTime('2020-01-01 00:00:00')
-        AND event_date <= toDateTime('2020-01-04 00:00:00')) SELECT DISTINCT breakdown_values,
-                                                                             intervals_from_base,
-                                                                             actor_id
+        HAVING event_date >= toDateTime('2020-01-01 00:00:00', 'UTC')
+        AND event_date <= toDateTime('2020-01-04 00:00:00', 'UTC')) SELECT DISTINCT breakdown_values,
+                                                                                    intervals_from_base,
+                                                                                    actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -154,8 +154,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND e.event = 'target event'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-04 00:00:00') ),
+          AND toDateTime(e.timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp, 'UTC') <= toDateTime('2020-01-04 00:00:00', 'UTC') ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
@@ -179,10 +179,10 @@
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
-        HAVING event_date >= toDateTime('2020-01-01 00:00:00')
-        AND event_date <= toDateTime('2020-01-04 00:00:00')) SELECT DISTINCT breakdown_values,
-                                                                             intervals_from_base,
-                                                                             actor_id
+        HAVING event_date >= toDateTime('2020-01-01 00:00:00', 'UTC')
+        AND event_date <= toDateTime('2020-01-04 00:00:00', 'UTC')) SELECT DISTINCT breakdown_values,
+                                                                                    intervals_from_base,
+                                                                                    actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -236,8 +236,8 @@
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
+          AND toDateTime(e.timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp, 'UTC') <= toDateTime('2020-01-03 00:00:00', 'UTC') ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
@@ -273,10 +273,10 @@
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
-        HAVING event_date >= toDateTime('2020-01-01 00:00:00')
-        AND event_date <= toDateTime('2020-01-03 00:00:00')) SELECT DISTINCT breakdown_values,
-                                                                             intervals_from_base,
-                                                                             actor_id
+        HAVING event_date >= toDateTime('2020-01-01 00:00:00', 'UTC')
+        AND event_date <= toDateTime('2020-01-03 00:00:00', 'UTC')) SELECT DISTINCT breakdown_values,
+                                                                                    intervals_from_base,
+                                                                                    actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -337,8 +337,8 @@
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
+          AND toDateTime(e.timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp, 'UTC') <= toDateTime('2020-01-03 00:00:00', 'UTC') ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
@@ -374,10 +374,10 @@
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
-        HAVING event_date >= toDateTime('2020-01-01 00:00:00')
-        AND event_date <= toDateTime('2020-01-03 00:00:00')) SELECT DISTINCT breakdown_values,
-                                                                             intervals_from_base,
-                                                                             actor_id
+        HAVING event_date >= toDateTime('2020-01-01 00:00:00', 'UTC')
+        AND event_date <= toDateTime('2020-01-03 00:00:00', 'UTC')) SELECT DISTINCT breakdown_values,
+                                                                                    intervals_from_base,
+                                                                                    actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -434,8 +434,8 @@
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
-          AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
+          AND toDateTime(e.timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+          AND toDateTime(e.timestamp, 'UTC') <= toDateTime('2020-01-03 00:00:00', 'UTC') ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
@@ -471,10 +471,10 @@
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
-        HAVING event_date >= toDateTime('2020-01-01 00:00:00')
-        AND event_date <= toDateTime('2020-01-03 00:00:00')) SELECT DISTINCT breakdown_values,
-                                                                             intervals_from_base,
-                                                                             actor_id
+        HAVING event_date >= toDateTime('2020-01-01 00:00:00', 'UTC')
+        AND event_date <= toDateTime('2020-01-03 00:00:00', 'UTC')) SELECT DISTINCT breakdown_values,
+                                                                                    intervals_from_base,
+                                                                                    actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
