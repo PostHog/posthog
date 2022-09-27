@@ -164,6 +164,16 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         })),
                     })
                 },
+                updateItemColor: async ({ insightNumericId, color }) => {
+                    if (!props.id) {
+                        // what are we saving colors against?!
+                        return
+                    }
+
+                    return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                        colors: [{ id: insightNumericId, color }],
+                    })
+                },
             },
         ],
     }),
@@ -254,12 +264,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                   }
                                 : i
                         ),
-                    } as DashboardType
-                },
-                updateItemColor: (state, { insightNumericId, color }) => {
-                    return {
-                        ...state,
-                        items: state?.items.map((i) => (i.id === insightNumericId ? { ...i, color } : i)),
                     } as DashboardType
                 },
                 removeItem: (state, { insight }) => {
@@ -621,16 +625,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
             if (values.dashboard) {
                 dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
             }
-        },
-        updateItemColor: async ({ insightNumericId, color }) => {
-            if (!props.id) {
-                // what are we saving colors against?!
-                return
-            }
-
-            return api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                colors: [{ id: insightNumericId, color }],
-            })
         },
         removeItem: async ({ insight }) => {
             return api.update(`api/projects/${values.currentTeamId}/insights/${insight.id}`, {
