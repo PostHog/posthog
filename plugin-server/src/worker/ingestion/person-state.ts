@@ -45,13 +45,13 @@ export class PersonState {
     eventProperties: Properties
     timestamp: DateTime
     newUuid: string
+    updateIsIdentified: boolean
 
     personContainer: LazyPersonContainer
 
     private db: DB
     private statsd: StatsD | undefined
     private personManager: PersonManager
-    private updateIsIdentified: boolean
 
     constructor(
         event: PluginEvent,
