@@ -44,15 +44,8 @@ class RetentionEventsQuery(EventQuery):
 
         _fields = [
             self.get_timestamp_field(),
-            (
-                f"argMin(e.event, {self._trunc_func}(toDateTime(e.timestamp, %(timezone)s))) as min_event"
-                if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-                else f"{self.EVENT_TABLE_ALIAS}.event AS event"
-            ),
             self.target_field(),
         ]
-        if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            _fields.append(f"argMin(e.uuid, {self._trunc_func}(toDateTime(e.timestamp, %(timezone)s))) as min_uuid")
 
         if self._filter.breakdowns and self._filter.breakdown_type:
             # NOTE: `get_single_or_multi_property_string_expr` doesn't
@@ -157,7 +150,7 @@ class RetentionEventsQuery(EventQuery):
             {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
             {prop_query}
             {f"GROUP BY target HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
-            {f"GROUP BY target, event_date" if self._event_query_type == RetentionQueryType.TARGET else ''}
+            {f"GROUP BY target, event_date" if self._event_query_type == RetentionQueryType.RETURNING else ''}
         """
 
         return query, self.params
