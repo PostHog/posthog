@@ -2,20 +2,39 @@ from rest_framework.throttling import SimpleRateThrottle
 from sentry_sdk.api import capture_exception
 
 from posthog.internal_metrics import incr
+from posthog.settings.utils import get_from_env, str_to_bool
 
 
 class PassThroughTeamRateThrottle(SimpleRateThrottle):
+    def rate_limit_enabled(self):
+        return get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
+
+    @staticmethod
+    def safely_get_team_id_from_view(view):
+        """
+        Gets the team_id from a view without throwing.
+
+        Not all views have a team_id (e.g. the /organization endpoints),
+        and accessing it when it does not exist throws a KeyError. Hence, this method.
+        """
+        try:
+            return getattr(view, "team_id", None)
+        except KeyError:
+            return None
+
     def allow_request(self, request, view):
-        """
-        This function is being used as we're figuring out what our throttle limits should be.
-        This ensures no rate limits are actually applied, but rather logs that they would have been applied.
-        Allowing us to determine appropriate limits without affecting users.
-        """
+        if not self.rate_limit_enabled():
+            return True
+
+        # As we're figuring out what our throttle limits should be, we don't actually want to throttle anything.
+        # Instead of throttling, this logs that the request would have been throttled.
         request_would_be_allowed = super().allow_request(request, view)
         if not request_would_be_allowed:
             try:
-                scope = getattr(self, "scope", None)
-                incr("rate_limit_exceeded", tags={"team_id": getattr(view, "team_id", None), "scope": scope})
+                incr(
+                    "rate_limit_exceeded",
+                    tags={"team_id": self.safely_get_team_id_from_view(view), "scope": getattr(self, "scope", None)},
+                )
             except Exception as e:
                 capture_exception(e)
         return True
@@ -25,12 +44,17 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
         Attempts to throttle based on the team_id of the request. If it can't do that, it falls back to the user_id.
         And then finally to the IP address.
         """
+        ident = None
         if request.user.is_authenticated:
-            team_id = getattr(view, "team_id", None)
-            if team_id:
-                ident = team_id
-            else:
-                ident = request.user.pk
+            try:
+                team_id = self.safely_get_team_id_from_view(view)
+                if team_id:
+                    ident = team_id
+                else:
+                    ident = request.user.pk
+            except Exception as e:
+                capture_exception(e)
+                ident = self.get_ident(request)
         else:
             ident = self.get_ident(request)
 

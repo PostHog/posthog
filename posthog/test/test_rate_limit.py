@@ -27,7 +27,8 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.incr")
-    def test_default_burst_rate_limit(self, incr_mock):
+    @patch("posthog.rate_limit.PassThroughTeamRateThrottle.rate_limit_enabled", return_value=True)
+    def test_default_burst_rate_limit(self, rate_limit_enabled_mock, incr_mock):
         for _ in range(5):
             response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -40,7 +41,8 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.rate_limit.PassThroughSustainedRateThrottle.rate", new="5/hour")
     @patch("posthog.rate_limit.incr")
-    def test_default_sustained_rate_limit(self, incr_mock):
+    @patch("posthog.rate_limit.PassThroughTeamRateThrottle.rate_limit_enabled", return_value=True)
+    def test_default_sustained_rate_limit(self, rate_limit_enabled_mock, incr_mock):
         base_time = now()
         for _ in range(5):
             with freeze_time(base_time):
@@ -57,7 +59,8 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.rate_limit.PassThroughClickHouseBurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.incr")
-    def test_clickhouse_burst_rate_limit(self, incr_mock):
+    @patch("posthog.rate_limit.PassThroughTeamRateThrottle.rate_limit_enabled", return_value=True)
+    def test_clickhouse_burst_rate_limit(self, rate_limit_enabled_mock, incr_mock):
         # Does nothing on /feature_flags endpoint
         for _ in range(10):
             response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
@@ -76,7 +79,8 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.incr")
-    def test_rate_limits_are_based_on_the_team_not_user(self, incr_mock):
+    @patch("posthog.rate_limit.PassThroughTeamRateThrottle.rate_limit_enabled", return_value=True)
+    def test_rate_limits_are_based_on_the_team_not_user(self, rate_limit_enabled_mock, incr_mock):
         for _ in range(5):
             response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -108,7 +112,21 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.incr")
-    def test_rate_limits_unauthenticated_users(self, incr_mock):
+    @patch("posthog.rate_limit.PassThroughTeamRateThrottle.rate_limit_enabled", return_value=True)
+    def test_rate_limits_work_on_non_team_endpoints(self, rate_limit_enabled_mock, incr_mock):
+        for _ in range(5):
+            response = self.client.get(f"/api/organizations/{self.organization.pk}/plugins")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(f"/api/organizations/{self.organization.pk}/plugins")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(incr_mock.call_count, 1)
+        incr_mock.assert_called_with("rate_limit_exceeded", tags={"team_id": None, "scope": "burst"})
+
+    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.incr")
+    @patch("posthog.rate_limit.PassThroughTeamRateThrottle.rate_limit_enabled", return_value=True)
+    def test_rate_limits_unauthenticated_users(self, rate_limit_enabled_mock, incr_mock):
         self.client.logout()
         for _ in range(5):
             # Hitting the login endpoint because it allows for unauthenticated requests
@@ -123,7 +141,8 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.incr")
-    def test_does_not_rate_limit_capture_endpoints(self, incr_mock):
+    @patch("posthog.rate_limit.PassThroughTeamRateThrottle.rate_limit_enabled", return_value=True)
+    def test_does_not_rate_limit_capture_endpoints(self, rate_limit_enabled_mock, incr_mock):
         data = {"event": "$autocapture", "properties": {"distinct_id": 2, "token": self.team.api_token}}
         for _ in range(6):
             response = self.client.get("/e/?data=%s" % quote(json.dumps(data)), HTTP_ORIGIN="https://localhost")
@@ -132,7 +151,8 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.incr")
-    def test_does_not_rate_limit_decide_endpoints(self, incr_mock):
+    @patch("posthog.rate_limit.PassThroughTeamRateThrottle.rate_limit_enabled", return_value=True)
+    def test_does_not_rate_limit_decide_endpoints(self, rate_limit_enabled_mock, incr_mock):
         for _ in range(6):
             response = self.client.post(
                 f"/decide/?v=2",
@@ -144,5 +164,14 @@ class TestUserAPI(APIBaseTest):
                 HTTP_ORIGIN="https://localhost",
                 REMOTE_ADDR="0.0.0.0",
             )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(incr_mock.call_count, 0)
+
+    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.incr")
+    @patch("posthog.rate_limit.PassThroughTeamRateThrottle.rate_limit_enabled", return_value=False)
+    def test_does_not_rate_limit_if_rate_limit_disabled(self, rate_limit_enabled_mock, incr_mock):
+        for _ in range(6):
+            response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(incr_mock.call_count, 0)
