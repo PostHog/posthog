@@ -174,9 +174,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # fewer queries when loading dashboard with no insights
         self.assertLess(query_counts[0], query_counts[1])
-        # then only climbs by two queries for each additional insight
+        # then only climbs by three queries for each additional insight
         self.assertTrue(
-            all(j - i == 2 for i, j in zip(query_counts[2:], query_counts[3:])),
+            all(j - i == 3 for i, j in zip(query_counts[2:], query_counts[3:])),
             f"received: {query_counts} for queries: \n\n {queries}",
         )
 
@@ -316,6 +316,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         items_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(len(items_response["results"]), 0)
+
+    def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
+        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
+        insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/").json()
+        self.assertEqual(len(response["items"]), 1)
+        self.assertEqual(len(response["tiles"]), 1)
+        item_insight = response["items"][0]
+        tile = response["tiles"][0]
+
+        assert item_insight["filters_hash"] == tile["filters_hash"]
+        assert tile["insight"]["id"] == insight_id
 
     def test_dashboard_filtering_on_properties(self):
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-24h"}})

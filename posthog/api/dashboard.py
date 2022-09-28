@@ -31,8 +31,20 @@ class CanEditDashboard(BasePermission):
         return dashboard.can_user_edit(cast(User, request.user).id)
 
 
+class DashboardTileSerializer(serializers.ModelSerializer):
+    id: serializers.IntegerField = serializers.IntegerField(required=False)
+    insight = InsightSerializer()
+
+    class Meta:
+        model = DashboardTile
+        exclude = ["dashboard"]
+        read_only_fields = ["id", "insight"]
+        depth = 1
+
+
 class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     items = serializers.SerializerMethodField()
+    tiles = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
@@ -45,8 +57,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             "id",
             "name",
             "description",
-            "pinned",
             "items",
+            "pinned",
             "created_at",
             "created_by",
             "is_shared",
@@ -56,6 +68,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             "use_dashboard",
             "filters",
             "tags",
+            "tiles",
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
@@ -183,6 +196,21 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return instance
 
+    def get_tiles(self, dashboard: Dashboard):
+        if self.context["view"].action == "list":
+            return None
+
+        # used by insight serializer to load insight filters in correct context
+        self.context.update({"dashboard": dashboard})
+
+        serialized_tiles = []
+        for tile in dashboard.tiles.all():
+            self.context.update({"filters_hash": tile.filters_hash})
+            tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
+            serialized_tiles.append(tile_data)
+
+        return serialized_tiles
+
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
             return None
@@ -255,9 +283,22 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             queryset = queryset.filter(deleted=False)
 
         queryset = (
-            queryset.prefetch_related("sharingconfiguration_set")
-            .select_related("team__organization", "created_by")
+            queryset.prefetch_related(
+                "sharingconfiguration_set",
+            )
+            .select_related(
+                "team__organization",
+                "created_by",
+            )
             .prefetch_related(Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order")))
+            .prefetch_related(
+                Prefetch(
+                    "tiles",
+                    queryset=DashboardTile.objects.select_related(
+                        "insight__created_by", "insight__last_modified_by", "insight__team__organization"
+                    ).prefetch_related("insight__dashboards__team__organization"),
+                )
+            )
         )
 
         return queryset

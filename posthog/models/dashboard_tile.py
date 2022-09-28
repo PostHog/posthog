@@ -1,6 +1,7 @@
 from typing import List
 
 from django.db import models
+from django.db.models import UniqueConstraint
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -25,7 +26,12 @@ class DashboardTile(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]
-        unique_together = ("dashboard", "insight")
+        constraints = [
+            UniqueConstraint(
+                fields=["dashboard", "insight"],
+                name=f"unique_dashboard_insight",
+            )
+        ]
 
     def save(self, *args, **kwargs) -> None:
         has_no_filters_hash = self.filters_hash is None
