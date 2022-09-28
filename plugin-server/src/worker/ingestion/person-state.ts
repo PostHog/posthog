@@ -31,7 +31,7 @@ const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
     'false',
 ])
 
-const CASE_SENSITIVE_ILLEGAL_IDS = new Set(['[object Object]', 'NaN', 'None', 'none', 'null', '0'])
+const CASE_SENSITIVE_ILLEGAL_IDS = new Set(['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined'])
 
 const isDistinctIdIllegal = (id: string): boolean => {
     return id.trim() === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
