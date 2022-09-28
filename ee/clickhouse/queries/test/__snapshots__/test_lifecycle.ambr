@@ -68,8 +68,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00'))) - INTERVAL 1 day
-                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59'))) + INTERVAL 1 day )))
+                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
+                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
           AND start_of_period >= dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))
@@ -151,8 +151,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('month', toDateTime('2021-02-04 00:00:00'))) - INTERVAL 1 month
-                      AND timestamp < toDateTime(dateTrunc('month', toDateTime('2021-05-05 23:59:59'))) + INTERVAL 1 month )))
+                      AND timestamp >= toDateTime(dateTrunc('month', toDateTime('2021-02-04 00:00:00', 'UTC'))) - INTERVAL 1 month
+                      AND timestamp < toDateTime(dateTrunc('month', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 month )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('month', toDateTime('2021-05-05 23:59:59', 'UTC'))
           AND start_of_period >= dateTrunc('month', toDateTime('2021-02-04 00:00:00', 'UTC'))
@@ -234,8 +234,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('week', toDateTime('2021-04-06 00:00:00'))) - INTERVAL 1 week
-                      AND timestamp < toDateTime(dateTrunc('week', toDateTime('2021-05-06 23:59:59'))) + INTERVAL 1 week )))
+                      AND timestamp >= toDateTime(dateTrunc('week', toDateTime('2021-04-06 00:00:00', 'UTC'))) - INTERVAL 1 week
+                      AND timestamp < toDateTime(dateTrunc('week', toDateTime('2021-05-06 23:59:59', 'UTC'))) + INTERVAL 1 week )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('week', toDateTime('2021-05-06 23:59:59', 'UTC'))
           AND start_of_period >= dateTrunc('week', toDateTime('2021-04-06 00:00:00', 'UTC'))
@@ -317,8 +317,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-11 00:00:00'))) - INTERVAL 1 day
-                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-18 23:59:59'))) + INTERVAL 1 day )))
+                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'UTC'))) - INTERVAL 1 day
+                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'UTC'))) + INTERVAL 1 day )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'UTC'))
           AND start_of_period >= dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'UTC'))
@@ -407,8 +407,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00'))) - INTERVAL 1 day
-                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59'))) + INTERVAL 1 day
+                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))) - INTERVAL 1 day
+                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))) + INTERVAL 1 day
                       AND (has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'key'), '^"|"$', ''))) )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))
@@ -491,8 +491,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00'))) - INTERVAL 1 day
-                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59'))) + INTERVAL 1 day )))
+                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))) - INTERVAL 1 day
+                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))) + INTERVAL 1 day )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))
           AND start_of_period >= dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))
@@ -574,8 +574,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00'))) - INTERVAL 1 day
-                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59'))) + INTERVAL 1 day )))
+                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific'))) - INTERVAL 1 day
+                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific'))) + INTERVAL 1 day )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific'))
           AND start_of_period >= dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific'))
