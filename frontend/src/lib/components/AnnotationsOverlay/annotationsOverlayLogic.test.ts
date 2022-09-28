@@ -566,7 +566,7 @@ describe('annotationsOverlayLogic', () => {
             })
         })
 
-        it(`merges groups when one tick covers more than one hour`, async () => {
+        it(`merges groups when one tick covers more than one hour (UTC)`, async () => {
             initKeaTests(true, MOCK_DEFAULT_TEAM)
 
             useInsightMocks('hour')
@@ -594,6 +594,38 @@ describe('annotationsOverlayLogic', () => {
                         // This one would normally go into 2022-08-10 05:00
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, MOCK_DEFAULT_TEAM.timezone)),
+                },
+            })
+        })
+
+        it(`merges groups when one tick covers more than one hour (Asia/Colombo)`, async () => {
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, timezone: 'Asia/Colombo' })
+
+            useInsightMocks('hour', 'Asia/Colombo')
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-08-10 09:00', '2022-08-10 10:00', '2022-08-10 11:00', '2022-08-10 12:00'],
+                ticks: [
+                    { value: 0 },
+                    { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
+                ],
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
+                'loadInsightSuccess',
+            ])
+            await expectLogic(logic).toMatchValues({
+                groupedAnnotations: {
+                    '2022-08-10 09:00:00+0530': [
+                        MOCK_ANNOTATION_ORG_SCOPED,
+                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                        MOCK_ANNOTATION_PROJECT_SCOPED,
+                        // This one would normally go into 2022-08-10 09:00
+                        MOCK_ANNOTATION_INSIGHT_1_SCOPED,
+                    ].map((annotation) => deserializeAnnotation(annotation, 'Asia/Colombo')),
                 },
             })
         })
