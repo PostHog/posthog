@@ -175,7 +175,7 @@ def get_decide(request: HttpRequest):
             response["inject"] = [
                 {
                     "id": source_file[0],
-                    "source": get_bootloader(source_file[0], source_file[1]),
+                    "source": get_bootloader(source_file[0]),
                     "config": None,
                 }
                 if requires_bootloader(source_file[1])
@@ -195,11 +195,10 @@ def requires_bootloader(source: str):
     return len(source) >= 1024
 
 
-def get_bootloader(id: int, source: str):
-    url = f"web_js/{id}/"
+def get_bootloader(id: int):
     return (
         "(function(h){return{inject:function(_,ph){var s=document.createElement('script');s.src=h+(h[h.length-1]==='/'?'':'/')+"
-        + json.dumps(url)
+        + json.dumps(f"web_js/{id}/")
         + ";window['__$$ph_web_js_"
         + str(id)
         + "']=ph;document.head.appendChild(s);}}})"
