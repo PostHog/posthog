@@ -524,7 +524,7 @@ export function LineGraph_({
     return (
         <div className="LineGraph absolute w-full h-full overflow-hidden" data-attr={dataAttr}>
             <canvas ref={canvasRef} />
-            {myLineChart && showAnnotations && (
+            {showAnnotations && myLineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
                     chart={myLineChart}
                     dates={datasets[0]?.days || []}
@@ -533,7 +533,7 @@ export function LineGraph_({
                     dashboardItemId={insightProps.dashboardItemId}
                     insightNumericId={insight.id || 'new'}
                 />
-            )}
+            ) : null}
         </div>
     )
 }
