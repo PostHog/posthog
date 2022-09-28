@@ -22,7 +22,11 @@ export async function setupPlugins(server: Hub): Promise<void> {
         if (
             prevConfig &&
             pluginConfig.updated_at === prevConfig.updated_at &&
-            plugin?.updated_at == prevPlugin?.updated_at
+            plugin?.updated_at === prevPlugin?.updated_at &&
+            plugin?.source__plugin_json === prevPlugin?.source__plugin_json &&
+            plugin?.source__frontend_tsx === prevPlugin?.source__frontend_tsx &&
+            plugin?.source__index_ts === prevPlugin?.source__index_ts &&
+            plugin?.source__web_ts === prevPlugin?.source__web_ts
         ) {
             pluginConfig.vm = prevConfig.vm
         } else if (plugin?.is_stateless && statelessVms[plugin.id]) {
