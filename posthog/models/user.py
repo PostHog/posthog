@@ -1,5 +1,7 @@
+from secrets import token_urlsafe
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
 from django.db.models import Q
@@ -114,7 +116,13 @@ class User(AbstractUser, UUIDClassicModel):
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email: models.EmailField = models.EmailField(_("email address"), unique=True)
-    pending_email: models.EmailField = models.EmailField(null=True, blank=True)
+    pending_email: models.EmailField = models.EmailField(null=True)
+    email_verification_token: models.CharField = models.CharField(
+        unique=True,
+        max_length=300,
+        null=True,
+        editable=False,
+    )
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
@@ -217,21 +225,22 @@ class User(AbstractUser, UUIDClassicModel):
                 )
                 self.save()
 
-    def change_email(self, new_email: str) -> bool:
-        """Change email and return whether the process is complete or whether email verification is needed."""
+    def change_email(self, new_email: str) -> Optional[str]:
+        """Change email and return a token for email verification, if that is enabled."""
         from posthog.email import is_email_verification_enabled
         from posthog.tasks.email import send_email_verification
 
-        change_complete: bool
+        email_verification_token: Optional[str] = None
         if self.email != new_email and is_email_verification_enabled():
+            email_verification_token = token_urlsafe(22)
             self.pending_email = new_email
-            send_email_verification(self, is_new_user=False)
-            change_complete = False
+            self.email_verification_token = make_password(email_verification_token)
+            send_email_verification(self, email_verification_token, is_new_user=False)
         else:
             self.email = new_email
             self.pending_email = None
-            change_complete = True
-        return change_complete
+            self.email_verification_token = None
+        return email_verification_token
 
     def get_analytics_metadata(self):
 

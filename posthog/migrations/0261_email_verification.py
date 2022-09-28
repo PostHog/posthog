@@ -13,7 +13,17 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="user",
             name="pending_email",
-            field=models.EmailField(blank=True, max_length=254, null=True),
+            field=models.EmailField(max_length=254, null=True),
+        ),
+        migrations.AddField(
+            model_name="user",
+            name="email_verification_token",
+            field=models.CharField(
+                unique=True,
+                max_length=300,
+                null=True,
+                editable=False,
+            ),
         ),
         migrations.AddField(model_name="user", name="updated_at", field=models.DateTimeField(auto_now=True)),
     ]

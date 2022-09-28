@@ -3,15 +3,15 @@
 {% block section %}
 <!-- prettier-ignore -->
 <p>
-    Hey, {{ user.first_name }}! To change your account email from {{ user.email }} to {{ user.pending_email }} we just need to confirm {{ user.pending_email }} really does belong to you.
+    Hey, {{ user.first_name }}! To change your account email from {{ user.email }} to {{ user.pending_email }} we just need to confirm the latter really does belong to you.
 </p>
 <div class="mt">
     <div class="mb mt text-center">
-        <a class="button" href="{% absolute_uri 'TODO' %}">This really is my email</a>
+        <a class="button" href="{% absolute_uri '/users/' %}{{ user.id }}/email_verification/?token={{ token }}">This really is my email</a>
     </div>
     <p>
         If the button above doesn't work, paste this link into your browser:<br />
-        <a href="{% absolute_uri 'TODO' %}">{% absolute_uri 'TODO' %}</a>
+        <a href="{% absolute_uri '/users/' %}{{ user.id }}/email_verification/?token={{ token }}">{% absolute_uri '/users/' %}{{ user.id }}/email_verification/?token={{ token }}</a>
     </p>
 </div>
 {% endblock %}

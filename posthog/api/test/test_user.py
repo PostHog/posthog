@@ -2,6 +2,7 @@ import uuid
 from unittest.mock import ANY, patch
 
 import pytest
+from django.contrib.auth.hashers import get_hasher
 from django.core.cache import cache
 from django.utils.text import slugify
 from rest_framework import status
@@ -585,8 +586,12 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @patch("posthog.tasks.email.send_email_verification")
+    @patch("django.utils.crypto.get_random_string", return_value="abc")
+    @patch("posthog.models.user.token_urlsafe", return_value="xyz")
     @patch("posthog.email.is_email_verification_enabled", return_value=True)
-    def test_change_email_succeeds_and_sends_email_when_verification_enabled(self, _, mock_send_email_verification):
+    def test_change_email_succeeds_and_sends_email_when_verification_enabled(
+        self, _, __, ___, mock_send_email_verification
+    ):
         self.user.email = "alice@posthog.com"
         self.user.pending_email = None
         self.user.save()
@@ -599,7 +604,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.email, "alice@posthog.com")
         self.assertEqual(self.user.pending_email, "bob@posthog.com")
         # Email verification on - an email should be sent
-        mock_send_email_verification.assert_called_once_with(self.user, is_new_user=False)
+        mock_send_email_verification.assert_called_once_with(self.user, "xyz", is_new_user=False)
 
     @patch("posthog.tasks.email.send_email_verification")
     @patch("posthog.email.is_email_verification_enabled", return_value=False)
@@ -621,10 +626,13 @@ class TestUserAPI(APIBaseTest):
         mock_send_email_verification.assert_not_called()
 
     @patch("posthog.tasks.email.send_email_verification")
+    @patch("django.utils.crypto.get_random_string", return_value="abc")
+    @patch("posthog.models.user.token_urlsafe", return_value="xyz")
     @patch("posthog.email.is_email_verification_enabled", return_value=True)
-    def test_change_email_idempotently_while_resending_email(self, _, mock_send_email_verification):
+    def test_resend_email_change_verification_email(self, _, __, ___, mock_send_email_verification):
         self.user.email = "alice@posthog.com"
         self.user.pending_email = "bob@posthog.com"
+        self.user.email_verification_token = get_hasher().encode("abc", "xyz")
         self.user.save()
 
         response = self.client.patch("/api/users/@me/", {"email": "bob@posthog.com"})
@@ -634,7 +642,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.email, "alice@posthog.com")
         self.assertEqual(self.user.pending_email, "bob@posthog.com")
         # Email verification on - an email should be sent
-        mock_send_email_verification.assert_called_once_with(self.user, is_new_user=False)
+        mock_send_email_verification.assert_called_once_with(self.user, "xyz", is_new_user=False)
 
     @patch("posthog.tasks.email.send_email_verification")
     @patch("posthog.email.is_email_verification_enabled", return_value=True)
