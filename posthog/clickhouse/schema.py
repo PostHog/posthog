@@ -6,7 +6,12 @@ from posthog.clickhouse.plugin_log_entries import *
 from posthog.models.cohort.sql import *
 from posthog.models.event.sql import *
 from posthog.models.group.sql import *
-from posthog.models.ingestion_warnings.sql import *
+from posthog.models.ingestion_warnings.sql import (
+    DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL,
+    INGESTION_WARNINGS_DATA_TABLE_SQL,
+    INGESTION_WARNINGS_MV_TABLE_SQL,
+    KAFKA_INGESTION_WARNINGS_TABLE_SQL,
+)
 from posthog.models.person.sql import *
 from posthog.models.session_recording_event.sql import *
 
