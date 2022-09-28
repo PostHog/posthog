@@ -8,6 +8,8 @@ import { IngestionWarningSummary } from './ingestionWarningsLogic'
 import { Popup } from 'lib/components/Popup/Popup'
 import { offset } from '@floating-ui/react-dom-interactions'
 
+import './WarningEventsGraph.scss'
+
 export function WarningEventsGraph({ summary }: { summary: IngestionWarningSummary }): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const tooltipRef = useRef<HTMLDivElement | null>(null)
@@ -58,7 +60,8 @@ export function WarningEventsGraph({ summary }: { summary: IngestionWarningSumma
                         },
                     },
                     plugins: {
-                        crosshair: false as CrosshairOptions,
+                        // @ts-expect-error Types of library are out of date
+                        crosshair: false,
                         legend: {
                             display: false,
                         },
@@ -95,8 +98,8 @@ export function WarningEventsGraph({ summary }: { summary: IngestionWarningSumma
     }, [summary, dates, data])
 
     return (
-        <div style={{ width: 150 }}>
-            <canvas ref={canvasRef} height="36" />
+        <div className="warning-events-graph">
+            <canvas ref={canvasRef} />
             <Popup
                 visible={!!popupContent}
                 overlay={popupContent}
