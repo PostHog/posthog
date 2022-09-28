@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import {
     ActiveElement,
     Chart,
@@ -20,7 +20,7 @@ import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
-import { AnnotationsOverlay, annotationsOverlayLogic } from 'lib/components/AnnotationsOverlay'
+import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
@@ -29,6 +29,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { AggregationAxisFormat, formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
 import './chartjsSetup'
@@ -187,7 +188,9 @@ export function LineGraph_({
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
-    const [[chartWidth, chartHeight], setChartDimensions] = useState<[number, number]>([0, 0])
+
+    // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
     const colors = getGraphColors()
     const insightType = insight.filters?.insight
@@ -425,7 +428,6 @@ export function LineGraph_({
             onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
                 onChartClick(event, chart, datasets, onClick)
             },
-            onResize: (_, { width, height }) => setChartDimensions([width, height]),
         }
 
         if (type === GraphType.Bar) {
@@ -522,22 +524,16 @@ export function LineGraph_({
     return (
         <div className="LineGraph absolute w-full h-full overflow-hidden" data-attr={dataAttr}>
             <canvas ref={canvasRef} />
-            {myLineChart && showAnnotations && (
-                <BindLogic
-                    logic={annotationsOverlayLogic}
-                    props={{
-                        dashboardItemId: insightProps.dashboardItemId,
-                        insightNumericId: insight.id || 'new',
-                    }}
-                >
-                    <AnnotationsOverlay
-                        chart={myLineChart}
-                        dates={datasets[0]?.days || []}
-                        chartWidth={chartWidth}
-                        chartHeight={chartHeight}
-                    />
-                </BindLogic>
-            )}
+            {showAnnotations && myLineChart && chartWidth && chartHeight ? (
+                <AnnotationsOverlay
+                    chart={myLineChart}
+                    dates={datasets[0]?.days || []}
+                    chartWidth={chartWidth}
+                    chartHeight={chartHeight}
+                    dashboardItemId={insightProps.dashboardItemId}
+                    insightNumericId={insight.id || 'new'}
+                />
+            ) : null}
         </div>
     )
 }
