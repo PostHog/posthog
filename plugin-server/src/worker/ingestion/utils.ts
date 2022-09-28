@@ -57,6 +57,8 @@ export function generateEventDeadLetterQueueMessage(
 }
 
 // These get displayed under Data Management > Ingestion Warnings
+// These warnings get displayed to end users. Make sure these errors are actionable and useful for them and
+// also update IngestionWarningsView.tsx to display useful context.
 export function captureIngestionWarning(db: DB, teamId: TeamId, type: string, details: Record<string, any>) {
     db.promiseManager.trackPromise(
         db.kafkaProducer.queueMessage({
