@@ -39,7 +39,7 @@
     box-shadow: var(--shadow-elevation);
     transition: opacity var(--modal-transition-time) ease-out, transform var(--modal-transition-time) ease-out;
     display: flex;
-    flex-direction: col;
+    flex-direction: column;
     max-height: 90%;
 
     // Transition properties

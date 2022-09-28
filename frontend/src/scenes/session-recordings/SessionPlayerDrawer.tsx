@@ -21,23 +21,24 @@ interface SessionPlayerDrawerProps {
 
 export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPlayerDrawerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { activeSessionRecordingId } = useValues(sessionPlayerDrawerLogic)
+    const { activeSessionRecording } = useValues(sessionPlayerDrawerLogic)
     const isSessionRecordingsPlayerV3 = !!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]
 
     if (isSessionRecordingsPlayerV3) {
         return (
-            <LemonModal isOpen={!!activeSessionRecordingId} onClose={onClose} simple title={''}>
+            <LemonModal isOpen={!!activeSessionRecording} onClose={onClose} simple title={''}>
                 <header>
-                    {activeSessionRecordingId ? (
-                        <PlayerMetaV3 playerKey="drawer" sessionRecordingId={activeSessionRecordingId} />
+                    {activeSessionRecording ? (
+                        <PlayerMetaV3 playerKey="drawer" sessionRecordingId={activeSessionRecording?.id} />
                     ) : null}
                 </header>
                 <LemonModal.Content embedded>
                     <div className="session-player-wrapper-v3">
-                        {activeSessionRecordingId && (
+                        {activeSessionRecording?.id && (
                             <SessionRecordingPlayerV3
                                 playerKey="drawer"
-                                sessionRecordingId={activeSessionRecordingId}
+                                sessionRecordingId={activeSessionRecording?.id}
+                                matching={activeSessionRecording?.matching_events}
                                 includeMeta={false}
                             />
                         )}
@@ -47,7 +48,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
         )
     }
 
-    if (!activeSessionRecordingId) {
+    if (!activeSessionRecording) {
         return <></>
     }
 
@@ -80,8 +81,8 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                     </div>
                 </Row>
                 <Row className="session-drawer-body">
-                    {activeSessionRecordingId && (
-                        <SessionRecordingPlayerV2 playerKey="drawer" sessionRecordingId={activeSessionRecordingId} />
+                    {activeSessionRecording && (
+                        <SessionRecordingPlayerV2 playerKey="drawer" sessionRecordingId={activeSessionRecording?.id} />
                     )}
                 </Row>
             </Col>

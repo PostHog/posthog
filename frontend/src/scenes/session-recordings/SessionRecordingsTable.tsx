@@ -72,7 +72,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                     onClick: (e) => {
                         // Lets the link to the person open the person's page and not the session recording
                         if (!(e.target as HTMLElement).closest('a')) {
-                            openSessionPlayer(sessionRecording.id)
+                            openSessionPlayer(sessionRecording)
                         }
                     },
                 })}

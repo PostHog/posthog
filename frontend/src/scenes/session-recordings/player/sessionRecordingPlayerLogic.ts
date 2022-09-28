@@ -1,11 +1,17 @@
 import { KeyboardEvent } from 'react'
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
 import * as Sentry from '@sentry/react'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { PlayerPosition, RecordingSegment, SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
+import {
+    PlayerPosition,
+    RecordingSegment,
+    SessionPlayerState,
+    SessionRecordingPlayerProps,
+    SessionRecordingType,
+} from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
@@ -16,6 +22,7 @@ import {
 } from './playerUtils'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import equal from 'fast-deep-equal'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
@@ -57,6 +64,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['setSpeed', 'setSkipInactivitySetting'],
         ],
     })),
+    propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
+        // Ensures that if filter results change, then matching results in this player logic will also change
+        if (!equal(matching, oldMatching)) {
+            actions.setMatching(matching)
+        }
+    }),
     actions({
         tryInitReplayer: () => true,
         setPlayer: (player: Player | null) => ({ player }),
@@ -84,8 +97,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         handleKeyDown: (event: KeyboardEvent<HTMLDivElement>) => ({ event }),
         incrementErrorCount: true,
         incrementWarningCount: true,
+        setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
     }),
-    reducers(() => ({
+    reducers(({ props }) => ({
         rootFrame: [
             null as HTMLDivElement | null,
             {
@@ -128,6 +142,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
         errorCount: [0, { incrementErrorCount: (prevErrorCount, {}) => prevErrorCount + 1 }],
         warningCount: [0, { incrementWarningCount: (prevWarningCount, {}) => prevWarningCount + 1 }],
+        matching: [
+            props.matching ?? ([] as SessionRecordingType['matching_events']),
+            {
+                setMatching: (_, { matching }) => matching,
+            },
+        ],
     })),
     selectors({
         currentPlayerState: [
@@ -161,6 +181,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
+        matchingEvents: [
+            (s) => [s.matching],
+            (matching) => (matching ?? []).map((filterMatches) => filterMatches.events).flat(),
+        ],
     }),
     listeners(({ values, actions, cache }) => ({
         setRootFrame: () => {
