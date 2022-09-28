@@ -29,6 +29,7 @@ Object {
           "https://posthog.com/",
           "https://app.posthog.com",
         ],
+        "capture_console_log_opt_in": true,
         "completed_snippet_onboarding": true,
         "correlation_config": Object {
           "excluded_event_names": Array [
@@ -71,7 +72,6 @@ Object {
           "https://recordings.posthog.com/",
         ],
         "session_recording_opt_in": true,
-        "capture_console_log_opt_in": true,
         "slack_incoming_webhook": "",
         "test_account_filters": Array [
           Object {
