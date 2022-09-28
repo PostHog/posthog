@@ -46,7 +46,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             show: show || false,
         }),
     }),
-    loaders: ({ values, actions }) => ({
+    loaders: () => ({
         rawDashboards: [
             {} as Record<string, DashboardType>,
             {
@@ -74,43 +74,43 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
             __default: null as null | DashboardType,
-            updateDashboard: async ({ id, allowUndo, ...payload }, breakpoint) => {
-                if (!Object.entries(payload).length) {
-                    return
-                }
-                breakpoint()
-
-                const beforeChange = { ...values.rawDashboards[id] }
-
-                const response = (await api.update(
-                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
-                    payload
-                )) as DashboardType
-                const updatedAttribute = Object.keys(payload)[0]
-                if (updatedAttribute === 'name' || updatedAttribute === 'description' || updatedAttribute === 'tags') {
-                    eventUsageLogic.actions.reportDashboardFrontEndUpdate(
-                        updatedAttribute,
-                        values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
-                        payload[updatedAttribute].length
-                    )
-                }
-                if (allowUndo) {
-                    lemonToast.success('Dashboard updated', {
-                        button: {
-                            label: 'Undo',
-                            action: async () => {
-                                const reverted = (await api.update(
-                                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
-                                    beforeChange
-                                )) as DashboardType
-                                actions.updateDashboardSuccess(reverted)
-                                lemonToast.success('Dashboard change reverted')
-                            },
-                        },
-                    })
-                }
-                return response
-            },
+            // updateDashboard: async ({ id, allowUndo, ...payload }, breakpoint) => {
+            //     if (!Object.entries(payload).length) {
+            //         return
+            //     }
+            //     breakpoint()
+            //
+            //     const beforeChange = { ...values.rawDashboards[id] }
+            //
+            //     const response = (await api.update(
+            //         `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+            //         payload
+            //     )) as DashboardType
+            //     const updatedAttribute = Object.keys(payload)[0]
+            //     if (updatedAttribute === 'name' || updatedAttribute === 'description' || updatedAttribute === 'tags') {
+            //         eventUsageLogic.actions.reportDashboardFrontEndUpdate(
+            //             updatedAttribute,
+            //             values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
+            //             payload[updatedAttribute].length
+            //         )
+            //     }
+            //     if (allowUndo) {
+            //         lemonToast.success('Dashboard updated', {
+            //             button: {
+            //                 label: 'Undo',
+            //                 action: async () => {
+            //                     const reverted = (await api.update(
+            //                         `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+            //                         beforeChange
+            //                     )) as DashboardType
+            //                     actions.updateDashboardSuccess(reverted)
+            //                     lemonToast.success('Dashboard change reverted')
+            //                 },
+            //             },
+            //         })
+            //     }
+            //     return response
+            // },
             deleteDashboard: async ({ id }) =>
                 (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     deleted: true,

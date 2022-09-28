@@ -78,7 +78,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
         } = {}) => ({
             refresh,
         }),
-        triggerDashboardUpdate: (payload) => ({ payload }),
+        updateDashboard: (payload: any, allowUndo?: boolean, successMessage?: string) => ({
+            allowUndo,
+            successMessage,
+            ...payload,
+        }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
         updateLayouts: (layouts: Layouts) => ({ layouts }),
@@ -126,6 +130,42 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         }
                         throw error
                     }
+                },
+                updateDashboard: async ({ allowUndo, successMessage, ...payload }, breakpoint) => {
+                    if (!Object.entries(payload).length) {
+                        return values.allItems
+                    }
+                    breakpoint()
+
+                    const beforeChange = { ...values.allItems }
+
+                    const response = (await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}`,
+                        payload
+                    )) as DashboardType
+                    const updatedAttribute = Object.keys(payload)[0]
+                    if (
+                        updatedAttribute === 'name' ||
+                        updatedAttribute === 'description' ||
+                        updatedAttribute === 'tags'
+                    ) {
+                        eventUsageLogic.actions.reportDashboardFrontEndUpdate(
+                            updatedAttribute,
+                            values.allItems?.[updatedAttribute]?.length || 0,
+                            payload[updatedAttribute].length
+                        )
+                    }
+                    if (allowUndo) {
+                        lemonToast.success(successMessage || 'Dashboard updated', {
+                            button: {
+                                label: 'Undo',
+                                action: async () => {
+                                    actions.updateDashboard(beforeChange, false, 'Dashboard change reverted')
+                                },
+                            },
+                        })
+                    }
+                    return response
                 },
                 updateLayouts: async ({ layouts }) => {
                     if (!isUserLoggedIn()) {
@@ -247,9 +287,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     }
 
                     return null
-                },
-                [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
-                    return state && dashboard && state.id === dashboard.id ? dashboard : state
                 },
                 [dashboardsModel.actionTypes.updateDashboardRefreshStatus]: (
                     state,
@@ -620,11 +657,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
         loadDashboardItemsFailure: sharedListeners.reportLoadTiming,
-        triggerDashboardUpdate: ({ payload }) => {
-            if (values.dashboard) {
-                dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
-            }
-        },
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
             actions.resetInterval()

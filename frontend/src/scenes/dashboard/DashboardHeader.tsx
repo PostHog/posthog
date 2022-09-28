@@ -28,34 +28,33 @@ import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { isLemonSelectSection } from 'lib/components/LemonSelect'
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId, apiUrl } =
+    const { allItems, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId, apiUrl } =
         useValues(dashboardLogic)
-    const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
+    const { setDashboardMode, updateDashboard } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
-    const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
-        useActions(dashboardsModel)
+    const { pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } = useActions(dashboardsModel)
     const { dashboardLoading } = useValues(dashboardsModel)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const { push } = useActions(router)
 
-    return dashboard || allItemsLoading ? (
+    return allItems || allItemsLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
                 <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
             )}
-            {dashboard && (
+            {allItems && (
                 <>
                     <SubscriptionsModal
                         isOpen={showSubscriptions}
-                        closeModal={() => push(urls.dashboard(dashboard.id))}
-                        dashboardId={dashboard.id}
+                        closeModal={() => push(urls.dashboard(allItems.id))}
+                        dashboardId={allItems.id}
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal
                         isOpen={dashboardMode === DashboardMode.Sharing}
-                        closeModal={() => push(urls.dashboard(dashboard.id))}
-                        dashboardId={dashboard.id}
+                        closeModal={() => push(urls.dashboard(allItems.id))}
+                        dashboardId={allItems.id}
                     />
                 </>
             )}
@@ -65,11 +64,11 @@ export function DashboardHeader(): JSX.Element | null {
                     <div className="flex items-center">
                         <EditableField
                             name="name"
-                            value={dashboard?.name || (allItemsLoading ? 'Loading…' : '')}
+                            value={allItems?.name || (allItemsLoading ? 'Loading…' : '')}
                             placeholder="Name this dashboard"
                             onSave={
-                                dashboard
-                                    ? (value) => updateDashboard({ id: dashboard.id, name: value, allowUndo: true })
+                                allItems
+                                    ? (value) => updateDashboard({ id: allItems.id, name: value, allowUndo: true })
                                     : undefined
                             }
                             saveOnBlur={true}
@@ -77,7 +76,7 @@ export function DashboardHeader(): JSX.Element | null {
                             maxLength={400} // Sync with Dashboard model
                             mode={!canEditDashboard ? 'view' : undefined}
                             notice={
-                                dashboard && !canEditDashboard
+                                allItems && !canEditDashboard
                                     ? {
                                           icon: <IconLock />,
                                           tooltip:
@@ -113,16 +112,16 @@ export function DashboardHeader(): JSX.Element | null {
                             <More
                                 data-attr="dashboard-three-dots-options-menu"
                                 overlay={
-                                    dashboard ? (
+                                    allItems ? (
                                         <>
-                                            {dashboard.created_by && (
+                                            {allItems.created_by && (
                                                 <>
                                                     <div className="flex p-2 text-muted-alt">
                                                         Created by{' '}
-                                                        {dashboard.created_by.first_name ||
-                                                            dashboard.created_by.email ||
+                                                        {allItems.created_by.first_name ||
+                                                            allItems.created_by.email ||
                                                             '-'}{' '}
-                                                        on {humanFriendlyDetailedTime(dashboard.created_at)}
+                                                        on {humanFriendlyDetailedTime(allItems.created_at)}
                                                     </div>
                                                     <LemonDivider />
                                                 </>
@@ -154,11 +153,11 @@ export function DashboardHeader(): JSX.Element | null {
                                                 Go full screen (F)
                                             </LemonButton>
                                             {canEditDashboard &&
-                                                (dashboard.pinned ? (
+                                                (allItems.pinned ? (
                                                     <LemonButton
                                                         onClick={() =>
                                                             unpinDashboard(
-                                                                dashboard.id,
+                                                                allItems.id,
                                                                 DashboardEventSource.MoreDropdown
                                                             )
                                                         }
@@ -170,10 +169,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 ) : (
                                                     <LemonButton
                                                         onClick={() =>
-                                                            pinDashboard(
-                                                                dashboard.id,
-                                                                DashboardEventSource.MoreDropdown
-                                                            )
+                                                            pinDashboard(allItems.id, DashboardEventSource.MoreDropdown)
                                                         }
                                                         status="stealth"
                                                         fullWidth
@@ -181,14 +177,14 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Pin dashboard
                                                     </LemonButton>
                                                 ))}
-                                            <SubscribeButton dashboardId={dashboard.id} />
+                                            <SubscribeButton dashboardId={allItems.id} />
                                             <ExportButton
                                                 fullWidth
                                                 status="stealth"
                                                 items={[
                                                     {
                                                         export_format: ExporterFormat.PNG,
-                                                        dashboard: dashboard?.id,
+                                                        dashboard: allItems?.id,
                                                         export_context: {
                                                             path: apiUrl(),
                                                         },
@@ -199,8 +195,8 @@ export function DashboardHeader(): JSX.Element | null {
                                             <LemonButton
                                                 onClick={() =>
                                                     duplicateDashboard({
-                                                        id: dashboard.id,
-                                                        name: dashboard.name,
+                                                        id: allItems.id,
+                                                        name: allItems.name,
                                                         show: true,
                                                     })
                                                 }
@@ -211,9 +207,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             </LemonButton>
                                             {canEditDashboard && (
                                                 <LemonButton
-                                                    onClick={() =>
-                                                        deleteDashboard({ id: dashboard.id, redirect: true })
-                                                    }
+                                                    onClick={() => deleteDashboard({ id: allItems.id, redirect: true })}
                                                     status="danger"
                                                     fullWidth
                                                 >
@@ -225,23 +219,23 @@ export function DashboardHeader(): JSX.Element | null {
                                 }
                             />
                             <LemonDivider vertical />
-                            {dashboard && (
+                            {allItems && (
                                 <>
                                     <CollaboratorBubbles
-                                        dashboard={dashboard}
-                                        onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                        dashboard={allItems}
+                                        onClick={() => push(urls.dashboardSharing(allItems.id))}
                                     />
                                     <LemonButton
                                         type="secondary"
                                         data-attr="dashboard-share-button"
-                                        onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                        onClick={() => push(urls.dashboardSharing(allItems.id))}
                                     >
                                         Share
                                     </LemonButton>
                                 </>
                             )}
                             {canEditDashboard && (
-                                <Link to={urls.insightNew(undefined, dashboard?.id)}>
+                                <Link to={urls.insightNew(undefined, allItems?.id)}>
                                     <LemonButton type="primary" data-attr="dashboard-add-graph-header">
                                         Add insight
                                     </LemonButton>
@@ -252,14 +246,14 @@ export function DashboardHeader(): JSX.Element | null {
                 }
                 caption={
                     <>
-                        {dashboard && !!(canEditDashboard || dashboard.description) && (
+                        {allItems && !!(canEditDashboard || allItems.description) && (
                             <EditableField
                                 multiline
                                 name="description"
-                                value={dashboard.description || ''}
+                                value={allItems.description || ''}
                                 placeholder="Description (optional)"
                                 onSave={(value) =>
-                                    updateDashboard({ id: dashboard.id, description: value, allowUndo: true })
+                                    updateDashboard({ id: allItems.id, description: value, allowUndo: true })
                                 }
                                 saveOnBlur={true}
                                 compactButtons
@@ -267,19 +261,19 @@ export function DashboardHeader(): JSX.Element | null {
                                 paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                             />
                         )}
-                        {dashboard?.tags && (
+                        {allItems?.tags && (
                             <>
                                 {canEditDashboard ? (
                                     <ObjectTags
-                                        tags={dashboard.tags}
-                                        onChange={(_, tags) => triggerDashboardUpdate({ tags })}
+                                        tags={allItems.tags}
+                                        onChange={(_, tags) => updateDashboard({ tags })}
                                         saving={dashboardLoading}
-                                        tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags?.includes(tag))}
+                                        tagsAvailable={dashboardTags.filter((tag) => !allItems.tags?.includes(tag))}
                                         className="insight-metadata-tags"
                                     />
-                                ) : dashboard.tags.length ? (
+                                ) : allItems.tags.length ? (
                                     <ObjectTags
-                                        tags={dashboard.tags}
+                                        tags={allItems.tags}
                                         saving={dashboardLoading}
                                         staticOnly
                                         className="insight-metadata-tags"
