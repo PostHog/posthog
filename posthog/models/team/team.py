@@ -211,7 +211,10 @@ class Team(UUIDClassicModel):
                 str(self.uuid),
                 groups={"organization": str(self.organization.id)},
                 group_properties={
-                    "organization": {"id": str(self.organization.id), "created_at": self.organization.created_at,}
+                    "organization": {
+                        "id": str(self.organization.id),
+                        "created_at": self.organization.created_at,
+                    }
                 },
                 only_evaluate_locally=True,
             )
