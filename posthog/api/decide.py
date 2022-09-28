@@ -1,9 +1,10 @@
+import json
 import re
 from typing import Any, List, Optional
 from urllib.parse import urlparse
 
 import structlog
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from sentry_sdk import capture_exception
@@ -167,12 +168,18 @@ def get_decide(request: HttpRequest):
                     plugin__pluginsourcefile__filename="web.ts",
                     plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
                 )
-                .values_list("plugin_id", "plugin__pluginsourcefile__transpiled", "plugin__config_schema", "config")
+                .values_list("id", "plugin__pluginsourcefile__transpiled", "plugin__config_schema", "config")
                 .all()
             )
 
             response["inject"] = [
                 {
+                    "id": source_file[0],
+                    "source": get_bootloader(source_file[0], source_file[1]),
+                    "payload": None,
+                }
+                if requires_bootloader(source_file[1])
+                else {
                     "id": source_file[0],
                     "source": source_file[1],
                     "payload": get_web_config_from_schema(source_file[2], source_file[3]),
@@ -184,7 +191,20 @@ def get_decide(request: HttpRequest):
     return cors_response(request, JsonResponse(response))
 
 
-def get_web_config_from_schema(config_schema, config):
+def requires_bootloader(source: str):
+    return len(source) >= 1024
+
+
+def get_bootloader(id: int, source: str):
+    url = f"web_js/{id}/"
+    return (
+        "(function(h){return{inject:function(){var s=document.createElement('script');s.src=h+(h[h.length-1]==='/'?'':'/')+"
+        + json.dumps(url)
+        + ";document.head.appendChild(s);}}})"
+    )
+
+
+def get_web_config_from_schema(config_schema: dict, config: dict):
     if not config or not config_schema:
         return {}
     return {
@@ -192,3 +212,31 @@ def get_web_config_from_schema(config_schema, config):
         for schema_element in config_schema
         if schema_element.get("web", False) and schema_element.get("key", False)
     }
+
+
+@csrf_exempt
+@timed("posthog_cloud_web_js_endpoint")
+def get_web_js(request: HttpRequest, id: int):
+    # handle cors request
+    if request.method == "OPTIONS":
+        return cors_response(request, JsonResponse({"status": 1}))
+
+    source_file = (
+        PluginConfig.objects.filter(
+            id=id,
+            enabled=True,
+            plugin__pluginsourcefile__filename="web.ts",
+            plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
+        )
+        .values_list("id", "plugin__pluginsourcefile__transpiled", "plugin__config_schema", "config")
+        .first()
+    )
+
+    response = {}
+    if source_file:
+        source = source_file[1]
+        payload = get_web_config_from_schema(source_file[2], source_file[3])
+        response = f"{source}().inject({json.dumps(payload)})"
+
+    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "web_js"})
+    return cors_response(request, HttpResponse(content=response, content_type="application/javascript"))
