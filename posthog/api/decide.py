@@ -198,9 +198,11 @@ def requires_bootloader(source: str):
 def get_bootloader(id: int, source: str):
     url = f"web_js/{id}/"
     return (
-        "(function(h){return{inject:function(){var s=document.createElement('script');s.src=h+(h[h.length-1]==='/'?'':'/')+"
+        "(function(h){return{inject:function(_,ph){var s=document.createElement('script');s.src=h+(h[h.length-1]==='/'?'':'/')+"
         + json.dumps(url)
-        + ";document.head.appendChild(s);}}})"
+        + ";window['__$$ph_web_js_"
+        + str(id)
+        + "']=ph;document.head.appendChild(s);}}})"
     )
 
 
@@ -234,9 +236,10 @@ def get_web_js(request: HttpRequest, id: int):
 
     response = {}
     if source_file:
+        id = source_file[0]
         source = source_file[1]
         config = get_web_config_from_schema(source_file[2], source_file[3])
-        response = f"{source}().inject({json.dumps(config)})"
+        response = f"{source}().inject({json.dumps(config)}, window['__$$ph_web_js_{id}'])"
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "web_js"})
     return cors_response(request, HttpResponse(content=response, content_type="application/javascript"))
