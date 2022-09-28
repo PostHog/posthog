@@ -11,6 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="team", name="capture_console_log_opt_in", field=models.BooleanField(blank=True, null=True),
+            model_name="team",
+            name="capture_console_log_opt_in",
+            field=models.BooleanField(blank=True, null=True),
         ),
     ]
