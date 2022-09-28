@@ -141,14 +141,16 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                     Object.entries(layouts).forEach(([col, layout]) => {
                         layout.forEach((layoutItem) => {
-                            // it _should_ be impossible for a layout item to not be in this mapping
                             const insightId = values.shortIdToId?.[layoutItem.i]
-                            if (insightId) {
-                                if (!itemLayouts[insightId]) {
-                                    itemLayouts[insightId] = {}
-                                }
-                                itemLayouts[insightId][col] = layoutItem
+                            if (!insightId) {
+                                // it _should_ be impossible for a layout item to not be in this mapping
+                                throw new Error('Could not update layouts for unknown insight')
                             }
+
+                            if (!itemLayouts[insightId]) {
+                                itemLayouts[insightId] = {}
+                            }
+                            itemLayouts[insightId][col] = layoutItem
                         })
                     })
 
@@ -180,7 +182,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             items: values.allItems?.items.filter((i) => i.id !== insight.id),
                         } as DashboardType
                     } catch (e) {
-                        lemonToast.error('could not remove item: ' + e)
+                        lemonToast.error('Could not remove item: ' + e)
                         return values.allItems
                     }
                 },
@@ -566,11 +568,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
         ],
         shortIdToId: [
             (s) => [s.items],
-            (items) => {
+            (items): Record<InsightShortId, number> => {
                 return (items ?? []).reduce((acc, curr) => {
                     acc[curr.short_id] = Number(curr.id)
                     return acc
-                }, {} as Record<InsightShortId, number>)
+                }, {})
             },
         ],
     }),
