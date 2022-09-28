@@ -176,13 +176,13 @@ def get_decide(request: HttpRequest):
                 {
                     "id": source_file[0],
                     "source": get_bootloader(source_file[0], source_file[1]),
-                    "payload": None,
+                    "config": None,
                 }
                 if requires_bootloader(source_file[1])
                 else {
                     "id": source_file[0],
                     "source": source_file[1],
-                    "payload": get_web_config_from_schema(source_file[2], source_file[3]),
+                    "config": get_web_config_from_schema(source_file[2], source_file[3]),
                 }
                 for source_file in plugin_sources
             ]
@@ -235,8 +235,8 @@ def get_web_js(request: HttpRequest, id: int):
     response = {}
     if source_file:
         source = source_file[1]
-        payload = get_web_config_from_schema(source_file[2], source_file[3])
-        response = f"{source}().inject({json.dumps(payload)})"
+        config = get_web_config_from_schema(source_file[2], source_file[3])
+        response = f"{source}().inject({json.dumps(config)})"
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "web_js"})
     return cors_response(request, HttpResponse(content=response, content_type="application/javascript"))
