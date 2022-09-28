@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import type { billingLogicType } from './billingLogicType'
 import { PlanInterface, BillingType } from '~/types'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import posthog from 'posthog-js'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -10,6 +11,8 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { windowValues } from 'kea-window-values'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -55,6 +58,9 @@ export const billingLogic = kea<billingLogicType>([
                 },
             },
         ],
+    }),
+    windowValues({
+        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
     }),
     loaders(({ actions, values }) => ({
         billing: [
@@ -103,6 +109,18 @@ export const billingLogic = kea<billingLogicType>([
             {
                 subscribe: async (plan) => {
                     return await api.create('billing/subscribe', { plan })
+                },
+            },
+        ],
+        planDetails: [
+            null as string | null,
+            {
+                loadPlanDetails: async (plan) => {
+                    const response = await fetch(`/api/plans/${plan}/template/`)
+                    if (response.ok) {
+                        return await response.text()
+                    }
+                    return null
                 },
             },
         ],
@@ -179,7 +197,9 @@ export const billingLogic = kea<billingLogicType>([
     }),
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadBilling()
+            if (preflightLogic.values.preflight?.cloud) {
+                actions.loadBilling()
+            }
         },
     })),
     listeners(({ values }) => ({

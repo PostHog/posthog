@@ -779,6 +779,29 @@ export interface BillingType {
     tiers: BillingTierType[] | null
 }
 
+export interface BillingProductV2Type {
+    name: string
+    description: string
+    free_allocation: number
+    tiers: BillingTierType[]
+}
+
+export interface BillingV2Type {
+    subscription_url: string
+
+    products: {
+        type: 'events' | 'recordings'
+        current_bill_amount: number
+        current_bill_usage: number
+        free_allocation: number
+        tiers: BillingTierType[]
+    }[]
+
+    custom_limits: {
+        [key: string]: number
+    }
+}
+
 export interface BillingTierType {
     name: string
     price_per_event: number
@@ -1485,6 +1508,7 @@ export interface PreflightStatus {
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
     object_storage: boolean
+    billing_v2_enabled?: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode

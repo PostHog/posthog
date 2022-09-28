@@ -1,63 +1,11 @@
-import React, { useState } from 'react'
+import { Skeleton } from 'antd'
+import React, { useEffect, useState } from 'react'
 import { PlanInterface } from '~/types'
 import clsx from 'clsx'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { IconLock } from 'lib/components/icons'
 import { billingLogic } from './billingLogic'
-import { useValues } from 'kea'
-
-const planDetailsMap = {
-    standard: (
-        <>
-            <ul>
-                <li>
-                    <b>Unlimited</b> event allocation. Pay only for what you use.
-                </li>
-                <li>
-                    <b>Unlimited</b> tracked users
-                </li>
-                <li>
-                    <b>Unlimited</b> team members
-                </li>
-                <li>
-                    <b>Unlimited</b> projects
-                </li>
-                <li>
-                    <b>7 years</b> of data retention
-                    <span className="disclaimer">
-                        <a href="#starter-disclaimer-1">1</a>
-                    </span>
-                </li>
-                <li>
-                    <b>All core analytics features</b>
-                </li>
-                <li>Correlation analysis & advanced paths</li>
-                <li>
-                    Recordings with unlimited storage
-                    <span className="disclaimer">
-                        <a href="#starter-disclaimer-2">2</a>
-                    </span>
-                </li>
-                <li>Feature flags</li>
-                <li>Plugins &amp; other integrations</li>
-                <li>Zapier integration</li>
-                <li>Google SSO</li>
-                <li>Export to data lakes</li>
-                <li>Community, Slack &amp; Email support</li>
-            </ul>
-            <div className="disclaimer-details">
-                <div id="starter-disclaimer-1">
-                    1. Data may be moved to cold storage after 12 months. Queries that involve data in cold storage can
-                    take longer than normal to run.
-                </div>
-                <div id="starter-disclaimer-2">
-                    2. While there is no restriction on session recording storage, session recording information is
-                    captured and stored as normal events and therefore billed as such.
-                </div>
-            </div>
-        </>
-    ),
-}
+import { useActions, useValues } from 'kea'
 
 export function Plan({
     plan,
@@ -73,9 +21,12 @@ export function Plan({
     primaryCallToAction?: boolean
 }): JSX.Element {
     const [showDetails, setShowDetails] = useState(false)
-    const { billing } = useValues(billingLogic)
+    const { planDetails, planDetailsLoading, billing } = useValues(billingLogic)
+    const { loadPlanDetails } = useActions(billingLogic)
 
-    const planDetails = planDetailsMap[plan.key]
+    useEffect(() => {
+        loadPlanDetails(plan.key)
+    }, [plan.key])
 
     return (
         <div className="BillingPlan border rounded p-4">
@@ -123,10 +74,21 @@ export function Plan({
                     </LemonButton>
                 )}
             </div>
-            {(showDetails || !canHideDetails) && planDetails && (
+            {(showDetails || !canHideDetails) && (
                 <>
                     <LemonDivider className="my-4" />
-                    <>{planDetails && <div className="BillingPlan__description">{planDetails}</div>}</>
+                    {planDetailsLoading ? (
+                        <Skeleton paragraph={{ rows: 6 }} title={false} className="mt-4" active />
+                    ) : (
+                        <>
+                            {planDetails && (
+                                <div
+                                    className="BillingPlan__description"
+                                    dangerouslySetInnerHTML={{ __html: planDetails }}
+                                />
+                            )}
+                        </>
+                    )}
                 </>
             )}
             {currentPlan && (

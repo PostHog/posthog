@@ -56,7 +56,7 @@ export function CurrentUsage(): JSX.Element | null {
     const showBillingLimit = featureFlags[FEATURE_FLAGS.BILLING_LIMIT]
 
     return (
-        <div className="border rounded p-6">
+        <div className="border rounded p-4">
             {billing.should_display_current_bill && (
                 <>
                     <h3 className="text-xs uppercase font-semibold text-muted">Current Bill Amount</h3>
@@ -102,8 +102,7 @@ export function CurrentUsage(): JSX.Element | null {
                     <LemonDivider className="my-6" />
                 </>
             )}
-            <h2>Current Usage</h2>
-
+            <h3 className="text-xs uppercase font-semibold text-muted">Current Usage</h3>
             {usage !== null ? (
                 <>
                     Your organization has used{' '}
@@ -145,8 +144,7 @@ export function CurrentUsage(): JSX.Element | null {
             {showBillingLimit && billing.plan && (
                 <>
                     <LemonDivider className="my-6" />
-                    <h2>Billing Limit</h2>
-
+                    <h3 className="text-xs uppercase font-semibold text-muted">Billing Limit</h3>
                     <div className="flex flex-row space-x-2 my-2">
                         <div className="flex-none">
                             <LemonInput

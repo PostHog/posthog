@@ -10,7 +10,7 @@ import { forms } from 'kea-forms'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isEmail, toParams } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 export function isLicenseExpired(license: LicenseType): boolean {
     return new Date(license.valid_until) < new Date()
@@ -107,10 +107,6 @@ export const licenseLogic = kea<licenseLogicType>([
                 terms: !terms ? 'You must accept the terms and conditions to continue' : undefined,
             }),
             submit: async (params) => {
-                // TODO: This is just for testing
-                router.actions.push('/instance/licenses#license_key=1234')
-                return
-
                 window.location.href =
                     'https://license.posthog.com/start-payment?' +
                     toParams({
@@ -161,14 +157,4 @@ export const licenseLogic = kea<licenseLogicType>([
     afterMount(({ actions }) => {
         actions.loadLicenses()
     }),
-
-    urlToAction(({ actions }) => ({
-        '/organization/billing': (params, search, hash) => {
-            if (hash.license_key) {
-                actions.setShowLicenseDirectInput(true)
-                actions.setActivateLicenseValues({ key: hash.license_key })
-                actions.submitActivateLicense()
-            }
-        },
-    })),
 ])
