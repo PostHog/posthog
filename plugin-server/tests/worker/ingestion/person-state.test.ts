@@ -667,6 +667,67 @@ describe('PersonState.update()', () => {
         expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
     })
 
+    describe('illegal aliasing', () => {
+        beforeEach(() => {
+            hub.statsd = { increment: jest.fn() } as any
+        })
+
+        it('stops $identify if current distinct_id is illegal', async () => {
+            await personState({
+                event: '$identify',
+                distinct_id: '[object Object]',
+                properties: {
+                    $anon_distinct_id: 'anonymous_id',
+                },
+            }).update()
+
+            const persons = await hub.db.fetchPersons()
+            expect(persons.length).toEqual(1)
+
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining(['[object Object]']))
+            expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
+                distinctId: '[object Object]',
+            })
+        })
+
+        it('stops $identify if $anon_distinct_id is illegal', async () => {
+            await personState({
+                event: '$identify',
+                distinct_id: 'some_distinct_id',
+                properties: {
+                    $anon_distinct_id: 'undefined',
+                },
+            }).update()
+
+            const persons = await hub.db.fetchPersons()
+            expect(persons.length).toEqual(1)
+
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining(['some_distinct_id']))
+            expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
+                distinctId: 'undefined',
+            })
+        })
+
+        it('stops $identify if $alias is illegal', async () => {
+            await personState({
+                event: '$create_alias',
+                distinct_id: 'some_distinct_id',
+                properties: {
+                    alias: 'null',
+                },
+            }).update()
+
+            const persons = await hub.db.fetchPersons()
+            expect(persons.length).toEqual(1)
+
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining(['some_distinct_id']))
+            expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', { distinctId: 'null' })
+        })
+    })
+
     describe('foreign key updates in other tables', () => {
         test('feature flag hash key overrides with no conflicts', async () => {
             const anonPerson = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), [

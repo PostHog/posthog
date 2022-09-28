@@ -261,15 +261,25 @@ export class PersonState {
 
     async handleIdentifyOrAlias(): Promise<void> {
         if (isDistinctIdIllegal(this.distinctId)) {
-            this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId: this.distinctId })
+            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: this.distinctId })
             return
         }
 
         const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
         try {
-            if (this.event.event === '$create_alias') {
+            if (this.event.event === '$create_alias' && this.eventProperties['alias']) {
+                if (isDistinctIdIllegal(this.eventProperties['alias'])) {
+                    this.statsd?.increment('illegal_distinct_ids.total', { distinctId: this.eventProperties['alias'] })
+                    return
+                }
                 await this.merge(this.eventProperties['alias'], this.distinctId, this.teamId, this.timestamp, false)
             } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
+                if (isDistinctIdIllegal(this.eventProperties['$anon_distinct_id'])) {
+                    this.statsd?.increment('illegal_distinct_ids.total', {
+                        distinctId: this.eventProperties['$anon_distinct_id'],
+                    })
+                    return
+                }
                 await this.merge(
                     this.eventProperties['$anon_distinct_id'],
                     this.distinctId,
