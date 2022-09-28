@@ -167,12 +167,28 @@ def get_decide(request: HttpRequest):
                     plugin__pluginsourcefile__filename="web.ts",
                     plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
                 )
-                .values_list("plugin_id", "plugin__pluginsourcefile__transpiled")
+                .values_list("plugin_id", "plugin__pluginsourcefile__transpiled", "plugin__config_schema", "config")
                 .all()
             )
+
             response["inject"] = [
-                {"id": source_file[0], "source": source_file[1], "payload": {}} for source_file in plugin_sources
+                {
+                    "id": source_file[0],
+                    "source": source_file[1],
+                    "payload": get_web_config_from_schema(source_file[2], source_file[3]),
+                }
+                for source_file in plugin_sources
             ]
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
+
+
+def get_web_config_from_schema(config_schema, config):
+    if not config or not config_schema:
+        return {}
+    return {
+        schema_element["key"]: config.get(schema_element["key"], schema_element.get("default", None))
+        for schema_element in config_schema
+        if schema_element.get("web", False) and schema_element.get("key", False)
+    }
