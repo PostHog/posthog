@@ -8,11 +8,11 @@ import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { JobPayloadFieldOptions, JobSpec } from '~/types'
 import { interfaceJobsLogic } from './interfaceJobsLogic'
-import { LemonInput } from '../../../../lib/components/LemonInput/LemonInput'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import moment from 'moment'
-import { LemonModal } from '../../../../lib/components/LemonModal'
-import { LemonButton } from '../../../../lib/components/LemonButton'
-import { LemonCalendarRangeInline } from '../../../../lib/components/LemonCalendarRange/LemonCalendarRangeInline'
+import { LemonModal } from 'lib/components/LemonModal'
+import { LemonButton } from 'lib/components/LemonButton'
+import { LemonCalendarRangeInline } from 'lib/components/LemonCalendarRange/LemonCalendarRangeInline'
 
 interface PluginJobConfigurationProps {
     jobName: string
