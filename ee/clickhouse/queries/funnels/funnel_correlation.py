@@ -211,8 +211,8 @@ class FunnelCorrelation:
         query = f"""
             WITH
                 funnel_actors as ({funnel_persons_query}),
-                toDateTime(%(date_to)s) AS date_to,
-                toDateTime(%(date_from)s) AS date_from,
+                toDateTime(%(date_to)s, %(timezone)s) AS date_to,
+                toDateTime(%(date_from)s, %(timezone)s) AS date_from,
                 %(target_step)s AS target_step,
                 %(funnel_step_names)s as funnel_step_names
 
@@ -294,8 +294,8 @@ class FunnelCorrelation:
         query = f"""
             WITH
                 funnel_actors as ({funnel_persons_query}),
-                toDateTime(%(date_to)s) AS date_to,
-                toDateTime(%(date_from)s) AS date_from,
+                toDateTime(%(date_to)s, %(timezone)s) AS date_to,
+                toDateTime(%(date_from)s, %(timezone)s) AS date_from,
                 %(target_step)s AS target_step,
                 %(funnel_step_names)s as funnel_step_names
 

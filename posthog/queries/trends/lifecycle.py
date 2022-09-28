@@ -190,8 +190,8 @@ class LifecycleEventQuery(EventQuery):
         # :TRICKY: We fetch all data even for the period before the graph starts up until the end of the last period
         return (
             f"""
-            AND timestamp >= toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_from)s))) - INTERVAL 1 {self._filter.interval}
-            AND timestamp < toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_to)s))) + INTERVAL 1 {self._filter.interval}
+            AND timestamp >= toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_from)s, %(timezone)s))) - INTERVAL 1 {self._filter.interval}
+            AND timestamp < toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_to)s, %(timezone)s))) + INTERVAL 1 {self._filter.interval}
         """,
             params,
         )
