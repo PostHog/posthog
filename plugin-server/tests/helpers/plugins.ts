@@ -54,7 +54,6 @@ export const pluginConfig39: PluginConfig = {
     config: { localhostIP: '94.224.212.175' },
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-    has_error: false,
 }
 
 function mockSourceFileFields(
