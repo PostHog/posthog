@@ -10,7 +10,7 @@ from posthog.models.insight import Insight, generate_insight_cache_key
 
 class DashboardTile(models.Model):
     # Relations
-    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE)
+    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
 
     # Dashboard layout and style
@@ -25,6 +25,7 @@ class DashboardTile(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]
+        unique_together = ("dashboard", "insight")
 
     def save(self, *args, **kwargs) -> None:
         has_no_filters_hash = self.filters_hash is None
