@@ -1,5 +1,7 @@
 import json
+from datetime import timedelta
 
+from django.utils.timezone import now
 from rest_framework import viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -10,16 +12,16 @@ from posthog.client import sync_execute
 
 class IngestionWarningsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     def list(self, request: Request, **kw) -> Response:
+        start_date = now() - timedelta(days=30)
         warning_events = sync_execute(
             """
-            SELECT timestamp, properties
-            FROM events
+            SELECT type, timestamp, details
+            FROM ingestion_warnings
             WHERE team_id = %(team_id)s
-              AND event = '$$ingestion_warning'
-              AND timestamp > now() - INTERVAL 30 day
+              AND timestamp > %(start_date)s
             ORDER BY timestamp DESC
         """,
-            {"team_id": self.team_id},
+            {"team_id": self.team_id, "start_date": start_date.strftime("%Y-%m-%d %H:%M:%S")},
         )
 
         return Response({"results": _calculate_summaries(warning_events)})
@@ -27,17 +29,14 @@ class IngestionWarningsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
 def _calculate_summaries(warning_events):
     summaries = {}
-    for timestamp, properties_string in warning_events:
-        properties = json.loads(properties_string)
+    for warning_type, timestamp, details in warning_events:
+        details = json.loads(details)
         try:
-            warning_type = properties["type"]
-            warning_details = properties["details"]
-
             if warning_type not in summaries:
                 summaries[warning_type] = {"type": warning_type, "lastSeen": timestamp, "warnings": [], "count": 0}
 
             summaries[warning_type]["warnings"].append(
-                {"type": warning_type, "timestamp": timestamp, "details": warning_details}
+                {"type": warning_type, "timestamp": timestamp, "details": details}
             )
             summaries[warning_type]["count"] += 1
         except:
