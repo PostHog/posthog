@@ -14,6 +14,7 @@ from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earl
 from posthog.utils import DEFAULT_DATE_FROM_DAYS
 
 
+# Assume that any date being sent from the client is timezone aware according to the timezone that the team has set
 class QueryDateRange:
     def __init__(self, filter, team: Team, should_round: Optional[bool] = None, table="") -> None:
         self._filter = filter
