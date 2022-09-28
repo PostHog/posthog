@@ -73,8 +73,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
   SELECT event.event AS name,
@@ -1116,8 +1116,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
   SELECT concat(event_name, '::', prop.1, '::', prop.2) as name,
@@ -1213,8 +1213,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
   SELECT concat(event_name, '::', prop.1, '::', prop.2) as name,
@@ -1310,8 +1310,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
   SELECT event.event AS name,
@@ -1398,8 +1398,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
@@ -1483,8 +1483,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
@@ -1568,8 +1568,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
@@ -1653,8 +1653,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
@@ -1747,8 +1747,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
   SELECT event.event AS name,
@@ -1844,8 +1844,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
@@ -1938,8 +1938,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
