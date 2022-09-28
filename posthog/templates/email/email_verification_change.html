@@ -1,0 +1,17 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}Verify your email{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    Hey, {{ user.first_name }}! To change your account email from {{ user.email }} to {{ user.pending_email }} we just need to confirm {{ user.pending_email }} really does belong to you.
+</p>
+<div class="mt">
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri 'TODO' %}">This really is my email</a>
+    </div>
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{% absolute_uri 'TODO' %}">{% absolute_uri 'TODO' %}</a>
+    </p>
+</div>
+{% endblock %}

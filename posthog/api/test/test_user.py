@@ -584,6 +584,113 @@ class TestUserAPI(APIBaseTest):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
+    @patch("posthog.tasks.email.send_email_verification")
+    @patch("posthog.email.is_email_verification_enabled", return_value=True)
+    def test_change_email_succeeds_and_sends_email_when_verification_enabled(self, _, mock_send_email_verification):
+        self.user.email = "alice@posthog.com"
+        self.user.pending_email = None
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "bob@posthog.com"})
+
+        self.user.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        # The change requires verification
+        self.assertEqual(self.user.email, "alice@posthog.com")
+        self.assertEqual(self.user.pending_email, "bob@posthog.com")
+        # Email verification on - an email should be sent
+        mock_send_email_verification.assert_called_once_with(self.user, is_new_user=False)
+
+    @patch("posthog.tasks.email.send_email_verification")
+    @patch("posthog.email.is_email_verification_enabled", return_value=False)
+    def test_change_email_succeeds_and_does_not_send_email_when_verification_disabled(
+        self, _, mock_send_email_verification
+    ):
+        self.user.email = "alice@posthog.com"
+        self.user.pending_email = None
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "bob@posthog.com"})
+
+        self.user.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        # The change is applied immediately
+        self.assertEqual(self.user.email, "bob@posthog.com")
+        self.assertEqual(self.user.pending_email, None)
+        # Email verification off - there should be no email
+        mock_send_email_verification.assert_not_called()
+
+    @patch("posthog.tasks.email.send_email_verification")
+    @patch("posthog.email.is_email_verification_enabled", return_value=True)
+    def test_change_email_idempotently_while_resending_email(self, _, mock_send_email_verification):
+        self.user.email = "alice@posthog.com"
+        self.user.pending_email = "bob@posthog.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "bob@posthog.com"})
+
+        self.user.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.user.email, "alice@posthog.com")
+        self.assertEqual(self.user.pending_email, "bob@posthog.com")
+        # Email verification on - an email should be sent
+        mock_send_email_verification.assert_called_once_with(self.user, is_new_user=False)
+
+    @patch("posthog.tasks.email.send_email_verification")
+    @patch("posthog.email.is_email_verification_enabled", return_value=True)
+    def test_change_email_fails_with_message_on_empty_email(self, _, mock_send_email_verification):
+        self.user.email = "alice@posthog.com"
+        self.user.pending_email = None
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": ""})
+
+        self.user.refresh_from_db()
+        self.assertEqual(
+            response.json(), self.validation_error_response("This field may not be blank.", code="blank", attr="email")
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.user.email, "alice@posthog.com")
+        self.assertEqual(self.user.pending_email, None)
+        # Email verification on - but no email should be sent on error
+        mock_send_email_verification.assert_not_called()
+
+    @patch("posthog.tasks.email.send_email_verification")
+    @patch("posthog.email.is_email_verification_enabled", return_value=True)
+    def test_change_email_fails_with_message_on_email_collision(self, _, mock_send_email_verification):
+        User.objects.create_user("bob@posthog.com", None, "Bob")
+
+        self.user.email = "alice@posthog.com"
+        self.user.pending_email = None
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "bob@posthog.com"})
+
+        self.user.refresh_from_db()
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response("user with this email address already exists.", code="unique", attr="email"),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.user.email, "alice@posthog.com")
+        self.assertEqual(self.user.pending_email, None)
+
+    @patch("posthog.tasks.email.send_email_verification")
+    @patch("posthog.email.is_email_verification_enabled", return_value=True)
+    def test_change_email_can_be_canceled(self, _, mock_send_email_verification):
+        self.user.email = "alice@posthog.com"
+        self.user.pending_email = "bob@posthog.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "alice@posthog.com"})
+
+        self.user.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.user.email, "alice@posthog.com")
+        self.assertEqual(self.user.pending_email, None)
+        # Email verification on - but no email should be sent on cancellation
+        mock_send_email_verification.assert_not_called()
+
     # DELETING USER
 
     def test_deleting_current_user_is_not_supported(self):

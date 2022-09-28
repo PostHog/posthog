@@ -11,6 +11,7 @@ import { forms } from 'kea-forms'
 
 export interface UserDetailsFormType {
     first_name: string
+    email: string
 }
 
 export const userLogic = kea<userLogicType>([
@@ -24,14 +25,20 @@ export const userLogic = kea<userLogicType>([
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
+        resendVerificationEmail: true,
     })),
     forms(({ actions }) => ({
         userDetails: {
-            errors: ({ first_name }) => ({
+            errors: ({ first_name, email }) => ({
                 first_name: !first_name
-                    ? 'You need to set a name'
+                    ? 'You need to have a name.'
                     : first_name.length > 150
-                    ? 'The name you have given is too long. Please pick something shorter.'
+                    ? 'This name is too long. Please keep it under 151 characters.'
+                    : null,
+                email: !email
+                    ? 'You need to have an email.'
+                    : first_name.length > 254
+                    ? 'This email is too long. Please keep it under 255 characters.'
                     : null,
             }),
             submit: (user) => {
@@ -75,14 +82,16 @@ export const userLogic = kea<userLogicType>([
             {
                 loadUserSuccess: (_, { user }) => ({
                     first_name: user?.first_name || '',
+                    email: user?.pending_email || user?.email || '',
                 }),
                 updateUserSuccess: (_, { user }) => ({
                     first_name: user?.first_name || '',
+                    email: user?.pending_email || '',
                 }),
             },
         ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
         logout: () => {
             posthog.reset()
             window.location.href = '/logout'
@@ -137,6 +146,12 @@ export const userLogic = kea<userLogicType>([
                 toastId: 'updateUser',
             })
         },
+        resendVerificationEmail: async () => {
+            if (!values.user?.pending_email) {
+                throw new Error("Can't resend verification email because there's pending email")
+            }
+            actions.updateUser({ email: values.user.pending_email })
+        },
         updateCurrentTeam: async ({ teamId, destination }, breakpoint) => {
             if (values.user?.team?.id === teamId) {
                 return
@@ -179,6 +194,7 @@ export const userLogic = kea<userLogicType>([
                           ) || []
                     : [],
         ],
+        pendingEmailVerification: [(s) => [s.user], (user): boolean => !!user?.pending_email],
     }),
     afterMount(({ actions }) => {
         const preloadedUser = getAppContext()?.current_user

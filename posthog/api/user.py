@@ -9,7 +9,6 @@ from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
@@ -39,7 +38,6 @@ class UserAuthenticationThrottle(UserRateThrottle):
 
 
 class UserSerializer(serializers.ModelSerializer):
-
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
@@ -57,6 +55,7 @@ class UserSerializer(serializers.ModelSerializer):
             "distinct_id",
             "first_name",
             "email",
+            "pending_email",
             "email_opt_in",
             "anonymize_data",
             "toolbar_mode",
@@ -72,6 +71,7 @@ class UserSerializer(serializers.ModelSerializer):
             "current_password",  # used when changing current password
             "events_column_config",
         ]
+        read_only_fields = ["pending_email", "toolbar_mode"]
         extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
 
     def get_has_password(self, instance: User) -> bool:
@@ -130,8 +130,7 @@ class UserSerializer(serializers.ModelSerializer):
             raise exceptions.PermissionDenied("You are not a staff user, contact your instance admin.")
         return value
 
-    def update(self, instance: models.Model, validated_data: Any) -> Any:
-
+    def update(self, instance: User, validated_data: Any) -> Any:
         # Update current_organization and current_team
         current_organization = validated_data.pop("set_current_organization", None)
         current_team = validated_data.pop("set_current_team", None)
@@ -153,8 +152,18 @@ class UserSerializer(serializers.ModelSerializer):
             cast(User, instance), current_password, validated_data.pop("password", None)
         )
 
+        if "email" in validated_data:
+            new_email = User.objects.normalize_email(validated_data.pop("email"))
+            if (
+                # Allow changing email
+                (instance.email != new_email)
+                # Also allow cancelling email change
+                or (instance.email == new_email and instance.pending_email)
+            ):
+                instance.change_email(new_email)
+
         updated_attrs = list(validated_data.keys())
-        instance = cast(User, super().update(instance, validated_data))
+        instance = super().update(instance, validated_data)
 
         if password:
             instance.set_password(password)
@@ -180,12 +189,13 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
 
-    def get_object(self) -> Any:
+    def get_object(self) -> User:
         lookup_value = self.kwargs[self.lookup_field]
+        request_user = cast(User, self.request.user)  # Must be authenticated to access this endpoint
         if lookup_value == "@me":
-            return self.request.user
+            return request_user
 
-        if not self.request.user.is_staff:
+        if not request_user.is_staff:
             raise exceptions.PermissionDenied(
                 "As a non-staff user you're only allowed to access the `@me` user instance."
             )

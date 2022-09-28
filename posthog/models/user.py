@@ -23,14 +23,22 @@ class UserManager(BaseUserManager):
 
     def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
         """Create and save a User with the given email and password."""
+        from posthog.email import is_email_verification_enabled
+        from posthog.tasks.email import send_email_verification
+
         if email is None:
             raise ValueError("Email must be provided!")
         email = self.normalize_email(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
-        user = self.model(email=email, first_name=first_name, **extra_fields)
+        user: "User" = self.model(email=email, first_name=first_name, **extra_fields)
+        email_verification_enabled = is_email_verification_enabled()
         if password is not None:
             user.set_password(password)
+        if email_verification_enabled:
+            user.pending_email = email
         user.save()
+        if email_verification_enabled:
+            send_email_verification(user, is_new_user=True)
         return user
 
     def bootstrap(
@@ -105,16 +113,18 @@ class User(AbstractUser, UUIDClassicModel):
         "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+"
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
-    email = models.EmailField(_("email address"), unique=True)
+    email: models.EmailField = models.EmailField(_("email address"), unique=True)
+    pending_email: models.EmailField = models.EmailField(null=True, blank=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
-
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
+
     # DEPRECATED
     events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
 
@@ -206,6 +216,22 @@ class User(AbstractUser, UUIDClassicModel):
                     None if self.current_organization is None else self.current_organization.teams.first()
                 )
                 self.save()
+
+    def change_email(self, new_email: str) -> bool:
+        """Change email and return whether the process is complete or whether email verification is needed."""
+        from posthog.email import is_email_verification_enabled
+        from posthog.tasks.email import send_email_verification
+
+        change_complete: bool
+        if self.email != new_email and is_email_verification_enabled():
+            self.pending_email = new_email
+            send_email_verification(self, is_new_user=False)
+            change_complete = False
+        else:
+            self.email = new_email
+            self.pending_email = None
+            change_complete = True
+        return change_complete
 
     def get_analytics_metadata(self):
 

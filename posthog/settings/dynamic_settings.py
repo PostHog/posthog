@@ -113,6 +113,11 @@ CONSTANCE_CONFIG = {
         "Reply address to which email clients should send responses.",
         str,
     ),
+    "EMAIL_VERIFICATION_ENABLED": (
+        False,
+        "Whether email verification is enabled. When enabled, system emails will only be sent to users with verified emails.",
+        bool,
+    ),
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS": (
         get_from_env("ASYNC_MIGRATIONS_OPT_OUT_EMAILS", False, type_cast=str_to_bool),
         "Used to disable emails from async migrations service",
@@ -164,6 +169,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_USE_SSL",
     "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
+    "EMAIL_VERIFICATION_ENABLED",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "PERSON_ON_EVENTS_ENABLED",
     "STRICT_CACHING_TEAMS",

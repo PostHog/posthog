@@ -41,6 +41,10 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     )
 
 
+def is_email_verification_enabled() -> bool:
+    return get_instance_setting("EMAIL_VERIFICATION_ENABLED")
+
+
 @app.task(ignore_result=True, max_retries=3)
 def _send_email(
     campaign_key: str,
