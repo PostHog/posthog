@@ -60,7 +60,7 @@ class SessionRecording:
                     AND timestamp >= toDateTime(%(start_time)s, %(timezone)s) - INTERVAL 1 DAY
                     AND timestamp <= toDateTime(%(start_time)s, %(timezone)s) + INTERVAL 2 DAY
             """,
-                {"start_time": self._recording_start_time},
+                {"start_time": self._recording_start_time, "timezone": self._team.timezone},
             )
         return ("", {})
 
