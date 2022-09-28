@@ -5,8 +5,8 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Field } from 'lib/forms/Field'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Form } from 'kea-forms'
-import { IconWarning } from 'lib/components/icons'
 import { Link } from '@posthog/lemon-ui'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export function UserDetails(): JSX.Element {
     const { user, userLoading, isUserDetailsSubmitting, userDetailsChanged } = useValues(userLogic)
@@ -32,24 +32,20 @@ export function UserDetails(): JSX.Element {
             </Field>
 
             <Field name="email" label="Your email">
-                {({ onChange, value }) => (
+                {(passedProps) => (
                     <>
                         {!!user?.pending_email && (
-                            <div className="flex items-center text-warning">
-                                <IconWarning className="text-2xl mr-2" />
-                                <b>
-                                    Change from "{user.email}" pending verification.{' '}
-                                    <Link onClick={resendVerificationEmail}>Resend email.</Link>
-                                </b>
-                            </div>
+                            <AlertMessage type="warning">
+                                Change to "{user.pending_email}" is pending verification – check your inbox.{' '}
+                                <Link onClick={resendVerificationEmail}>Resend verification message.</Link>
+                            </AlertMessage>
                         )}
                         <LemonInput
                             className="ph-ignore-input"
                             data-attr="settings-update-email"
                             placeholder="email@yourcompany.com"
                             disabled={userLoading}
-                            onChange={onChange}
-                            value={value}
+                            {...passedProps}
                         />
                     </>
                 )}

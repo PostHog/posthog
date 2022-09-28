@@ -82,11 +82,11 @@ export const userLogic = kea<userLogicType>([
             {
                 loadUserSuccess: (_, { user }) => ({
                     first_name: user?.first_name || '',
-                    email: user?.pending_email || user?.email || '',
+                    email: user?.email || '',
                 }),
                 updateUserSuccess: (_, { user }) => ({
                     first_name: user?.first_name || '',
-                    email: user?.pending_email || '',
+                    email: user?.email || '',
                 }),
             },
         ],
@@ -194,7 +194,6 @@ export const userLogic = kea<userLogicType>([
                           ) || []
                     : [],
         ],
-        pendingEmailVerification: [(s) => [s.user], (user): boolean => !!user?.pending_email],
     }),
     afterMount(({ actions }) => {
         const preloadedUser = getAppContext()?.current_user
