@@ -322,12 +322,10 @@ describe('sessionRecordingsTableLogic', () => {
         })
 
         it('reads sessionRecordingId from the URL on the person page', async () => {
-            router.actions.push('/person/123', {}, { sessionRecordingId: 'recording1212' })
-            expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'recording1212')
+            router.actions.push('/person/123', {}, { sessionRecordingId: 'abc' })
+            expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
-            await expectLogic(logic)
-                .toDispatchActionsInAnyOrder(['openSessionPlayer', 'getSessionRecordingsSuccess'])
-                .toMatchValues({ activeSessionRecording: listOfSessionRecordings[0] })
+            await expectLogic(logic).toDispatchActions([logic.actionCreators.openSessionPlayer({ id: 'abc' })])
         })
     })
 })
