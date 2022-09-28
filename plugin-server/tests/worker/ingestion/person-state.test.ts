@@ -729,7 +729,7 @@ describe('PersonState.update()', () => {
     })
 
     describe('foreign key updates in other tables', () => {
-        test('feature flag hash key overrides with no conflicts', async () => {
+        it('handles feature flag hash key overrides with no conflicts', async () => {
             const anonPerson = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), [
                 'anonymous_id',
             ])
@@ -797,7 +797,7 @@ describe('PersonState.update()', () => {
             )
         })
 
-        test('feature flag hash key overrides with some conflicts handled gracefully', async () => {
+        it('handles feature flag hash key overrides with some conflicts handled gracefully', async () => {
             const anonPerson = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), [
                 'anonymous_id',
             ])
@@ -872,7 +872,7 @@ describe('PersonState.update()', () => {
             )
         })
 
-        test('feature flag hash key overrides with no old overrides but existing new person overrides', async () => {
+        it('handles feature flag hash key overrides with no old overrides but existing new person overrides', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['anonymous_id'])
             const identifiedPerson = await hub.db.createPerson(
                 timestamp,
