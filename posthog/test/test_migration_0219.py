@@ -8,8 +8,8 @@ pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 class TagsTestCase(TestMigrations):
 
-    migrate_from = "0218_uniqueness_constraint_tagged_items"  # type: ignore
-    migrate_to = "0219_migrate_tags_v2"  # type: ignore
+    migrate_from = "0218_uniqueness_constraint_tagged_items"
+    migrate_to = "0219_migrate_tags_v2"
     assert_snapshots = True
 
     def setUpBeforeMigration(self, apps):
