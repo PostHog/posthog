@@ -32,6 +32,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { formatAggregationAxisValue, AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 if (registerables) {
     // required for storybook to work, not found in esbuild
@@ -119,7 +120,8 @@ export function LineGraph_({
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
-    const [[chartWidth, chartHeight], setChartDimensions] = useState<[number, number]>([0, 0])
+
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
     const colors = getGraphColors()
     const insightType = insight.filters?.insight
@@ -431,7 +433,6 @@ export function LineGraph_({
                     seriesId: datasets[referencePoint.datasetIndex].id,
                 })
             },
-            onResize: (_, { width, height }) => setChartDimensions([width, height]),
         }
 
         if (type === GraphType.Bar) {
