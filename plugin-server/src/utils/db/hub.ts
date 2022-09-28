@@ -199,7 +199,7 @@ export async function createHub(
         status.warn('🪣', `Object storage could not be created: ${e}`)
     }
 
-    const promiseManager = new PromiseManager(serverConfig, statsd, instanceId.toString())
+    const promiseManager = new PromiseManager(serverConfig, statsd)
 
     const db = new DB(
         postgres,

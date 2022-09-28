@@ -93,14 +93,12 @@ $tick_hover_size: 5px;
             height: 100%;
             top: -12px;
             width: $tick_hover_size;
-            background-color: green;
             right: -1 * ceil($tick_hover_size / 2);
 
             .tick-marker {
                 position: absolute;
                 width: 1px;
                 height: 21px;
-                background-color: var(--recording-player-container-bg);
                 right: floor($tick_hover_size / 2);
             }
 
@@ -116,9 +114,6 @@ $tick_hover_size: 5px;
                 // Next 2 lines centers the absolute positioned tick info
                 left: 50%;
                 transform: translate(-50%, 0);
-                &.show {
-                    display: flex;
-                }
             }
 
             .tick-thumb {
@@ -128,12 +123,11 @@ $tick_hover_size: 5px;
                 border-radius: 50%;
                 right: -1 * floor($tick_size / 2) + floor($tick_hover_size / 2);
                 top: -1 * floor($tick_size / 2);
-                border: 0.5px solid var(--recording-player-container-bg);
-                background-color: var(--bg-light);
+                border-width: 0.5px;
                 transform-origin: center;
                 transition: transform 200ms;
 
-                &.big {
+                &.tick-thumb__big {
                     transform: scale(1.3);
                 }
             }

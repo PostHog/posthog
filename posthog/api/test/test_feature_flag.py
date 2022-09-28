@@ -8,8 +8,9 @@ from rest_framework import status
 
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
-from posthog.models.person.person import Person
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.person import Person
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -992,9 +993,8 @@ class TestFeatureFlag(APIBaseTest):
             created_by=self.user,
         )
 
-        key = PersonalAPIKey(label="Test", user=self.user)
-        key.save()
-        personal_api_key = key.value
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
 
         self.client.logout()
         # `local_evaluation` is called by logged out clients!
@@ -1124,9 +1124,8 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         )
 
-        key = PersonalAPIKey(label="Test", user=self.user)
-        key.save()
-        personal_api_key = key.value
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}",

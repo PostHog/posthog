@@ -9,8 +9,6 @@ from django.utils.timezone import now
 from freezegun.api import freeze_time
 from rest_framework import status
 
-from posthog.api.test.test_team import create_team
-from posthog.api.test.test_user import create_user
 from posthog.test.base import APIBaseTest
 
 
@@ -73,38 +71,6 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(incr_mock.call_count, 1)
         incr_mock.assert_called_with("rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "clickhouse_burst"})
-
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.incr")
-    def test_rate_limits_are_based_on_the_team_not_user(self, incr_mock):
-        for _ in range(5):
-            response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # First user gets rate limited
-        response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(incr_mock.call_count, 1)
-        incr_mock.assert_called_with("rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "burst"})
-
-        # Create a new user
-        new_user = create_user(email="test@posthog.com", password="1234", organization=self.organization)
-        self.client.force_login(new_user)
-
-        # Second user gets rate limited after a single request
-        response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(incr_mock.call_count, 2)
-        incr_mock.assert_called_with("rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "burst"})
-
-        # Create a new team
-        new_team = create_team(organization=self.organization)
-
-        # Requests to the new team are not rate limited
-        response = self.client.get(f"/api/projects/{new_team.pk}/feature_flags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(incr_mock.call_count, 2)
-        incr_mock.assert_called_with("rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "burst"})
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.incr")
