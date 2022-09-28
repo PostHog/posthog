@@ -13,7 +13,7 @@ from posthog.api.geoip import get_geoip_properties
 from posthog.api.utils import get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
-from posthog.models import PluginSourceFile, Team, User
+from posthog.models import PluginConfig, PluginSourceFile, Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
@@ -160,18 +160,18 @@ def get_decide(request: HttpRequest):
             ):
                 response["sessionRecording"] = {"endpoint": "/s/"}
 
-            source_files = (
-                PluginSourceFile.objects.filter(
-                    plugin__pluginconfig__team=team,
-                    plugin__pluginconfig__enabled=True,
-                    filename="web.ts",
-                    status=PluginSourceFile.Status.TRANSPILED,
+            plugin_sources = (
+                PluginConfig.objects.filter(
+                    team=team,
+                    enabled=True,
+                    plugin__pluginsourcefile__filename="web.ts",
+                    plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
                 )
-                .values_list("plugin_id", "transpiled")
+                .values_list("plugin_id", "plugin__pluginsourcefile__transpiled")
                 .all()
             )
             response["inject"] = [
-                {"id": source_file[0], "source": source_file[1], "payload": {}} for source_file in source_files
+                {"id": source_file[0], "source": source_file[1], "payload": {}} for source_file in plugin_sources
             ]
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
