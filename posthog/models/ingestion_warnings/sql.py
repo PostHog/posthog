@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
 
@@ -28,7 +28,7 @@ ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
 ).format(
     table_name="sharded_ingestion_warnings",
     cluster=settings.CLICKHOUSE_CLUSTER,
-    extra_fields=KAFKA_COLUMNS,
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     engine=INGESTION_WARNINGS_DATA_TABLE_ENGINE(),
 )
 
@@ -50,7 +50,8 @@ type,
 details,
 timestamp,
 _timestamp,
-_offset
+_offset,
+_partition
 FROM {database}.kafka_ingestion_warnings
 """.format(
     target_table="ingestion_warnings",
@@ -63,12 +64,12 @@ DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL = lambda: INGESTION_WARNINGS_TABLE_BASE
     table_name="ingestion_warnings",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table="sharded_ingestion_warnings", sharding_key=None),
-    extra_fields=KAFKA_COLUMNS,
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     materialized_columns="",
 )
 
 
 INSERT_INGESTION_WARNING = f"""
-INSERT INTO sharded_ingestion_warnings (team_id, source, type, details, timestamp, _timestamp, _offset)
-SELECT %(team_id)s, %(source)s, %(type)s, %(details)s, %(timestamp)s, now(), 0
+INSERT INTO sharded_ingestion_warnings (team_id, source, type, details, timestamp, _timestamp, _offset, _partition)
+SELECT %(team_id)s, %(source)s, %(type)s, %(details)s, %(timestamp)s, now(), 0, 0
 """
