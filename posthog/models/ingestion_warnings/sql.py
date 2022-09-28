@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 """
 
 INGESTION_WARNINGS_DATA_TABLE_ENGINE = lambda: MergeTreeEngine(
-    "sharded_ingestion_warnings", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
+    "sharded_ingestion_warnings", replication_scheme=ReplicationScheme.SHARDED
 )
 
 INGESTION_WARNINGS_DATA_TABLE_SQL = lambda: (
