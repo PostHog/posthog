@@ -715,7 +715,7 @@ describe('PersonState.update()', () => {
                 event: '$create_alias',
                 distinct_id: 'some_distinct_id',
                 properties: {
-                    alias: 'null',
+                    alias: null,
                 },
             }).update()
 
