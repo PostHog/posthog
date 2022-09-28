@@ -160,18 +160,19 @@ def get_decide(request: HttpRequest):
             ):
                 response["sessionRecording"] = {"endpoint": "/s/"}
 
-            source_files = PluginSourceFile.objects.filter(
-                plugin__pluginconfig__team=team,
-                plugin__pluginconfig__enabled=True,
-                filename="web.ts",
-                status=PluginSourceFile.Status.TRANSPILED,
-            ).all()
-            if len(source_files) > 0:
-                response["inject"] = []
-                for source_file in source_files:
-                    response["inject"].append(
-                        {"id": source_file.plugin_id, "source": source_file.transpiled, "payload": {}}
-                    )
+            source_files = (
+                PluginSourceFile.objects.filter(
+                    plugin__pluginconfig__team=team,
+                    plugin__pluginconfig__enabled=True,
+                    filename="web.ts",
+                    status=PluginSourceFile.Status.TRANSPILED,
+                )
+                .values_list("plugin_id", "transpiled")
+                .all()
+            )
+            response["inject"] = [
+                {"id": source_file[0], "source": source_file[1], "payload": {}} for source_file in source_files
+            ]
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
