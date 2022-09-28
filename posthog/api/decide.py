@@ -197,11 +197,12 @@ def requires_bootloader(source: str):
 
 def get_bootloader(id: int):
     return (
-        "(function(h){return{inject:function(_,ph){var s=document.createElement('script');s.src=h+(h[h.length-1]==='/'?'':'/')+"
-        + json.dumps(f"web_js/{id}/")
-        + ";window['__$$ph_web_js_"
-        + str(id)
-        + "']=ph;document.head.appendChild(s);}}})"
+        f"(function(h){{return{{inject:function(opts){{"
+        f"var s=document.createElement('script');"
+        f"s.src=[h,h[h.length-1]==='/'?'':'/','web_js/',{id},'/'].join('');"
+        f"window['__$$ph_web_js_{id}']=opts.posthog;"
+        f"document.head.appendChild(s);"
+        f"}}}}}})"
     )
 
 
@@ -238,7 +239,7 @@ def get_web_js(request: HttpRequest, id: int):
         id = source_file[0]
         source = source_file[1]
         config = get_web_config_from_schema(source_file[2], source_file[3])
-        response = f"{source}().inject({json.dumps(config)}, window['__$$ph_web_js_{id}'])"
+        response = f"{source}().inject({{config:{json.dumps(config)},posthog:window['__$$ph_web_js_{id}']}})"
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "web_js"})
     return cors_response(request, HttpResponse(content=response, content_type="application/javascript"))
