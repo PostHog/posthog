@@ -594,21 +594,7 @@ describe('eventToName()', () => {
                 properties: { $event_type: 'click' },
                 elements: [{ tag_name: 'button', text: 'hello' } as ElementType],
             })
-        ).toEqual('clicked button with text "hello"')
-    })
-
-    it('handles short form autocapture as expected', () => {
-        expect(
-            eventToDescription(
-                {
-                    ...baseEvent,
-                    event: '$autocapture',
-                    properties: { $event_type: 'click' },
-                    elements: [{ tag_name: 'button', text: 'hello' } as ElementType],
-                },
-                true
-            )
-        ).toEqual('clicked "hello"')
+        ).toEqual('Clicked button "hello"')
     })
 
     it('handles unknown event/action', () => {

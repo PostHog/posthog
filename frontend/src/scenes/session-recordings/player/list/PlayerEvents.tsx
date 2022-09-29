@@ -25,7 +25,7 @@ import {
 } from 'scenes/session-recordings/player/list/eventsListLogic'
 import { IconAutocapture, IconEvent, IconPageleave, IconPageview } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
-import { capitalizeFirstLetter, eventToDescription, isEllipsisActive } from 'lib/utils'
+import { eventToDescription, isEllipsisActive } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RecordingEventType, SessionRecordingPlayerProps } from '~/types'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
@@ -164,9 +164,7 @@ export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecording
                             </div>
                             <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
                         </Row>
-                        {hasDescription && (
-                            <EventDescription description={capitalizeFirstLetter(eventToDescription(event, true))} />
-                        )}
+                        {hasDescription && <EventDescription description={eventToDescription(event)} />}
                         <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
                     </Col>
                 </Row>

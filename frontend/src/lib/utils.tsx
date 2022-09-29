@@ -11,6 +11,7 @@ import {
     CohortCriteriaGroupFilter,
     CohortType,
     DateMappingOption,
+    ElementType,
     EventType,
     FilterLogicalOperator,
     FilterType,
@@ -630,39 +631,33 @@ export function truncate(str: string, maxLength: number): string {
     return str.length > maxLength ? str.slice(0, maxLength - 1) + '...' : str
 }
 
-export function eventToDescription(
-    event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>,
-    shortForm: boolean = false
-): string {
+export function eventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>): string {
     if (['$pageview', '$pageleave'].includes(event.event)) {
         return event.properties.$pathname ?? event.properties.$current_url ?? '<unknown URL>'
     }
     if (event.event === '$autocapture') {
-        return autoCaptureEventToDescription(event, shortForm)
+        return autoCaptureEventToDescription(event)
     }
     // All other events and actions
     return event.event
 }
 
-export function autoCaptureEventToDescription(
-    event: Pick<EventType, 'elements' | 'event' | 'properties'>,
-    shortForm: boolean = false
-): string {
+export function autoCaptureEventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties'>): string {
     if (event.event !== '$autocapture') {
         return event.event
     }
 
     const getVerb = (): string => {
         if (event.properties.$event_type === 'click') {
-            return 'clicked'
+            return 'Clicked'
         }
         if (event.properties.$event_type === 'change') {
-            return 'typed something into'
+            return 'Typed into'
         }
         if (event.properties.$event_type === 'submit') {
-            return 'submitted'
+            return 'Submitted'
         }
-        return 'interacted with'
+        return 'Interacted with'
     }
 
     const getTag = (): string => {
@@ -674,21 +669,20 @@ export function autoCaptureEventToDescription(
         return event.elements?.[0]?.tag_name ?? 'element'
     }
 
-    const getValue = (): string | null => {
-        if (event.elements?.[0]?.text) {
-            return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
-        } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
-            return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
+    const getLabel = (): string | null => {
+        const keyElement: ElementType | undefined = event.elements?.[0]
+        if (!keyElement) {
+            return null
         }
-        return null
+        const label =
+            keyElement.text ||
+            keyElement.attributes?.['attr__aria-label'] ||
+            keyElement.attributes?.['attr__alt'] ||
+            keyElement.attributes?.['attr__title']
+        return label ? `"${label}"` : null
     }
 
-    if (shortForm) {
-        return [getVerb(), getValue() ?? getTag()].filter((x) => x).join(' ')
-    } else {
-        const value = getValue()
-        return [getVerb(), getTag(), value].filter((x) => x).join(' ')
-    }
+    return [getVerb(), getTag(), getLabel()].filter((x) => x).join(' ')
 }
 
 export function determineDifferenceType(
