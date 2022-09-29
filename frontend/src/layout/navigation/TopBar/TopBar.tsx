@@ -18,6 +18,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { NotificationBell } from '~/layout/navigation/TopBar/NotificationBell'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -27,6 +29,7 @@ export function TopBar(): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { groupNamesTaxonomicTypes } = useValues(groupsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -65,7 +68,7 @@ export function TopBar(): JSX.Element {
                     </div>
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
-                    <NotificationBell />
+                    {!!featureFlags[FEATURE_FLAGS.HOG_BOOK] && <NotificationBell />}
                     <HelpButton />
                     <SitePopover />
                 </div>
