@@ -171,6 +171,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_zip_with_index_ts_works(self):
+        self.assertFalse(self.team.inject_web_apps)
         test_plugin: Plugin = Plugin.objects.create(
             organization=self.organization,
             name="Contoso",
@@ -190,9 +191,11 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         self.assertEqual(index_ts_file.source, HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS)
         self.assertIsNone(frontend_tsx_file)
         self.assertIsNone(web_ts_file)
+        self.assertFalse(self.team.inject_web_apps)
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_zip_without_index_ts_but_frontend_tsx_works(self):
+        self.assertFalse(self.team.inject_web_apps)
         test_plugin: Plugin = Plugin.objects.create(
             organization=self.organization,
             name="Contoso",
@@ -212,9 +215,11 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         self.assertIsNone(web_ts_file)
         assert frontend_tsx_file is not None
         self.assertEqual(frontend_tsx_file.source, HELLO_WORLD_PLUGIN_FRONTEND_TSX)
+        self.assertFalse(self.team.inject_web_apps)
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_zip_without_index_ts_but_web_ts_works(self):
+        self.assertFalse(self.team.inject_web_apps)
         test_plugin: Plugin = Plugin.objects.create(
             organization=self.organization,
             name="Contoso",
@@ -234,6 +239,8 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         self.assertIsNone(web_ts_file)
         assert frontend_tsx_file is not None
         self.assertEqual(frontend_tsx_file.source, HELLO_WORLD_PLUGIN_WEB_TS)
+        self.team.reload()
+        self.assertTrue(self.team.inject_web_apps)
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_zip_without_any_code_fails(self):

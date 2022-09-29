@@ -1,24 +1,14 @@
 import json
-from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from statshog.defaults.django import statsd
 
 from posthog.logging.timing import timed
-from posthog.models import PluginConfig, Team
-from posthog.models.plugin import PluginSourceFile
+from posthog.models import Team
+from posthog.plugins.web import get_transpiled_web_source, get_transpiled_web_sources
 from posthog.utils import cors_response
-
-
-@dataclass
-class SourceFile:
-    id: int
-    source: str
-    token: str
-    config_schema: dict
-    config: dict
 
 
 @csrf_exempt
@@ -29,7 +19,7 @@ def get_web_js(request: HttpRequest, id: int, token: str):
         return cors_response(request, JsonResponse({"status": 1}))
 
     response = ""
-    source_file = get_source_file(id, token) if token else None
+    source_file = get_transpiled_web_source(id, token) if token else None
     if source_file:
         id = source_file.id
         source = source_file.source
@@ -53,7 +43,7 @@ def get_decide_web_js_inject(team: Team):
             "source": source_file.source,
             "config": get_web_config_from_schema(source_file.config_schema, source_file.config),
         }
-        for source_file in get_source_files(team)
+        for source_file in get_transpiled_web_sources(team)
     ]
 
 
@@ -80,36 +70,3 @@ def get_bootloader(id: int, token: str):
         f"document.head.appendChild(s);"
         f"}}}}}})"
     )
-
-
-def get_source_file(id: int, token: str) -> Optional[SourceFile]:
-    response = (
-        PluginConfig.objects.filter(
-            id=id,
-            web_token=token,
-            enabled=True,
-            plugin__pluginsourcefile__filename="web.ts",
-            plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
-        )
-        .values_list("id", "plugin__pluginsourcefile__transpiled", "web_token", "plugin__config_schema", "config")
-        .first()
-    )
-
-    if not response:
-        return None
-
-    return SourceFile(*(list(response)))  # type: ignore
-
-
-def get_source_files(team: Team) -> List[SourceFile]:
-    sources = (
-        PluginConfig.objects.filter(
-            team=team,
-            enabled=True,
-            plugin__pluginsourcefile__filename="web.ts",
-            plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
-        )
-        .values_list("id", "plugin__pluginsourcefile__transpiled", "web_token", "plugin__config_schema", "config")
-        .all()
-    )
-    return [SourceFile(*(list(source))) for source in sources]  # type: ignore

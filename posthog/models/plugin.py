@@ -26,6 +26,7 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
+from posthog.plugins.web import get_transpiled_web_sources
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
@@ -435,6 +436,15 @@ def plugin_reload_needed(sender, instance, created=None, **kwargs):
 @mutable_receiver([post_save, post_delete], sender=PluginConfig)
 def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()
+
+
+@mutable_receiver([post_save, post_delete], sender=PluginConfig)
+def sync_team_inject_web_apps(sender, instance, created=None, **kwargs):
+    team = instance.team
+    inject_web_apps = len(get_transpiled_web_sources(team)) > 0
+    if inject_web_apps != team.inject_web_apps:
+        team.inject_web_apps = inject_web_apps
+        team.save()
 
 
 @mutable_receiver([post_save, post_delete], sender=PluginAttachment)
