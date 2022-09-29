@@ -96,6 +96,8 @@ flaky==3.7.0
     # via -r requirements-dev.in
 freezegun==1.2.2
     # via -r requirements-dev.in
+icdiff==2.0.5
+    # via pytest-icdiff
 idna==2.8
     # via
     #   -c requirements.txt
@@ -144,6 +146,8 @@ platformdirs==2.5.2
     # via black
 pluggy==0.13.1
     # via pytest
+pprintpp==0.4.0
+    # via pytest-icdiff
 py==1.10.0
     # via pytest
 pycodestyle==2.9.1
@@ -175,6 +179,7 @@ pytest==6.2.2
     #   pytest-cov
     #   pytest-django
     #   pytest-env
+    #   pytest-icdiff
     #   pytest-mock
     #   pytest-split
     #   pytest-watch
@@ -184,6 +189,8 @@ pytest-cov==2.12.1
 pytest-django==4.1.0
     # via -r requirements-dev.in
 pytest-env==0.6.2
+    # via -r requirements-dev.in
+pytest-icdiff==0.5
     # via -r requirements-dev.in
 pytest-mock==3.5.1
     # via -r requirements-dev.in

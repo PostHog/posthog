@@ -145,8 +145,8 @@ describe('sessionRecordingDataLogic', () => {
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents'])
                 .toMatchValues({
                     eventsApiParams: {
-                        after: '2021-12-09T19:35:59+00:00',
-                        before: '2021-12-09T20:23:24+00:00',
+                        after: '2021-12-09T19:35:59Z',
+                        before: '2021-12-09T20:23:24Z',
                         person_id: 1,
                         orderBy: ['timestamp'],
                     },
@@ -236,36 +236,6 @@ describe('sessionRecordingDataLogic', () => {
                 .toDispatchActions([logic.actionCreators.loadEvents(firstNext), 'loadEventsFailure'])
             resumeKeaLoadersErrors()
             expect(api.get).toBeCalledTimes(3)
-        })
-        it('makes the events searchable', async () => {
-            jest.spyOn(api, 'get')
-            api.get.mockClear()
-            api.get
-                .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
-                        return { result: recordingMetaJson }
-                    }
-                })
-                .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
-                        return { results: recordingEventsJson, next: undefined }
-                    }
-                })
-
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta()
-            })
-                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
-                .toMatchValues({
-                    eventsToShow: expectedEvents,
-                })
-
-            expectLogic(logic, () => {
-                logic.actions.setFilters({ query: 'blah' })
-            }).toMatchValues({
-                filters: { query: 'blah' },
-                eventsToShow: expect.arrayContaining([expect.objectContaining({ queryValue: 'blah blah' })]),
-            })
         })
     })
 

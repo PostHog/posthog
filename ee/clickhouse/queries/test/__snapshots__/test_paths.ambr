@@ -1645,10 +1645,10 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+         groupUniqArray(100)((timestamp,
+                              uuid,
+                              $session_id,
+                              $window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1766,10 +1766,10 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+         groupUniqArray(100)((timestamp,
+                              uuid,
+                              $session_id,
+                              $window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1887,10 +1887,10 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+         groupUniqArray(100)((timestamp,
+                              uuid,
+                              $session_id,
+                              $window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -2007,10 +2007,10 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+         groupUniqArray(100)((timestamp,
+                              uuid,
+                              $session_id,
+                              $window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,

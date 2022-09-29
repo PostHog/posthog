@@ -74,6 +74,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
+    [Scene.IngestionWarnings]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
     [Scene.WebPerformance]: {
         projectBased: true,
         name: 'Web Performance',
@@ -179,10 +183,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         onlyUnauthenticated: true,
     },
     [Scene.PasswordReset]: {
-        allowUnauthenticated: true,
+        onlyUnauthenticated: true,
     },
     [Scene.PasswordResetComplete]: {
-        allowUnauthenticated: true,
+        onlyUnauthenticated: true,
     },
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
@@ -250,6 +254,7 @@ export const routes: Record<string, Scene> = {
     [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
+    [urls.ingestionWarnings()]: Scene.IngestionWarnings,
     [urls.insightNew()]: Scene.Insight,
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,

@@ -6,7 +6,6 @@ import { InsightLogicProps, FilterType, InsightType, TrendResult, ActionFilter, 
 import type { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { personsModalLogic } from './persons-modal/personsModalLogic'
 import { groupsModel } from '~/models/groupsModel'
 
 export const trendsLogic = kea<trendsLogicType>({
@@ -21,12 +20,7 @@ export const trendsLogic = kea<trendsLogicType>({
             groupsModel,
             ['aggregationLabel'],
         ],
-        actions: [
-            insightLogic(props),
-            ['loadResultsSuccess', 'toggleVisibility', 'setHiddenById'],
-            personsModalLogic,
-            ['loadPeople', 'loadPeopleFromUrl'],
-        ],
+        actions: [insightLogic(props), ['loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
     }),
 
     actions: () => ({
@@ -96,19 +90,6 @@ export const trendsLogic = kea<trendsLogicType>({
                 return results.map((result, index) => ({ ...result, id: index }))
             },
         ],
-        showModalActions: [
-            (s) => [s.filters],
-            (filters): boolean => {
-                const isNotAggregatingByGroup = (entity: Record<string, any>): boolean =>
-                    entity.math_group_type_index == undefined
-
-                return (
-                    (filters.events || []).every(isNotAggregatingByGroup) &&
-                    (filters.actions || []).every(isNotAggregatingByGroup) &&
-                    filters.breakdown_type !== 'group'
-                )
-            },
-        ],
         aggregationTargetLabel: [
             (s) => [s.aggregationLabel, s.targetAction],
             (
@@ -152,12 +133,6 @@ export const trendsLogic = kea<trendsLogicType>({
     },
 
     listeners: ({ actions, values, props }) => ({
-        loadPeople: ({ peopleParams: { action } }) => {
-            action && actions.setTargetAction(action)
-        },
-        loadPeopleFromUrl: ({ action }) => {
-            action && actions.setTargetAction(action)
-        },
         setFilters: async ({ filters, mergeFilters }) => {
             insightLogic(props).actions.setFilters(mergeFilters ? { ...values.filters, ...filters } : filters)
         },

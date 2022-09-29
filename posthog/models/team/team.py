@@ -118,6 +118,7 @@ class Team(UUIDClassicModel):
     data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
     person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
     live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
+    recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
 
     primary_dashboard: models.ForeignKey = models.ForeignKey(
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
@@ -207,8 +208,13 @@ class Team(UUIDClassicModel):
             return posthoganalytics.feature_enabled(
                 "person-on-events-enabled",
                 str(self.uuid),
-                groups={"project": str(self.uuid)},
-                group_properties={"project": {"id": str(self.pk)}},
+                groups={"organization": str(self.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(self.organization.id),
+                        "created_at": self.organization.created_at,
+                    }
+                },
                 only_evaluate_locally=True,
             )
 

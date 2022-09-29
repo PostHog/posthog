@@ -53,7 +53,7 @@ export function ThirdPartyPanel(): JSX.Element {
                                                 <LemonTag
                                                     key={labelIdx}
                                                     type={label === 'beta' ? 'warning' : 'default'}
-                                                    style={{ marginLeft: 8 }}
+                                                    className="uppercase ml-2"
                                                 >
                                                     {label}
                                                 </LemonTag>

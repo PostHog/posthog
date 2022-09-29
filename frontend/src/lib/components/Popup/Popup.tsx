@@ -3,6 +3,7 @@ import React, {
     MouseEventHandler,
     MutableRefObject,
     ReactElement,
+    useContext,
     useEffect,
     useLayoutEffect,
     useMemo,
@@ -51,6 +52,8 @@ export interface PopupProps {
      * **/
     additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
     style?: React.CSSProperties
+    /** Whether the parent popup should be closed as well on click. Useful for menus  */
+    closeParentPopupOnClickInside?: boolean
     getPopupContainer?: () => HTMLElement
     /** Whether to show an arrow pointing to a reference element */
     showArrow?: boolean
@@ -60,6 +63,8 @@ export interface PopupProps {
 export const PopupContext = React.createContext<number>(0)
 
 let uniqueMemoizedIndex = 1
+
+let nestedPopupReceivedClick = false
 
 /** This is a custom popup control that uses `floating-ui` to position DOM nodes.
  *
@@ -82,6 +87,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
             sameWidth = false,
             maxContentWidth = false,
             additionalRefs = [],
+            closeParentPopupOnClickInside = false,
             style,
             getPopupContainer,
             showArrow,
@@ -89,6 +95,8 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
         ref
     ): JSX.Element => {
         const popupId = useMemo(() => uniqueMemoizedIndex++, [])
+        const parentPopupId = useContext(PopupContext)
+
         const arrowRef = useRef<HTMLDivElement>(null)
         const {
             x,
@@ -144,7 +152,15 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
 
         useOutsideClickHandler(
             [floatingRef, referenceRef, ...additionalRefs],
-            (event) => visible && onClickOutside?.(event),
+            (event) => {
+                // Delay by a tick to allow other Popups to detect inside clicks.
+                // If a nested popup has handled the click, don't do anything
+                setTimeout(() => {
+                    if (visible && !nestedPopupReceivedClick) {
+                        onClickOutside?.(event)
+                    }
+                }, 1)
+            },
             [visible]
         )
 
@@ -166,6 +182,17 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
         const top = isAttached ? y ?? 0 : undefined
         const left = isAttached ? x ?? 0 : undefined
 
+        const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
+            onClickInside?.(e)
+            // If we are not the top level popup, set a flag so that other popups know that.
+            if (parentPopupId !== 0 && !closeParentPopupOnClickInside) {
+                nestedPopupReceivedClick = true
+                setTimeout(() => {
+                    nestedPopupReceivedClick = false
+                }, 1)
+            }
+        }
+
         return (
             <>
                 {clonedChildren}
@@ -183,7 +210,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
                                 data-floating-placement={floatingPlacement}
                                 ref={floatingRef as MutableRefObject<HTMLDivElement>}
                                 style={{ position: strategy, top, left, ...style }}
-                                onClick={onClickInside}
+                                onClick={_onClickInside}
                             >
                                 <div ref={ref} className="Popup__box">
                                     {overlay}

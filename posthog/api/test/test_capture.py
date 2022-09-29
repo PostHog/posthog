@@ -17,9 +17,11 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.capture import get_distinct_id
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
-from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.test.base import BaseTest
 
@@ -241,11 +243,11 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_personal_api_key(self, kafka_produce):
-        key = PersonalAPIKey(label="X", user=self.user)
-        key.save()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(key_value))
         data = {
             "event": "$autocapture",
-            "api_key": key.value,
+            "api_key": key_value,
             "project_id": self.team.id,
             "properties": {
                 "distinct_id": 2,
@@ -277,13 +279,13 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_personal_api_key_from_batch_request(self, kafka_produce):
-        # Originally issue POSTHOG-2P8
-        key = PersonalAPIKey(label="X", user=self.user)
+        key_value = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(key_value))
         key.save()
         data = [
             {
                 "event": "$pageleave",
-                "api_key": key.value,
+                "api_key": key_value,
                 "project_id": self.team.id,
                 "properties": {
                     "$os": "Linux",
@@ -310,7 +312,7 @@ class TestCapture(BaseTest):
                 "site_url": "http://testserver",
                 "data": {
                     "event": "$pageleave",
-                    "api_key": key.value,
+                    "api_key": key_value,
                     "project_id": self.team.id,
                     "properties": {
                         "$os": "Linux",
@@ -1097,6 +1099,13 @@ class TestCapture(BaseTest):
                                 }
                             ]
                         ),
+                        "events_summary": [
+                            {
+                                "type": snapshot_type,
+                                "data": {"source": snapshot_source},
+                                "timestamp": timestamp,
+                            }
+                        ],
                         "compression": "gzip-base64",
                         "has_full_snapshot": False,
                     },
@@ -1107,6 +1116,13 @@ class TestCapture(BaseTest):
                 "offset": 1993,
             },
         )
+
+    def test_get_distinct_id_non_json_properties(self) -> None:
+        with self.assertRaises(ValueError):
+            get_distinct_id({"properties": "str"})
+
+        with self.assertRaises(ValueError):
+            get_distinct_id({"properties": 123})
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_large_recording_data_is_split_into_multiple_messages(self, kafka_produce) -> None:

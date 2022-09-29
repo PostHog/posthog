@@ -24,6 +24,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -59,6 +60,11 @@ export enum Realm {
     Demo = 'demo',
     SelfHostedPostgres = 'hosted',
     SelfHostedClickHouse = 'hosted-clickhouse',
+}
+
+export enum Region {
+    US = 'US',
+    EU = 'EU',
 }
 
 export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
@@ -233,6 +239,7 @@ export interface TeamType extends TeamBasicType {
     updated_at: string
     anonymize_ips: boolean
     app_urls: string[]
+    recording_domains: string[]
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
@@ -415,7 +422,7 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     value: number
 }
 
-export type SessionRecordingId = string
+export type SessionRecordingId = SessionRecordingType['id']
 
 export interface PlayerPosition {
     time: number
@@ -562,13 +569,14 @@ export interface PersonListParams {
     distinct_id?: string
 }
 
-interface MatchedRecordingEvents {
+export interface MatchedRecordingEvents {
     uuid: string
+    session_id: string
     window_id: string
     timestamp: string
 }
 export interface MatchedRecording {
-    session_id: string
+    session_id?: string
     events: MatchedRecordingEvents[]
 }
 
@@ -723,6 +731,7 @@ export interface RecordingTimeMixinType {
 
 export interface RecordingEventType extends EventType, RecordingTimeMixinType {
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
+    level?: RowStatus.Match | RowStatus.Information // If undefined, by default information row
 }
 
 export interface EventsTableRowItem {
@@ -741,6 +750,8 @@ export interface SessionRecordingType {
     start_time: string
     /** When the recording ends in ISO format. */
     end_time: string
+    /** List of matching events. **/
+    matching_events?: MatchedRecording[]
     distinct_id?: string
     email?: string
     person?: PersonType
@@ -926,7 +937,7 @@ export interface FrontendApp {
 }
 
 export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date' | 'daterange'
     title?: string
     required?: boolean
     default?: any
@@ -1348,7 +1359,8 @@ export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
     breakdown?: BreakdownKeyType
-    breakdown_value?: BreakdownKeyType
+    // :KLUDGE: Data transforms done in `getBreakdownStepValues`
+    breakdown_value?: Array<string | number>
     breakdownIndex?: number
     conversionRates?: {
         total: number
@@ -1460,6 +1472,7 @@ export interface PreflightStatus {
     demo: boolean
     celery: boolean
     realm: Realm
+    region: Region
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
@@ -1981,11 +1994,7 @@ export type Duration = {
     unit: SmallTimeUnit
 }
 
-export type CombinedEvent = EventDefinition | ActionType
-
-export enum CombinedEventType {
-    All = 'all',
-    ActionEvent = 'action_event',
+export enum EventDefinitionType {
     Event = 'event',
     EventCustom = 'event_custom',
     EventPostHog = 'event_posthog',
@@ -2045,6 +2054,8 @@ export interface SessionRecordingPlayerProps {
     sessionRecordingId: SessionRecordingId
     playerKey: string
     includeMeta?: boolean
+    recordingStartTime?: string
+    matching?: MatchedRecording[]
 }
 
 export enum FeatureFlagReleaseType {

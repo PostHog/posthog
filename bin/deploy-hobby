@@ -3,6 +3,7 @@
 set -e
 
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
+export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 
 POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
 export POSTHOG_SECRET
@@ -11,6 +12,9 @@ export POSTHOG_SECRET
 echo "Welcome to the single instance PostHog installer 🦔"
 echo ""
 echo "⚠️  You really need 4gb or more of memory to run this stack ⚠️"
+echo ""
+echo "Power user or aspiring power user?"
+echo "Check out our docs on hobby deploy! https://posthog.com/docs/self-host/deploy/hobby"
 echo ""
 echo "What version of PostHog would you like to install? (We default to 'latest-release')"
 echo "You can check out available versions here: https://hub.docker.com/r/posthog/posthog/tags"
@@ -23,16 +27,6 @@ else
     echo "Using provided tag: $POSTHOG_APP_TAG"
 fi
 echo ""
-while true; do
-    echo "Should we setup a TLS certificate for you using Let's Encrypt?"
-    echo "Select no if you are using this internally and PostHog will not be reachable from the internet. y/n"
-    read -p "" yn
-    case $yn in
-        [Yy]* ) export USE_SELF_SIGNED_CERT=0; break ;;
-        [Nn]* ) export USE_SELF_SIGNED_CERT=1; break ;;
-        * ) echo "Please answer yes or no." ;;
-    esac
-done
 echo "Let's get the exact domain PostHog will be installed on"
 echo "Make sure that you have a Host A DNS record pointing to this instance!"
 echo "This will be used for TLS 🔐"
@@ -40,11 +34,6 @@ echo "ie: test.posthog.net (NOT an IP address)"
 read -r DOMAIN
 export DOMAIN=$DOMAIN
 echo "Ok we'll set up certs for https://$DOMAIN"
-echo ""
-echo "Do you have a Sentry DSN you would like for debugging should something go wrong?"
-echo "If you do enter it now, otherwise just hit enter to continue"
-read -r SENTRY_DSN
-export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 echo ""
 echo "We will need sudo access so the next question is for you to give us superuser access"
 echo "Please enter your sudo password now:"
@@ -55,6 +44,15 @@ echo "Ok! We'll take it from here 🚀"
 
 echo "Making sure any stack that might exist is stopped"
 sudo -E docker-compose -f docker-compose.yml stop &> /dev/null || true
+
+# send log of this install for continued support!
+curl -o /dev/null -L --header "Content-Type: application/json" -d "{
+    \"api_key\": \"sTMFPsFhdP1Ssg\",
+    \"distinct_id\": \"${DOMAIN}\",
+    \"properties\": {\"domain\": \"${DOMAIN}\"},
+    \"type\": \"capture\",
+    \"event\": \"magic_curl_install_start\"
+}" https://app.posthog.com/batch/ &> /dev/null
 
 # update apt cache
 echo "Grabbing latest apt caches"
@@ -69,14 +67,7 @@ cd posthog
 git pull
 cd ..
 
-
 # rewrite caddyfile
-export TLS_BLOCK=""
-if [[ $USE_SELF_SIGNED_CERT -eq 1 ]]; then
-    echo "Using a self signed certificate as requested"
-    export TLS_BLOCK="tls internal"
-fi
-
 rm -f Caddyfile
 envsubst > Caddyfile <<EOF
 $DOMAIN, :80, :443 {
@@ -132,7 +123,7 @@ chmod +x compose/wait
 echo "Setting up Docker"
 sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo -E apt-key add -
-sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
+sudo add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
 sudo apt update
 sudo apt-cache policy docker-ce
 sudo apt install -y docker-ce
@@ -146,14 +137,6 @@ sudo chmod +x /usr/local/bin/docker-compose
 # enable docker without sudo
 sudo usermod -aG docker "${USER}"
 
-# send log of this install for continued support!
-curl -L --header "Content-Type: application/json" -d '{
-    "api_key": "sTMFPsFhdP1Ssg",
-    "properties": {"domain": "${DOMAIN}"},
-    "type": "capture",
-    "event": "magic_curl_install"
-}' https://app.posthog.com/batch/
-
 # start up the stack
 echo "Configuring Docker Compose...."
 rm -f docker-compose.yml
@@ -166,10 +149,18 @@ sudo -E docker-compose -f docker-compose.yml up -d
 echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"
 echo ""
 echo "⏳ Waiting for PostHog web to boot (this will take a few minutes)"
-bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost:8000/_health)" != "200" ]]; do sleep 5; done'
+bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost/_health)" != "200" ]]; do sleep 5; done'
 echo "⌛️ PostHog looks up!"
 echo ""
 echo "🎉🎉🎉  Done! 🎉🎉🎉"
+# send log of this install for continued support!
+curl -o /dev/null -L --header "Content-Type: application/json" -d "{
+    \"api_key\": \"sTMFPsFhdP1Ssg\",
+    \"distinct_id\": \"${DOMAIN}\",
+    \"properties\": {\"domain\": \"${DOMAIN}\"},
+    \"type\": \"capture\",
+    \"event\": \"magic_curl_install_complete\"
+}" https://app.posthog.com/batch/ &> /dev/null
 echo ""
 echo "To stop the stack run 'docker-compose stop'"
 echo "To start the stack again run 'docker-compose start'"

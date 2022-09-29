@@ -6,6 +6,8 @@ from django.test.client import Client
 from rest_framework import status
 
 from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import BaseTest
 
 
@@ -91,7 +93,7 @@ class TestDecide(BaseTest):
         self.assertEqual(response["sessionRecording"], False)
 
         self.team.session_recording_opt_in = True
-        self.team.app_urls = ["https://*.example.com"]
+        self.team.recording_domains = ["https://*.example.com"]
         self.team.save()
 
         response = self._post_decide(origin="https://random.example.com").json()
@@ -103,7 +105,7 @@ class TestDecide(BaseTest):
         self.assertEqual(response["sessionRecording"], False)
 
     def test_user_session_recording_evil_site(self):
-        self.team.app_urls = ["https://example.com"]
+        self.team.recording_domains = ["https://example.com"]
         self.team.session_recording_opt_in = True
         self.team.save()
 
@@ -111,6 +113,14 @@ class TestDecide(BaseTest):
         self.assertEqual(response["sessionRecording"], False)
 
         response = self._post_decide(origin="https://example.com").json()
+        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
+
+    def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self):
+        self.team.recording_domains = []
+        self.team.session_recording_opt_in = True
+        self.team.save()
+
+        response = self._post_decide(origin="any.site.com").json()
         self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
 
     def test_feature_flags(self):
@@ -713,8 +723,8 @@ class TestDecide(BaseTest):
             self.assertEqual(response.json()["featureFlags"], {"groups-flag": True})
 
     def test_feature_flags_with_personal_api_key(self):
-        key = PersonalAPIKey(label="X", user=self.user)
-        key.save()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(key_value))
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user
@@ -729,16 +739,16 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )  # enabled for everyone
         response = self._post_decide(
-            {"distinct_id": "example_id", "api_key": key.value, "project_id": self.team.id}
+            {"distinct_id": "example_id", "api_key": key_value, "project_id": self.team.id}
         ).json()
         self.assertEqual(response["featureFlags"], ["test", "default-flag"])
 
     def test_personal_api_key_without_project_id(self):
-        key = PersonalAPIKey(label="X", user=self.user)
-        key.save()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(key_value))
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
 
-        response = self._post_decide({"distinct_id": "example_id", "api_key": key.value})
+        response = self._post_decide({"distinct_id": "example_id", "api_key": key_value})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(
             response.json(),
@@ -751,8 +761,6 @@ class TestDecide(BaseTest):
         )
 
     def test_missing_token(self):
-        key = PersonalAPIKey(label="X", user=self.user)
-        key.save()
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user

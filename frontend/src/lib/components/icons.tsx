@@ -2,7 +2,7 @@
 import clsx from 'clsx'
 import React, { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
 import './icons.scss'
-import { LemonBubble } from './LemonBubble/LemonBubble'
+import { LemonBadge } from './LemonBadge/LemonBadge'
 
 interface IconWithCountProps {
     count: number
@@ -13,7 +13,7 @@ export function IconWithCount({ count, children, showZero }: PropsWithChildren<I
     return (
         <span style={{ position: 'relative', display: 'inline-flex' }}>
             {children}
-            <LemonBubble count={count} size="small" position="top-right" showZero={showZero} />
+            <LemonBadge count={count} size="small" position="top-right" showZero={showZero} />
         </span>
     )
 }
@@ -528,6 +528,14 @@ export function IconSubdirectoryArrowRight(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
             <path d="m19 15-6 6-1.42-1.42 3.59-3.58h-11.17v-12h2v10h9.17l-3.59-3.58 1.42-1.42z" fill="currentColor" />{' '}
+        </SvgIcon>
+    )
+}
+
+export function IconSubArrowRight(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path d="M2 0H0V10H12.01V13L16 9L12.01 5V8H2V0Z" fill="currentColor" />{' '}
         </SvgIcon>
     )
 }

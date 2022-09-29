@@ -14,7 +14,7 @@ import { personPropertiesModel } from '~/models/personPropertiesModel'
 import {
     ActionType,
     CohortType,
-    CombinedEventType,
+    EventDefinitionType,
     DashboardType,
     EventDefinition,
     Experiment,
@@ -43,7 +43,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
@@ -151,38 +150,35 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 selectors.groupAnalyticsTaxonomicGroupNames,
                 selectors.eventNames,
                 selectors.excludedProperties,
-                selectors.featureFlags,
             ],
             (
                 teamId,
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
-                excludedProperties,
-                featureFlags
+                excludedProperties
             ): TaxonomicFilterGroup[] => {
-                const shouldSimplifyActions = !!featureFlags?.[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
                 return [
                     {
                         name: 'Events',
                         searchPlaceholder: 'events',
                         type: TaxonomicFilterGroupType.Events,
                         endpoint: combineUrl(`api/projects/${teamId}/event_definitions`, {
-                            event_type: CombinedEventType.Event,
+                            event_type: EventDefinitionType.Event,
                         }).url,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
                         ...eventTaxonomicGroupProps,
                     },
                     {
-                        name: shouldSimplifyActions ? 'Calculated events' : 'Actions',
-                        searchPlaceholder: shouldSimplifyActions ? 'calculated events' : 'actions',
+                        name: 'Actions',
+                        searchPlaceholder: 'actions',
                         type: TaxonomicFilterGroupType.Actions,
                         logic: actionsModel,
                         value: 'actions',
                         getName: (action: ActionType) => action.name || '',
                         getValue: (action: ActionType) => action.id,
-                        getPopupHeader: () => (shouldSimplifyActions ? 'Calculated event' : 'Action'),
+                        getPopupHeader: () => 'Action',
                         getIcon: getEventDefinitionIcon,
                     },
                     {
@@ -325,7 +321,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         searchPlaceholder: 'custom events',
                         type: TaxonomicFilterGroupType.CustomEvents,
                         endpoint: combineUrl(`api/projects/${teamId}/event_definitions`, {
-                            event_type: CombinedEventType.EventCustom,
+                            event_type: EventDefinitionType.EventCustom,
                         }).url,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
@@ -459,7 +455,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                             key,
                             group_type_index: type.group_type_index,
                         })}`,
-                    getName: () => capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular),
+                    getName: (group) => group.name,
                     getValue: (group) => group.name,
                     getPopupHeader: () => `Property`,
                     getIcon: getPropertyDefinitionIcon,

@@ -191,7 +191,8 @@
     .player-filter {
         background-color: var(--side);
         padding: 0.5rem;
-        gap: 12px;
+        gap: 0.75rem;
+        row-gap: 0.5rem !important;
 
         .player-filter-matching-events {
             min-height: 2.5rem;
@@ -227,7 +228,7 @@
 }
 // Session player v3 can exist inside of a modal
 .session-player-wrapper-v3 {
-    width: calc(100vw - 2rem);
+    width: calc(80vw - 2rem);
     max-width: 880px;
     height: calc(100vh - 2rem);
     padding: 0;

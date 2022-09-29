@@ -1,9 +1,9 @@
 import clsx from 'clsx'
 import React, { useEffect, useState } from 'react'
 import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
-import hedgehogMain from 'public/hedgehog-bridge-page.png'
 import { CSSTransition } from 'react-transition-group'
 import './BridgePage.scss'
+import { LaptopHog3 } from '../hedgehogs'
 
 export type BridgePageProps = {
     className?: string
@@ -41,7 +41,7 @@ export function BridgePage({
             <div className="BridgePage__main">
                 {!noHedgehog ? (
                     <div className="BridgePage__art">
-                        <img src={hedgehogMain} alt="" draggable="false" />
+                        <LaptopHog3 alt="" draggable="false" />
                         {message ? (
                             <CSSTransition in={messageShowing} timeout={200} classNames="BridgePage__art__message-">
                                 <div className="BridgePage__art__message">{message}</div>

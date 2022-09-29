@@ -1,5 +1,5 @@
 import { urls } from 'scenes/urls'
-import { AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
+import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProviders } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -105,14 +105,12 @@ export const FEATURE_FLAGS = {
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
-    INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
-    SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
     // Re-enable person modal CSV downloads when frontend can support new entity properties
     PERSON_MODAL_EXPORTS: 'person-modal-exports', // hot potato see https://github.com/PostHog/posthog/pull/10824
@@ -120,13 +118,13 @@ export const FEATURE_FLAGS = {
     CANCEL_RUNNING_QUERIES: 'cancel-running-queries', // owner @timgl
     IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
     SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner: @alexkim205
-    SESSION_RECORDINGS_PLAYER_V3_FILTERING: 'session-recording-player-v3-filtering', // owner: @alexkim205
     SESSION_RECORDINGS_PLAYLIST: 'session-recording-playlist', // owner @rcmarron
     ALLOW_CSV_EXPORT_COLUMN_CHOICE: 'allow-csv-export-column-choice', //owner: @pauldambra
-    PERSONS_MODAL_V2: 'persons-modal-v2', // owner: @benjackwhite
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
-    ONBOARDING_BILLING: 'onboarding-billing', //owner: @kappa90
     ACTOR_ON_EVENTS_QUERYING: 'person-on-events-enabled', //owner: @EDsCODE
+    FEATURE_FLAGS_UX: 'feature-flags-ux', //owner: @liyiy
+    REGION_SELECT: 'region-select', //owner: @kappa90
+    INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -188,3 +186,8 @@ export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' 
 
 export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
 export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:\/?#[\]@!\$&'\(\)\*\+,;=.]+$/gi
+
+export const CLOUD_HOSTNAMES = {
+    [Region.US]: 'app.posthog.com',
+    [Region.EU]: 'eu.posthog.com',
+}

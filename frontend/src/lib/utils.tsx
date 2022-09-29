@@ -587,6 +587,18 @@ export function stripHTTP(url: string): string {
     return url
 }
 
+export function isDomain(url: string): boolean {
+    try {
+        const parsedUrl = new URL(url)
+        if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
+            return true
+        }
+    } catch {
+        return false
+    }
+    return false
+}
+
 export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
@@ -1491,14 +1503,4 @@ export function interleave(arr: any[], delimiter: any): any[] {
             ? [item, delimiter]
             : item
     )
-}
-
-export function findAllIndices(arr: any[], callback: (item: any) => boolean): number[] {
-    const indexes = []
-    for (let i = 0; i < arr.length; i++) {
-        if (callback(arr[i])) {
-            indexes.push(i)
-        }
-    }
-    return indexes
 }

@@ -16,6 +16,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
+import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 
 const { TabPane } = Tabs
 
@@ -49,7 +50,7 @@ function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTy
 }
 
 export function Group(): JSX.Element {
-    const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex } = useValues(groupLogic)
+    const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex, groupType } = useValues(groupLogic)
 
     if (!groupData) {
         return groupDataLoading ? <SpinnerOverlay /> : <NotFound object="group" />
@@ -94,6 +95,12 @@ export function Group(): JSX.Element {
                     key={PersonsTabType.RELATED}
                 >
                     <RelatedGroups id={groupKey} groupTypeIndex={groupTypeIndex} />
+                </TabPane>
+                <TabPane
+                    tab={<span data-attr="groups-related-flags-tab">Feature flags</span>}
+                    key={PersonsTabType.FEATURE_FLAGS}
+                >
+                    <RelatedFeatureFlags distinctId={groupData.group_key} groups={{ [groupType]: groupKey }} />
                 </TabPane>
             </Tabs>
         </>

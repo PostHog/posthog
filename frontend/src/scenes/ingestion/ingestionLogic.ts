@@ -21,9 +21,9 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { windowValues } from 'kea-window-values'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { subscriptions } from 'kea-subscriptions'
 import { BillingType, TeamType } from '~/types'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export enum INGESTION_STEPS {
     START = 'Get started',
@@ -43,7 +43,16 @@ export enum INGESTION_STEPS_WITHOUT_BILLING {
 export const ingestionLogic = kea<ingestionLogicType>([
     path(['scenes', 'ingestion', 'ingestionLogic']),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], billingLogic, ['billing'], teamLogic, ['currentTeam']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            billingLogic,
+            ['billing'],
+            teamLogic,
+            ['currentTeam'],
+            preflightLogic,
+            ['preflight'],
+        ],
         actions: [teamLogic, ['updateCurrentTeamSuccess']],
     }),
     actions({
@@ -182,10 +191,10 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 return ''
             },
         ],
-        isTestingOnboardingBilling: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => {
-                return featureFlags[FEATURE_FLAGS.ONBOARDING_BILLING] === 'test'
+        showBillingStep: [
+            (s) => [s.preflight],
+            (preflight): boolean => {
+                return !!preflight?.cloud && !preflight?.demo
             },
         ],
     })),
@@ -198,8 +207,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setState: () => getUrl(values),
         updateCurrentTeamSuccess: () => {
             const isBillingPage = router.values.location.pathname == '/ingestion/billing'
-            const isVerifyPage =
-                !values.isTestingOnboardingBilling && router.values.location.pathname == '/ingestion/verify'
+            const isVerifyPage = !values.showBillingStep && router.values.location.pathname == '/ingestion/verify'
             if (isBillingPage || isVerifyPage) {
                 return urls.events()
             }
@@ -328,7 +336,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         },
     })),
     subscriptions(({ actions, values }) => ({
-        isTestingOnboardingBilling: (value) => {
+        showBillingStep: (value) => {
             const steps = value ? INGESTION_STEPS : INGESTION_STEPS_WITHOUT_BILLING
             actions.setSidebarSteps(Object.values(steps))
         },
@@ -338,7 +346,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
             }
         },
         currentTeam: (currentTeam: TeamType) => {
-            if (currentTeam?.ingested_event && values.verify && !values.isTestingOnboardingBilling) {
+            if (currentTeam?.ingested_event && values.verify && !values.showBillingStep) {
                 actions.setCurrentStep(INGESTION_STEPS.DONE)
             }
         },
