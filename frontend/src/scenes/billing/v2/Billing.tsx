@@ -36,11 +36,11 @@ export function BillingV2(): JSX.Element {
                     <LemonDivider vertical dashed />
 
                     <div className="p-4 space-y-2" style={{ width: '20rem' }}>
-                        {billing?.subscription_url ? (
+                        {billing?.stripe_portal_url ? (
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
-                                to={billing.subscription_url}
+                                to={billing.stripe_portal_url}
                                 disableClientSideRouting
                                 fullWidth
                                 center
@@ -85,7 +85,7 @@ export function BillingV2(): JSX.Element {
                             </>
                         )}
 
-                        {!billing?.subscription_url ? (
+                        {!billing?.stripe_portal_url ? (
                             <LemonButton
                                 fullWidth
                                 center

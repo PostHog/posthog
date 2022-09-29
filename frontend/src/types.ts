@@ -795,7 +795,7 @@ export interface BillingProductV2Type {
 }
 
 export interface BillingV2Type {
-    subscription_url?: string
+    stripe_portal_url?: string
     products: BillingProductV2Type[]
 
     custom_limits?: {
