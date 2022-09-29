@@ -239,7 +239,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         self.assertIsNone(web_ts_file)
         assert frontend_tsx_file is not None
         self.assertEqual(frontend_tsx_file.source, HELLO_WORLD_PLUGIN_WEB_TS)
-        self.team.reload()
+        self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
 
     @snapshot_postgres_queries
