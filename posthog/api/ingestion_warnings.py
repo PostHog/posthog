@@ -31,16 +31,10 @@ def _calculate_summaries(warning_events):
     summaries = {}
     for warning_type, timestamp, details in warning_events:
         details = json.loads(details)
-        try:
-            if warning_type not in summaries:
-                summaries[warning_type] = {"type": warning_type, "lastSeen": timestamp, "warnings": [], "count": 0}
+        if warning_type not in summaries:
+            summaries[warning_type] = {"type": warning_type, "lastSeen": timestamp, "warnings": [], "count": 0}
 
-            summaries[warning_type]["warnings"].append(
-                {"type": warning_type, "timestamp": timestamp, "details": details}
-            )
-            summaries[warning_type]["count"] += 1
-        except:
-            # Ignore invalid events
-            pass
+        summaries[warning_type]["warnings"].append({"type": warning_type, "timestamp": timestamp, "details": details})
+        summaries[warning_type]["count"] += 1
 
     return list(sorted(summaries.values(), key=lambda summary: summary["lastSeen"], reverse=True))

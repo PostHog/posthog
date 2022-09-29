@@ -52,9 +52,10 @@ export function SessionRecordingPlayerV3({
     playerKey,
     includeMeta = true,
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
+    matching,
 }: SessionRecordingPlayerProps): JSX.Element {
     const { handleKeyDown } = useActions(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime })
+        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
     )
     const frame = useFrameRef({ sessionRecordingId, playerKey })
     return (

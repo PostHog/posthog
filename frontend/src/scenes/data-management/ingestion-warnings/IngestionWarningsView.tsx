@@ -8,6 +8,7 @@ import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } fro
 import { LemonTable } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { Link } from 'lib/components/Link'
+import { WarningEventsGraph } from './WarningEventsGraph'
 
 export const scene: SceneExport = {
     component: IngestionWarningsView,
@@ -60,6 +61,12 @@ export function IngestionWarningsView(): JSX.Element {
                         dataIndex: 'type',
                         render: function Render(_, summary: IngestionWarningSummary) {
                             return <>{WARNING_TYPE_TO_DESCRIPTION[summary.type] || summary.type}</>
+                        },
+                    },
+                    {
+                        title: 'Graph',
+                        render: function Render(_, summary: IngestionWarningSummary) {
+                            return <WarningEventsGraph summary={summary} />
                         },
                     },
                     {
