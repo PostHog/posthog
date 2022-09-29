@@ -154,6 +154,32 @@ class TestDecide(BaseTest):
             self.assertEqual(len(injected), 1)
             self.assertEqual(injected[0]["source"], "function inject(){}")
 
+    def test_web_app_injection_bootloader(self):
+        plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
+        PluginSourceFile.objects.create(
+            plugin=plugin,
+            filename="web.ts",
+            source="export function inject (){}",
+            transpiled="function inject(){}" * 1000,
+            status=PluginSourceFile.Status.TRANSPILED,
+        )
+        plugin_config = PluginConfig.objects.create(plugin=plugin, enabled=True, order=1, team=self.team, config={})
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.inject_web_apps)
+        with self.assertNumQueries(3):
+            response = self._post_decide()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            injected = response.json()["inject"]
+            self.assertEqual(len(injected), 1)
+            self.assertEqual(
+                injected[0]["source"],
+                "(function(h){return{inject:function(opts){var s=document.createElement('script');s.src=[h,h[h.length-1]==='/'?'':'/','web_js/',"
+                + str(plugin_config.id)
+                + ",'/',null,'/'].join('');window['__$$ph_web_js_"
+                + str(plugin_config.id)
+                + "']=opts.posthog;document.head.appendChild(s);}}})",
+            )
+
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
