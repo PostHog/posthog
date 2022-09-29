@@ -50,6 +50,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'SLACK_APP_CLIENT_SECRET',
     'SLACK_APP_SIGNING_SECRET',
     'PARALLEL_DASHBOARD_ITEM_CACHE',
+    'WEB_APP_INJECTION',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType>({
