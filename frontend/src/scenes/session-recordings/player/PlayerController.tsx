@@ -12,6 +12,8 @@ import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/play
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { IconSettings, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { togglePlayPause, setSpeed, setSkipInactivitySetting } = useActions(
@@ -92,6 +94,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
     const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, tab } = useValues(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
+    const { featureFlags } = useValues(featureFlagLogic)
     const speedSelectRef = useRef<HTMLDivElement | null>(null)
 
     return (
@@ -111,17 +114,19 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                     >
                         Events
                     </LemonButton>
-                    <LemonButton
-                        size="small"
-                        icon={<IconTerminal />}
-                        status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
-                        active={tab === SessionRecordingTab.CONSOLE}
-                        onClick={() => {
-                            setTab(SessionRecordingTab.CONSOLE)
-                        }}
-                    >
-                        Console
-                    </LemonButton>
+                    {featureFlags[FEATURE_FLAGS.SESSION_CONSOLE] && (
+                        <LemonButton
+                            size="small"
+                            icon={<IconTerminal />}
+                            status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
+                            active={tab === SessionRecordingTab.CONSOLE}
+                            onClick={() => {
+                                setTab(SessionRecordingTab.CONSOLE)
+                            }}
+                        >
+                            Console
+                        </LemonButton>
+                    )}
                 </Row>
                 <Row wrap={false} className="gap-2 mx-2">
                     <SeekBack sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
