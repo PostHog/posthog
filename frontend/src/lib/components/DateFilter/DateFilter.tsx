@@ -9,7 +9,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButtonWithPopup, LemonDivider, LemonButton } from '@posthog/lemon-ui'
 import { IconCalendar } from '../icons'
 import { LemonCalendarSelect } from 'lib/components/LemonCalendar/LemonCalendarSelect'
-import { LemonCalendarRange } from 'lib/components/LemonCalendar/LemonCalendarRange'
+import { LemonCalendarRange } from 'lib/components/LemonCalendarRange/LemonCalendarRange'
 import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 
 export interface DateFilterProps {

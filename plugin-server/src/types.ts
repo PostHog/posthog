@@ -279,7 +279,7 @@ export type StoredPluginMetrics = Record<string, StoredMetricMathOperations> | n
 export type PluginMetricsVmResponse = Record<string, string> | null
 
 export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date' | 'daterange'
     title?: string
     required?: boolean
     default?: any
