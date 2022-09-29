@@ -27,15 +27,8 @@ export const notificationsLogic = kea<notificationsLogicType>([
                     const response = (await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
                     )) as ActivityLogItem[]
-                    const humanizedNotifications = response.flatMap((ali) => {
-                        if (ali.scope === 'Insight') {
-                            return humanize([ali], true)
-                        } else if (ali.scope === 'FeatureFlag') {
-                            return humanize([ali], true)
-                        } else {
-                            throw new Error('Cannot notify about activity log item in scope: ' + ali.scope)
-                        }
-                    })
+                    const humanizedNotifications = humanize(response, true)
+
                     const timeout = window.setTimeout(actions.loadImportantChanges, POLL_TIMEOUT)
                     actions.setPollTimeout(timeout)
                     return humanizedNotifications
