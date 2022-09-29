@@ -64,7 +64,7 @@ describe('PersonState.update()', () => {
     }
 
     async function fetchPersonsRows() {
-        const query = `SELECT * FROM person FINAL`
+        const query = `SELECT * FROM person FINAL order by _offset`
         return (await hub.db.clickhouseQuery(query)).data
     }
 
@@ -650,25 +650,23 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = (await delayUntilEventIngested(() => fetchPersonsRows(), 2)).sort(
-                (a, b) => a.version - b.version
-            )
+            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
             expect(clickhousePersons.length).toEqual(2)
-            expect(clickhousePersons[0]).toEqual(
-                expect.objectContaining({
-                    id: uuid2.toString(),
-                    properties: '{}',
-                    created_at: timestampch,
-                    version: 1,
-                    is_identified: 1,
-                })
-            )
-            expect(clickhousePersons[1]).toEqual(
-                expect.objectContaining({
-                    id: uuid.toString(),
-                    is_deleted: 1,
-                    version: 100,
-                })
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: uuid2.toString(),
+                        properties: '{}',
+                        created_at: timestampch,
+                        version: 1,
+                        is_identified: 1,
+                    }),
+                    expect.objectContaining({
+                        id: uuid.toString(),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
+                ])
             )
 
             // verify ClickHouse distinct_ids
@@ -712,25 +710,23 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = (await delayUntilEventIngested(() => fetchPersonsRows(), 2)).sort(
-                (a, b) => a.version - b.version
-            )
+            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
             expect(clickhousePersons.length).toEqual(2)
-            expect(clickhousePersons[0]).toEqual(
-                expect.objectContaining({
-                    id: uuid2.toString(),
-                    properties: '{}',
-                    created_at: timestampch,
-                    version: 1,
-                    is_identified: 1,
-                })
-            )
-            expect(clickhousePersons[1]).toEqual(
-                expect.objectContaining({
-                    id: uuid.toString(),
-                    is_deleted: 1,
-                    version: 100,
-                })
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: uuid2.toString(),
+                        properties: '{}',
+                        created_at: timestampch,
+                        version: 1,
+                        is_identified: 1,
+                    }),
+                    expect.objectContaining({
+                        id: uuid.toString(),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
+                ])
             )
 
             // verify ClickHouse distinct_ids
@@ -786,9 +782,7 @@ describe('PersonState.update()', () => {
             expect(distinctIds2).toEqual(expect.arrayContaining(['new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = (await delayUntilEventIngested(() => fetchPersonsRows(), 2)).sort(
-                (a, b) => a._offset - b._offset
-            )
+            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons[0]).toEqual(
                 expect.objectContaining({
@@ -864,9 +858,7 @@ describe('PersonState.update()', () => {
             expect(distinctIds2).toEqual(expect.arrayContaining(['new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = (await delayUntilEventIngested(() => fetchPersonsRows(), 2)).sort(
-                (a, b) => a._offset - b._offset
-            )
+            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons[0]).toEqual(
                 expect.objectContaining({
@@ -934,25 +926,23 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = (await delayUntilEventIngested(() => fetchPersonsRows(), 2)).sort(
-                (a, b) => a._offset - b._offset
-            )
+            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
             expect(clickhousePersons.length).toEqual(2)
-            expect(clickhousePersons[0]).toEqual(
-                expect.objectContaining({
-                    id: uuid2.toString(),
-                    properties: JSON.stringify({ a: 1, b: 3, c: 4, d: 6, e: 7, f: 9 }),
-                    created_at: timestampch,
-                    version: 1,
-                    is_identified: 1,
-                })
-            )
-            expect(clickhousePersons[1]).toEqual(
-                expect.objectContaining({
-                    id: uuid.toString(),
-                    is_deleted: 1,
-                    version: 100,
-                })
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: uuid2.toString(),
+                        properties: JSON.stringify({ a: 1, b: 3, c: 4, d: 6, e: 7, f: 9 }),
+                        created_at: timestampch,
+                        version: 1,
+                        is_identified: 1,
+                    }),
+                    expect.objectContaining({
+                        id: uuid.toString(),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
+                ])
             )
 
             // verify ClickHouse distinct_ids
@@ -1027,26 +1017,24 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = (await delayUntilEventIngested(() => fetchPersonsRows(), 2)).sort(
-                (a, b) => a.version - b.version
-            )
+            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
             expect(clickhousePersons.length).toEqual(2)
-            expect(clickhousePersons[0]).toEqual(
-                expect.objectContaining({
-                    id: uuid2.toString(),
-                    properties: JSON.stringify({ a: 1, b: 4, c: 3, e: 4 }),
-                    is_deleted: 0,
-                    is_identified: 1,
-                    created_at: timestampch,
-                    version: 2,
-                })
-            )
-            expect(clickhousePersons[1]).toEqual(
-                expect.objectContaining({
-                    id: uuid.toString(),
-                    is_deleted: 1,
-                    version: 100,
-                })
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: uuid2.toString(),
+                        properties: JSON.stringify({ a: 1, b: 4, c: 3, e: 4 }),
+                        is_deleted: 0,
+                        is_identified: 1,
+                        created_at: timestampch,
+                        version: 2,
+                    }),
+                    expect.objectContaining({
+                        id: uuid.toString(),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
+                ])
             )
 
             // verify ClickHouse distinct_ids
@@ -1247,25 +1235,23 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = (await delayUntilEventIngested(() => fetchPersonsRows(), 2)).sort(
-                (a, b) => a.version - b.version
-            )
+            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
             expect(clickhousePersons.length).toEqual(2)
-            expect(clickhousePersons[0]).toEqual(
-                expect.objectContaining({
-                    id: uuid2.toString(),
-                    properties: '{}',
-                    created_at: timestampch,
-                    version: 1,
-                    is_identified: 0,
-                })
-            )
-            expect(clickhousePersons[1]).toEqual(
-                expect.objectContaining({
-                    id: uuid.toString(),
-                    is_deleted: 1,
-                    version: 100,
-                })
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: uuid2.toString(),
+                        properties: '{}',
+                        created_at: timestampch,
+                        version: 1,
+                        is_identified: 0,
+                    }),
+                    expect.objectContaining({
+                        id: uuid.toString(),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
+                ])
             )
 
             // verify ClickHouse distinct_ids
@@ -1309,25 +1295,23 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = (await delayUntilEventIngested(() => fetchPersonsRows(), 2)).sort(
-                (a, b) => a.version - b.version
-            )
+            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
             expect(clickhousePersons.length).toEqual(2)
-            expect(clickhousePersons[0]).toEqual(
-                expect.objectContaining({
-                    id: uuid2.toString(),
-                    properties: '{}',
-                    created_at: timestampch,
-                    version: 1,
-                    is_identified: 1,
-                })
-            )
-            expect(clickhousePersons[1]).toEqual(
-                expect.objectContaining({
-                    id: uuid.toString(),
-                    is_deleted: 1,
-                    version: 100,
-                })
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: uuid2.toString(),
+                        properties: '{}',
+                        created_at: timestampch,
+                        version: 1,
+                        is_identified: 1,
+                    }),
+                    expect.objectContaining({
+                        id: uuid.toString(),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
+                ])
             )
 
             // verify ClickHouse distinct_ids
@@ -1372,25 +1356,23 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = (await delayUntilEventIngested(() => fetchPersonsRows(), 2)).sort(
-                (a, b) => a.version - b.version
-            )
+            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
             expect(clickhousePersons.length).toEqual(2)
-            expect(clickhousePersons[0]).toEqual(
-                expect.objectContaining({
-                    id: uuid2.toString(),
-                    properties: '{}',
-                    created_at: timestampch,
-                    version: 1,
-                    is_identified: 1,
-                })
-            )
-            expect(clickhousePersons[1]).toEqual(
-                expect.objectContaining({
-                    id: uuid.toString(),
-                    is_deleted: 1,
-                    version: 100,
-                })
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: uuid2.toString(),
+                        properties: '{}',
+                        created_at: timestampch,
+                        version: 1,
+                        is_identified: 1,
+                    }),
+                    expect.objectContaining({
+                        id: uuid.toString(),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
+                ])
             )
 
             // verify ClickHouse distinct_ids
@@ -1435,25 +1417,23 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = (await delayUntilEventIngested(() => fetchPersonsRows(), 2)).sort(
-                (a, b) => a.version - b.version
-            )
+            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
             expect(clickhousePersons.length).toEqual(2)
-            expect(clickhousePersons[0]).toEqual(
-                expect.objectContaining({
-                    id: uuid2.toString(),
-                    properties: '{}',
-                    created_at: timestampch,
-                    version: 1,
-                    is_identified: 1,
-                })
-            )
-            expect(clickhousePersons[1]).toEqual(
-                expect.objectContaining({
-                    id: uuid.toString(),
-                    is_deleted: 1,
-                    version: 100,
-                })
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: uuid2.toString(),
+                        properties: '{}',
+                        created_at: timestampch,
+                        version: 1,
+                        is_identified: 1,
+                    }),
+                    expect.objectContaining({
+                        id: uuid.toString(),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
+                ])
             )
 
             // verify ClickHouse distinct_ids
