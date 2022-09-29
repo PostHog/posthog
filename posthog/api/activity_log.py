@@ -19,7 +19,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
         exclude = ["team_id"]
 
 
-class ActivityLogViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer
     default_limit = 500
