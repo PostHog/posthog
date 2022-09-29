@@ -13,7 +13,7 @@ import type { announcementLogicType } from './announcementLogicType'
 export enum AnnouncementType {
     Demo = 'Demo',
     CloudFlag = 'CloudFlag',
-    NewFeature = 'NewFeature',
+    NewFeatureExperiments = 'NewFeatureExperiments',
     AttentionRequired = 'AttentionRequired',
 }
 
@@ -110,7 +110,7 @@ export const announcementLogic = kea<announcementLogicType>([
                 ) {
                     return AnnouncementType.AttentionRequired
                 } else if (ShowNewFeatureAnnouncement) {
-                    return AnnouncementType.NewFeature
+                    return AnnouncementType.NewFeatureExperiments
                 }
                 return null
             },

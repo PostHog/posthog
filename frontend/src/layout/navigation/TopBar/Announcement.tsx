@@ -43,7 +43,7 @@ export function Announcement(): JSX.Element | null {
         )
     } else if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {
         message = <ReactMarkdown className="strong">{cloudAnnouncement}</ReactMarkdown>
-    } else if (shownAnnouncementType === AnnouncementType.NewFeature) {
+    } else if (shownAnnouncementType === AnnouncementType.NewFeatureExperiments) {
         message = <NewFeatureBanner />
     }
 
