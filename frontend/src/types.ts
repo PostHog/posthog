@@ -814,13 +814,6 @@ export enum InsightColor {
     Purple = 'purple',
 }
 
-export interface InsightResponseStatus {
-    num_rows: number
-    total_rows: number
-    complete: boolean
-    error: boolean
-    error_message: string | null
-}
 export interface DashboardTile {
     result: any | null
     layouts: Record<string, any>
@@ -856,9 +849,6 @@ export interface InsightModel extends DashboardTile {
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
-    source_query?: string
-    status?: InsightResponseStatus
-    resultQueryId?: string
 }
 
 export interface DashboardType {
@@ -1045,7 +1035,6 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
-    USER_SQL = 'USER_SQL',
 }
 
 export enum PathType {
@@ -1153,7 +1142,6 @@ export interface FilterType {
     funnel_advanced?: boolean // used to toggle advanced options on or off
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
-    user_sql?: string
     breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
     breakdown_attribution_value?: number // funnels breakdown attribution specific step value
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count

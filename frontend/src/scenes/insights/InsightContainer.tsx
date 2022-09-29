@@ -1,5 +1,7 @@
 import { Card, Col, Row } from 'antd'
 import { InsightDisplayConfig } from 'scenes/insights/InsightDisplayConfig'
+import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
+import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
@@ -18,8 +20,10 @@ import {
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
+import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
@@ -163,6 +167,7 @@ export function InsightContainer(
 
         return null
     }
+
     return (
         <>
             {isUsingSessionAnalysis ? (
@@ -190,6 +195,23 @@ export function InsightContainer(
                 className="insights-graph-container"
             >
                 <div>
+                    <Row
+                        className={clsx('insights-graph-header', {
+                            funnels: activeView === InsightType.FUNNELS,
+                        })}
+                        align="middle"
+                        justify="space-between"
+                    >
+                        {/*Don't add more than two columns in this row.*/}
+                        <Col>
+                            <ComputationTimeWithRefresh />
+                        </Col>
+                        <Col>
+                            {activeView === InsightType.FUNNELS ? <FunnelCanvasLabel /> : null}
+                            {activeView === InsightType.PATHS ? <PathCanvasLabel /> : null}
+                            <InsightLegendButton />
+                        </Col>
+                    </Row>
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&

@@ -9,7 +9,6 @@ import {
     FilterType,
     InsightLogicProps,
     InsightModel,
-    InsightResponseStatus,
     InsightShortId,
     InsightType,
     ItemMode,
@@ -145,8 +144,6 @@ export const insightLogic = kea<insightLogicType>({
             insight,
             callback,
         }),
-        loadResultsWithProgress: (refresh = false) => ({ refresh }),
-        checkForResults: () => true,
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         toggleInsightLegend: true,
@@ -395,46 +392,6 @@ export const insightLogic = kea<insightLogicType>({
                         filters,
                     } as Partial<InsightModel>
                 },
-                loadResultsWithProgress: async () => {
-                    const { currentTeamId } = values
-                    const { filters } = values
-                    const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
-                    const params = { refresh: true, ...filters }
-                    let queryResultId = null
-                    if (insight === InsightType.USER_SQL) {
-                        if (params.user_sql) {
-                            const response = await api.get(
-                                `api/projects/${currentTeamId}/insights/user_sql?${toParams(params)}`
-                            )
-                            queryResultId = response.query_id
-                        }
-                    }
-                    return {
-                        ...values.insight,
-                        resultQueryId: queryResultId,
-                        status: INITIAL_STATUS_OBJECT,
-                    }
-                },
-
-                checkInsightResultProgress: async () => {
-                    const { currentTeamId } = values
-                    const resultQueryId = values.insight.resultQueryId
-                    const response = await api.get(
-                        `api/projects/${currentTeamId}/insights/check_insight_result?${toParams({
-                            query_id: resultQueryId,
-                        })}`
-                    )
-                    const status = response.status as InsightResponseStatus
-                    delete status['results']
-
-                    const result = status.complete ? response.result : undefined
-
-                    return {
-                        ...values.insight,
-                        result,
-                        status,
-                    }
-                },
             },
         ],
     }),
@@ -579,23 +536,6 @@ export const insightLogic = kea<insightLogicType>({
                     0,
                     400
                 ),
-        ],
-        percentResultsLoaded: [
-            (s) => [s.insight],
-            (insight) => {
-                if (!insight?.status) {
-                    return 0
-                }
-                if (insight.status.complete === true) {
-                    return 100
-                }
-
-                if (insight.status.complete === false) {
-                    const percentComplete = (100 * insight.status.num_rows) / insight.status.total_rows
-                    return clamp(percentComplete, 10, 90)
-                }
-                return 0
-            },
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
@@ -982,15 +922,6 @@ export const insightLogic = kea<insightLogicType>({
                 actions.loadResults()
             }
         },
-        loadResultsWithProgressSuccess: async () => {
-            actions.checkInsightResultProgress()
-        },
-        checkInsightResultProgressSuccess: async () => {
-            if (!values.insight.status?.complete && !values.insight.status?.error) {
-                setTimeout(actions.checkInsightResultProgress, 100)
-            }
-        },
-
         toggleInsightLegend: () => {
             actions.setFilters({ ...values.filters, show_legend: !values.filters.show_legend })
         },

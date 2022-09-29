@@ -215,17 +215,6 @@ export function summarizeInsightFilters(
                 summary += `${filters.start_point ? ' and' : ''} ending at ${filters.end_point}`
             }
             break
-        case InsightType.USER_SQL:
-            const REGEX = /\s+/g
-            if (!filters.user_sql) {
-                return 'Custom query'
-            }
-            if (filters.user_sql.length < 100) {
-                return filters.user_sql.replaceAll('\n', ' ').replaceAll('\t', ' ').replace(REGEX, ' ')
-            }
-            return (
-                filters.user_sql.replaceAll('\n', ' ').replaceAll('\t', ' ').replace(REGEX, ' ').slice(0, 100) + '...'
-            )
         default:
             const localFilters = toLocalFilters(filters)
             switch (insightType) {

@@ -5,10 +5,6 @@ import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
-import { InsightType } from '~/types'
-import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { LemonButton } from 'lib/components/LemonButton'
 
 const REFRESH_INTERVAL_MINUTES = 3
 
@@ -46,63 +42,6 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
                     <span style={{ fontSize: 14 }}>Refresh</span>
                 </Button>
             </Tooltip>
-            {<ViewSourceSql />}
         </div>
-    )
-}
-
-export function ViewSourceSql(): JSX.Element {
-    const { activeView, insight } = useValues(insightLogic)
-    const { setActiveView, setFilters } = useActions(insightLogic)
-
-    const onClickSource = (): void => {
-        setFilters({
-            insight: InsightType.USER_SQL,
-            user_sql: insight.source_query,
-        })
-        setActiveView(InsightType.USER_SQL)
-    }
-
-    const lineOptions = (): LemonSelectOptions => {
-        const res: LemonSelectOptions = {}
-        insight.result?.forEach((result, index: number) => {
-            res[index] = {
-                label: 'Series',
-                icon: <SeriesLetter seriesIndex={index} hasBreakdown={!!result.breakdown_value} />,
-            }
-        })
-        return res
-    }
-
-    const onChangeSelect = (newValue): void => {
-        setFilters({
-            insight: InsightType.USER_SQL,
-            user_sql: insight.result[newValue].source_query,
-        })
-        setActiveView(InsightType.USER_SQL)
-    }
-
-    return (
-        <>
-            <span style={{ padding: '0 4px' }}>•</span>
-            {activeView === InsightType.TRENDS ||
-            activeView === InsightType.STICKINESS ||
-            activeView === InsightType.LIFECYCLE ? (
-                <LemonSelect
-                    value={null}
-                    onChange={onChangeSelect}
-                    options={lineOptions()}
-                    type="stealth"
-                    placeholder="View source SQL"
-                    style={{
-                        width: '100%',
-                    }}
-                />
-            ) : (
-                <LemonButton onClick={onClickSource} style={{ paddingLeft: 3, paddingRight: 3 }}>
-                    <span style={{ fontSize: 14 }}>View source SQL</span>
-                </LemonButton>
-            )}
-        </>
     )
 }
