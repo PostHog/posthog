@@ -25,22 +25,15 @@ class UserManager(BaseUserManager):
 
     def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
         """Create and save a User with the given email and password."""
-        from posthog.email import is_email_verification_enabled
-        from posthog.tasks.email import send_email_verification
-
         if email is None:
             raise ValueError("Email must be provided!")
         email = self.normalize_email(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
         user: "User" = self.model(email=email, first_name=first_name, **extra_fields)
-        email_verification_enabled = is_email_verification_enabled()
         if password is not None:
             user.set_password(password)
-        if email_verification_enabled:
-            user.pending_email = email
+        user.change_email(email, is_new_user=True)
         user.save()
-        if email_verification_enabled:
-            send_email_verification(user, is_new_user=True)
         return user
 
     def bootstrap(
@@ -225,17 +218,17 @@ class User(AbstractUser, UUIDClassicModel):
                 )
                 self.save()
 
-    def change_email(self, new_email: str) -> Optional[str]:
+    def change_email(self, new_email: str, *, is_new_user: bool) -> Optional[str]:
         """Change email and return a token for email verification, if that is enabled."""
         from posthog.email import is_email_verification_enabled
         from posthog.tasks.email import send_email_verification
 
         email_verification_token: Optional[str] = None
-        if self.email != new_email and is_email_verification_enabled():
+        if is_email_verification_enabled() and (is_new_user or self.email != new_email):
             email_verification_token = token_urlsafe(22)
             self.pending_email = new_email
             self.email_verification_token = make_password(email_verification_token)
-            send_email_verification(self, email_verification_token, is_new_user=False)
+            send_email_verification(self, email_verification_token, is_new_user=is_new_user)
         else:
             self.email = new_email
             self.pending_email = None

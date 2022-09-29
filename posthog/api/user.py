@@ -161,7 +161,7 @@ class UserSerializer(serializers.ModelSerializer):
                 # Also allow cancelling email change
                 or (instance.email == new_email and instance.pending_email)
             ):
-                instance.change_email(new_email)
+                instance.change_email(new_email, is_new_user=False)
 
         updated_attrs = list(validated_data.keys())
         instance = super().update(instance, validated_data)

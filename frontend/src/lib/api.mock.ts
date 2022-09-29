@@ -97,6 +97,8 @@ export const MOCK_DEFAULT_USER: UserType = {
     distinct_id: 'mock-user-178-distinct-id',
     first_name: 'John',
     email: 'john.doe@posthog.com',
+    pending_email: null,
+    email_verification_sent_at: null,
     email_opt_in: true,
     anonymize_data: false,
     toolbar_mode: 'toolbar',

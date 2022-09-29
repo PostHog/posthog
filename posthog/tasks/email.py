@@ -114,7 +114,8 @@ def send_fatal_plugin_error(
 
 
 def send_email_verification(user: User, token: str, *, is_new_user: bool) -> None:
-    campaign_key: str = f"email_verification_{user.pk}_updated_at_{user.updated_at.isoformat()}"
+    user.email_verification_sent_at = timezone.now()
+    campaign_key: str = f"email_verification_{user.pk}_sent_at_{user.email_verification_sent_at.isoformat()}"
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=f"Please verify your email",
@@ -123,7 +124,6 @@ def send_email_verification(user: User, token: str, *, is_new_user: bool) -> Non
     )
     message.add_recipient(email=user.pending_email, name=user.first_name)
     message.send()  # This is already async
-    user.email_verification_sent_at = timezone.now()
 
 
 @app.task(max_retries=1)

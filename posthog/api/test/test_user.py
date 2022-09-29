@@ -208,7 +208,6 @@ class TestUserAPI(APIBaseTest):
 
         self.assertNotEqual(response_data["uuid"], 1)
         self.assertEqual(response_data["first_name"], "Cooper")
-        self.assertEqual(response_data["email"], "updated@posthog.com")
         self.assertEqual(response_data["anonymize_data"], True)
         self.assertEqual(response_data["email_opt_in"], False)
         self.assertEqual(response_data["events_column_config"], {"active": ["column_1", "column_2"]})
@@ -219,15 +218,12 @@ class TestUserAPI(APIBaseTest):
         self.assertNotEqual(user.pk, 1)
         self.assertNotEqual(user.uuid, 1)
         self.assertEqual(user.first_name, "Cooper")
-        self.assertEqual(user.email, "updated@posthog.com")
         self.assertEqual(user.anonymize_data, True)
 
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "user updated",
-            properties={
-                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name"]
-            },
+            properties={"updated_attrs": ["anonymize_data", "email_opt_in", "events_column_config", "first_name"]},
             groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
 
