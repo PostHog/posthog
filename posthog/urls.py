@@ -135,7 +135,7 @@ urlpatterns = [
     path("embedded/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path("exporter/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
-    path("web_js/<int:id>/", web_js.get_web_js),
+    path("web_js/<int:id>/<str:token>/", web_js.get_web_js),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     opt_slash_path("decide", decide.get_decide),
