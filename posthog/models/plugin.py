@@ -441,6 +441,8 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 @mutable_receiver([post_save, post_delete], sender=PluginConfig)
 def sync_team_inject_web_apps(sender, instance, created=None, **kwargs):
     team = instance.team
+    if not team:
+        return
     inject_web_apps = len(get_transpiled_web_sources(team)) > 0
     if inject_web_apps != team.inject_web_apps:
         team.inject_web_apps = inject_web_apps
