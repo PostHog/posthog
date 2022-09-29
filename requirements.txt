@@ -4,7 +4,7 @@
 #
 #    pip-compile requirements.in
 #
-aiohttp==3.8.3
+aiohttp==3.8.1
     # via geoip2
 aiosignal==1.2.0
     # via aiohttp
@@ -12,7 +12,7 @@ amqp==2.6.0
     # via
     #   -r requirements.in
     #   kombu
-asgiref==3.5.2
+asgiref==3.3.2
     # via django
 async-generator==1.10
     # via
@@ -22,7 +22,7 @@ async-timeout==4.0.2
     # via
     #   aiohttp
     #   redis
-attrs==22.1.0
+attrs==21.4.0
     # via
     #   aiohttp
     #   jsonschema
@@ -30,7 +30,7 @@ attrs==22.1.0
     #   trio
 backoff==1.6.0
     # via posthoganalytics
-billiard==3.6.4.0
+billiard==3.6.3.0
     # via celery
 boto3==1.21.29
     # via -r requirements.in
@@ -44,16 +44,16 @@ celery==4.4.7
     #   celery-redbeat
 celery-redbeat==2.0.0
     # via -r requirements.in
-certifi==2022.9.24
+certifi==2019.11.28
     # via
     #   requests
     #   sentry-sdk
     #   urllib3
-cffi==1.15.1
+cffi==1.14.5
     # via cryptography
-chardet==4.0.0
+chardet==3.0.4
     # via requests
-charset-normalizer==2.1.1
+charset-normalizer==2.1.0
     # via aiohttp
 clickhouse-driver==0.2.1
     # via
@@ -61,7 +61,7 @@ clickhouse-driver==0.2.1
     #   clickhouse-pool
 clickhouse-pool==0.5.3
     # via -r requirements.in
-cryptography==38.0.1
+cryptography==37.0.2
     # via
     #   kafka-helper
     #   pyopenssl
@@ -69,7 +69,7 @@ cryptography==38.0.1
     #   urllib3
 cssselect==1.1.0
     # via toronado
-cssutils==2.6.0
+cssutils==1.0.2
     # via toronado
 dataclasses-json==0.5.7
     # via -r requirements.in
@@ -107,7 +107,7 @@ django-extensions==3.1.2
     # via -r requirements.in
 django-filter==2.4.0
     # via -r requirements.in
-django-ipware==3.0.7
+django-ipware==3.0.2
     # via
     #   django-axes
     #   django-structlog
@@ -145,9 +145,7 @@ drf-extensions==0.7.0
     # via -r requirements.in
 drf-spectacular==0.21.1
     # via -r requirements.in
-exceptiongroup==1.0.0rc9
-    # via trio
-frozenlist==1.3.1
+frozenlist==1.3.0
     # via
     #   aiohttp
     #   aiosignal
@@ -159,7 +157,7 @@ google-cloud-sqlcommenter==2.0.0
     # via -r requirements.in
 gunicorn==20.1.0
     # via -r requirements.in
-h11==0.14.0
+h11==0.13.0
     # via wsproto
 idna==2.8
     # via
@@ -176,15 +174,15 @@ infi-clickhouse-orm @ git+https://github.com/PostHog/infi.clickhouse_orm@37722f3
     # via -r requirements.in
 inflection==0.5.1
     # via drf-spectacular
-iso8601==1.1.0
+iso8601==0.1.12
     # via infi-clickhouse-orm
 isodate==0.6.1
     # via python3-saml
-jmespath==1.0.1
+jmespath==1.0.0
     # via
     #   boto3
     #   botocore
-jsonschema==4.16.0
+jsonschema==4.4.0
     # via drf-spectacular
 kafka-helper==0.2
     # via -r requirements.in
@@ -194,14 +192,14 @@ kombu==4.6.10
     # via
     #   -r requirements.in
     #   celery
-lxml==4.9.1
+lxml==4.6.5
     # via
     #   python3-saml
     #   toronado
     #   xmlsec
 lzstring==1.0.4
     # via -r requirements.in
-marshmallow==3.18.0
+marshmallow==3.15.0
     # via
     #   dataclasses-json
     #   marshmallow-enum
@@ -211,7 +209,7 @@ maxminddb==2.2.0
     # via geoip2
 mimesis==5.2.1
     # via -r requirements.in
-monotonic==1.6
+monotonic==1.5
     # via posthoganalytics
 multidict==6.0.2
     # via
@@ -221,11 +219,11 @@ mypy-extensions==0.4.3
     # via typing-inspect
 numpy==1.21.4
     # via -r requirements.in
-oauthlib==3.2.1
+oauthlib==3.1.0
     # via
     #   requests-oauthlib
     #   social-auth-core
-outcome==1.2.0
+outcome==1.1.0
     # via trio
 packaging==21.3
     # via
@@ -237,25 +235,23 @@ pexpect==4.7.0
     # via -r requirements.in
 pickleshare==0.7.5
     # via -r requirements.in
-pkgutil-resolve-name==1.3.10
-    # via jsonschema
 posthoganalytics==2.1.2
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
 psycopg2-binary==2.8.6
     # via -r requirements.in
-ptyprocess==0.7.0
+ptyprocess==0.6.0
     # via pexpect
-pycparser==2.21
+pycparser==2.20
     # via cffi
 pyjwt==2.4.0
     # via
     #   -r requirements.in
     #   social-auth-core
-pyopenssl==22.1.0
+pyopenssl==22.0.0
     # via urllib3
-pyparsing==3.0.9
+pyparsing==3.0.7
     # via packaging
 pyrsistent==0.18.1
     # via jsonschema
@@ -269,7 +265,7 @@ python-dateutil==2.8.1
     #   posthoganalytics
 python-statsd==2.1.0
     # via django-statsd
-python3-openid==3.2.0
+python3-openid==3.1.0
     # via social-auth-core
 python3-saml==1.12.0
     # via -r requirements.in
@@ -316,9 +312,10 @@ six==1.16.0
     #   isodate
     #   posthoganalytics
     #   python-dateutil
+    #   tenacity
 slack-sdk==3.17.1
     # via -r requirements.in
-sniffio==1.3.0
+sniffio==1.2.0
     # via trio
 social-auth-app-django==5.0.0
     # via -r requirements.in
@@ -334,21 +331,21 @@ sqlparse==0.4.2
     #   django
 statshog==1.0.6
     # via -r requirements.in
-structlog==22.1.0
+structlog==21.2.0
     # via django-structlog
-tenacity==8.1.0
+tenacity==6.1.0
     # via celery-redbeat
 toronado==0.1.0
     # via -r requirements.in
-trio==0.22.0
+trio==0.20.0
     # via
     #   selenium
     #   trio-websocket
 trio-websocket==0.9.2
     # via selenium
-typing-extensions==4.3.0
+typing-extensions==4.1.1
     # via typing-inspect
-typing-inspect==0.8.0
+typing-inspect==0.7.1
     # via dataclasses-json
 tzlocal==2.1
     # via clickhouse-driver
@@ -356,15 +353,13 @@ unicodecsv==0.14.1
     # via djangorestframework-csv
 uritemplate==4.1.1
     # via drf-spectacular
-urllib3[secure,socks]==1.26.12
+urllib3[secure,socks]==1.26.5
     # via
     #   botocore
     #   geoip2
     #   requests
     #   selenium
     #   sentry-sdk
-urllib3-secure-extra==0.1.0
-    # via urllib3
 vine==1.3.0
     # via
     #   amqp
@@ -375,13 +370,13 @@ whitenoise==5.2.0
     # via -r requirements.in
 wrapt==1.14.1
     # via deprecated
-wsproto==1.2.0
+wsproto==1.1.0
     # via trio-websocket
-xmlsec==1.3.13
+xmlsec==1.3.12
     # via python3-saml
-yarl==1.8.1
+yarl==1.7.2
     # via aiohttp
-zipp==3.8.1
+zipp==3.1.0
     # via
     #   importlib-metadata
     #   importlib-resources
