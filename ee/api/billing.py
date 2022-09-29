@@ -7,12 +7,12 @@ import requests
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect
-from rest_framework import mixins, serializers, viewsets, status
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotAuthenticated, PermissionDenied, ValidationError
-from rest_framework.response import Response
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -66,8 +66,34 @@ class BillingViewset(viewsets.GenericViewSet):
 
         return Response({"subscription_url": None, "products": products, "custom_limits": {}})
 
+    @action(methods=["PATCH"], detail=False, url_path="/")
+    def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        license = License.objects.first_valid()
+        if not license:
+            raise Exception("There is no license configured for this instance yet.")
+        org = self._get_org()
+
+        billing_service_token = self._build_token(license, org)
+
+        res = requests.patch(
+            f"{BILLING_SERVICE_URL}/api/billing/limits/",
+            headers={"Authorization": f"Bearer {billing_service_token}"},
+            data=request.data,
+        )
+
+        if res.status_code == 200:
+            res = requests.get(
+                f"{BILLING_SERVICE_URL}/api/billing",
+                headers={"Authorization": f"Bearer {billing_service_token}"},
+            )
+
+            if res.status_code == 200 and res.json().get("customer"):
+                return Response(res.json()["customer"])
+
+        raise Exception(f"Billing service returned bad status code: {res.status_code}")
+
     @action(methods=["GET"], detail=False)
-    def activation(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+    def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = License.objects.first_valid()
         organization = self._get_org()
 
@@ -115,10 +141,6 @@ class BillingViewset(viewsets.GenericViewSet):
                 "license": f"License could not be activated. Please contact support. (BillingService status {res.status_code}",
             }
         )
-
-    def update(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
-        # TODO
-        return Response(UNLICENSED_BILLING_RESPONSE)
 
     def _get_org(self) -> Organization:
         org = None if self.request.user.is_anonymous else self.request.user.organization

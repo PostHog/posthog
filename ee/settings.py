@@ -4,7 +4,7 @@ Django settings for PostHog Enterprise Edition.
 import os
 from typing import Dict, List
 
-from posthog.settings import AUTHENTICATION_BACKENDS, DEMO, DEBUG, SITE_URL, get_from_env
+from posthog.settings import AUTHENTICATION_BACKENDS, DEBUG, DEMO, SITE_URL, get_from_env
 
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { billingLogic } from './billingLogic'
-import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSwitch, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
@@ -31,6 +31,14 @@ export function BillingV2(): JSX.Element {
                 <div className="flex">
                     <div className="flex-1">
                         <p>Paying is good because money is good 👍</p>
+
+                        {billing?.billing_period ? (
+                            <p>
+                                Your current billing period is from{' '}
+                                <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
+                                <b>{billing.billing_period.current_period_end.format('LL')}</b>
+                            </p>
+                        ) : null}
                     </div>
 
                     <LemonDivider vertical dashed />
@@ -127,15 +135,29 @@ const BillingProduct = ({
     product: BillingProductV2Type
     customLimitUsd?: string
 }): JSX.Element => {
+    const { billingLoading } = useValues(billingLogic)
+    const { updateBillingLimits } = useActions(billingLogic)
+
     const [showBillingLimit, setShowBillingLimit] = useState(false)
+    const [billingLimit, setBillingLimit] = useState(100)
+
+    const updateBillingLimit = (value: number | null): any => {
+        updateBillingLimits({
+            [product.type]: `${value}`,
+        })
+    }
 
     useEffect(() => {
         setShowBillingLimit(!!customLimitUsd)
+        setBillingLimit(parseInt(customLimitUsd || '100'))
     }, [customLimitUsd])
 
     const onBillingLimitToggle = (): void => {
         if (!showBillingLimit) {
             return setShowBillingLimit(true)
+        }
+        if (!customLimitUsd) {
+            return setShowBillingLimit(false)
         }
         LemonDialog.open({
             title: 'Remove billing limit',
@@ -143,7 +165,7 @@ const BillingProduct = ({
                 'Your predicted usage is above your current billing limit which is likely to result in a bill. Are you sure you want to remove the limit?',
             primaryButton: {
                 children: 'Yes, remove the limit',
-                onClick: () => setShowBillingLimit(false),
+                onClick: () => updateBillingLimit(null),
             },
             secondaryButton: {
                 children: 'I changed my mind',
@@ -167,8 +189,27 @@ const BillingProduct = ({
                         />
                         {showBillingLimit ? (
                             <div className="flex items-center gap-2" style={{ width: 200 }}>
-                                <LemonInput type="number" fullWidth={false} placeholder={'0'} />
-                                <span>$/month</span>
+                                <LemonInput
+                                    type="number"
+                                    fullWidth={false}
+                                    value={billingLimit}
+                                    onChange={setBillingLimit}
+                                    prefix={<b>$</b>}
+                                    disabled={billingLoading}
+                                    suffix={
+                                        <>
+                                            /month
+                                            <LemonButton
+                                                onClick={() => updateBillingLimit(billingLimit)}
+                                                size="small"
+                                                disabled={parseInt(customLimitUsd || '-1') === billingLimit}
+                                                loading={billingLoading}
+                                            >
+                                                Save
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
                             </div>
                         ) : null}
                     </div>

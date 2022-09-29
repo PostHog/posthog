@@ -17,7 +17,7 @@ import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
 import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -799,7 +799,11 @@ export interface BillingV2Type {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
-        [key: string]: string
+        [key: string]: string | null
+    }
+    billing_period: {
+        current_period_start: Dayjs
+        current_period_end: Dayjs
     }
 }
 

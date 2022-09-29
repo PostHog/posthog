@@ -8,6 +8,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urlToAction } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { forms } from 'kea-forms'
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from '@posthog/lemon-ui'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 
@@ -16,6 +18,15 @@ export enum BillingAlertType {
     UsageNearLimit = 'usage_near_limit',
     UsageLimitExceeded = 'usage_limit_exceeded',
     FreeUsageNearLimit = 'free_usage_near_limit',
+}
+
+const parseBillingResponse = (data: any): BillingV2Type => {
+    data.billing_period = {
+        current_period_start: dayjs(data.billing_period.current_period_start),
+        current_period_end: dayjs(data.billing_period.current_period_end),
+    }
+
+    return data
 }
 
 export const billingLogic = kea<billingLogicType>([
@@ -53,7 +64,13 @@ export const billingLogic = kea<billingLogicType>([
                     //     router.actions.replace('/organization/billing/locked')
                     // }
                     // actions.registerInstrumentationProps()
-                    return response as BillingV2Type
+                    return parseBillingResponse(response)
+                },
+
+                updateBillingLimits: async (limits: { [key: string]: string | null }) => {
+                    const response = await api.update('api/billing-v2', { custom_limits_usd: limits })
+                    lemonToast.success('Billing limits updated')
+                    return parseBillingResponse(response)
                 },
             },
         ],
