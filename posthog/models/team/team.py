@@ -109,7 +109,7 @@ class Team(UUIDClassicModel):
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
-    inject_web_apps: models.BooleanField = models.BooleanField(default=False)
+    inject_web_apps: models.BooleanField = models.BooleanField(default=False, null=True)
 
     test_account_filters: models.JSONField = models.JSONField(default=list)
     test_account_filters_default_checked: models.BooleanField = models.BooleanField(null=True, blank=True)
