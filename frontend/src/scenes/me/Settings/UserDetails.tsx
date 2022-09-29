@@ -19,7 +19,7 @@ export function UserDetails(): JSX.Element {
             enableFormOnSubmit
             className="space-y-4"
             style={{
-                maxWidth: '30rem',
+                maxWidth: '28rem',
             }}
         >
             <Field name="first_name" label="Your name">
