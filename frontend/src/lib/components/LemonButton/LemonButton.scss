@@ -44,8 +44,9 @@
     }
 
     &.LemonButton--no-content {
-        padding-left: 0.5rem;
-        padding-right: 0.5rem;
+        min-height: 2rem;
+        padding-left: 0.25rem;
+        padding-right: 0.25rem;
     }
 
     &.LemonButton--small {
@@ -78,9 +79,6 @@
         }
     }
 
-    &.LemonButton--hasIcon {
-        padding-left: 0.5rem;
-    }
     &.LemonButton--hasSideIcon {
         padding-right: 0.5rem;
     }

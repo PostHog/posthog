@@ -633,7 +633,9 @@ export function truncate(str: string, maxLength: number): string {
 
 export function eventToDescription(event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>): string {
     if (['$pageview', '$pageleave'].includes(event.event)) {
-        return event.properties.$pathname ?? event.properties.$current_url ?? '<unknown URL>'
+        const verb = event.event === '$pageview' ? 'Viewed' : 'Left'
+        const urlDisplay = event.properties.$pathname ?? event.properties.$current_url ?? 'unknown URL'
+        return `${verb} ${urlDisplay}`
     }
     if (event.event === '$autocapture') {
         return autoCaptureEventToDescription(event)

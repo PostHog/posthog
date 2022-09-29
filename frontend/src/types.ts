@@ -723,6 +723,11 @@ export interface EventType {
     event: string
 }
 
+export interface EventWithActionMatches {
+    event: EventType
+    actionIds: ActionType['id'][]
+}
+
 export interface RecordingTimeMixinType {
     playerTime: number | null
     playerPosition: PlayerPosition | null
