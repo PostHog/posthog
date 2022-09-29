@@ -789,17 +789,17 @@ export interface BillingProductV2Type {
         up_to: number
     }[]
     // These are only returned if the user has a subscription
-    current_bill_amount?: number // $5000
-    current_bill_usage?: number // 12000
-    current_bill_usage_limit?: number // 10000
+    current_usage?: number // 12000
+    current_amount_usd?: string // $5000
+    usage_limit?: number // 10000
 }
 
 export interface BillingV2Type {
     stripe_portal_url?: string
     products: BillingProductV2Type[]
 
-    custom_limits?: {
-        [key: string]: number
+    custom_limits_usd?: {
+        [key: string]: string
     }
 }
 

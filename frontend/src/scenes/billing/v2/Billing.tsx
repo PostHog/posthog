@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { billingLogic } from './billingLogic'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
@@ -103,7 +103,7 @@ export function BillingV2(): JSX.Element {
             {billing?.products?.map((x) => (
                 <>
                     <LemonDivider dashed className="my-2" />
-                    <BillingProduct product={x} />
+                    <BillingProduct product={x} customLimitUsd={billing.custom_limits_usd?.[x.type]} />
                 </>
             ))}
         </div>
@@ -120,8 +120,18 @@ const summarizeUsage = (usage: number): string => {
     }
 }
 
-const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+const BillingProduct = ({
+    product,
+    customLimitUsd,
+}: {
+    product: BillingProductV2Type
+    customLimitUsd?: string
+}): JSX.Element => {
     const [showBillingLimit, setShowBillingLimit] = useState(false)
+
+    useEffect(() => {
+        setShowBillingLimit(!!customLimitUsd)
+    }, [customLimitUsd])
 
     const onBillingLimitToggle = (): void => {
         if (!showBillingLimit) {
@@ -164,15 +174,15 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                     </div>
                 </div>
 
-                {product.current_bill_amount ? (
+                {product.current_amount_usd ? (
                     <div>
                         <div className="flex gap-2">
                             <span>Current bill:</span>
-                            <span className="font-bold">$1000</span>
+                            <span className="font-bold">${product.current_amount_usd}</span>
                         </div>
                         <div className="flex gap-2">
-                            <span>Predicted bill :</span>
-                            <span className="font-bold">$12000</span>
+                            <span>Predicted bill:</span>
+                            <span className="font-bold">${parseFloat(product.current_amount_usd) * 100}</span>
                         </div>
                     </div>
                 ) : null}
@@ -182,6 +192,10 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                         <div className="rounded-lg bg-success h-2 w-1/3" />
                     </div>
                 </div>
+
+                {product.free_allocation}
+                {product.current_usage}
+                {product.usage_limit}
             </div>
 
             <LemonDivider vertical dashed />
