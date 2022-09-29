@@ -29,6 +29,7 @@ export function NotificationBell(): JSX.Element {
                     ))}
                 </div>
             }
+            style={{ zIndex: 900 }} // so TZ aware time pop-up is not behind this pop-up
         >
             <div
                 className={clsx('h-10 items-center cursor-pointer flex color-primary-alt text-2xl')}
