@@ -24,6 +24,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -423,7 +424,7 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     value: number
 }
 
-export type SessionRecordingId = string
+export type SessionRecordingId = SessionRecordingType['id']
 
 export interface PlayerPosition {
     time: number
@@ -570,13 +571,14 @@ export interface PersonListParams {
     distinct_id?: string
 }
 
-interface MatchedRecordingEvents {
+export interface MatchedRecordingEvents {
     uuid: string
+    session_id: string
     window_id: string
     timestamp: string
 }
 export interface MatchedRecording {
-    session_id: string
+    session_id?: string
     events: MatchedRecordingEvents[]
 }
 
@@ -731,6 +733,7 @@ export interface RecordingTimeMixinType {
 
 export interface RecordingEventType extends EventType, RecordingTimeMixinType {
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
+    level?: RowStatus.Match | RowStatus.Information // If undefined, by default information row
 }
 
 export interface EventsTableRowItem {
@@ -749,6 +752,8 @@ export interface SessionRecordingType {
     start_time: string
     /** When the recording ends in ISO format. */
     end_time: string
+    /** List of matching events. **/
+    matching_events?: MatchedRecording[]
     distinct_id?: string
     email?: string
     person?: PersonType
@@ -2052,6 +2057,7 @@ export interface SessionRecordingPlayerProps {
     playerKey: string
     includeMeta?: boolean
     recordingStartTime?: string
+    matching?: MatchedRecording[]
 }
 
 export enum FeatureFlagReleaseType {

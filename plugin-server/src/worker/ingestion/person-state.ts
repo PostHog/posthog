@@ -31,7 +31,7 @@ const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
     'false',
 ])
 
-const CASE_SENSITIVE_ILLEGAL_IDS = new Set(['[object Object]', 'NaN', 'None', 'none', 'null', '0'])
+const CASE_SENSITIVE_ILLEGAL_IDS = new Set(['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined'])
 
 const isDistinctIdIllegal = (id: string): boolean => {
     return id.trim() === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
@@ -260,18 +260,19 @@ export class PersonState {
     // Alias & merge
 
     async handleIdentifyOrAlias(): Promise<void> {
-        if (isDistinctIdIllegal(this.distinctId)) {
-            this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId: this.distinctId })
-            return
-        }
-
         const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
         try {
-            if (this.event.event === '$create_alias') {
-                await this.merge(this.eventProperties['alias'], this.distinctId, this.teamId, this.timestamp, false)
+            if (this.event.event === '$create_alias' && this.eventProperties['alias']) {
+                await this.merge(
+                    String(this.eventProperties['alias']),
+                    this.distinctId,
+                    this.teamId,
+                    this.timestamp,
+                    false
+                )
             } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
                 await this.merge(
-                    this.eventProperties['$anon_distinct_id'],
+                    String(this.eventProperties['$anon_distinct_id']),
                     this.distinctId,
                     this.teamId,
                     this.timestamp,
@@ -294,6 +295,14 @@ export class PersonState {
     ): Promise<void> {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (distinctId === previousDistinctId) {
+            return
+        }
+        if (isDistinctIdIllegal(distinctId)) {
+            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: distinctId })
+            return
+        }
+        if (isDistinctIdIllegal(previousDistinctId)) {
+            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: previousDistinctId })
             return
         }
         await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall)

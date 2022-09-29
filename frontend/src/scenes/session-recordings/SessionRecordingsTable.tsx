@@ -21,9 +21,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
     const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev } = useValues(
         sessionRecordingsTableLogicInstance
     )
-    const { openSessionPlayer, closeSessionPlayer, loadNext, loadPrev } = useActions(
-        sessionRecordingsTableLogicInstance
-    )
+    const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
@@ -72,7 +70,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                     onClick: (e) => {
                         // Lets the link to the person open the person's page and not the session recording
                         if (!(e.target as HTMLElement).closest('a')) {
-                            openSessionPlayer(sessionRecording.id)
+                            openSessionPlayer(sessionRecording)
                         }
                     },
                 })}
@@ -105,7 +103,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                 </Row>
             )}
             <div style={{ marginBottom: 64 }} />
-            <SessionPlayerDrawer isPersonPage={isPersonPage} onClose={closeSessionPlayer} />
+            <SessionPlayerDrawer isPersonPage={isPersonPage} />
         </div>
     )
 }

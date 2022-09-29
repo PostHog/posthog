@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { ActorType, ExporterFormat } from '~/types'
+import { ActorType, ExporterFormat, SessionRecordingType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
@@ -49,7 +49,7 @@ function PersonsModal({ url: _url, urlsIndex, urls, title, onAfterClose }: Perso
         missingActorsCount,
     } = useValues(logic)
     const { loadActors, setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal } = useActions(logic)
-    const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
+    const { openSessionPlayer } = useActions(sessionPlayerDrawerLogic)
 
     const totalActorsCount = missingActorsCount + actors.length
 
@@ -122,7 +122,13 @@ function PersonsModal({ url: _url, urlsIndex, urls, title, onAfterClose }: Perso
                         {actors && actors.length > 0 ? (
                             <>
                                 {actors.map((x) => (
-                                    <ActorRow key={x.id} actor={x} onOpenRecording={(id) => openSessionPlayer(id)} />
+                                    <ActorRow
+                                        key={x.id}
+                                        actor={x}
+                                        onOpenRecording={(sessionRecording) => {
+                                            openSessionPlayer(sessionRecording)
+                                        }}
+                                    />
                                 ))}
                             </>
                         ) : actorsResponseLoading ? (
@@ -182,14 +188,14 @@ function PersonsModal({ url: _url, urlsIndex, urls, title, onAfterClose }: Perso
                 onCancel={() => setIsCohortModalOpen(false)}
                 isOpen={isCohortModalOpen}
             />
-            <SessionPlayerDrawer onClose={() => closeSessionPlayer()} />
+            <SessionPlayerDrawer />
         </>
     )
 }
 
 interface ActorRowProps {
     actor: ActorType
-    onOpenRecording: (id: string) => void
+    onOpenRecording: (sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>) => void
 }
 
 export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element {
@@ -205,7 +211,11 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
             setExpanded(true)
             setTab('recordings')
         } else {
-            onOpenRecording(actor.matched_recordings[0].session_id)
+            actor.matched_recordings[0].session_id &&
+                onOpenRecording({
+                    id: actor.matched_recordings[0].session_id,
+                    matching_events: actor.matched_recordings,
+                })
         }
     }
 
@@ -286,7 +296,8 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                                                           key={i}
                                                           fullWidth
                                                           onClick={() => {
-                                                              onOpenRecording(recording.session_id)
+                                                              recording.session_id &&
+                                                                  onOpenRecording({ id: recording.session_id })
                                                           }}
                                                       >
                                                           <div className="flex flex-1 justify-between gap-2 items-center">

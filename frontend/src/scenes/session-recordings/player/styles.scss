@@ -191,7 +191,8 @@
     .player-filter {
         background-color: var(--side);
         padding: 0.5rem;
-        gap: 12px;
+        gap: 0.75rem;
+        row-gap: 0.5rem !important;
 
         .player-filter-matching-events {
             min-height: 2.5rem;

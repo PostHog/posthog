@@ -311,6 +311,10 @@ export function addHistoricalEventsExportCapabilityV2(
             }
 
             if (dateStatus && shouldResume(dateStatus, now)) {
+                // :TODO: Temporary debugging code
+                createLog(`toResume found: now=${now}, dateStatus=${JSON.stringify(dateStatus)}`, {
+                    type: PluginLogEntryType.Debug,
+                })
                 hasChanges = true
                 toResume.push(dateStatus)
             }
