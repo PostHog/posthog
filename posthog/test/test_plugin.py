@@ -236,11 +236,9 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         self.assertEqual(PluginSourceFile.objects.count(), 2)
         self.assertEqual(plugin_json_file.source, HELLO_WORLD_PLUGIN_PLUGIN_JSON_WITHOUT_MAIN)
         self.assertIsNone(index_ts_file)
-        self.assertIsNone(web_ts_file)
-        assert frontend_tsx_file is not None
-        self.assertEqual(frontend_tsx_file.source, HELLO_WORLD_PLUGIN_WEB_TS)
-        self.team.refresh_from_db()
-        self.assertTrue(self.team.inject_web_apps)
+        self.assertIsNone(frontend_tsx_file)
+        assert web_ts_file is not None
+        self.assertEqual(web_ts_file.source, HELLO_WORLD_PLUGIN_WEB_TS)
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_zip_without_any_code_fails(self):
