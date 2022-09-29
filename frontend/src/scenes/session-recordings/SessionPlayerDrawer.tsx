@@ -7,7 +7,7 @@ import {
 import { Button, Col, Row } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { IconClose } from 'lib/components/icons'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { sessionPlayerDrawerLogic } from './sessionPlayerDrawerLogic'
@@ -16,17 +16,17 @@ import { PlayerMetaV3 } from './player/PlayerMeta'
 
 interface SessionPlayerDrawerProps {
     isPersonPage?: boolean
-    onClose: () => void
 }
 
-export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPlayerDrawerProps): JSX.Element {
+export function SessionPlayerDrawer({ isPersonPage = false }: SessionPlayerDrawerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { activeSessionRecording } = useValues(sessionPlayerDrawerLogic)
+    const { activeSessionRecording } = useValues(sessionPlayerDrawerLogic())
+    const { closeSessionPlayer } = useActions(sessionPlayerDrawerLogic())
     const isSessionRecordingsPlayerV3 = !!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]
 
     if (isSessionRecordingsPlayerV3) {
         return (
-            <LemonModal isOpen={!!activeSessionRecording} onClose={onClose} simple title={''}>
+            <LemonModal isOpen={!!activeSessionRecording} onClose={closeSessionPlayer} simple title={''}>
                 <header>
                     {activeSessionRecording ? (
                         <PlayerMetaV3 playerKey="drawer" sessionRecordingId={activeSessionRecording?.id} />
@@ -57,7 +57,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
             destroyOnClose
             visible
             width="100%"
-            onClose={onClose}
+            onClose={closeSessionPlayer}
             className="session-player-wrapper-v2"
             closable={false}
             // zIndex: 1061 ensures it opens above the insight person modal which is 1060
@@ -69,13 +69,13 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                     align="middle"
                     justify="space-between"
                 >
-                    <Button type="link" onClick={onClose}>
+                    <Button type="link" onClick={closeSessionPlayer}>
                         <ArrowLeftOutlined /> Back to {isPersonPage ? 'persons' : 'recordings'}
                     </Button>
                     <div
                         className="text-muted cursor-pointer flex items-center"
                         style={{ fontSize: '1.5em', paddingRight: 8 }}
-                        onClick={onClose}
+                        onClick={closeSessionPlayer}
                     >
                         <IconClose />
                     </div>

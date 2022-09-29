@@ -49,7 +49,7 @@ function PersonsModal({ url: _url, urlsIndex, urls, title, onAfterClose }: Perso
         missingActorsCount,
     } = useValues(logic)
     const { loadActors, setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal } = useActions(logic)
-    const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
+    const { openSessionPlayer } = useActions(sessionPlayerDrawerLogic)
 
     const totalActorsCount = missingActorsCount + actors.length
 
@@ -188,7 +188,7 @@ function PersonsModal({ url: _url, urlsIndex, urls, title, onAfterClose }: Perso
                 onCancel={() => setIsCohortModalOpen(false)}
                 isOpen={isCohortModalOpen}
             />
-            <SessionPlayerDrawer onClose={() => closeSessionPlayer()} />
+            <SessionPlayerDrawer />
         </>
     )
 }
