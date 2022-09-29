@@ -62,6 +62,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
     membership_level = serializers.SerializerMethodField()
     teams = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
+    members_to_send_plugin_alerts = serializers.SerializerMethodField()
 
     class Meta:
         model = Organization
@@ -77,6 +78,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "available_features",
             "is_member_join_email_enabled",
             "metadata",
+            "members_to_send_plugin_alerts",
         ]
         read_only_fields = [
             "id",
@@ -95,12 +97,32 @@ class OrganizationSerializer(serializers.ModelSerializer):
         organization, _, _ = Organization.objects.bootstrap(self.context["request"].user, **validated_data)
         return organization
 
+    def update(self, organization: Organization, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
+        if (
+            self.context["request"].data.get("members_to_send_plugin_alerts")
+            or len(self.context["request"].data.get("members_to_send_plugin_alerts")) == 0
+        ):
+            OrganizationMembership.objects.filter(organization=organization, send_plugin_alerts=True).update(
+                send_plugin_alerts=False
+            )
+            OrganizationMembership.objects.filter(
+                organization=organization, user__uuid__in=self.context["request"].data["members_to_send_plugin_alerts"]
+            ).update(send_plugin_alerts=True)
+        return super().update(organization, validated_data)
+
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
             organization=organization,
             user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
+
+    def get_members_to_send_plugin_alerts(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
+        return list(
+            OrganizationMembership.objects.filter(organization=organization, send_plugin_alerts=True).values_list(
+                "user__uuid", flat=True
+            )
+        )
 
     def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
         teams = cast(
