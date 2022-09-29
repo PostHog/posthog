@@ -36,6 +36,7 @@ describe('PersonState.update()', () => {
 
         jest.spyOn(hub.personManager, 'isNewPerson')
         jest.spyOn(hub.db, 'fetchPerson')
+        jest.spyOn(hub.db, 'updatePersonDeprecated')
     })
 
     afterEach(async () => {
@@ -76,9 +77,11 @@ describe('PersonState.update()', () => {
     describe('on person creation', () => {
         it('creates person if they are new', async () => {
             const personContainer = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
+            await hub.db.kafkaProducer.flush()
 
             expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
+            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
@@ -112,6 +115,7 @@ describe('PersonState.update()', () => {
 
             // Create person separately
             const racePersonContainer = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
+            await hub.db.kafkaProducer.flush()
             const racePerson = await racePersonContainer.get()
 
             // Run person-state update. This will _not_ create the person as it was created in the last step, but should
@@ -152,6 +156,7 @@ describe('PersonState.update()', () => {
 
             // Create person separately
             const racePersonContainer = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
+            await hub.db.kafkaProducer.flush()
             const racePerson = await racePersonContainer.get()
 
             jest.spyOn(hub.personManager, 'isNewPerson').mockResolvedValueOnce(true)
@@ -196,9 +201,11 @@ describe('PersonState.update()', () => {
                     $set: { b: 3, c: 4 },
                 },
             }).update()
+            await hub.db.kafkaProducer.flush()
 
             expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
+            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
@@ -239,6 +246,7 @@ describe('PersonState.update()', () => {
                     $set: { b: 4 },
                 },
             }).update()
+            await hub.db.kafkaProducer.flush()
 
             expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
@@ -256,10 +264,6 @@ describe('PersonState.update()', () => {
                     is_identified: false,
                 })
             )
-
-            // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-            expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
@@ -293,6 +297,7 @@ describe('PersonState.update()', () => {
                 },
                 person
             ).update()
+            await hub.db.kafkaProducer.flush()
 
             expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
@@ -310,10 +315,6 @@ describe('PersonState.update()', () => {
                     is_identified: false,
                 })
             )
-
-            // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-            expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
@@ -334,8 +335,10 @@ describe('PersonState.update()', () => {
                     $set: { b: 3 },
                 },
             }).update()
+            await hub.db.kafkaProducer.flush()
 
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
@@ -350,10 +353,6 @@ describe('PersonState.update()', () => {
                     is_identified: false,
                 })
             )
-
-            // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-            expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
@@ -373,6 +372,9 @@ describe('PersonState.update()', () => {
                     $set: { foo: 'bar' },
                 },
             }).update()
+            await hub.db.kafkaProducer.flush()
+
+            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
@@ -409,6 +411,9 @@ describe('PersonState.update()', () => {
                     $anon_distinct_id: 'old-user',
                 },
             }).update()
+            await hub.db.kafkaProducer.flush()
+
+            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
@@ -447,9 +452,11 @@ describe('PersonState.update()', () => {
                     $set: { b: 4 },
                 },
             }).update()
+            await hub.db.kafkaProducer.flush()
 
             expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+            expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
@@ -489,6 +496,8 @@ describe('PersonState.update()', () => {
                 },
             }).update()
             await hub.db.kafkaProducer.flush()
+
+            expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
