@@ -40,6 +40,6 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
                 | Q(Q(scope="Insight") & Q(item_id__in=my_insights))
             )
             .order_by("-created_at")
-        )
+        )[:10]
         serialized_data = ActivityLogSerializer(instance=other_peoples_changes, many=True).data
         return Response(status=status.HTTP_200_OK, data=serialized_data)
