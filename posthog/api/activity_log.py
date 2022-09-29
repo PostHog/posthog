@@ -8,7 +8,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import ActivityLog, FeatureFlag, Insight
+from posthog.models import ActivityLog, FeatureFlag, Insight, User
 
 
 class ActivityLogSerializer(serializers.ModelSerializer):
@@ -30,16 +30,22 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     @action(methods=["GET"], detail=False)
     def important_changes(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        my_insights = list(Insight.objects.filter(created_by=self.request.user).values_list("id", flat=True))
-        my_feature_flags = list(FeatureFlag.objects.filter(created_by=self.request.user).values_list("id", flat=True))
+        user = self.request.user
+        if not isinstance(user, User):
+            # this is for mypy
+            return Response(status=status.HTTP_401_UNAUTHORIZED)
+
+        my_insights = list(Insight.objects.filter(created_by=user).values_list("id", flat=True))
+        my_feature_flags = list(FeatureFlag.objects.filter(created_by=user).values_list("id", flat=True))
         other_peoples_changes = (
             self.queryset.filter(scope__in=["FeatureFlag", "Insight"])
-            .exclude(user=self.request.user)
+            .exclude(user=user)
             .filter(
                 Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags))
                 | Q(Q(scope="Insight") & Q(item_id__in=my_insights))
             )
             .order_by("-created_at")
         )[:10]
+
         serialized_data = ActivityLogSerializer(instance=other_peoples_changes, many=True).data
         return Response(status=status.HTTP_200_OK, data=serialized_data)
