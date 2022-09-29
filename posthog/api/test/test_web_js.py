@@ -1,3 +1,5 @@
+from typing import List
+
 from django.test.client import Client
 from rest_framework import status
 
@@ -41,7 +43,7 @@ class TestWebJs(BaseTest):
         self.assertTrue(requires_bootloader("a" * 1024))
 
     def test_get_web_config_from_schema(self):
-        schema = [{"key": "in_web", "web": True}, {"key": "not_in_web"}]
+        schema: List[dict] = [{"key": "in_web", "web": True}, {"key": "not_in_web"}]
         config = {"in_web": "123", "not_in_web": "12345"}
         self.assertEqual(get_web_config_from_schema(schema, config), {"in_web": "123"})
         self.assertEqual(get_web_config_from_schema(None, None), {})

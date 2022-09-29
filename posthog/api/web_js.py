@@ -1,5 +1,5 @@
 import json
-from typing import Optional
+from typing import List, Optional
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -47,7 +47,7 @@ def get_decide_web_js_inject(team: Team):
     ]
 
 
-def get_web_config_from_schema(config_schema: Optional[dict], config: Optional[dict]):
+def get_web_config_from_schema(config_schema: Optional[List[dict]], config: Optional[dict]):
     if not config or not config_schema:
         return {}
     return {

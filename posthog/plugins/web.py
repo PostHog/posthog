@@ -7,7 +7,7 @@ class WebSource:
     id: int
     source: str
     token: str
-    config_schema: dict
+    config_schema: List[dict]
     config: dict
 
 
