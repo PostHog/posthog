@@ -532,7 +532,7 @@ describe('PersonState.update()', () => {
             }).update()
             await hub.db.kafkaProducer.flush()
 
-            // TODO: efficiency function call verifications
+            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
