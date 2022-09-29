@@ -298,7 +298,7 @@ export class PersonState {
             return
         }
         if (isDistinctIdIllegal(distinctId)) {
-            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: previousDistinctId })
+            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: distinctId })
             return
         }
         if (isDistinctIdIllegal(previousDistinctId)) {
