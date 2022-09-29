@@ -41,6 +41,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="team",
             name="inject_web_apps",
-            field=models.BooleanField(default=False, null=True),
+            field=models.BooleanField(null=True),
         ),
     ]
