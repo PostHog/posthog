@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -99,7 +99,7 @@ def get_source_file(id: int) -> Optional[SourceFile]:
     return SourceFile(*(list(response)))  # type: ignore
 
 
-def get_source_files(team: Team) -> list[SourceFile]:
+def get_source_files(team: Team) -> List[SourceFile]:
     sources = (
         PluginConfig.objects.filter(
             team=team,
