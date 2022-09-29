@@ -20,7 +20,7 @@ def reverse_func(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0260_pak_v2"),
+        ("posthog", "0261_team_capture_console_log_opt_in.py"),
     ]
 
     operations = [

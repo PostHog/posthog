@@ -96,6 +96,7 @@
                     "excluded_person_property_names": []
                 },
                 "session_recording_opt_in": false,
+                "capture_console_log_opt_in": false,
                 "effective_membership_level": 15,
                 "access_control": false
             },
