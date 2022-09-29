@@ -38,4 +38,9 @@ class Migration(migrations.Migration):
             index=models.Index(fields=["enabled"], name="posthog_plu_enabled_f5ed94_idx"),
         ),
         migrations.RunPython(forwards_func, reverse_func),
+        migrations.AddField(
+            model_name="team",
+            name="inject_web_apps",
+            field=models.BooleanField(default=False),
+        ),
     ]
