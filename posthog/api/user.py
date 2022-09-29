@@ -56,6 +56,7 @@ class UserSerializer(serializers.ModelSerializer):
             "first_name",
             "email",
             "pending_email",
+            "email_verification_sent_at",
             "email_opt_in",
             "anonymize_data",
             "toolbar_mode",
@@ -71,7 +72,7 @@ class UserSerializer(serializers.ModelSerializer):
             "current_password",  # used when changing current password
             "events_column_config",
         ]
-        read_only_fields = ["pending_email", "toolbar_mode"]
+        read_only_fields = ["pending_email", "email_verification_sent_at", "toolbar_mode"]
         extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
 
     def get_has_password(self, instance: User) -> bool:

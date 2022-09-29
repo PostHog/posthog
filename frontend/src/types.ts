@@ -94,6 +94,7 @@ export interface UserBasicType extends UserBaseType {
 /** Full User model. */
 export interface UserType extends UserBaseType {
     pending_email: string | null
+    email_verification_sent_at: string | null
     date_joined: string
     email_opt_in: boolean
     events_column_config: ColumnConfig

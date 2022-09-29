@@ -36,8 +36,8 @@ export function UserDetails(): JSX.Element {
                     <>
                         {!!user?.pending_email && (
                             <AlertMessage type="warning">
-                                Change to "{user.pending_email}" is pending verification – check your inbox.{' '}
-                                <Link onClick={resendVerificationEmail}>Resend verification message.</Link>
+                                Change to "{user.pending_email}" is pending verification. Check your inbox for
+                                the verification message. (<Link onClick={resendVerificationEmail}>Resend</Link>)
                             </AlertMessage>
                         )}
                         <LemonInput

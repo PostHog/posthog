@@ -123,6 +123,7 @@ def send_email_verification(user: User, token: str, *, is_new_user: bool) -> Non
     )
     message.add_recipient(email=user.pending_email, name=user.first_name)
     message.send()  # This is already async
+    user.email_verification_sent_at = timezone.now()
 
 
 @app.task(max_retries=1)

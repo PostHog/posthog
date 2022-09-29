@@ -25,5 +25,7 @@ class Migration(migrations.Migration):
                 editable=False,
             ),
         ),
-        migrations.AddField(model_name="user", name="updated_at", field=models.DateTimeField(auto_now=True)),
+        migrations.AddField(
+            model_name="user", name="email_verification_sent_at", field=models.DateTimeField(null=True, blank=True)
+        ),
     ]

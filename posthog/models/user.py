@@ -123,9 +123,9 @@ class User(AbstractUser, UUIDClassicModel):
         null=True,
         editable=False,
     )
+    email_verification_sent_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
