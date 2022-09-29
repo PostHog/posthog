@@ -445,8 +445,7 @@ def sync_team_inject_web_apps(sender, instance, created=None, **kwargs):
         return
     inject_web_apps = len(get_transpiled_web_sources(team)) > 0
     if inject_web_apps != team.inject_web_apps:
-        team.inject_web_apps = inject_web_apps
-        team.save()
+        Team.objects.filter(pk=team.pk).update(inject_web_apps=inject_web_apps)
 
 
 @mutable_receiver([post_save, post_delete], sender=PluginAttachment)
