@@ -1,7 +1,7 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
-# Note: for 'posthog/posthog-cloud' remember to update 'prod.web.Dockerfile' as appropriate
+# Note: for PostHog Cloud remember to update 'Dockerfile.cloud' as appropriate.
 #
 
 #
