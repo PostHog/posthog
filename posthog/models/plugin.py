@@ -257,12 +257,14 @@ class PluginLogEntryType(str, Enum):
 class PluginSourceFileManager(models.Manager):
     def sync_from_plugin_archive(
         self, plugin: Plugin, plugin_json_parsed: Optional[Dict[str, Any]] = None
-    ) -> Tuple["PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"]]:
+    ) -> Tuple[
+        "PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"], Optional["PluginSourceFile"]
+    ]:
         """Create PluginSourceFile objects from a plugin that has an archive.
 
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
         try:
-            plugin_json, index_ts, frontend_tsx = extract_plugin_code(plugin.archive, plugin_json_parsed)
+            plugin_json, index_ts, frontend_tsx, web_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
         # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
@@ -279,6 +281,14 @@ class PluginSourceFileManager(models.Manager):
             )
         else:
             filenames_to_delete.append("frontend.tsx")
+        # Save frontend.tsx
+        web_ts_instance: Optional["PluginSourceFile"] = None
+        if web_ts is not None:
+            web_ts_instance, _ = PluginSourceFile.objects.update_or_create(
+                plugin=plugin, filename="web.ts", defaults={"source": web_ts}
+            )
+        else:
+            filenames_to_delete.append("web.ts")
         # Save index.ts
         index_ts_instance: Optional["PluginSourceFile"] = None
         if index_ts is not None:
@@ -291,7 +301,7 @@ class PluginSourceFileManager(models.Manager):
             filenames_to_delete.append("index.ts")
         # Make sure files are gone
         PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
-        return plugin_json_instance, index_ts_instance, frontend_tsx_instance
+        return plugin_json_instance, index_ts_instance, frontend_tsx_instance, web_ts_instance
 
 
 class PluginSourceFile(UUIDModel):
