@@ -15,7 +15,6 @@ from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
-from posthog.models.instance_setting import get_instance_setting
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 from .utils import get_project_id
@@ -162,7 +161,7 @@ def get_decide(request: HttpRequest):
             ):
                 response["sessionRecording"] = {"endpoint": "/s/"}
 
-            response["inject"] = get_decide_web_js_inject(team) if get_instance_setting("WEB_APP_INJECTION") else []
+            response["inject"] = get_decide_web_js_inject(team) if team.inject_web_apps else []
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))

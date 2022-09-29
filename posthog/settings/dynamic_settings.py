@@ -144,11 +144,6 @@ CONSTANCE_CONFIG = {
         "Used to enable the running of experimental async migrations",
         bool,
     ),
-    "WEB_APP_INJECTION": (
-        get_from_env("WEB_APP_INJECTION", default=False),
-        "Used to enable the running of experimental web.ts injection apps",
-        bool,
-    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -177,7 +172,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_SIGNING_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
-    "WEB_APP_INJECTION",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
