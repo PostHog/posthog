@@ -1,10 +1,9 @@
-import json
 import re
 from typing import Any, List, Optional
 from urllib.parse import urlparse
 
 import structlog
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from sentry_sdk import capture_exception
@@ -14,11 +13,12 @@ from posthog.api.geoip import get_geoip_properties
 from posthog.api.utils import get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
-from posthog.models import PluginConfig, PluginSourceFile, Team, User
+from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 from .utils import get_project_id
+from .web_js import get_decide_web_js_inject
 
 
 def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
@@ -161,85 +161,7 @@ def get_decide(request: HttpRequest):
             ):
                 response["sessionRecording"] = {"endpoint": "/s/"}
 
-            plugin_sources = (
-                PluginConfig.objects.filter(
-                    team=team,
-                    enabled=True,
-                    plugin__pluginsourcefile__filename="web.ts",
-                    plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
-                )
-                .values_list("id", "plugin__pluginsourcefile__transpiled", "plugin__config_schema", "config")
-                .all()
-            )
-
-            response["inject"] = [
-                {
-                    "id": source_file[0],
-                    "source": get_bootloader(source_file[0]),
-                    "config": None,
-                }
-                if requires_bootloader(source_file[1])
-                else {
-                    "id": source_file[0],
-                    "source": source_file[1],
-                    "config": get_web_config_from_schema(source_file[2], source_file[3]),
-                }
-                for source_file in plugin_sources
-            ]
+            response["inject"] = get_decide_web_js_inject(team)
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
-
-
-def requires_bootloader(source: str):
-    return len(source) >= 1024
-
-
-def get_bootloader(id: int):
-    return (
-        f"(function(h){{return{{inject:function(opts){{"
-        f"var s=document.createElement('script');"
-        f"s.src=[h,h[h.length-1]==='/'?'':'/','web_js/',{id},'/'].join('');"
-        f"window['__$$ph_web_js_{id}']=opts.posthog;"
-        f"document.head.appendChild(s);"
-        f"}}}}}})"
-    )
-
-
-def get_web_config_from_schema(config_schema: dict, config: dict):
-    if not config or not config_schema:
-        return {}
-    return {
-        schema_element["key"]: config.get(schema_element["key"], schema_element.get("default", None))
-        for schema_element in config_schema
-        if schema_element.get("web", False) and schema_element.get("key", False)
-    }
-
-
-@csrf_exempt
-@timed("posthog_cloud_web_js_endpoint")
-def get_web_js(request: HttpRequest, id: int):
-    # handle cors request
-    if request.method == "OPTIONS":
-        return cors_response(request, JsonResponse({"status": 1}))
-
-    source_file = (
-        PluginConfig.objects.filter(
-            id=id,
-            enabled=True,
-            plugin__pluginsourcefile__filename="web.ts",
-            plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
-        )
-        .values_list("id", "plugin__pluginsourcefile__transpiled", "plugin__config_schema", "config")
-        .first()
-    )
-
-    response = {}
-    if source_file:
-        id = source_file[0]
-        source = source_file[1]
-        config = get_web_config_from_schema(source_file[2], source_file[3])
-        response = f"{source}().inject({{config:{json.dumps(config)},posthog:window['__$$ph_web_js_{id}']}})"
-
-    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "web_js"})
-    return cors_response(request, HttpResponse(content=response, content_type="application/javascript"))
