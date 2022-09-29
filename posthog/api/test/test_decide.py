@@ -123,6 +123,18 @@ class TestDecide(BaseTest):
         response = self._post_decide(origin="any.site.com").json()
         self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
 
+    def test_web_apps_queries(self):
+        with self.assertNumQueries(2):
+            response = self._post_decide()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.team.inject_web_apps = True
+        self.team.save()
+
+        with self.assertNumQueries(3):
+            response = self._post_decide()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
