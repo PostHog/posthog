@@ -71,9 +71,10 @@ export function PayGateMini({ feature, style, children, overrideShouldShowGate }
                 plan to gain {featureSummary.umbrella}.
             </div>
             <LemonButton
-                to={gateVariant === 'add-card' ? '/organization/billing' : undefined}
-                href={
-                    gateVariant === 'contact-sales'
+                to={
+                    gateVariant === 'add-card'
+                        ? '/organization/billing'
+                        : gateVariant === 'contact-sales'
                         ? `mailto:sales@posthog.com?subject=Inquiring about ${featureSummary.umbrella}`
                         : gateVariant === 'check-licensing'
                         ? 'https://posthog.com/pricing'

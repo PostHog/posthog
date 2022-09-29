@@ -70,7 +70,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                                             "childNodes": [],
                                             "id": 729,
                                         },
-                                    },
+                                    }
                                 ],
                             },
                             "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
@@ -96,10 +96,10 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_get_session_recordings(self):
             p = Person.objects.create(
-                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
             )
             Person.objects.create(
-                team=self.team, distinct_ids=["user2"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                team=self.team, distinct_ids=["user2"], properties={"$some_prop": "something", "email": "bob@bob.com"}
             )
             base_time = now() - relativedelta(days=1)
             self.create_snapshot("user", "1", base_time)
@@ -132,12 +132,10 @@ def factory_test_session_recordings_api(session_recording_event_factory):
         def test_session_recordings_dont_leak_teams(self):
             another_team = Team.objects.create(organization=self.organization)
             Person.objects.create(
-                team=another_team,
-                distinct_ids=["user"],
-                properties={"$some_prop": "something", "email": "bob@bob.com"},
+                team=another_team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
             )
             Person.objects.create(
-                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
             )
 
             self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=another_team.pk)
@@ -166,7 +164,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_viewed_state_of_session_recording(self):
             Person.objects.create(
-                team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
             )
             base_time = now() - timedelta(days=1)
             SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
@@ -182,7 +180,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_setting_viewed_state_of_session_recording(self):
             Person.objects.create(
-                team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
             )
             self.create_snapshot("u1", "1", now() - relativedelta(days=1))
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
@@ -209,7 +207,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_get_single_session_recording_metadata(self):
             p = Person.objects.create(
-                team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
             )
             session_recording_id = "session_1"
             base_time = now() - relativedelta(days=1)
@@ -254,6 +252,25 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                 len(response_data["result"]["snapshot_data_by_window_id"][""]), DEFAULT_RECORDING_CHUNK_LIMIT
             )
 
+        def test_get_snapshots_is_compressed(self):
+            base_time = now()
+            num_snapshots = 2  # small contents aren't compressed, needs to be enough data to trigger compression
+
+            for _ in range(num_snapshots):
+                self.create_snapshot("user", "1", base_time)
+
+            custom_headers = {"HTTP_ACCEPT_ENCODING": "gzip"}
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings/1/snapshots",
+                data=None,
+                follow=False,
+                secure=False,
+                **custom_headers,
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.headers.get("Content-Encoding", None), "gzip")
+
         def test_get_snapshots_for_chunked_session_recording(self):
             chunked_session_id = "chunk_id"
             expected_num_requests = 3
@@ -296,14 +313,14 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 p = Person.objects.create(
-                    team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
+                    team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
                 )
                 chunked_session_id = "chunked_session_id"
                 num_chunks = 60
                 snapshots_per_chunk = 2
                 for index in range(num_chunks):
                     self.create_chunked_snapshots(
-                        snapshots_per_chunk, "d1", chunked_session_id, now() + relativedelta(minutes=index),
+                        snapshots_per_chunk, "d1", chunked_session_id, now() + relativedelta(minutes=index)
                     )
                 response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
                 response_data = response.json()

@@ -1,29 +1,30 @@
-import { Button, Input } from 'antd'
+import { Button } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CloseOutlined, ArrowLeftOutlined } from '@ant-design/icons'
 import React from 'react'
 import './NPSPrompt.scss'
-import { npsLogicType } from './NPSPromptType'
+import type { npsLogicType } from './NPSPromptType'
 import posthog from 'posthog-js'
 import nps from './nps.svg'
 import { userLogic } from 'scenes/userLogic'
 import { dayjs } from 'lib/dayjs'
+import { LemonTextArea } from '@posthog/lemon-ui'
 
 const NPS_APPEAR_TIMEOUT = 10000
 const NPS_HIDE_TIMEOUT = 3500
 const NPS_LOCALSTORAGE_KEY = 'experimental-nps-v8'
 
-type Step = 0 | 1 | 2 | 3
+export type Step = 0 | 1 | 2 | 3
 
-interface NPSPayload {
+export interface NPSPayload {
     score?: 1 | 3 | 5 // 1 = not disappointed; 3 = somewhat disappointed; 5 = very disappointed
     feedback_score?: string
     feedback_persona?: string
 }
 
-const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
+const npsLogic = kea<npsLogicType>({
     path: ['lib', 'experimental', 'NPSPrompt'],
     selectors: {
         featureFlagEnabled: [
@@ -165,14 +166,14 @@ export function NPSPrompt(): JSX.Element | null {
                         <div data-attr="nps-step-1">
                             {Header}
                             <div className="question">What's the main reason behind this score?</div>
-                            <Input.TextArea
+                            <LemonTextArea
                                 autoFocus
                                 placeholder="You can describe the key benefits you get from PostHog, shortcomings or anything else..."
                                 value={payload?.feedback_score || ''}
-                                onChange={(e) => setPayload({ feedback_score: e.target.value })}
+                                onChange={(value) => setPayload({ feedback_score: value })}
                                 onKeyDown={(e) => e.key === 'Enter' && e.metaKey && setStep(2)}
                             />
-                            <div style={{ textAlign: 'left' }} className="mt">
+                            <div style={{ textAlign: 'left' }} className="mt-4">
                                 <Button type="link" style={{ paddingLeft: 0 }} onClick={() => submit(false)}>
                                     Finish
                                 </Button>
@@ -188,14 +189,14 @@ export function NPSPrompt(): JSX.Element | null {
                             <div className="question">
                                 Last one. What type of person or company do you think could benefit most from PostHog?
                             </div>
-                            <Input.TextArea
+                            <LemonTextArea
                                 autoFocus
                                 placeholder="You can describe their role, background, company or team size, ..."
                                 value={payload?.feedback_persona || ''}
-                                onChange={(e) => setPayload({ feedback_persona: e.target.value })}
+                                onChange={(value) => setPayload({ feedback_persona: value })}
                                 onKeyDown={(e) => e.key === 'Enter' && e.metaKey && submit(true)}
                             />
-                            <div style={{ textAlign: 'left' }} className="mt">
+                            <div style={{ textAlign: 'left' }} className="mt-4">
                                 <Button style={{ float: 'right' }} onClick={() => submit(true)}>
                                     Finish
                                 </Button>

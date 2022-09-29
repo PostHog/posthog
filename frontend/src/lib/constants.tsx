@@ -1,16 +1,18 @@
 import { urls } from 'scenes/urls'
-import { AnnotationScope, AvailableFeature, LicensePlan, SSOProviders } from '../types'
+import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProviders } from '../types'
 
-// Sync these with the ChartDisplayType enum in types.ts
-// ... and remove once all files have migrated to TypeScript
-export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraph'
-export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
-export const ACTIONS_TABLE = 'ActionsTable'
-export const ACTIONS_PIE_CHART = 'ActionsPie'
-export const ACTIONS_BAR_CHART = 'ActionsBar'
-export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
-export const PATHS_VIZ = 'PathsViz'
-export const FUNNEL_VIZ = 'FunnelViz'
+/** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
+export const NON_TIME_SERIES_DISPLAY_TYPES = [
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.BoldNumber,
+]
+/** Display types for which `breakdown` is hidden and ignored. Sync with backend NON_BREAKDOWN_DISPLAY_TYPES. */
+export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
+/** Display types which only work with a single series. */
+export const SINGLE_SERIES_DISPLAY_TYPES = [ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber]
 
 export enum OrganizationMembershipLevel {
     Member = 1,
@@ -30,12 +32,6 @@ export enum PluginsAccessLevel {
     Install = 6,
     Root = 9,
 }
-
-export const annotationScopeToName = new Map<string, string>([
-    [AnnotationScope.Insight, 'insight'],
-    [AnnotationScope.Project, 'project'],
-    [AnnotationScope.Organization, 'organization'],
-])
 
 /** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
 export enum DashboardRestrictionLevel {
@@ -60,7 +56,17 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
     [DashboardPrivilegeLevel._ProjectAdmin]: 'can edit',
 }
 
+// Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
+export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
+    'email',
+    'Email',
+    'name',
+    'Name',
+    'username',
+    'Username',
+    'UserName',
+]
 
 // Event constants
 export const ACTION_TYPE = 'action_type'
@@ -91,31 +97,33 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS = {
     // Cloud-only
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
-    NPS_PROMPT: '4562-nps', // owner: @paolodamico
+    NPS_PROMPT: '4562-nps', // owner: @marcushyett-ph
     // Experiments / beta features
-    INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
-    NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
-    FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
-    FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
+    FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
-    MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
-    RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
-    PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
-    DATA_MANAGEMENT: 'data-management', // owner: @alexkim205
-    INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
-    EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics', // owner: @neilkakkar
-    RECORDINGS_FILTER_EXPERIMENT: 'recording-filters-experiment', // owner: @rcmarron
-    DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
-    AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
-    PROJECT_HOMEPAGE: 'project-homepage', // owner: @rcmarron
-    FEATURE_FLAGS_ACTIVITY_LOG: '8545-ff-activity-log', // owner: @pauldambra
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
-    TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
+    BILLING_LIMIT: 'billing-limit', // owner: @timgl
+    KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
+    INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
+    FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
+    TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
+    // Re-enable person modal CSV downloads when frontend can support new entity properties
+    PERSON_MODAL_EXPORTS: 'person-modal-exports', // hot potato see https://github.com/PostHog/posthog/pull/10824
+    BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
+    CANCEL_RUNNING_QUERIES: 'cancel-running-queries', // owner @timgl
+    IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
+    SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner: @alexkim205
+    ALLOW_CSV_EXPORT_COLUMN_CHOICE: 'allow-csv-export-column-choice', //owner: @pauldambra
+    HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
+    ACTOR_ON_EVENTS_QUERYING: 'person-on-events-enabled', //owner: @EDsCODE
+    FEATURE_FLAGS_UX: 'feature-flags-ux', //owner: @liyiy
+    REGION_SELECT: 'region-select', //owner: @kappa90
+    INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -132,10 +140,13 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.MULTIVARIATE_FLAGS]: LicensePlan.Scale,
     [AvailableFeature.EXPERIMENTATION]: LicensePlan.Scale,
     [AvailableFeature.TAGGING]: LicensePlan.Scale,
+    [AvailableFeature.BEHAVIORAL_COHORT_FILTERING]: LicensePlan.Scale,
+    [AvailableFeature.WHITE_LABELLING]: LicensePlan.Scale,
     [AvailableFeature.DASHBOARD_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.SAML]: LicensePlan.Enterprise,
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
+    [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
@@ -146,11 +157,13 @@ export enum FunnelLayout {
     vertical = 'vertical',
 }
 
-export const BinCountAuto = 'auto'
+export const BIN_COUNT_AUTO = 'auto'
 
 // Cohort types
-export const COHORT_STATIC = 'static'
-export const COHORT_DYNAMIC = 'dynamic'
+export enum CohortTypeEnum {
+    Static = 'static',
+    Dynamic = 'dynamic',
+}
 
 /**
  * Mock Node.js `process`, which is required by VFile that is used by ReactMarkdown.
@@ -158,14 +171,22 @@ export const COHORT_DYNAMIC = 'dynamic'
  */
 export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
 
-export const SSOProviderNames: Record<SSOProviders, string> = {
+export const SSO_PROVIDER_NAMES: Record<SSOProviders, string> = {
     'google-oauth2': 'Google',
     github: 'GitHub',
     gitlab: 'GitLab',
-    saml: 'Single sign-on (SAML)',
+    saml: 'single sign-on (SAML)',
 }
 
 // TODO: Support checking minimum plan required for specific feature and highlight the relevant plan in the
 // pricing page (or billing page). Requires updating the pricing page to support this highlighting first.
 export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' } =>
     cloud ? { url: urls.organizationBilling() } : { url: 'https://posthog.com/pricing', target: '_blank' }
+
+export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
+export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:\/?#[\]@!\$&'\(\)\*\+,;=.]+$/gi
+
+export const CLOUD_HOSTNAMES = {
+    [Region.US]: 'app.posthog.com',
+    [Region.EU]: 'eu.posthog.com',
+}

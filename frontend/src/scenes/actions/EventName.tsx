@@ -31,6 +31,7 @@ export function LemonEventName({ value, onChange }: EventNameInterface): JSX.Ele
             onChange={onChange}
             value={value}
             type="secondary"
+            status="stealth"
             placeholder="Select an event"
             dataAttr="event-name-box"
             renderValue={(v) => <PropertyKeyInfo value={v} disablePopover />}

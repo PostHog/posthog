@@ -1,7 +1,6 @@
 from functools import cached_property
 from typing import List
 
-from constance import config
 from django.conf import settings
 
 from posthog.async_migrations.definition import (
@@ -9,15 +8,12 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
 )
-from posthog.async_migrations.utils import execute_op_clickhouse
+from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_for_table
+from posthog.async_migrations.utils import run_optimize_table
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
-from posthog.settings import (
-    ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
-    CLICKHOUSE_CLUSTER,
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_REPLICATION,
-)
+from posthog.models.instance_setting import set_instance_setting
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
 from posthog.version_requirement import ServiceVersionRequirement
 
 TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
@@ -72,9 +68,7 @@ class Migration(AsyncMigrationDefinition):
     posthog_min_version = "1.33.0"
     posthog_max_version = "1.33.9"
 
-    service_version_requirements = [
-        ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0"),
-    ]
+    service_version_requirements = [ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0")]
 
     @cached_property
     def operations(self):
@@ -104,8 +98,8 @@ class Migration(AsyncMigrationDefinition):
 
         detach_mv_ops = [
             AsyncMigrationOperation(
-                fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-                rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+                fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+                rollback_fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
             ),
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
@@ -115,21 +109,6 @@ class Migration(AsyncMigrationDefinition):
         ]
 
         last_partition_op = [generate_insert_into_op(self._partitions[-1] if len(self._partitions) > 0 else 0)]
-
-        def optimize_table_fn(query_id):
-            default_timeout = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
-            try:
-                execute_op_clickhouse(
-                    f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
-                    query_id,
-                    settings={
-                        "max_execution_time": default_timeout,
-                        "send_timeout": default_timeout,
-                        "receive_timeout": default_timeout,
-                    },
-                )
-            except:  # TODO: we should only pass the timeout one here
-                pass
 
         post_insert_ops = [
             AsyncMigrationOperationSQL(
@@ -153,10 +132,14 @@ class Migration(AsyncMigrationDefinition):
                 rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
             ),
             AsyncMigrationOperation(
-                fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-                rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+                fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+                rollback_fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
             ),
-            AsyncMigrationOperation(fn=optimize_table_fn),
+            AsyncMigrationOperation(
+                fn=lambda query_id: run_optimize_table(
+                    unique_name="0002_events_sample_by", query_id=query_id, table_name=EVENTS_TABLE_NAME, final=True
+                )
+            ),
         ]
 
         _operations = create_table_op + old_partition_ops + detach_mv_ops + last_partition_op + post_insert_ops
@@ -188,32 +171,7 @@ class Migration(AsyncMigrationDefinition):
             )
 
         events_table = "sharded_events" if CLICKHOUSE_REPLICATION else "events"
-        result = sync_execute(
-            f"""
-        SELECT (free_space.size / greatest(event_table_size.size, 1)) FROM
-            (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = '{events_table}' AND database='{CLICKHOUSE_DATABASE}') event_table_size
-        JOIN
-            (SELECT 1 as jc, 'free_disk_space', free_space as size FROM system.disks WHERE name = 'default') free_space
-        ON event_table_size.jc=free_space.jc
-        """
-        )
-        event_size_to_free_space_ratio = result[0][0]
-
-        # Require 1.5x the events table in free space to be available
-        if event_size_to_free_space_ratio > 1.5:
-            return (True, None)
-        else:
-            result = sync_execute(
-                f"""
-            SELECT formatReadableSize(free_space.size - (free_space.free_space - (1.5 * event_table_size.size ))) as required FROM
-                (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = '{events_table}' AND database='{CLICKHOUSE_DATABASE}') event_table_size
-            JOIN
-                (SELECT 1 as jc, 'free_disk_space', free_space, total_space as size FROM system.disks WHERE name = 'default') free_space
-            ON event_table_size.jc=free_space.jc
-            """
-            )
-            required_space = result[0][0]
-            return (False, f"Upgrade your ClickHouse storage to at least {required_space}.")
+        return analyze_enough_disk_space_free_for_table(events_table, required_ratio=1.5)
 
     def healthcheck(self):
         result = sync_execute("SELECT free_space FROM system.disks")

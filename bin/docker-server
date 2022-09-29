@@ -3,7 +3,15 @@ set -e
 
 ./bin/migrate-check
 
-gunicorn posthog.wsgi \
+# To ensure we are able to expose metrics from multiple processes, we need to
+# provide a directory for `prometheus_client` to store a shared registry.
+export PROMETHEUS_MULTIPROC_DIR=$(mktemp -d)
+trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+
+export PROMETHEUS_METRICS_EXPORT_PORT=8001
+export STATSD_PORT=${STATSD_PORT:-8125}
+
+exec gunicorn posthog.wsgi \
     --config gunicorn.config.py \
     --bind 0.0.0.0:8000 \
     --log-file - \
@@ -11,6 +19,7 @@ gunicorn posthog.wsgi \
     --access-logfile - \
     --worker-tmp-dir /dev/shm \
     --workers=2 \
-    --threads=4 \
+    --threads=8 \
     --worker-class=gthread \
-    --limit-request-line=8190
+    ${STATSD_HOST:+--statsd-host $STATSD_HOST:$STATSD_PORT} \
+    --limit-request-line=8190 $@

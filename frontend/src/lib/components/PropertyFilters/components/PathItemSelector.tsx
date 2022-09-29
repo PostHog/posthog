@@ -26,11 +26,9 @@ export function PathItemSelector({
         <Popup
             visible={visible}
             placement={'bottom-end'}
-            fallbackPlacements={['bottom-start']}
             onClickOutside={() => setVisible(false)}
             overlay={
                 <TaxonomicFilter
-                    groupType={TaxonomicFilterGroupType.PageviewUrls}
                     value={pathItem}
                     onChange={(_, value) => {
                         onChange(value as string)
@@ -41,13 +39,7 @@ export function PathItemSelector({
                 />
             }
         >
-            {({ setRef }) => {
-                return (
-                    <div ref={setRef} onClick={disabled ? () => {} : () => setVisible(!visible)}>
-                        {children}
-                    </div>
-                )
-            }}
+            <div onClick={disabled ? () => {} : () => setVisible(!visible)}>{children}</div>
         </Popup>
     )
 }

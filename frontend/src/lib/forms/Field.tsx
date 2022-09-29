@@ -1,65 +1,62 @@
-import { FieldProps as KeaFieldProps } from 'kea-forms'
-import clsx from 'clsx'
-import { Field as KeaField } from 'kea-forms/lib/components'
+import { IconErrorOutline } from 'lib/components/icons'
 import React from 'react'
+import { LemonLabel } from '../components/LemonLabel/LemonLabel'
+import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/components'
+import clsx from 'clsx'
 
-export interface FieldProps extends KeaFieldProps {
+export type PureFieldProps = {
+    /** The label name to be displayed */
+    label?: React.ReactNode
+    /** Will show a muted (optional) next to the label */
     showOptional?: boolean
+    /** Info tooltip to be displayed next to the label */
+    info?: React.ReactNode
+    /** Help text to be shown directly beneath the input */
+    help?: React.ReactNode
+    /** Error message to be displayed */
+    error?: React.ReactNode
+    className?: string
+    children?: React.ReactNode
 }
 
-/** Compatible replacement for Form.Item */
-export const Field = ({ showOptional, name, ...keaFieldProps }: FieldProps): JSX.Element => {
-    /** Drop-in replacement antd template for kea forms */
-    const template: FieldProps['template'] = ({ label, kids, hint, error }) => {
-        return (
-            <div
-                className={clsx(
-                    'ant-row',
-                    'ant-form-item',
-                    hint || error ? 'ant-form-item-with-help' : '',
-                    error ? `ant-form-item-has-error` : ''
-                )}
-            >
-                {label ? (
-                    <div className="ant-col ant-form-item-label">
-                        <label htmlFor={String(name)} title={typeof label === 'string' ? label : undefined}>
-                            {showOptional ? (
-                                <>
-                                    {label}
-                                    {showOptional ? (
-                                        <span className="ant-form-item-optional" title="">
-                                            (optional)
-                                        </span>
-                                    ) : null}
-                                </>
-                            ) : (
-                                label
-                            )}
-                        </label>
-                    </div>
-                ) : null}
-                <div className="ant-col ant-form-item-control">
-                    <div className="ant-form-item-control-input">
-                        <div className="ant-form-item-control-input-content">{kids}</div>
-                    </div>
-                    {hint || error ? (
-                        <div className="ant-form-item-explain ant-form-item-explain-connected">
-                            {error ? (
-                                <div role="alert" className="ant-form-item-explain-error">
-                                    Error: {error}
-                                </div>
-                            ) : null}
-                            {hint ? (
-                                <div role="alert" className="ant-form-item-explain-warning">
-                                    Hint: {hint}
-                                </div>
-                            ) : null}
-                        </div>
-                    ) : null}
+/** A "Pure" field - used when you want the Field styles without the Kea form functionality */
+export const PureField = ({
+    label,
+    info,
+    error,
+    help,
+    showOptional,
+    className,
+    children,
+}: PureFieldProps): JSX.Element => {
+    return (
+        <div className={clsx('Field flex flex-col gap-2', className, error && 'Field--error')}>
+            {label ? (
+                <LemonLabel info={info} showOptional={showOptional}>
+                    {label}
+                </LemonLabel>
+            ) : null}
+            {children}
+            {help ? <div className="text-muted text-xs">{help}</div> : null}
+            {error ? (
+                <div className="text-danger flex items-center gap-1 text-sm">
+                    <IconErrorOutline className="text-xl" /> {error}
                 </div>
-            </div>
+            ) : null}
+        </div>
+    )
+}
+
+export type FieldProps = Omit<PureFieldProps, 'children' | 'error'> & Pick<KeaFieldProps, 'children' | 'name'>
+
+export const Field = ({ name, help, className, showOptional, ...keaFieldProps }: FieldProps): JSX.Element => {
+    /** Drop-in replacement antd template for kea forms */
+    const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
+        return (
+            <PureField label={label} error={error} help={help} className={className} showOptional={showOptional}>
+                {kids}
+            </PureField>
         )
     }
-
-    return <KeaField {...keaFieldProps} name={name} template={template} />
+    return <KeaField {...keaFieldProps} name={name} template={template} noStyle />
 }

@@ -2,33 +2,31 @@ import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router } from 'kea-router'
-import { clearDOMTextSelection, isUserLoggedIn, setPageTitle, toParams } from 'lib/utils'
+import { clearDOMTextSelection, isUserLoggedIn, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    PATHS_VIZ,
-    DashboardPrivilegeLevel,
-    OrganizationMembershipLevel,
-} from 'lib/constants'
+import { DashboardPrivilegeLevel, OrganizationMembershipLevel } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
+    AnyPropertyFilter,
     Breadcrumb,
-    InsightModel,
+    ChartDisplayType,
     DashboardLayoutSize,
     DashboardMode,
+    DashboardPlacement,
     DashboardType,
     FilterType,
+    InsightModel,
     InsightShortId,
     InsightType,
-    DashboardPlacement,
 } from '~/types'
-import { dashboardLogicType } from './dashboardLogicType'
+import type { dashboardLogicType } from './dashboardLogicType'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
+import { dayjs, now } from 'lib/dayjs'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -42,27 +40,37 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 export interface DashboardLogicProps {
     id?: number
-    shareToken?: string
+    dashboard?: DashboardType
     placement?: DashboardPlacement
+}
+
+export interface RefreshStatus {
+    loading?: boolean
+    refreshed?: boolean
+    error?: boolean
+    timer?: Date | null
 }
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
-export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
-    path: (key) => ['scenes', 'dashboard', 'dashboardLogic', key],
-    connect: {
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+export const dashboardLogic = kea<dashboardLogicType>({
+    path: ['scenes', 'dashboard', 'dashboardLogic'],
+    connect: () => ({
+        values: [teamLogic, ['currentTeamId']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
-    },
+    }),
 
     props: {} as DashboardLogicProps,
 
-    key: (props) => props.id || 'dashboardLogic',
+    key: (props) => {
+        if (typeof props.id === 'string') {
+            throw Error('Must init dashboardLogic with a numeric key')
+        }
+        return props.id ?? 'new'
+    },
 
     actions: {
-        setReceivedErrorsFromAPI: (receivedErrors: boolean) => ({
-            receivedErrors,
-        }),
+        loadExportedDashboard: (dashboard: DashboardType | null) => ({ dashboard }),
         loadDashboardItems: ({
             refresh,
         }: {
@@ -71,15 +79,12 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             refresh,
         }),
         triggerDashboardUpdate: (payload) => ({ payload }),
-        /** Whether the dashboard is shared or not. */
-        setIsSharedDashboard: (id: number, isShared: boolean) => ({ id, isShared }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
-        saveLayouts: true,
         updateItemColor: (insightNumericId: number, color: string | null) => ({ insightNumericId, color }),
-        removeItem: (insightNumericId: number) => ({ insightNumericId }),
+        removeItem: (insight: Partial<InsightModel>) => ({ insight }),
         refreshAllDashboardItems: (items?: InsightModel[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
@@ -89,42 +94,96 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             dateTo,
             reloadDashboard,
         }),
+        setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
+        setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
     },
 
-    loaders: ({ actions, props }) => ({
+    loaders: ({ actions, props, values }) => ({
+        // TODO this is a terrible name... it is "dashboard" but there's a "dashboard" reducer ¯\_(ツ)_/¯
         allItems: [
             null as DashboardType | null,
             {
                 loadDashboardItems: async ({ refresh }) => {
-                    actions.setReceivedErrorsFromAPI(false)
-
                     if (!props.id) {
                         console.warn('Called `loadDashboardItems` but ID is not set.')
                         return
                     }
 
                     try {
-                        const apiUrl = props.shareToken
-                            ? `api/shared_dashboards/${props.shareToken}`
-                            : `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/?${toParams({
-                                  refresh,
-                              })}`
+                        const apiUrl = values.apiUrl(refresh)
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
-                        setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
                         return dashboard
                     } catch (error: any) {
                         if (error.status === 404) {
-                            return []
+                            return null
                         }
-                        actions.setReceivedErrorsFromAPI(true)
                         throw error
+                    }
+                },
+                updateLayouts: async ({ layouts }) => {
+                    if (!isUserLoggedIn()) {
+                        // If user is anonymous (i.e. viewing a shared dashboard logged out), we don't save any layout changes.
+                        return
+                    }
+                    if (!props.id) {
+                        // what are we saving layouts against?!
+                        return
+                    }
+
+                    const itemLayouts: Record<number, Partial<Record<string, Layout>>> = {}
+
+                    Object.entries(layouts).forEach(([col, layout]) => {
+                        layout.forEach((layoutItem) => {
+                            const insightId = values.shortIdToId?.[layoutItem.i]
+                            if (!insightId) {
+                                // it _should_ be impossible for a layout item to not be in this mapping
+                                throw new Error('Could not update layouts for unknown insight')
+                            }
+
+                            if (!itemLayouts[insightId]) {
+                                itemLayouts[insightId] = {}
+                            }
+                            itemLayouts[insightId][col] = layoutItem
+                        })
+                    })
+
+                    return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                        tile_layouts: Object.entries(itemLayouts).map(([id, layouts]) => ({
+                            id,
+                            layouts,
+                        })),
+                    })
+                },
+                updateItemColor: async ({ insightNumericId, color }) => {
+                    if (!props.id) {
+                        // what are we saving colors against?!
+                        return
+                    }
+
+                    return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                        colors: [{ id: insightNumericId, color }],
+                    })
+                },
+                removeItem: async ({ insight }) => {
+                    try {
+                        await api.update(`api/projects/${values.currentTeamId}/insights/${insight.id}`, {
+                            dashboards: insight.dashboards?.filter((id) => id !== props.id) ?? [],
+                        } as Partial<InsightModel>)
+
+                        return {
+                            ...values.allItems,
+                            items: values.allItems?.items.filter((i) => i.id !== insight.id),
+                        } as DashboardType
+                    } catch (e) {
+                        lemonToast.error('Could not remove item: ' + e)
+                        return values.allItems
                     }
                 },
             },
@@ -134,8 +193,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         receivedErrorsFromAPI: [
             false,
             {
-                setReceivedErrorsFromAPI: (_: boolean, { receivedErrors }: { receivedErrors: boolean }) =>
-                    receivedErrors,
+                loadDashboardItemsSuccess: () => false,
+                loadDashboardItemsFailure: () => true,
             },
         ],
         filters: [
@@ -146,51 +205,47 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     date_from: dateFrom || null,
                     date_to: dateTo || null,
                 }),
+                setProperties: (state, { properties }) => ({
+                    ...state,
+                    properties: properties || null,
+                }),
             },
         ],
         allItems: [
             null as DashboardType | null,
             {
-                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
-                    return {
-                        ...state,
-                        items: state?.items.map((i) => (i.short_id === item.short_id ? item : i)) || [],
-                    } as DashboardType
-                },
-                updateLayouts: (state, { layouts }) => {
-                    const itemLayouts: Record<string, Partial<Record<string, Layout>>> = {}
-                    state?.items.forEach((item) => {
-                        itemLayouts[item.short_id] = {}
-                    })
+                loadExportedDashboard: (_, { dashboard }) => dashboard,
+                [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
+                    const targetDashboards = (item.dashboards || []).concat(extraDashboardIds || [])
+                    if (!props.id) {
+                        // what are we even updating?
+                        return state
+                    }
+                    if (!targetDashboards.includes(props.id)) {
+                        // this update is not for this dashboard
+                        return state
+                    }
 
-                    Object.entries(layouts).forEach(([col, layout]) => {
-                        layout.forEach((layoutItem) => {
-                            if (!itemLayouts[layoutItem.i]) {
-                                itemLayouts[layoutItem.i] = {}
-                            }
-                            itemLayouts[layoutItem.i][col] = layoutItem
-                        })
-                    })
-
-                    return {
-                        ...state,
-                        items: state?.items.map((item) => ({ ...item, layouts: itemLayouts[item.short_id] })),
-                    } as DashboardType
-                },
-                [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
                     if (state) {
                         const itemIndex = state.items.findIndex((i) => i.short_id === item.short_id)
                         const newItems = state.items.slice(0)
+
                         if (itemIndex >= 0) {
-                            newItems[itemIndex] = item
+                            if (item.dashboards?.includes(props.id)) {
+                                newItems[itemIndex] = { ...newItems[itemIndex], ...item }
+                            } else {
+                                newItems.splice(itemIndex, 1)
+                            }
                         } else {
                             newItems.push(item)
                         }
+
                         return {
                             ...state,
-                            items: newItems,
+                            items: newItems.filter((i) => !i.deleted),
                         } as DashboardType
                     }
+
                     return null
                 },
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
@@ -217,57 +272,39 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         ),
                     } as DashboardType
                 },
-                updateItemColor: (state, { insightNumericId, color }) => {
-                    return {
-                        ...state,
-                        items: state?.items.map((i) => (i.id === insightNumericId ? { ...i, color } : i)),
-                    } as DashboardType
-                },
-                removeItem: (state, { insightNumericId }) => {
-                    return {
-                        ...state,
-                        items: state?.items.filter((i) => i.id !== insightNumericId),
-                    } as DashboardType
-                },
                 [insightsModel.actionTypes.duplicateInsightSuccess]: (state, { item }): DashboardType => {
                     return {
                         ...state,
                         items:
-                            props.id && item.dashboard === parseInt(props.id.toString())
+                            props.id && item.dashboards?.includes(parseInt(props.id.toString()))
                                 ? [...(state?.items || []), item]
                                 : state?.items,
                     } as DashboardType
                 },
             },
         ],
+        loadTimer: [null as Date | null, { loadDashboardItems: () => new Date() }],
         refreshStatus: [
-            {} as Record<
-                string,
-                {
-                    loading?: boolean
-                    refreshed?: boolean
-                    error?: boolean
-                }
-            >,
+            {} as Record<string, RefreshStatus>,
             {
                 setRefreshStatus: (state, { shortId, loading }) => ({
                     ...state,
-                    [shortId]: loading ? { loading: true } : { refreshed: true },
+                    [shortId]: loading
+                        ? { loading: true, timer: new Date() }
+                        : { refreshed: true, timer: state[shortId]?.timer || null },
                 }),
-                setRefreshStatuses: (_, { shortIds, loading }) =>
+                setRefreshStatuses: (state, { shortIds, loading }) =>
                     Object.fromEntries(
-                        shortIds.map((shortId) => [shortId, loading ? { loading: true } : { refreshed: true }])
-                    ) as Record<
-                        string,
-                        {
-                            loading?: boolean
-                            refreshed?: boolean
-                            error?: boolean
-                        }
-                    >,
+                        shortIds.map((shortId) => [
+                            shortId,
+                            loading
+                                ? { loading: true, timer: new Date() }
+                                : { refreshed: true, timer: state[shortId]?.timer || null },
+                        ])
+                    ) as Record<string, RefreshStatus>,
                 setRefreshError: (state, { shortId }) => ({
                     ...state,
-                    [shortId]: { error: true },
+                    [shortId]: { error: true, timer: state[shortId]?.timer || null },
                 }),
                 refreshAllDashboardItems: () => ({}),
             },
@@ -304,7 +341,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 interval: number
                 enabled: boolean
             },
-            { persist: true },
+            { persist: true, prefix: '1_' },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
@@ -312,51 +349,73 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         shouldReportOnAPILoad: [
             /* Whether to report viewed/analyzed events after the API is loaded (and this logic is mounted).
             We need this because the DashboardView component might be mounted (and subsequent `useEffect`) before the API request
-            to `loadDashboardItems` is completed (e.g. if you open PH directly to a dashboard) 
+            to `loadDashboardItems` is completed (e.g. if you open PH directly to a dashboard)
             */
             false,
             {
                 setShouldReportOnAPILoad: (_, { shouldReport }) => shouldReport,
             },
         ],
+
+        showSubscriptions: [
+            false,
+            {
+                setSubscriptionMode: (_, { enabled }) => enabled,
+            },
+        ],
+        subscriptionId: [
+            null as number | 'new' | null,
+            {
+                setSubscriptionMode: (_, { id }) => id || null,
+            },
+        ],
     }),
-    selectors: ({ props, selectors }) => ({
-        items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
+    selectors: () => ({
+        placement: [() => [(_, props) => props.placement], (placement) => placement ?? DashboardPlacement.Dashboard],
+        apiUrl: [
+            () => [(_, props) => props.id],
+            (id) => {
+                return (refresh?: boolean) =>
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
+                        refresh,
+                    })}`
+            },
+        ],
+        items: [(s) => [s.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [
-            () => [selectors.allItemsLoading, selectors.refreshStatus],
+            (s) => [s.allItemsLoading, s.refreshStatus],
             (allItemsLoading, refreshStatus) => {
                 return allItemsLoading || Object.values(refreshStatus).some((s) => s.loading)
             },
         ],
-        isRefreshing: [
-            () => [selectors.refreshStatus],
-            (refreshStatus) => (id: string) => !!refreshStatus[id]?.loading,
-        ],
+        isRefreshing: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.loading],
         highlightedInsightId: [
             () => [router.selectors.searchParams],
             (searchParams) => searchParams.highlightInsightId,
         ],
         lastRefreshed: [
-            () => [selectors.items],
+            (s) => [s.items],
             (items) => {
                 if (!items || !items.length) {
                     return null
                 }
-                let lastRefreshed = items[0].last_refresh
-
+                let oldestLastRefreshed = null
                 for (const item of items) {
-                    if (item.last_refresh && (!lastRefreshed || item.last_refresh < lastRefreshed)) {
-                        lastRefreshed = item.last_refresh
+                    const itemLastRefreshed = item.last_refresh ? dayjs(item.last_refresh) : null
+                    if (
+                        !oldestLastRefreshed ||
+                        (itemLastRefreshed && itemLastRefreshed.isBefore(oldestLastRefreshed))
+                    ) {
+                        oldestLastRefreshed = itemLastRefreshed
                     }
                 }
-
-                return lastRefreshed
+                return oldestLastRefreshed
             },
         ],
         dashboard: [
-            () => [dashboardsModel.selectors.sharedDashboard, dashboardsModel.selectors.nameSortedDashboards],
-            (sharedDashboard, dashboards): DashboardType | null => {
-                return props.shareToken ? sharedDashboard : dashboards.find((d) => d.id === props.id) || null
+            () => [dashboardsModel.selectors.nameSortedDashboards, (_, { id }) => id],
+            (dashboards, id): DashboardType | null => {
+                return dashboards.find((d) => d.id === id) || null
             },
         ],
         canEditDashboard: [
@@ -396,9 +455,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         .map((item) => {
                             const isRetention =
                                 item.filters.insight === InsightType.RETENTION &&
-                                item.filters.display === ACTIONS_LINE_GRAPH_LINEAR
-                            const defaultWidth = isRetention || item.filters.display === PATHS_VIZ ? 8 : 6
-                            const defaultHeight = isRetention ? 8 : item.filters.display === PATHS_VIZ ? 12.5 : 5
+                                item.filters.display === ChartDisplayType.ActionsLineGraph
+                            const defaultWidth =
+                                isRetention || item.filters.display === ChartDisplayType.PathsViz ? 8 : 6
+                            const defaultHeight = isRetention
+                                ? 8
+                                : item.filters.display === ChartDisplayType.PathsViz
+                                ? 12.5
+                                : 5
                             const layout = item.layouts && item.layouts[col]
                             const { x, y, w, h } = layout || {}
                             const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
@@ -502,18 +566,26 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 },
             ],
         ],
+        shortIdToId: [
+            (s) => [s.items],
+            (items): Record<InsightShortId, number> => {
+                return (items ?? []).reduce((acc, curr) => {
+                    acc[curr.short_id] = Number(curr.id)
+                    return acc
+                }, {})
+            },
+        ],
     }),
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
             if (props.id) {
-                // When the scene is initially loaded, the dashboard ID is undefined
-                actions.loadDashboardItems({
-                    refresh: props.placement === DashboardPlacement.InternalMetrics,
-                })
-            }
-
-            if (props.shareToken) {
-                dashboardsModel.actions.loadSharedDashboard(props.shareToken)
+                if (props.dashboard) {
+                    actions.loadExportedDashboard(props.dashboard)
+                } else {
+                    actions.loadDashboardItems({
+                        refresh: props.placement === DashboardPlacement.InternalMetrics,
+                    })
+                }
             }
         },
         beforeUnmount: () => {
@@ -523,44 +595,35 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
         },
     }),
-    listeners: ({ actions, values, cache, props }) => ({
-        setIsSharedDashboard: ({ id, isShared }) => {
-            dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
-            eventUsageLogic.actions.reportDashboardShareToggled(isShared)
+    sharedListeners: ({ values, props }) => ({
+        reportRefreshTiming: ({ shortId }) => {
+            const refreshStatus = values.refreshStatus[shortId]
+
+            if (refreshStatus?.timer) {
+                const loadingMilliseconds = new Date().getTime() - refreshStatus.timer.getTime()
+                eventUsageLogic.actions.reportInsightRefreshTime(loadingMilliseconds, shortId)
+            }
         },
+        reportLoadTiming: () => {
+            if (!props.id) {
+                // what even is loading?!
+                return
+            }
+            if (values.loadTimer) {
+                const loadingMilliseconds = new Date().getTime() - values.loadTimer.getTime()
+                eventUsageLogic.actions.reportDashboardLoadingTime(loadingMilliseconds, props.id)
+            }
+        },
+    }),
+    listeners: ({ actions, values, cache, props, sharedListeners }) => ({
+        setRefreshError: sharedListeners.reportRefreshTiming,
+        setRefreshStatuses: sharedListeners.reportRefreshTiming,
+        setRefreshStatus: sharedListeners.reportRefreshTiming,
+        loadDashboardItemsFailure: sharedListeners.reportLoadTiming,
         triggerDashboardUpdate: ({ payload }) => {
             if (values.dashboard) {
                 dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
             }
-        },
-        updateLayouts: () => {
-            actions.saveLayouts()
-        },
-        saveLayouts: async (_, breakpoint) => {
-            await breakpoint(300)
-            if (!isUserLoggedIn()) {
-                // If user is anonymous (i.e. viewing a shared dashboard logged out), we don't save any layout changes.
-                return
-            }
-            await api.update(`api/projects/${values.currentTeamId}/insights/layouts`, {
-                items:
-                    values.items?.map((item) => {
-                        const layouts: Record<string, Layout> = {}
-                        Object.entries(item.layouts).forEach(([layoutKey, layout]) => {
-                            const { i, ...rest } = layout // eslint-disable-line
-                            layouts[layoutKey] = rest
-                        })
-                        return { id: item.id, layouts }
-                    }) || [],
-            })
-        },
-        updateItemColor: async ({ insightNumericId, color }) => {
-            return api.update(`api/projects/${values.currentTeamId}/insights/${insightNumericId}`, { color })
-        },
-        removeItem: async ({ insightNumericId }) => {
-            return api.update(`api/projects/${values.currentTeamId}/insights/${insightNumericId}`, {
-                dashboard: null,
-            } as Partial<InsightModel>)
         },
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
@@ -568,6 +631,12 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             actions.refreshAllDashboardItems()
         },
         refreshAllDashboardItems: async ({ items: _items }, breakpoint) => {
+            if (!props.id) {
+                // what are we loading the insight card on?!
+                return
+            }
+            const dashboardId: number = props.id
+
             const items = _items || values.items || []
 
             // Don't do anything if there's nothing to refresh
@@ -589,6 +658,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     const refreshedDashboardItem = await api.get(
                         `api/projects/${values.currentTeamId}/insights/${dashboardItem.id}/?${toParams({
                             refresh: true,
+                            from_dashboard: dashboardId, // needed to load insight in correct context
                         })}`
                     )
                     breakpoint()
@@ -597,6 +667,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     if (dashboardItem.filters.insight) {
                         const itemResultLogic = insightLogic?.findMounted({
                             dashboardItemId: dashboardItem.short_id,
+                            dashboardId: dashboardId,
                             cachedInsight: dashboardItem,
                         })
                         itemResultLogic?.actions.setInsight(
@@ -605,7 +676,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         )
                     }
 
-                    dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
+                    dashboardsModel.actions.updateDashboardInsight(refreshedDashboardItem)
                     actions.setRefreshStatus(dashboardItem.short_id)
                 } catch (e: any) {
                     if (isBreakpoint(e)) {
@@ -626,7 +697,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 void loadNextPromise()
             }
 
-            eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
+            eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastRefreshed)
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
@@ -640,6 +711,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 actions.updateAndRefreshDashboard()
             }
             eventUsageLogic.actions.reportDashboardDateRangeChanged(dateFrom, dateTo)
+        },
+        setProperties: () => {
+            actions.updateAndRefreshDashboard()
+            eventUsageLogic.actions.reportDashboardPropertiesChanged()
         },
         setDashboardMode: async ({ mode, source }) => {
             // Edit mode special handling
@@ -671,30 +746,62 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 }, values.autoRefresh.interval * 1000)
             }
         },
-        loadDashboardItemsSuccess: () => {
+        loadDashboardItemsSuccess: function (...args) {
+            sharedListeners.reportLoadTiming(...args)
+
             // Initial load of actual data for dashboard items after general dashboard is fetched
-            const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
-            actions.refreshAllDashboardItems(notYetLoadedItems)
+            if (values.lastRefreshed && values.lastRefreshed.isBefore(now().subtract(3, 'hours'))) {
+                actions.refreshAllDashboardItems()
+            } else {
+                const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)
+                if (notYetLoadedItems && notYetLoadedItems?.length > 0) {
+                    actions.refreshAllDashboardItems(notYetLoadedItems)
+                }
+            }
             if (values.shouldReportOnAPILoad) {
                 actions.setShouldReportOnAPILoad(false)
                 actions.reportDashboardViewed()
             }
         },
         reportDashboardViewed: async (_, breakpoint) => {
-            if (values.allItems) {
-                eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken)
+            // Caching `allItems`, as the dashboard might have unmounted after the breakpoint,
+            // and "values.allItems" will then fail
+            const { allItems, lastRefreshed } = values
+            if (allItems) {
+                eventUsageLogic.actions.reportDashboardViewed(allItems, lastRefreshed)
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
                 if (
-                    router.values.location.pathname === urls.dashboard(values.allItems.id) ||
+                    router.values.location.pathname === urls.dashboard(allItems.id) ||
                     router.values.location.pathname === urls.projectHomepage() ||
-                    (props.shareToken && router.values.location.pathname === urls.sharedDashboard(props.shareToken))
+                    router.values.location.pathname.startsWith(urls.sharedDashboard(''))
                 ) {
-                    eventUsageLogic.actions.reportDashboardViewed(values.allItems, !!props.shareToken, 10)
+                    eventUsageLogic.actions.reportDashboardViewed(allItems, lastRefreshed, 10)
                 }
             } else {
                 // allItems has not loaded yet, report after API request is completed
                 actions.setShouldReportOnAPILoad(true)
             }
+        },
+    }),
+
+    urlToAction: ({ actions }) => ({
+        '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
+            const id = subscriptionId
+                ? subscriptionId == 'new'
+                    ? subscriptionId
+                    : parseInt(subscriptionId, 10)
+                : undefined
+            actions.setSubscriptionMode(true, id)
+            actions.setDashboardMode(null, null)
+        },
+
+        '/dashboard/:id': () => {
+            actions.setSubscriptionMode(false, undefined)
+            actions.setDashboardMode(null, DashboardEventSource.Browser)
+        },
+        '/dashboard/:id/sharing': () => {
+            actions.setSubscriptionMode(false, undefined)
+            actions.setDashboardMode(DashboardMode.Sharing, null)
         },
     }),
 })

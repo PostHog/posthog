@@ -1,7 +1,7 @@
 import { createMemoryHistory } from 'history'
 import { initKea } from '~/initKea'
 import { router } from 'kea-router'
-import { getContext, Provider } from 'kea'
+import { getContext } from 'kea'
 import React, { useEffect, useState } from 'react'
 import { App } from 'scenes/App'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -33,5 +33,5 @@ export function KeaStory<T = React.ReactNode>({ children }: { children: T }): T 
         }
     }, [didReset])
 
-    return didReset ? <Provider>{children || <App />}</Provider> : null
+    return didReset ? children || <App /> : null
 }

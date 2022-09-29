@@ -41,7 +41,8 @@ export function EditAction(): JSX.Element {
                 Cancel <CloseOutlined />
             </Button>
             <h1 className="section-title" style={{ paddingTop: 4 }}>
-                {selectedActionId === 'new' ? 'New Action' : 'Edit Action'}
+                {selectedActionId === 'new' ? 'New ' : 'Edit '}
+                action
             </h1>
 
             <Form
@@ -164,7 +165,8 @@ export function EditAction(): JSX.Element {
                         </Button>
                     ) : null}
                     <Button type="primary" htmlType="submit">
-                        {selectedActionId === 'new' ? 'Create Action' : 'Save Action'}
+                        {selectedActionId === 'new' ? 'Create ' : 'Save '}
+                        action
                     </Button>
                 </Form.Item>
             </Form>

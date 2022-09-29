@@ -6,18 +6,20 @@ from django.contrib.auth import views as auth_views
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
-from django.http import JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
-from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+from social_django.views import auth
 
-from posthog.email import EmailMessage, is_email_available
+from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
+from posthog.tasks.email import send_password_reset
+from posthog.utils import get_instance_available_sso_providers
 
 
 @csrf_protect
@@ -31,8 +33,6 @@ def logout(request):
         return redirect("/admin/")
 
     response = auth_views.logout_then_login(request)
-    response.delete_cookie(settings.TOOLBAR_COOKIE_NAME, "/")
-
     return response
 
 
@@ -47,6 +47,21 @@ def axes_locked_out(*args, **kwargs):
         },
         status=status.HTTP_403_FORBIDDEN,
     )
+
+
+def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
+    request.session.flush()
+    sso_providers = get_instance_available_sso_providers()
+    # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
+    sso_providers["saml"] = settings.EE_AVAILABLE
+
+    if backend not in sso_providers:
+        return redirect(f"/login?error_code=invalid_sso_provider")
+
+    if not sso_providers[backend]:
+        return redirect(f"/login?error_code=improperly_configured_sso")
+
+    return auth(request, backend)
 
 
 class LoginSerializer(serializers.Serializer):
@@ -86,15 +101,19 @@ class LoginPrecheckSerializer(serializers.Serializer):
 
     def create(self, validated_data: Dict[str, str]) -> Any:
         email = validated_data.get("email", "")
-        return {"sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)}
+        # TODO: Refactor methods below to remove duplicate queries
+        return {
+            "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
+            "saml_available": OrganizationDomain.objects.get_is_saml_available_for_email(email),
+        }
 
 
 class NonCreatingViewSetMixin(mixins.CreateModelMixin):
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
-            Method `create()` is overridden to send a more appropriate HTTP
-            status code (as no object is actually created).
-            """
+        Method `create()` is overridden to send a more appropriate HTTP
+        status code (as no object is actually created).
+        """
         response = super().create(request, *args, **kwargs)
         response.status_code = getattr(self, "SUCCESS_STATUS_CODE", status.HTTP_200_OK)
         return response
@@ -136,22 +155,7 @@ class PasswordResetSerializer(serializers.Serializer):
             user = None
 
         if user:
-            token = default_token_generator.make_token(user)
-
-            message = EmailMessage(
-                campaign_key=f"password-reset-{user.uuid}-{timezone.now()}",
-                subject=f"Reset your PostHog password",
-                template_name="password_reset",
-                template_context={
-                    "preheader": "Please follow the link inside to reset your password.",
-                    "link": f"/reset/{user.uuid}/{token}",
-                    "cloud": settings.MULTI_TENANCY,
-                    "site_url": settings.SITE_URL,
-                    "social_providers": list(user.social_auth.values_list("provider", flat=True)),
-                },
-            )
-            message.add_recipient(email)
-            message.send()
+            send_password_reset(user.id)
 
         # TODO: Limit number of requests for password reset emails
 

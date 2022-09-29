@@ -12,11 +12,13 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     eventPropertyDefinitionsTableLogic,
 } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
-import { Alert, Input } from 'antd'
-import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
-import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
+import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonInput } from '@posthog/lemon-ui'
+import { AlertMessage } from 'lib/components/AlertMessage'
+import { ThirtyDayQueryCountTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 
 export const scene: SceneExport = {
     component: EventPropertyDefinitionsTable,
@@ -26,12 +28,10 @@ export const scene: SceneExport = {
 
 export function EventPropertyDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, openedDefinitionId, filters } = useValues(
+    const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, filters } = useValues(
         eventPropertyDefinitionsTableLogic
     )
-    const { loadEventPropertyDefinitions, setLocalEventPropertyDefinition, setFilters } = useActions(
-        eventPropertyDefinitionsTableLogic
-    )
+    const { loadEventPropertyDefinitions, setFilters } = useActions(eventPropertyDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
@@ -39,7 +39,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
             key: 'icon',
             className: 'definition-column-icon',
             render: function Render(_, definition: PropertyDefinition) {
-                return <PropertyDefinitionHeader definition={definition} hideView hideText />
+                return <PropertyDefinitionHeader definition={definition} hideText />
             },
         },
         {
@@ -47,17 +47,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
             key: 'name',
             className: 'definition-column-name',
             render: function Render(_, definition: PropertyDefinition) {
-                return (
-                    <PropertyDefinitionHeader
-                        definition={definition}
-                        hideIcon
-                        hideView
-                        openDetailInNewTab={false}
-                        updateRemoteItem={(nextPropertyDefinition) => {
-                            setLocalEventPropertyDefinition(nextPropertyDefinition as PropertyDefinition)
-                        }}
-                    />
-                )
+                return <PropertyDefinitionHeader definition={definition} hideIcon asLink />
             },
             sorter: (a, b) => a.name.localeCompare(b.name),
         },
@@ -75,7 +65,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
         ...(hasIngestionTaxonomy
             ? [
                   {
-                      title: '30 day queries',
+                      title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
                       key: 'query_usage_30_day',
                       align: 'right',
                       render: function Render(_, definition: PropertyDefinition) {
@@ -93,49 +83,38 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <DataManagementPageHeader activeTab={DataManagementTab.EventPropertyDefinitions} />
+            <PageHeader
+                title="Data Management"
+                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
+                tabbedPage
+            />
             {preflight && !preflight?.is_event_property_usage_enabled ? (
-                <UsageDisabledWarning tab="Event Property Definitions" />
+                <UsageDisabledWarning />
             ) : (
                 eventPropertyDefinitions.results?.[0]?.query_usage_30_day === null && (
-                    <Alert
-                        type="warning"
-                        message="We haven't been able to get usage and volume data yet. Please check back later."
-                        style={{ marginBottom: '1rem' }}
-                    />
+                    <div className="mb-4">
+                        <AlertMessage type="warning">
+                            We haven't been able to get usage and volume data yet. Please check back later.
+                        </AlertMessage>
+                    </div>
                 )
             )}
-            <div
-                style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '0.5rem',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    width: '100%',
-                    marginBottom: '1rem',
-                }}
-            >
-                <Input.Search
+            <DataManagementPageTabs tab={DataManagementTab.EventPropertyDefinitions} />
+            <div className="mb-4">
+                <LemonInput
+                    type="search"
                     placeholder="Search for properties"
-                    allowClear
-                    enterButton
+                    onChange={(e) => setFilters({ property: e || '' })}
                     value={filters.property}
-                    style={{ maxWidth: 600, width: 'initial' }}
-                    onChange={(e) => {
-                        setFilters({ property: e.target.value || '' })
-                    }}
                 />
             </div>
+
             <LemonTable
                 columns={columns}
                 className="event-properties-definition-table"
                 data-attr="event-properties-definition-table"
                 loading={eventPropertyDefinitionsLoading}
                 rowKey="id"
-                rowStatus={(row) => {
-                    return row.id === openedDefinitionId ? 'highlighted' : undefined
-                }}
                 pagination={{
                     controlled: true,
                     currentPage: eventPropertyDefinitions?.page ?? 1,

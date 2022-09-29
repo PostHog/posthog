@@ -6,9 +6,8 @@ import { getSingularType } from 'lib/components/DefinitionPopup/utils'
 import { ActionType, AvailableFeature, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { actionsModel } from '~/models/actionsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import equal from 'fast-deep-equal'
 import { userLogic } from 'scenes/userLogic'
@@ -35,7 +34,7 @@ export interface DefinitionPopupLogicProps {
     openDetailInNewTab?: boolean
 }
 
-export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopupLogicProps, DefinitionPopupState>>({
+export const definitionPopupLogic = kea<definitionPopupLogicType>({
     props: {} as DefinitionPopupLogicProps,
     connect: {
         values: [userLogic, ['hasAvailableFeature']],
@@ -92,19 +91,17 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                                 owner: _event.owner?.id ?? null,
                                 verified: !!_event.verified,
                             })
-                            eventDefinitionsModel
-                                .findMounted()
-                                ?.actions.updateEventDefinition(definition as EventDefinition)
-                        } else if (values.type === TaxonomicFilterGroupType.EventProperties) {
+                        } else if (
+                            values.type === TaxonomicFilterGroupType.EventProperties ||
+                            values.type === TaxonomicFilterGroupType.EventFeatureFlags
+                        ) {
                             // Event Property Definitions
                             const _eventProperty = definition as PropertyDefinition
                             definition = await api.update(
                                 `api/projects/@current/property_definitions/${_eventProperty.id}`,
                                 _eventProperty
                             )
-                            propertyDefinitionsModel
-                                .findMounted()
-                                ?.actions.updatePropertyDefinition(definition as PropertyDefinition)
+                            updatePropertyDefinitions([definition as PropertyDefinition])
                         } else if (values.type === TaxonomicFilterGroupType.Cohorts) {
                             // Cohort
                             const _cohort = definition as CohortType
@@ -141,7 +138,9 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
         ],
         hasTaxonomyFeatures: [
             (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY),
+            (hasAvailableFeature) =>
+                hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY) ||
+                hasAvailableFeature(AvailableFeature.TAGGING),
         ],
         isViewable: [
             (s) => [s.type],
@@ -152,6 +151,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                     TaxonomicFilterGroupType.CustomEvents,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
                 ].includes(type),
         ],
         isAction: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Actions],
@@ -165,6 +165,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopup
                 [
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.NumericalEventProperties,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],

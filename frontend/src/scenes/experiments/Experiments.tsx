@@ -2,7 +2,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { experimentsLogic } from './experimentsLogic'
-import { PlusOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
@@ -11,12 +10,11 @@ import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Link } from 'lib/components/Link'
-import { LinkButton } from 'lib/components/LinkButton'
 import { dayjs } from 'lib/dayjs'
 import { Tabs, Tag } from 'antd'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
@@ -42,7 +40,7 @@ export function Experiments(): JSX.Element {
                 return (
                     <>
                         <Link to={experiment.id ? urls.experiment(experiment.id) : undefined}>
-                            <h4 className="row-name">{stringWithWBR(experiment.name, 17)}</h4>
+                            <span className="row-name">{stringWithWBR(experiment.name, 17)}</span>
                         </Link>
                         {experiment.description && <span className="row-description">{experiment.description}</span>}
                     </>
@@ -89,13 +87,17 @@ export function Experiments(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.experiment(`${experiment.id}`)} compact fullWidth>
+                                <LemonButton
+                                    status="stealth"
+                                    to={urls.experiment(`${experiment.id}`)}
+                                    size="small"
+                                    fullWidth
+                                >
                                     View
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
-                                    style={{ color: 'var(--danger)' }}
+                                    status="danger"
                                     onClick={() => deleteExperiment(experiment.id as number)}
                                     data-attr={`experiment-${experiment.id}-dropdown-remove`}
                                     fullWidth
@@ -114,29 +116,24 @@ export function Experiments(): JSX.Element {
         <div>
             <PageHeader
                 title={
-                    <div className="flex-center">
+                    <div className="flex items-center">
                         Experiments
-                        <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
-                            BETA
+                        <LemonTag type="warning" className="uppercase" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
+                            Beta
                         </LemonTag>
                     </div>
                 }
                 buttons={
                     hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
-                        <LinkButton
-                            type="primary"
-                            data-attr="create-experiment"
-                            to={urls.experiment('new')}
-                            icon={<PlusOutlined />}
-                        >
-                            New Experiment
-                        </LinkButton>
+                        <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
+                            New experiment
+                        </LemonButton>
                     ) : undefined
                 }
             />
             {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                 <>
-                    <div className="mb">
+                    <div className="mb-4">
                         Check out our
                         <a
                             data-attr="experiment-help"
@@ -171,7 +168,7 @@ export function Experiments(): JSX.Element {
                 </>
             ) : (
                 <PayGatePage
-                    featureKey="experimentation"
+                    featureKey={AvailableFeature.EXPERIMENTATION}
                     header={
                         <>
                             Introducing <span className="highlight">Experimentation</span>!

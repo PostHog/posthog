@@ -9,6 +9,7 @@ from posthog.models import (
     Element,
     FeatureFlag,
     Insight,
+    InstanceSetting,
     Organization,
     Person,
     Plugin,
@@ -23,16 +24,12 @@ admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(Insight)
+admin.site.register(InstanceSetting)
 
 
 @admin.register(Plugin)
 class PluginAdmin(admin.ModelAdmin):
-    list_display = (
-        "id",
-        "name",
-        "organization_id",
-        "is_global",
-    )
+    list_display = ("id", "name", "organization_id", "is_global")
     list_filter = ("plugin_type", "is_global")
     search_fields = ("name",)
     ordering = ("-created_at",)
@@ -51,10 +48,7 @@ class TeamAdmin(admin.ModelAdmin):
 
 @admin.register(PluginConfig)
 class PluginConfigAdmin(admin.ModelAdmin):
-    list_display = (
-        "plugin_id",
-        "team_id",
-    )
+    list_display = ("plugin_id", "team_id")
     ordering = ("-created_at",)
 
 
@@ -67,19 +61,12 @@ class UserAdmin(DjangoUserAdmin):
     fieldsets = (
         (None, {"fields": ("email", "password", "organization_name", "org_count")}),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
-        (_("Permissions"), {"fields": ("is_active", "is_staff",)},),
+        (_("Permissions"), {"fields": ("is_active", "is_staff")}),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
         (_("PostHog"), {"fields": ("temporary_token",)}),
     )
-    add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "password1", "password2"),}),)
-    list_display = (
-        "email",
-        "first_name",
-        "last_name",
-        "organization_name",
-        "org_count",
-        "is_staff",
-    )
+    add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "password1", "password2")}),)
+    list_display = ("email", "first_name", "last_name", "organization_name", "org_count", "is_staff")
     list_filter = ("is_staff", "is_active", "groups")
     search_fields = ("email", "first_name", "last_name")
     readonly_fields = ["organization_name", "org_count"]
@@ -146,10 +133,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "organization_billing_link",
         "usage",
     ]
-    inlines = [
-        OrganizationTeamInline,
-        OrganizationMemberInline,
-    ]
+    inlines = [OrganizationTeamInline, OrganizationMemberInline]
     readonly_fields = ["created_at", "updated_at", "billing_plan", "organization_billing_link", "usage"]
     search_fields = ("name", "members__email")
     list_display = (

@@ -1,12 +1,16 @@
 import os
 
 import posthoganalytics
+import structlog
 from django.apps import AppConfig
 from django.conf import settings
+from posthoganalytics.client import Client
 
 from posthog.settings import SELF_CAPTURE, SKIP_ASYNC_MIGRATIONS_SETUP
-from posthog.utils import get_git_branch, get_git_commit, get_machine_id, get_self_capture_api_token, print_warning
+from posthog.utils import get_git_branch, get_git_commit, get_machine_id, get_self_capture_api_token
 from posthog.version import VERSION
+
+logger = structlog.get_logger(__name__)
 
 
 class PostHogConfig(AppConfig):
@@ -27,14 +31,19 @@ class PostHogConfig(AppConfig):
 
                 sync_all_organization_available_features()
 
-                posthoganalytics.capture(
+                # NOTE: This has to be created as a separate client so that the "capture" call doesn't lock in the properties
+                phcloud_client = Client(posthoganalytics.api_key)
+
+                phcloud_client.capture(
                     get_machine_id(),
                     "development server launched",
-                    {"posthog_version": VERSION, "git_rev": get_git_commit(), "git_branch": get_git_branch(),},
+                    {"posthog_version": VERSION, "git_rev": get_git_commit(), "git_branch": get_git_branch()},
                 )
 
-            if SELF_CAPTURE:
-                posthoganalytics.api_key = get_self_capture_api_token(None)
+            local_api_key = get_self_capture_api_token(None)
+            if SELF_CAPTURE and local_api_key:
+                posthoganalytics.api_key = local_api_key
+                posthoganalytics.host = settings.SITE_URL
             else:
                 posthoganalytics.disabled = True
 
@@ -43,13 +52,13 @@ class PostHogConfig(AppConfig):
                 in_range, version = service_version_requirement.is_service_in_accepted_version()
                 if not in_range:
                     print(
-                        f"\033[91mService {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}. PostHog may not work correctly with the current version. To continue anyway, add SKIP_SERVICE_VERSION_REQUIREMENTS=1 as an environment variable\033[0m",
+                        f"\033[91mService {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}. PostHog may not work correctly with the current version. To continue anyway, add SKIP_SERVICE_VERSION_REQUIREMENTS=1 as an environment variable\033[0m"
                     )
                     exit(1)
 
         from posthog.async_migrations.setup import setup_async_migrations
 
         if SKIP_ASYNC_MIGRATIONS_SETUP:
-            print_warning(["Skipping async migrations setup. This is unsafe in production!"])
+            logger.warning("Skipping async migrations setup. This is unsafe in production!")
         else:
             setup_async_migrations()

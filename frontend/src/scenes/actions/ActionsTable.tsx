@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
-import { Input, Radio } from 'antd'
+import { Radio } from 'antd'
 import { CheckOutlined } from '@ant-design/icons'
 import { deleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
@@ -18,12 +18,14 @@ import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/colu
 import { LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/types'
 import { LemonTable } from 'lib/components/LemonTable'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { More } from 'lib/components/LemonButton/More'
 import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
-import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
+import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonInput } from '@posthog/lemon-ui'
+import { actionsLogic } from 'scenes/actions/actionsLogic'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -36,6 +38,7 @@ const searchActions = (sources: ActionType[], search: string): ActionType[] => {
 
 export const scene: SceneExport = {
     component: ActionsTable,
+    logic: actionsLogic,
 }
 
 export function ActionsTable(): JSX.Element {
@@ -147,11 +150,11 @@ export function ActionsTable(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.action(action.id)} fullWidth>
+                                <LemonButton status="stealth" to={urls.action(action.id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={
                                         combineUrl(
                                             urls.insightNew({
@@ -173,10 +176,9 @@ export function ActionsTable(): JSX.Element {
                                 >
                                     Try out in Insights
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
-                                    style={{ color: 'var(--danger)' }}
+                                    status="danger"
                                     onClick={() =>
                                         deleteWithUndo({
                                             endpoint: api.actions.determineDeleteEndpoint(),
@@ -205,22 +207,24 @@ export function ActionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <DataManagementPageHeader activeTab={DataManagementTab.Actions} />
-            <Input.Search
-                placeholder="Search for actions"
-                allowClear
-                enterButton
-                style={{ maxWidth: 600, width: 'initial', flexGrow: 1, marginRight: 12 }}
-                onChange={(e) => {
-                    setSearchTerm(e.target.value)
-                }}
+            <PageHeader
+                title="Data Management"
+                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
+                tabbedPage
+                buttons={<NewActionButton />}
             />
-            <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
-                <Radio.Button value={false}>All actions</Radio.Button>
-                <Radio.Button value={true}>My actions</Radio.Button>
-            </Radio.Group>
-            <div className="mb float-right">
-                <NewActionButton />
+            <DataManagementPageTabs tab={DataManagementTab.Actions} />
+            <div className="flex items-center justify-between gap-2 mb-4">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for actions"
+                    onChange={setSearchTerm}
+                    value={searchTerm}
+                />
+                <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
+                    <Radio.Button value={false}>All actions</Radio.Button>
+                    <Radio.Button value={true}>My actions</Radio.Button>
+                </Radio.Group>
             </div>
             <LemonTable
                 columns={columns}

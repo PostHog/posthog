@@ -5,41 +5,200 @@ import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { InsightModel, DashboardType } from '~/types'
+import { InsightModel, DashboardType, InsightShortId } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import { dayjs, now } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
+import anything = jasmine.anything
 
 const dashboardJson = _dashboardJson as any as DashboardType
+
+function insightsOnDashboard(dashboardsRelation: number[]): InsightModel[] {
+    return dashboardJson.items.map((i) => ({ ...i, dashboards: dashboardsRelation }))
+}
+
+const dashboardResult = (dashboardId: number, items: InsightModel[]): DashboardType => {
+    return {
+        ...dashboardJson,
+        id: dashboardId,
+        items: [...items],
+    }
+}
+
+const uncached = (insight: InsightModel): InsightModel => ({ ...insight, result: null, last_refresh: null })
+
+const boxToString = (param: string | readonly string[]): string => {
+    //path params from msw can be a string or an array
+    if (typeof param === 'string') {
+        return param
+    } else {
+        throw new Error("this shouldn't be an arry")
+    }
+}
+
+const insight800 = (): InsightModel => ({
+    ...insightsOnDashboard([9, 10])[1],
+    id: 800,
+    short_id: '800' as InsightShortId,
+    last_refresh: now().toISOString(),
+})
 
 describe('dashboardLogic', () => {
     let logic: ReturnType<typeof dashboardLogic.build>
 
+    /**
+     * This test setup is tightly coupled to how the API behaves
+     *  (instead of being a list of mock results based on order of calls)
+     *  in order to clarify the behaviour of the interacting logics it tests
+     *
+     * starting state
+     *
+     * dashboards:  5, 6, 8, 9, 10
+     * insights: 175, 172, 666, 800, 999, 1001
+     *
+     *                  d5             d8 - i1001
+     *                /    \
+     *             i172    i175
+     *               \      /
+     *                  d6              d9 - i800 - d10
+     *               /     \
+     *             i666    i999
+     */
+    let dashboards = {}
+
     beforeEach(() => {
+        const insights: Record<number, InsightModel> = {
+            172: { ...insightsOnDashboard([5, 6])[1], short_id: '172' as InsightShortId },
+            175: { ...insightsOnDashboard([5, 6])[0], short_id: '175' as InsightShortId },
+            666: {
+                ...insightsOnDashboard([6])[0],
+                id: 666,
+                short_id: '666' as InsightShortId,
+                last_refresh: now().toISOString(),
+            },
+            999: {
+                ...insightsOnDashboard([6])[0],
+                id: 999,
+                short_id: '999' as InsightShortId,
+                last_refresh: now().toISOString(),
+            },
+            1001: { id: 1001, short_id: '1001' as InsightShortId } as unknown as InsightModel,
+            800: insight800(),
+        }
+        dashboards = {
+            5: { ...dashboardResult(5, [insights['172'], insights['175']]) },
+            6: {
+                ...dashboardResult(6, [
+                    uncached(insights['172']),
+                    uncached(insights['175']),
+                    insights['666'],
+                    insights['999'],
+                ]),
+            },
+            8: {
+                ...dashboardResult(8, [insights['1001']]),
+            },
+            9: {
+                ...dashboardResult(9, [insights['800']]),
+            },
+            10: {
+                ...dashboardResult(10, [insights['800']]),
+            },
+        }
         useMocks({
             get: {
-                '/api/projects/:team/dashboards/5/': dashboardJson,
-                '/api/projects/:team/dashboards/6/': {
-                    ...dashboardJson,
-                    items: [
-                        { ...dashboardJson.items[0], result: null },
-                        { ...dashboardJson.items[1], result: null },
-                        { ...dashboardJson.items[0], id: 666, short_id: '666' },
-                        { ...dashboardJson.items[1], id: 999, short_id: '999' },
+                '/api/projects/:team/dashboards/5/': { ...dashboards['5'] },
+                '/api/projects/:team/dashboards/6/': { ...dashboards['6'] },
+                '/api/projects/:team/dashboards/7/': () => [500, '💣'],
+                '/api/projects/:team/dashboards/8/': { ...dashboards['8'] },
+                '/api/projects/:team/dashboards/9/': { ...dashboards['9'] },
+                '/api/projects/:team/dashboards/10/': { ...dashboards['10'] },
+                '/api/projects/:team/dashboards/': {
+                    count: 6,
+                    next: null,
+                    previous: null,
+                    results: [
+                        { ...dashboards['5'] },
+                        { ...dashboards['6'] },
+                        { ...dashboards['8'] },
+                        { ...dashboards['9'] },
+                        { ...dashboards['10'] },
                     ],
                 },
-                '/api/projects/:team/dashboards/7/': () => [500, '💣'],
-                '/api/projects/:team/dashboards/8/': {
-                    ...dashboardJson,
-                    items: [{ id: 1001, short_id: '1001' }],
-                },
                 '/api/projects/:team/insights/1001/': () => [500, '💣'],
-                '/api/projects/:team/insights/:id/': (req) => [
-                    200,
-                    dashboardJson.items.find(({ id }: any) => String(id) === req.params['id']),
-                ],
+                '/api/projects/:team/insights/800/': () => [200, { ...insights['800'] }],
+                '/api/projects/:team/insights/:id/': (req) => {
+                    const dashboard = req.url.searchParams.get('from_dashboard')
+                    if (!dashboard) {
+                        throw new Error('the logic must always add this param')
+                    }
+                    const matched = insights[boxToString(req.params['id'])]
+                    if (matched) {
+                        return [200, matched]
+                    } else {
+                        return [404, null]
+                    }
+                },
+            },
+            patch: {
+                '/api/projects/:team/insights/:id/': async (req) => {
+                    try {
+                        const updates = await req.json()
+                        if (typeof updates !== 'object') {
+                            return [500, `this update should receive an object body not ${JSON.stringify(updates)}`]
+                        }
+                        const insightId = boxToString(req.params.id)
+
+                        const starting: InsightModel = insights[insightId]
+                        insights[insightId] = {
+                            ...starting,
+                            ...updates,
+                        }
+
+                        starting.dashboards?.forEach((dashboardId) => {
+                            // remove this insight from any dashboard it is already on
+                            dashboards[dashboardId].items = dashboards[dashboardId].items.filter(
+                                (i: InsightModel) => i.id !== starting.id
+                            )
+                        })
+
+                        insights[insightId].dashboards?.forEach((dashboardId: number) => {
+                            // then add it to any it now references
+                            dashboards[dashboardId].items.push(insights[insightId])
+                        })
+
+                        return [200, insights[insightId]]
+                    } catch (e) {
+                        return [500, e]
+                    }
+                },
             },
         })
         initKeaTests()
+    })
+
+    describe('moving between dashboards', () => {
+        beforeEach(() => {
+            logic = dashboardLogic({ id: 9 })
+            logic.mount()
+        })
+
+        it('only replaces the source dashboard with the target', async () => {
+            const startingDashboard = dashboards['9']
+            const expectedDashboard = dashboardResult(9, [])
+
+            const insights = startingDashboard.items
+            const sourceInsight = insights[0]
+
+            await expectLogic(logic, () => {
+                insightsModel.actions.moveToDashboard(sourceInsight, 9, 8, 'targetDashboard')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    allItems: expectedDashboard,
+                })
+        })
     })
 
     describe('when there is no props id', () => {
@@ -82,7 +241,7 @@ describe('dashboardLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    refreshStatus: { 1001: { error: true } },
+                    refreshStatus: { 1001: { error: true, timer: anything() } },
                 })
         })
     })
@@ -96,7 +255,7 @@ describe('dashboardLogic', () => {
 
         describe('on load', () => {
             it('mounts other logics', async () => {
-                await expectLogic(logic).toMount([dashboardsModel, insightsModel, eventUsageLogic])
+                await expectLogic(logic).toMount([dashboardsModel, insightsModel, eventUsageLogic, teamLogic])
             })
 
             it('fetches dashboard items on mount', async () => {
@@ -108,7 +267,7 @@ describe('dashboardLogic', () => {
                     })
                     .toDispatchActions(['loadDashboardItemsSuccess'])
                     .toMatchValues({
-                        allItems: dashboardJson,
+                        allItems: dashboards['5'],
                         items: truth((items) => items.length === 2),
                         receivedErrorsFromAPI: false,
                     })
@@ -126,14 +285,14 @@ describe('dashboardLogic', () => {
                         'refreshAllDashboardItems',
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses(
-                            dashboardJson.items.map(({ short_id }) => short_id),
+                            dashboards['5'].items.map(({ short_id }: InsightModel) => short_id),
                             true
                         ),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboardJson.items[0].short_id]: { loading: true },
-                            [dashboardJson.items[1].short_id]: { loading: true },
+                            [dashboards['5'].items[0].short_id]: { loading: true, timer: anything() },
+                            [dashboards['5'].items[1].short_id]: { loading: true, timer: anything() },
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -143,19 +302,19 @@ describe('dashboardLogic', () => {
                     .toDispatchActionsInAnyOrder([
                         // and updates the action in the model
                         (a) =>
-                            a.type === dashboardsModel.actionTypes.updateDashboardItem &&
-                            a.payload.item.short_id === dashboardJson.items[1].short_id,
+                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                            a.payload.item.short_id === dashboards['5'].items[1].short_id,
                         (a) =>
-                            a.type === dashboardsModel.actionTypes.updateDashboardItem &&
-                            a.payload.item.short_id === dashboardJson.items[0].short_id,
+                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                            a.payload.item.short_id === dashboards['5'].items[0].short_id,
                         // no longer reloading
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].short_id, false),
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[1].short_id, false),
+                        logic.actionCreators.setRefreshStatus(dashboards['5'].items[0].short_id, false),
+                        logic.actionCreators.setRefreshStatus(dashboards['5'].items[1].short_id, false),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboardJson.items[0].short_id]: { refreshed: true },
-                            [dashboardJson.items[1].short_id]: { refreshed: true },
+                            [dashboards['5'].items[0].short_id]: { refreshed: true, timer: anything() },
+                            [dashboards['5'].items[1].short_id]: { refreshed: true, timer: anything() },
                         },
                         refreshMetrics: {
                             completed: 2,
@@ -166,16 +325,16 @@ describe('dashboardLogic', () => {
 
             it('reloads selected items', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.refreshAllDashboardItems([dashboardJson.items[0] as any])
+                    logic.actions.refreshAllDashboardItems([dashboards['5'].items[0] as any])
                 })
                     .toFinishAllListeners()
                     .toDispatchActions([
                         'refreshAllDashboardItems',
-                        logic.actionCreators.setRefreshStatuses([dashboardJson.items[0].short_id], true),
+                        logic.actionCreators.setRefreshStatuses([dashboards['5'].items[0].short_id], true),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboardJson.items[0].short_id]: { loading: true },
+                            [dashboards['5'].items[0].short_id]: { loading: true, timer: anything() },
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -184,13 +343,13 @@ describe('dashboardLogic', () => {
                     })
                     .toDispatchActionsInAnyOrder([
                         (a) =>
-                            a.type === dashboardsModel.actionTypes.updateDashboardItem &&
-                            a.payload.item.short_id === dashboardJson.items[0].short_id,
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].short_id, false),
+                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                            a.payload.item.short_id === dashboards['5'].items[0].short_id,
+                        logic.actionCreators.setRefreshStatus(dashboards['5'].items[0].short_id, false),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboardJson.items[0].short_id]: { refreshed: true },
+                            [dashboards['5'].items[0].short_id]: { refreshed: true, timer: anything() },
                         },
                         refreshMetrics: {
                             completed: 1,
@@ -198,6 +357,31 @@ describe('dashboardLogic', () => {
                         },
                     })
             })
+        })
+    })
+
+    describe('external updates', () => {
+        it('can respond to external filter update', async () => {
+            logic = dashboardLogic({ id: 9 })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.allItems?.items).toHaveLength(1)
+            expect(logic.values.allItems?.items[0].short_id).toEqual('800')
+            expect(logic.values.allItems?.items[0].filters.date_from).toBeUndefined()
+            expect(logic.values.allItems?.items[0].filters.interval).toEqual('day')
+
+            const copiedInsight = insight800()
+            dashboardsModel.actions.updateDashboardInsight({
+                ...copiedInsight,
+                filters: { ...copiedInsight.filters, date_from: '-1d', interval: 'hour' },
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.allItems?.items).toHaveLength(1)
+            expect(logic.values.allItems?.items[0].short_id).toEqual('800')
+            expect(logic.values.allItems?.items[0].filters.date_from).toEqual('-1d')
+            expect(logic.values.allItems?.items[0].filters.interval).toEqual('hour')
         })
     })
 
@@ -234,5 +418,70 @@ describe('dashboardLogic', () => {
                     items: truth((items) => items.length === 4),
                 })
         })
+    })
+    describe('lastRefreshed', () => {
+        it('should be the earliest refreshed dashboard', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    lastRefreshed: dayjs('2021-09-21T11:48:48.444504Z'),
+                })
+        })
+
+        it('should refresh all dashboards if lastRefreshed is older than 3 hours', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['refreshAllDashboardItems']).toFinishAllListeners()
+        })
+
+        it('should not refresh all dashboards if lastRefreshed is older than 3 hours but the feature flag is not set', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toNotHaveDispatchedActions(['refreshAllDashboardItems']).toFinishAllListeners()
+        })
+
+        it('should not refresh if lastRefreshed is less than 3 hours', async () => {
+            logic = dashboardLogic({ id: 9 })
+            logic.mount()
+            await expectLogic(logic)
+                .toDispatchActions(['loadDashboardItemsSuccess'])
+                .toNotHaveDispatchedActions(['refreshAllDashboardItems'])
+                .toFinishListeners()
+        })
+    })
+
+    it('can move an insight off a dashboard', async () => {
+        const nineLogic = dashboardLogic({ id: 9 })
+        nineLogic.mount()
+        await expectLogic(nineLogic).toFinishAllListeners()
+
+        const fiveLogic = dashboardLogic({ id: 5 })
+        fiveLogic.mount()
+        await expectLogic(fiveLogic).toFinishAllListeners()
+
+        expect(
+            fiveLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
+        ).toEqual([
+            { dashboards: [5, 6], short_id: '172' },
+            { dashboards: [5, 6], short_id: '175' },
+        ])
+        expect(
+            nineLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
+        ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
+
+        dashboardsModel.actions.updateDashboardInsight({ ...insight800(), dashboards: [10, 5] }, [9])
+
+        expect(
+            fiveLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
+        ).toEqual([
+            { dashboards: [5, 6], short_id: '172' },
+            { dashboards: [5, 6], short_id: '175' },
+            { dashboards: [10, 5], short_id: '800' },
+        ])
+        expect(
+            nineLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
+        ).toEqual([])
     })
 })

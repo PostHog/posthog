@@ -1,7 +1,7 @@
 from celery.utils.log import get_task_logger
 
 from ee.clickhouse.materialized_columns.columns import TRIM_AND_EXTRACT_PROPERTY, ColumnName, get_materialized_columns
-from ee.clickhouse.materialized_columns.replication import clickhouse_is_replicated
+from posthog.clickhouse.replication.utils import clickhouse_is_replicated
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
@@ -13,7 +13,7 @@ def mark_all_materialized() -> None:
         logger.info("There are running mutations, skipping marking as materialized")
         return
 
-    for table, property_name, column_name in get_materialized_columns_with_default_expression():
+    for table, property_name, table_column, column_name in get_materialized_columns_with_default_expression():
         updated_table = "sharded_events" if clickhouse_is_replicated() and table == "events" else table
 
         # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
@@ -24,7 +24,7 @@ def mark_all_materialized() -> None:
             ALTER TABLE {updated_table}
             {execute_on_cluster}
             MODIFY COLUMN
-            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
+            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
             """,
             {"property": property_name},
         )
@@ -33,9 +33,9 @@ def mark_all_materialized() -> None:
 def get_materialized_columns_with_default_expression():
     for table in ["events", "person"]:
         materialized_columns = get_materialized_columns(table, use_cache=False)
-        for property_name, column_name in materialized_columns.items():
+        for (property_name, table_column), column_name in materialized_columns.items():
             if is_default_expression(table, column_name):
-                yield table, property_name, column_name
+                yield table, property_name, table_column, column_name
 
 
 def any_ongoing_mutations() -> bool:
@@ -47,6 +47,6 @@ def is_default_expression(table: str, column_name: ColumnName) -> bool:
     updated_table = "sharded_events" if clickhouse_is_replicated and table == "events" else table
     column_query = sync_execute(
         "SELECT default_kind FROM system.columns WHERE table = %(table)s AND name = %(name)s AND database = %(database)s",
-        {"table": updated_table, "name": column_name, "database": CLICKHOUSE_DATABASE,},
+        {"table": updated_table, "name": column_name, "database": CLICKHOUSE_DATABASE},
     )
     return len(column_query) > 0 and column_query[0][0] == "DEFAULT"

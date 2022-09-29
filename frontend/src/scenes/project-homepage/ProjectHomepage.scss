@@ -1,31 +1,78 @@
-@import '~/vars';
-
 .project-homepage {
     .homepage-dashboard-header {
+        display: flex;
         justify-content: space-between;
         align-items: center;
+
         .dashboard-title-container {
             display: flex;
             flex-direction: row;
             align-items: center;
-            .dashboard-name {
-                margin: 0;
-            }
+
             .ant-skeleton {
                 width: 300px;
+
                 h3 {
                     margin: 0;
                 }
             }
         }
     }
+
+    .top-list-container-horizontal {
+        display: flex;
+
+        .top-list {
+            margin-bottom: 1.5rem;
+            width: 33%;
+        }
+
+        .spacer {
+            width: 1rem;
+        }
+    }
+
+    .top-list-container-vertical {
+        margin-bottom: 1.5rem;
+
+        .spacer {
+            height: 1rem;
+        }
+    }
+
     .empty-state-container {
-        background-color: $bg_side;
+        background-color: var(--side);
         width: 100%;
         justify-content: center;
         align-items: center;
-        padding: $default_spacing * 4;
+        padding: 4rem;
         display: flex;
         flex-direction: column;
+    }
+}
+
+.ProjectHomePage__listrow {
+    display: flex;
+    flex-direction: row;
+    flex: 1;
+    gap: 0.5rem;
+    height: 2.5rem;
+    align-items: center;
+    font-weight: 400; // Overrides font-weight from LemonButton
+    color: var(--default);
+    overflow: hidden;
+
+    .ProjectHomePage__listrow__details {
+        flex: 1;
+        overflow: hidden;
+
+        div:first-child {
+            color: var(--primary);
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            white-space: nowrap;
+        }
     }
 }

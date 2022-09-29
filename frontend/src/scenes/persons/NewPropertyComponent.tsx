@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
-import { Input, Button, Radio } from 'antd'
-import { PlusOutlined, SaveOutlined, StopOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
+import { Input, Radio } from 'antd'
+import { SaveOutlined, StopOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
 import Modal from 'antd/lib/modal/Modal'
+import { LemonButton } from 'lib/components/LemonButton'
 
 interface NewPropertyInterface {
     creating: boolean
@@ -27,18 +28,13 @@ export function NewPropertyComponent({ editProperty }: NewPropertyComponentProps
 
     return (
         <>
-            <div className="mb">
-                <div className="text-right">
-                    <Button
-                        data-attr="add-prop-button"
-                        onClick={() => setState({ ...state, creating: true })}
-                        type="primary"
-                        icon={<PlusOutlined />}
-                    >
-                        New property
-                    </Button>
-                </div>
-            </div>
+            <LemonButton
+                data-attr="add-prop-button"
+                onClick={() => setState({ ...state, creating: true })}
+                type="primary"
+            >
+                New property
+            </LemonButton>
             <Modal
                 visible={state.creating}
                 destroyOnClose

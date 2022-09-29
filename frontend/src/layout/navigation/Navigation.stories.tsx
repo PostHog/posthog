@@ -6,7 +6,7 @@ import { SideBar } from './SideBar/SideBar'
 
 export default {
     title: 'Layout/Navigation',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
 } as Meta
 
 export function Navigation_(): JSX.Element {

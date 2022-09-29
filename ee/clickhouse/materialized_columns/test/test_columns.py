@@ -1,7 +1,6 @@
 import random
 from datetime import timedelta
 from time import sleep
-from uuid import uuid4
 
 from freezegun import freeze_time
 
@@ -10,15 +9,12 @@ from ee.clickhouse.materialized_columns.columns import (
     get_materialized_columns,
     materialize,
 )
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
-from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
-from ee.tasks.materialized_columns import mark_all_materialized
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.settings import CLICKHOUSE_DATABASE
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
 EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)] + [
     "$session_id",
@@ -26,20 +22,14 @@ EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_
 ]
 
 
-def _create_event(**kwargs):
-    pk = uuid4()
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
-    return pk
-
-
-class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
+class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         self.recreate_database()
         return super().setUp()
 
     def tearDown(self):
         self.recreate_database()
+        super().tearDown()
 
     def recreate_database(self):
         sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
@@ -47,10 +37,14 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
         create_clickhouse_tables(0)
 
     def test_get_columns_default(self):
-        self.assertCountEqual(get_materialized_columns("events"), EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS)
+        self.assertCountEqual(
+            [property_name for property_name, _ in get_materialized_columns("events")],
+            EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
+        )
         self.assertCountEqual(get_materialized_columns("person"), [])
         self.assertEqual(
-            get_materialized_columns("session_recording_events"), {"has_full_snapshot": "has_full_snapshot"}
+            get_materialized_columns("session_recording_events"),
+            {("has_full_snapshot", "properties"): "has_full_snapshot"},
         )
 
     def test_caching_and_materializing(self):
@@ -60,21 +54,21 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
             materialize("person", "$zeta")
 
             self.assertCountEqual(
-                get_materialized_columns("events", use_cache=True).keys(),
+                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
-            self.assertCountEqual(get_materialized_columns("person", use_cache=True).keys(), ["$zeta"])
+            self.assertCountEqual(get_materialized_columns("person", use_cache=True).keys(), [("$zeta", "properties")])
 
             materialize("events", "abc")
 
             self.assertCountEqual(
-                get_materialized_columns("events", use_cache=True).keys(),
+                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 
         with freeze_time("2020-01-04T14:00:01Z"):
             self.assertCountEqual(
-                get_materialized_columns("events", use_cache=True).keys(),
+                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
                 ["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 
@@ -88,14 +82,14 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
 
         self.assertDictContainsSubset(
             {
-                "$foO();--sqlinject": "mat_$foO_____sqlinject",
-                "$foO();ääsqlinject": "mat_$foO_____sqlinject_yWAc",
-                "$foO_____sqlinject": "mat_$foO_____sqlinject_qGFz",
+                ("$foO();--sqlinject", "properties"): "mat_$foO_____sqlinject",
+                ("$foO();ääsqlinject", "properties"): "mat_$foO_____sqlinject_yWAc",
+                ("$foO_____sqlinject", "properties"): "mat_$foO_____sqlinject_qGFz",
             },
             get_materialized_columns("events"),
         )
 
-        self.assertEqual(get_materialized_columns("person"), {"SoMePrOp": "pmat_SoMePrOp"})
+        self.assertEqual(get_materialized_columns("person"), {("SoMePrOp", "properties"): "pmat_SoMePrOp"})
 
     def test_backfilling_data(self):
         sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_prop")
@@ -138,7 +132,10 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
 
         with freeze_time("2021-05-10T14:00:01Z"):
             backfill_materialized_columns(
-                "events", ["prop", "another"], timedelta(days=50), test_settings={"mutations_sync": "0"}
+                "events",
+                [("prop", "properties"), ("another", "properties")],
+                timedelta(days=50),
+                test_settings={"mutations_sync": "0"},
             )
 
         _create_event(
@@ -168,11 +165,16 @@ class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin,
         expr = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
         self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
-        backfill_materialized_columns("events", ["myprop"], timedelta(days=50))
+        backfill_materialized_columns("events", [("myprop", "properties")], timedelta(days=50))
         self.assertEqual(("DEFAULT", expr), self._get_column_types("mat_myprop"))
 
-        mark_all_materialized()
-        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+        try:
+            from ee.tasks.materialized_columns import mark_all_materialized
+        except ImportError:
+            pass
+        else:
+            mark_all_materialized()
+            self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
     def _count_materialized_rows(self, column):
         return sync_execute(

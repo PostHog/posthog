@@ -1,17 +1,22 @@
 from typing import Any, Dict, List, Optional, Type, cast
 
+from dateutil.relativedelta import relativedelta
+from django.core.cache import cache
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils.timezone import now
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import Organization, Team
+from posthog.models import Insight, Organization, Team, User
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
-from posthog.models.user import User
+from posthog.models.signals import mute_selected_signals
+from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
@@ -19,8 +24,8 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     ProjectMembershipNecessaryPermissions,
     TeamMemberLightManagementPermission,
+    TeamMemberStrictManagementPermission,
 )
-from posthog.tasks.delete_clickhouse_data import delete_clickhouse_data
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -61,16 +66,21 @@ class TeamSerializer(serializers.ModelSerializer):
             "completed_snippet_onboarding",
             "ingested_event",
             "test_account_filters",
+            "test_account_filters_default_checked",
             "path_cleaning_filters",
             "is_demo",
             "timezone",
             "data_attributes",
+            "person_display_name_properties",
             "correlation_config",
             "session_recording_opt_in",
+            "capture_console_log_opt_in",
             "effective_membership_level",
             "access_control",
             "has_group_types",
             "primary_dashboard",
+            "live_events_columns",
+            "recording_domains",
         )
         read_only_fields = (
             "id",
@@ -108,6 +118,7 @@ class TeamSerializer(serializers.ModelSerializer):
             )
             if org_membership.level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied(OrganizationAdminAnyPermissions.message)
+
         return super().validate(attrs)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
@@ -119,6 +130,22 @@ class TeamSerializer(serializers.ModelSerializer):
             request.user.current_team = team
             request.user.save()
         return team
+
+    def _handle_timezone_update(self, team: Team, new_timezone: str) -> None:
+        hashes = (
+            Insight.objects.filter(team=team, last_refresh__gt=now() - relativedelta(days=7))
+            .exclude(filters_hash=None)
+            .values_list("filters_hash", flat=True)
+        )
+        cache.delete_many(hashes)
+
+        return
+
+    def update(self, instance: Team, validated_data: Dict[str, Any]) -> Team:
+        if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
+            self._handle_timezone_update(instance, validated_data["timezone"])
+
+        return super().update(instance, validated_data)
 
 
 class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
@@ -159,8 +186,9 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
         base_permissions = [permission() for permission in self.permission_classes]
+
+        # Return early for non-actions (e.g. OPTIONS)
         if self.action:
-            # Return early for non-actions (e.g. OPTIONS)
             if self.action == "create":
                 organization = getattr(self.request.user, "organization", None)
                 if not organization:
@@ -189,12 +217,30 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         self.check_object_permissions(self.request, team)
         return team
 
+    # :KLUDGE: Exposed for compatibility reasons for permission classes.
+    @property
+    def team(self):
+        return self.get_object()
+
     def perform_destroy(self, team: Team):
         team_id = team.pk
-        super().perform_destroy(team)
-        delete_clickhouse_data.delay(team_ids=[team_id])
+        delete_bulky_postgres_data(team_ids=[team_id])
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=cast(User, self.request.user)
+        )
+        with mute_selected_signals():
+            super().perform_destroy(team)
 
-    @action(methods=["PATCH"], detail=True)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[
+            permissions.IsAuthenticated,
+            ProjectMembershipNecessaryPermissions,
+            TeamMemberStrictManagementPermission,
+        ],
+    )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         team.api_token = generate_random_token_project()

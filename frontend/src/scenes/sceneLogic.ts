@@ -1,8 +1,7 @@
-import { kea } from 'kea'
+import { BuiltLogic, kea } from 'kea'
 import { router } from 'kea-router'
-import { identifierToHuman, setPageTitle } from 'lib/utils'
 import posthog from 'posthog-js'
-import { sceneLogicType } from './sceneLogicType'
+import type { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { AvailableFeature } from '~/types'
@@ -22,7 +21,11 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Actions]: Scene.DataManagement,
     [Scene.EventDefinitions]: Scene.DataManagement,
     [Scene.EventPropertyDefinitions]: Scene.DataManagement,
+    [Scene.EventDefinition]: Scene.DataManagement,
+    [Scene.EventPropertyDefinition]: Scene.DataManagement,
+    [Scene.IngestionWarnings]: Scene.DataManagement,
     [Scene.Person]: Scene.Persons,
+    [Scene.Cohort]: Scene.Cohorts,
     [Scene.Groups]: Scene.Persons,
     [Scene.Experiment]: Scene.Experiments,
     [Scene.Group]: Scene.Persons,
@@ -34,10 +37,11 @@ export const sceneLogic = kea<sceneLogicType>({
     props: {} as {
         scenes?: Record<Scene, () => any>
     },
-    connect: {
+    connect: () => ({
         logic: [router, userLogic, preflightLogic],
         values: [featureFlagLogic, ['featureFlags']],
-    },
+        actions: [router, ['locationChanged']],
+    }),
     path: ['scenes', 'sceneLogic'],
     actions: {
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -144,9 +148,9 @@ export const sceneLogic = kea<sceneLogicType>({
         ],
         activeSceneLogic: [
             (s) => [s.activeLoadedScene, s.sceneParams],
-            (activeLoadedScene, sceneParams) =>
+            (activeLoadedScene, sceneParams): BuiltLogic | null =>
                 activeLoadedScene?.logic
-                    ? activeLoadedScene.logic.build(activeLoadedScene.paramsToProps?.(sceneParams) || {}, false)
+                    ? activeLoadedScene.logic.build(activeLoadedScene.paramsToProps?.(sceneParams) || {})
                     : null,
         ],
         params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
@@ -214,7 +218,6 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {
             posthog.capture('$pageview')
-            setPageTitle(sceneConfigurations[scene]?.name || identifierToHuman(scene || ''))
 
             // if we clicked on a link, scroll to top
             const previousScene = selectors.scene(previousState)
@@ -355,7 +358,7 @@ export const sceneLogic = kea<sceneLogicType>({
 
                 if (loadedScene.logic) {
                     // initialize the logic and give it 50ms to load before opening the scene
-                    const unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}, false).mount()
+                    const unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}).mount()
                     try {
                         await breakpoint(50)
                     } catch (e) {
@@ -370,7 +373,7 @@ export const sceneLogic = kea<sceneLogicType>({
         reloadBrowserDueToImportError: () => {
             window.location.reload()
         },
-        [router.actionTypes.locationChanged]: () => {
+        locationChanged: () => {
             // Remove trailing slash
             const {
                 location: { pathname, search, hash },

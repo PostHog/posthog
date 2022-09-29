@@ -1,6 +1,5 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Select, Tag } from 'antd'
 import { chartFilterLogic } from './chartFilterLogic'
 import {
     AreaChartOutlined,
@@ -8,16 +7,21 @@ import {
     LineChartOutlined,
     OrderedListOutlined,
     PieChartOutlined,
+    GlobalOutlined,
     TableOutlined,
+    NumberOutlined,
 } from '@ant-design/icons'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
-import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { Tooltip } from '../Tooltip'
+import { LemonTag } from '../LemonTag/LemonTag'
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 interface ChartFilterProps {
     filters: FilterType
     onChange?: (chartFilter: ChartDisplayType | FunnelVizType) => void
-    disabled: boolean
+    disabled?: boolean
 }
 
 export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
@@ -25,11 +29,20 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
+    const seriesCount = toLocalFilters(filters).length
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
-    const tableDisabled = false
-    const pieDisabled = filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
-    const barDisabled = filters.insight === InsightType.RETENTION
-    const barValueDisabled =
+    const pieDisabled: boolean = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
+    const worldMapDisabled: boolean =
+        filters.insight === InsightType.STICKINESS ||
+        (filters.insight === InsightType.RETENTION &&
+            !!filters.breakdown &&
+            filters.breakdown !== '$geoip_country_code' &&
+            filters.breakdown !== '$geoip_country_name') ||
+        seriesCount > 1 // World map only works with one series
+    const boldNumberDisabled: boolean =
+        filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION || seriesCount > 1 // Bold number only works with one series
+    const barDisabled: boolean = filters.insight === InsightType.RETENTION
+    const barValueDisabled: boolean =
         barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const defaultDisplay: ChartDisplayType =
         filters.insight === InsightType.RETENTION
@@ -38,42 +51,47 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             ? ChartDisplayType.FunnelViz
             : ChartDisplayType.ActionsLineGraph
 
-    function Label({ icon, children = null }: { icon: React.ReactNode; children: React.ReactNode }): JSX.Element {
+    function Label({
+        icon,
+        tooltip,
+        children = null,
+    }: {
+        icon: React.ReactNode
+        tooltip?: string
+        children: React.ReactNode
+    }): JSX.Element {
         return (
-            <>
-                {icon} {children}
-            </>
+            <Tooltip title={tooltip} placement="left">
+                <div className="w-full">
+                    {icon} {children}
+                </div>
+            </Tooltip>
         )
     }
 
-    function WarningTag({ children = null }: { children: React.ReactNode }): JSX.Element {
-        return (
-            <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
-                {children}
-            </Tag>
-        )
-    }
-
-    const options =
+    const options: LemonSelectOptions<ChartDisplayType | FunnelVizType> =
         filters.insight === InsightType.FUNNELS
             ? [
-                  {
-                      value: FunnelVizType.Steps,
-                      label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
-                  },
+                  { value: FunnelVizType.Steps, label: <Label icon={<OrderedListOutlined />}>Steps</Label> },
                   {
                       value: FunnelVizType.Trends,
                       label: (
                           <Label icon={<LineChartOutlined />}>
                               Trends
-                              <WarningTag>BETA</WarningTag>
+                              <LemonTag
+                                  type="warning"
+                                  className="uppercase"
+                                  style={{ marginLeft: 6, lineHeight: '1.4em' }}
+                              >
+                                  BETA
+                              </LemonTag>
                           </Label>
                       ),
                   },
               ]
             : [
                   {
-                      label: 'Line Chart',
+                      title: 'Line Chart',
                       options: [
                           {
                               value: ChartDisplayType.ActionsLineGraph,
@@ -87,7 +105,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                       ],
                   },
                   {
-                      label: 'Bar Chart',
+                      title: 'Bar Chart',
                       options: [
                           {
                               value: ChartDisplayType.ActionsBar,
@@ -102,31 +120,57 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                       ],
                   },
                   {
-                      value: ChartDisplayType.ActionsTable,
-                      label: <Label icon={<TableOutlined />}>Table</Label>,
-                      disabled: tableDisabled,
-                  },
-                  {
-                      value: ChartDisplayType.ActionsPie,
-                      label: <Label icon={<PieChartOutlined />}>Pie</Label>,
-                      disabled: pieDisabled,
+                      options: [
+                          {
+                              value: ChartDisplayType.BoldNumber,
+                              label: (
+                                  <Label
+                                      icon={<NumberOutlined />}
+                                      tooltip="Big and bold. Only works with one series at a time."
+                                  >
+                                      Number
+                                  </Label>
+                              ),
+                              disabled: boldNumberDisabled,
+                          },
+                          {
+                              value: ChartDisplayType.ActionsTable,
+                              label: <Label icon={<TableOutlined />}>Table</Label>,
+                          },
+                          {
+                              value: ChartDisplayType.ActionsPie,
+                              label: <Label icon={<PieChartOutlined />}>Pie</Label>,
+                              disabled: pieDisabled,
+                          },
+                          {
+                              value: ChartDisplayType.WorldMap,
+                              label: (
+                                  <Label
+                                      icon={<GlobalOutlined />}
+                                      tooltip="Visualize data by country. Only works with one series at a time."
+                                  >
+                                      World Map
+                                  </Label>
+                              ),
+                              disabled: worldMapDisabled,
+                          },
+                      ],
                   },
               ]
     return (
-        <Select
+        <LemonSelect
             key="2"
-            defaultValue={filters.display || defaultDisplay}
-            value={chartFilter || defaultDisplay}
-            onChange={(value: ChartDisplayType | FunnelVizType) => {
-                setChartFilter(value)
-                onChange?.(value)
+            value={chartFilter || defaultDisplay || filters.display}
+            onChange={(value) => {
+                setChartFilter(value as ChartDisplayType | FunnelVizType)
+                onChange?.(value as ChartDisplayType | FunnelVizType)
             }}
-            bordered
-            dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
+            dropdownPlacement={'bottom-end'}
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
             disabled={disabled}
             options={options}
+            size={'small'}
         />
     )
 }

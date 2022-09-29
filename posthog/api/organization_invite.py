@@ -29,6 +29,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "message",
         ]
         read_only_fields = [
             "id",
@@ -44,9 +45,10 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         ).exists():
             raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            organization_id=self.context["organization_id"], created_by=self.context["request"].user, **validated_data,
+            organization_id=self.context["organization_id"],
+            created_by=self.context["request"].user,
+            **validated_data,
         )
-
         if is_email_available(with_absolute_urls=True):
             invite.emailing_attempt_made = True
             send_invite.delay(invite_id=invite.id)
@@ -94,7 +96,8 @@ class OrganizationInviteViewSet(
             raise exceptions.ValidationError("This endpoint needs an array of data for bulk invite creation.")
         if len(data) > 20:
             raise exceptions.ValidationError(
-                "A maximum of 20 invites can be sent in a single request.", code="max_length",
+                "A maximum of 20 invites can be sent in a single request.",
+                code="max_length",
             )
 
         serializer = OrganizationInviteSerializer(

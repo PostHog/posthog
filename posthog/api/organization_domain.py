@@ -28,11 +28,16 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "verification_challenge",
             "jit_provisioning_enabled",
             "sso_enforcement",
+            "has_saml",
+            "saml_entity_id",
+            "saml_acs_url",
+            "saml_x509_cert",
         )
         extra_kwargs = {
             "verified_at": {"read_only": True},
             "verification_challenge": {"read_only": True},
             "is_verified": {"read_only": True},
+            "has_saml": {"read_only": True},
         }
 
     def create(self, validated_data: Dict[str, Any]) -> OrganizationDomain:
@@ -60,7 +65,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             for protected_attr in self.UPDATE_ONLY_WHEN_VERIFIED:
                 if protected_attr in attrs:
                     raise serializers.ValidationError(
-                        {protected_attr: "This attribute cannot be updated until the domain is verified.",},
+                        {protected_attr: "This attribute cannot be updated until the domain is verified."},
                         code="verification_required",
                     )
 
@@ -69,11 +74,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
 
 class OrganizationDomainViewset(StructuredViewSetMixin, ModelViewSet):
     serializer_class = OrganizationDomainSerializer
-    permission_classes = [
-        IsAuthenticated,
-        OrganizationMemberPermissions,
-        OrganizationAdminWritePermissions,
-    ]
+    permission_classes = [IsAuthenticated, OrganizationMemberPermissions, OrganizationAdminWritePermissions]
     queryset = OrganizationDomain.objects.all()
 
     def get_queryset(self):

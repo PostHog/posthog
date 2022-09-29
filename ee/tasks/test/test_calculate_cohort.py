@@ -1,27 +1,15 @@
 import json
 import urllib.parse
 from unittest.mock import patch
-from uuid import uuid4
 
 from freezegun import freeze_time
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.tasks.test.test_calculate_cohort import calculate_cohort_test_factory
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
+from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 
 
 class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_factory(_create_event, _create_person)):  # type: ignore
@@ -351,9 +339,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             },
         )
 
-        insert_cohort_from_insight_filter(
-            cohort_id, params,
-        )
+        insert_cohort_from_insight_filter(cohort_id, params)
 
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk)

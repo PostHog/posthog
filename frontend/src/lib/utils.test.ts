@@ -32,8 +32,22 @@ import {
     roundToDecimal,
     convertPropertyGroupToProperties,
     convertPropertiesToPropertyGroup,
+    calculateDays,
+    range,
+    durationOperatorMap,
+    isExternalLink,
+    selectorOperatorMap,
+    dateStringToDayJs,
 } from './utils'
-import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType } from '~/types'
+import {
+    ActionFilter,
+    ElementType,
+    EventType,
+    FilterLogicalOperator,
+    PropertyOperator,
+    PropertyType,
+    TimeUnitType,
+} from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
@@ -126,28 +140,39 @@ describe('formatLabel()', () => {
 
 describe('midEllipsis()', () => {
     it('returns same string if short', () => {
+        expect(midEllipsis('12', 10)).toEqual('12')
         expect(midEllipsis('1234567890', 10)).toEqual('1234567890')
     })
 
     it('formats string properly', () => {
-        expect(midEllipsis('1234567890', 2)).toEqual('1...0')
-        expect(midEllipsis('1234567890', 4)).toEqual('12...90')
-        expect(midEllipsis('1234567890', 8)).toEqual('1234...7890')
-        expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 26)).toEqual('ZgZbZgD9Z4U2F...oSdWwrEWtdBeM')
-        expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 25).length).toBeLessThanOrEqual(28) // 25 + 3 (...)
+        expect(midEllipsis('1234567890', 2)).toEqual('1…')
+        expect(midEllipsis('1234567890', 4)).toEqual('12…0')
+        expect(midEllipsis('1234567890', 8)).toEqual('1234…890')
+        expect(midEllipsis('1234567890', 9)).toEqual('1234…7890')
+        expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 26)).toEqual('ZgZbZgD9Z4U2F…SdWwrEWtdBeM')
+        expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 25)).toEqual('ZgZbZgD9Z4U2…SdWwrEWtdBeM')
+        expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 24)).toEqual('ZgZbZgD9Z4U2…dWwrEWtdBeM')
     })
 })
 
 describe('isURL()', () => {
-    it('recognizes URLs propertly', () => {
+    it('recognizes URLs properly', () => {
         expect(isURL('https://www.posthog.com')).toEqual(true)
         expect(isURL('http://www.posthog.com')).toEqual(true)
         expect(isURL('http://www.posthog.com:8000/images')).toEqual(true)
         expect(isURL('http://localhost:8000/login?next=/insights')).toEqual(true)
         expect(isURL('http://localhost:8000/events?properties=%5B%5D')).toEqual(true)
+        expect(isURL('https://apple.com/')).toEqual(true)
+        expect(isURL('https://stripe.com')).toEqual(true)
+        expect(isURL('https://spotify.com')).toEqual(true)
+        expect(isURL('https://sevenapp.events/')).toEqual(true)
+        expect(isURL('https://seven-stagingenv.web.app/')).toEqual(true)
+        expect(isURL('https://salesforce.co.uk/')).toEqual(true)
+        expect(isURL('https://valid.*.example.com')).toEqual(true)
+        expect(isURL('https://*.valid.com')).toEqual(true)
     })
 
-    it('recognizes non-URLs propertly', () => {
+    it('recognizes non-URLs properly', () => {
         expect(isURL('1234567890')).toEqual(false)
         expect(isURL('www.posthog')).toEqual(false)
         expect(isURL('-.posthog')).toEqual(false)
@@ -155,6 +180,22 @@ describe('isURL()', () => {
         expect(isURL(1)).toEqual(false)
         expect(isURL(true)).toEqual(false)
         expect(isURL(null)).toEqual(false)
+    })
+})
+
+describe('isExternalLink()', () => {
+    it('recognizes external links properly', () => {
+        expect(isExternalLink('http://www.posthog.com')).toEqual(true)
+        expect(isExternalLink('https://www.posthog.com')).toEqual(true)
+        expect(isExternalLink('mailto:ben@posthog.com')).toEqual(true)
+    })
+
+    it('recognizes non-external links properly', () => {
+        expect(isExternalLink('path')).toEqual(false)
+        expect(isExternalLink('/path')).toEqual(false)
+        expect(isExternalLink(1)).toEqual(false)
+        expect(isExternalLink(true)).toEqual(false)
+        expect(isExternalLink(null)).toEqual(false)
     })
 })
 
@@ -184,13 +225,13 @@ describe('roundToDecimal()', () => {
 
 describe('pluralize()', () => {
     it('handles singular cases', () => {
-        expect(pluralize(1, 'member')).toEqual('1 member')
-        expect(pluralize(1, 'bacterium', 'bacteria', true)).toEqual('1 bacterium')
+        expect(pluralize(1, 'member')).toEqual('1 member')
+        expect(pluralize(1, 'bacterium', 'bacteria', true)).toEqual('1 bacterium')
         expect(pluralize(1, 'word', undefined, false)).toEqual('word')
     })
     it('handles plural cases', () => {
-        expect(pluralize(28321, 'member')).toEqual('28321 members')
-        expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
+        expect(pluralize(28321, 'member')).toEqual('28,321 members')
+        expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
         expect(pluralize(3, 'word', undefined, false)).toEqual('words')
     })
 })
@@ -209,7 +250,7 @@ describe('endWithPunctation()', () => {
 describe('getFormattedLastWeekDate()', () => {
     it('happy case', () => {
         tk.freeze(new Date(1330688329321))
-        expect(getFormattedLastWeekDate()).toEqual('13 Jan 2012 - 2 Mar 2012')
+        expect(getFormattedLastWeekDate()).toEqual('January 13 - March 2, 2012')
         tk.reset()
     })
 })
@@ -220,7 +261,7 @@ describe('dateFilterToText()', () => {
             const from = dayjs('2018-04-04T16:00:00.000Z')
             const to = dayjs('2018-04-09T15:05:00.000Z')
 
-            expect(dateFilterToText(from, to, 'custom')).toEqual('4 Apr 2018 - 9 Apr 2018')
+            expect(dateFilterToText(from, to, 'custom')).toEqual('April 4 - April 9, 2018')
         })
 
         it('handles various ranges', () => {
@@ -229,16 +270,14 @@ describe('dateFilterToText()', () => {
             expect(dateFilterToText(null, null, 'default')).toEqual('default')
             expect(dateFilterToText('-24h', null, 'default')).toEqual('Last 24 hours')
             expect(dateFilterToText('-48h', undefined, 'default')).toEqual('Last 48 hours')
-            expect(dateFilterToText('-1d', '-1d', 'default')).toEqual('Yesterday')
+            expect(dateFilterToText('-1d', null, 'default')).toEqual('Yesterday')
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
         })
 
         it('can have overridden date options', () => {
-            expect(
-                dateFilterToText('-21d', null, 'default', {
-                    'Last 3 weeks': { values: ['-21d'] },
-                })
-            ).toEqual('Last 3 weeks')
+            expect(dateFilterToText('-21d', null, 'default', [{ key: 'Last 3 weeks', values: ['-21d'] }])).toEqual(
+                'Last 3 weeks'
+            )
         })
     })
 
@@ -247,23 +286,26 @@ describe('dateFilterToText()', () => {
             const from = dayjs('2018-04-04T16:00:00.000Z')
             const to = dayjs('2018-04-09T15:05:00.000Z')
 
-            expect(dateFilterToText(from, to, 'custom', dateMapping, true)).toEqual('4 Apr 2018 - 9 Apr 2018')
+            expect(dateFilterToText(from, to, 'custom', dateMapping, true)).toEqual('April 4 - April 9, 2018')
         })
 
         it('handles various ranges', () => {
             tk.freeze(new Date(1330688329321))
-            expect(dateFilterToText('dStart', null, 'default', dateMapping, true)).toEqual('2 Mar 2012')
+            expect(dateFilterToText('dStart', null, 'default', dateMapping, true)).toEqual('March 2, 2012')
             expect(dateFilterToText('2020-01-02', '2020-01-05', 'default', dateMapping, true)).toEqual(
-                '2 Jan 2020 - 5 Jan 2020'
+                'January 2 - January 5, 2020'
             )
             expect(dateFilterToText(null, null, 'default', dateMapping, true)).toEqual('default')
-            expect(dateFilterToText('-24h', null, 'default', dateMapping, true)).toEqual('1 Mar 2012 - 2 Mar 2012')
+            expect(dateFilterToText('-24h', null, 'default', dateMapping, true)).toEqual('March 1 - March 2, 2012')
             expect(dateFilterToText('-48h', undefined, 'default', dateMapping, true)).toEqual(
-                '29 Feb 2012 - 2 Mar 2012'
+                'February 29 - March 2, 2012'
             )
-            expect(dateFilterToText('-1d', '-1d', 'default', dateMapping, true)).toEqual('1 Mar 2012')
+            expect(dateFilterToText('-1d', null, 'default', dateMapping, true)).toEqual('March 1, 2012')
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default', dateMapping, true)).toEqual(
-                '1 Mar 2012 - 31 Mar 2012'
+                'March 1 - March 31, 2012'
+            )
+            expect(dateFilterToText('-180d', null, 'default', dateMapping, true)).toEqual(
+                'September 4, 2011 - March 2, 2012'
             )
             tk.reset()
         })
@@ -275,9 +317,7 @@ describe('dateFilterToText()', () => {
                     '-21d',
                     null,
                     'default',
-                    {
-                        'Last 3 weeks': { values: ['-21d'], getFormattedDate: () => 'custom formatted date' },
-                    },
+                    [{ key: 'Last 3 weeks', values: ['-21d'], getFormattedDate: () => 'custom formatted date' }],
                     true
                 )
             ).toEqual('custom formatted date')
@@ -292,6 +332,85 @@ describe('dateFilterToText()', () => {
                 '2018-04-04 12:00:00 - 2018-04-09 11:05:00'
             )
         })
+    })
+})
+
+describe('dateStringToDayJs', () => {
+    beforeEach(() => {
+        tk.freeze(1330688329321) // randomly chosen time on the 22nd of February 2022
+    })
+    afterEach(() => {
+        tk.reset()
+    })
+
+    it('handles various dates', () => {
+        expect(dateStringToDayJs('2022-02-22')?.utc(true).toISOString()).toEqual('2022-02-22T00:00:00.000Z')
+        expect(dateStringToDayJs('1999-12-31')?.utc(true).toISOString()).toEqual('1999-12-31T00:00:00.000Z')
+    })
+
+    it('handles various units', () => {
+        expect(dateStringToDayJs('d')?.utc(true).toISOString()).toEqual('2012-03-02T00:00:00.000Z')
+        expect(dateStringToDayJs('m')?.utc(true).toISOString()).toEqual('2012-03-02T00:00:00.000Z')
+        expect(dateStringToDayJs('w')?.utc(true).toISOString()).toEqual('2012-03-02T00:00:00.000Z')
+        expect(dateStringToDayJs('q')?.utc(true).toISOString()).toEqual('2012-03-02T00:00:00.000Z')
+        expect(dateStringToDayJs('y')?.utc(true).toISOString()).toEqual('2012-03-02T00:00:00.000Z')
+        expect(dateStringToDayJs('x')).toEqual(null)
+    })
+
+    it('handles pluses and minuses', () => {
+        expect(dateStringToDayJs('d')?.utc(true).toISOString()).toEqual('2012-03-02T00:00:00.000Z')
+        expect(dateStringToDayJs('+d')?.utc(true).toISOString()).toEqual('2012-03-02T00:00:00.000Z')
+        expect(dateStringToDayJs('-d')?.utc(true).toISOString()).toEqual('2012-03-02T00:00:00.000Z')
+
+        expect(dateStringToDayJs('1d')?.utc(true).toISOString()).toEqual('2012-03-03T00:00:00.000Z')
+        expect(dateStringToDayJs('2d')?.utc(true).toISOString()).toEqual('2012-03-04T00:00:00.000Z')
+        expect(dateStringToDayJs('3d')?.utc(true).toISOString()).toEqual('2012-03-05T00:00:00.000Z')
+        expect(dateStringToDayJs('33d')?.utc(true).toISOString()).toEqual('2012-04-04T00:00:00.000Z')
+
+        expect(dateStringToDayJs('+1d')?.utc(true).toISOString()).toEqual('2012-03-03T00:00:00.000Z')
+        expect(dateStringToDayJs('+2d')?.utc(true).toISOString()).toEqual('2012-03-04T00:00:00.000Z')
+        expect(dateStringToDayJs('+3d')?.utc(true).toISOString()).toEqual('2012-03-05T00:00:00.000Z')
+        expect(dateStringToDayJs('+33d')?.utc(true).toISOString()).toEqual('2012-04-04T00:00:00.000Z')
+
+        expect(dateStringToDayJs('-1d')?.utc(true).toISOString()).toEqual('2012-03-01T00:00:00.000Z')
+        expect(dateStringToDayJs('-2d')?.utc(true).toISOString()).toEqual('2012-02-29T00:00:00.000Z')
+        expect(dateStringToDayJs('-3d')?.utc(true).toISOString()).toEqual('2012-02-28T00:00:00.000Z')
+        expect(dateStringToDayJs('-33d')?.utc(true).toISOString()).toEqual('2012-01-29T00:00:00.000Z')
+
+        expect(dateStringToDayJs('-33m')?.utc(true).toISOString()).toEqual('2009-06-02T00:00:00.000Z')
+        expect(dateStringToDayJs('-33w')?.utc(true).toISOString()).toEqual('2011-07-15T00:00:00.000Z')
+        expect(dateStringToDayJs('-33q')?.utc(true).toISOString()).toEqual('2003-12-02T00:00:00.000Z')
+        expect(dateStringToDayJs('-33y')?.utc(true).toISOString()).toEqual('1979-03-02T00:00:00.000Z')
+    })
+
+    it('handles various start/end values', () => {
+        expect(dateStringToDayJs('dStart')?.utc(true).toISOString()).toEqual('2012-03-02T00:00:00.000Z')
+        expect(dateStringToDayJs('dEnd')?.utc(true).toISOString()).toEqual('2012-03-02T23:59:59.999Z')
+        expect(dateStringToDayJs('wStart')?.utc(true).toISOString()).toEqual('2012-02-26T00:00:00.000Z')
+        expect(dateStringToDayJs('wEnd')?.utc(true).toISOString()).toEqual('2012-03-03T23:59:59.999Z')
+        expect(dateStringToDayJs('mStart')?.utc(true).toISOString()).toEqual('2012-03-01T00:00:00.000Z')
+        expect(dateStringToDayJs('mEnd')?.utc(true).toISOString()).toEqual('2012-03-31T23:59:59.999Z')
+        expect(dateStringToDayJs('qStart')?.utc(true).toISOString()).toEqual('2012-01-01T00:00:00.000Z')
+        expect(dateStringToDayJs('qEnd')?.utc(true).toISOString()).toEqual('2012-03-31T23:59:59.999Z')
+        expect(dateStringToDayJs('yStart')?.utc(true).toISOString()).toEqual('2012-01-01T00:00:00.000Z')
+        expect(dateStringToDayJs('yEnd')?.utc(true).toISOString()).toEqual('2012-12-31T23:59:59.999Z')
+    })
+
+    it('handles various start/end values with units', () => {
+        expect(dateStringToDayJs('1dStart')?.utc(true).toISOString()).toEqual('2012-03-03T00:00:00.000Z')
+        expect(dateStringToDayJs('1dEnd')?.utc(true).toISOString()).toEqual('2012-03-03T23:59:59.999Z')
+
+        expect(dateStringToDayJs('-1wStart')?.utc(true).toISOString()).toEqual('2012-02-19T00:00:00.000Z')
+        expect(dateStringToDayJs('-1wEnd')?.utc(true).toISOString()).toEqual('2012-02-25T23:59:59.999Z')
+
+        expect(dateStringToDayJs('12mStart')?.utc(true).toISOString()).toEqual('2013-03-01T00:00:00.000Z')
+        expect(dateStringToDayJs('12mEnd')?.utc(true).toISOString()).toEqual('2013-03-31T23:59:59.999Z')
+
+        expect(dateStringToDayJs('-4qStart')?.utc(true).toISOString()).toEqual('2011-01-01T00:00:00.000Z')
+        expect(dateStringToDayJs('-4qEnd')?.utc(true).toISOString()).toEqual('2011-03-31T23:59:59.999Z')
+
+        expect(dateStringToDayJs('0yStart')?.utc(true).toISOString()).toEqual('2012-01-01T00:00:00.000Z')
+        expect(dateStringToDayJs('0yEnd')?.utc(true).toISOString()).toEqual('2012-12-31T23:59:59.999Z')
     })
 })
 
@@ -328,24 +447,24 @@ describe('humanFriendlyDuration()', () => {
         expect(humanFriendlyDuration(45.2)).toEqual('45s')
     })
     it('returns correct value for 60 < t < 120', () => {
-        expect(humanFriendlyDuration(90)).toEqual('1m 30s')
+        expect(humanFriendlyDuration(90)).toEqual('1m 30s')
     })
     it('returns correct value for t > 120', () => {
         expect(humanFriendlyDuration(360)).toEqual('6m')
     })
     it('returns correct value for t >= 3600', () => {
         expect(humanFriendlyDuration(3600)).toEqual('1h')
-        expect(humanFriendlyDuration(3601)).toEqual('1h 1s')
-        expect(humanFriendlyDuration(3961)).toEqual('1h 6m 1s')
-        expect(humanFriendlyDuration(3961.333)).toEqual('1h 6m 1s')
-        expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 2s')
+        expect(humanFriendlyDuration(3601)).toEqual('1h 1s')
+        expect(humanFriendlyDuration(3961)).toEqual('1h 6m 1s')
+        expect(humanFriendlyDuration(3961.333)).toEqual('1h 6m 1s')
+        expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 2s')
     })
     it('returns correct value for t >= 86400', () => {
         expect(humanFriendlyDuration(86400)).toEqual('1d')
         expect(humanFriendlyDuration(86400.12)).toEqual('1d')
     })
     it('truncates to specified # of units', () => {
-        expect(humanFriendlyDuration(3961, 2)).toEqual('1h 6m')
+        expect(humanFriendlyDuration(3961, 2)).toEqual('1h 6m')
         expect(humanFriendlyDuration(30, 2)).toEqual('30s') // no change
         expect(humanFriendlyDuration(30, 0)).toEqual('') // returns no units (useless)
     })
@@ -446,7 +565,7 @@ describe('eventToName()', () => {
         event: '',
         properties: {},
         person: {},
-    }
+    } as any as EventType
 
     it('handles page events as expected', () => {
         expect(eventToDescription({ ...baseEvent, event: '$pageview', properties: { $pathname: '/hello' } })).toEqual(
@@ -541,6 +660,8 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
             { propertyType: PropertyType.String, expected: stringOperatorMap },
             { propertyType: PropertyType.Numeric, expected: numericOperatorMap },
             { propertyType: PropertyType.Boolean, expected: booleanOperatorMap },
+            { propertyType: PropertyType.Duration, expected: durationOperatorMap },
+            { propertyType: PropertyType.Selector, expected: selectorOperatorMap },
             { propertyType: undefined, expected: genericOperatorMap },
         ]
         testCases.forEach((testcase) => {
@@ -594,5 +715,37 @@ describe('convertPropertiesToPropertyGroup', () => {
                 },
             ],
         })
+    })
+
+    it('converts properties to one AND operator property group', () => {
+        expect(convertPropertiesToPropertyGroup(undefined)).toEqual({
+            type: FilterLogicalOperator.And,
+            values: [],
+        })
+    })
+})
+
+describe('calculateDays', () => {
+    it('1 day to 1 day', () => {
+        expect(calculateDays(1, TimeUnitType.Day)).toEqual(1)
+    })
+    it('1 week to 7 days', () => {
+        expect(calculateDays(1, TimeUnitType.Week)).toEqual(7)
+    })
+    it('1 month to 30 days', () => {
+        expect(calculateDays(1, TimeUnitType.Month)).toEqual(30)
+    })
+    it('1 year to 365 days', () => {
+        expect(calculateDays(1, TimeUnitType.Year)).toEqual(365)
+    })
+})
+
+describe('range', () => {
+    it('creates simple range', () => {
+        expect(range(4)).toEqual([0, 1, 2, 3])
+    })
+
+    it('creates offset range', () => {
+        expect(range(1, 5)).toEqual([1, 2, 3, 4])
     })
 })

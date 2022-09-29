@@ -1,9 +1,3 @@
-from ee.clickhouse.sql.person import (
-    KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
-    PERSONS_DISTINCT_ID_TABLE,
-    PERSONS_DISTINCT_ID_TABLE_MV_SQL,
-    PERSONS_DISTINCT_ID_TABLE_SQL,
-)
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
@@ -11,6 +5,12 @@ from posthog.async_migrations.definition import (
 )
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
+from posthog.models.person.sql import (
+    KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
+    PERSONS_DISTINCT_ID_TABLE,
+    PERSONS_DISTINCT_ID_TABLE_MV_SQL,
+    PERSONS_DISTINCT_ID_TABLE_SQL,
+)
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.version_requirement import ServiceVersionRequirement
 
@@ -35,7 +35,7 @@ class Migration(AsyncMigrationDefinition):
     posthog_max_version = "1.30.0"
 
     service_version_requirements = [
-        ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
+        ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0")
     ]
 
     operations = [

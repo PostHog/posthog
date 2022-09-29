@@ -1,50 +1,53 @@
 import React from 'react'
-import { Input, Button, Form } from 'antd'
-import { useActions, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
-import { PasswordInput } from 'scenes/authentication/PasswordInput'
+import { useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { Field } from 'lib/forms/Field'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import PasswordStrength from 'lib/components/PasswordStrength'
+import { changePasswordLogic } from './changePasswordLogic'
 
 export function ChangePassword(): JSX.Element {
-    const { user, userLoading } = useValues(userLogic)
-    const { updateUser } = useActions(userLogic)
-    const [form] = Form.useForm()
-
-    const updateCompleted = (): void => {
-        form.resetFields()
-    }
+    const { changePassword, isChangePasswordSubmitting } = useValues(changePasswordLogic)
 
     return (
         <Form
-            onFinish={(values) => updateUser(values, updateCompleted)}
-            labelAlign="left"
-            layout="vertical"
-            requiredMark={false}
-            form={form}
+            logic={changePasswordLogic}
+            formKey="changePassword"
+            enableFormOnSubmit
+            className="space-y-4"
+            style={{ maxWidth: '40rem' }}
         >
-            <Form.Item
-                label="Current Password"
-                rules={[
-                    {
-                        required: !user || user.has_password,
-                        message: 'Please enter your current password',
-                    },
-                ]}
-                name="current_password"
-            >
-                <Input.Password
-                    style={{ maxWidth: 400 }}
+            <Field name="current_password" label={'Current Password'}>
+                <LemonInput
                     autoComplete="current-password"
-                    disabled={(!!user && !user.has_password) || userLoading}
-                    placeholder={user && !user.has_password ? 'signed up with external login' : '********'}
+                    type="password"
                     className="ph-ignore-input"
+                    placeholder="••••••••••"
                 />
-            </Form.Item>
-            <PasswordInput label="New Password" showStrengthIndicator style={{ maxWidth: 400 }} validateMinLength />
-            <Form.Item>
-                <Button type="primary" htmlType="submit" loading={userLoading}>
-                    Change Password
-                </Button>
-            </Form.Item>
+            </Field>
+
+            <Field
+                name="password"
+                label={
+                    <div className="flex flex-1 items-center justify-between">
+                        <span>Password</span>
+                        <span className="w-20">
+                            <PasswordStrength password={changePassword.password} />
+                        </span>
+                    </div>
+                }
+            >
+                <LemonInput
+                    autoComplete="current-password"
+                    type="password"
+                    className="ph-ignore-input"
+                    placeholder="••••••••••"
+                />
+            </Field>
+
+            <LemonButton type="primary" htmlType="submit" loading={isChangePasswordSubmitting}>
+                Change password
+            </LemonButton>
         </Form>
     )
 }

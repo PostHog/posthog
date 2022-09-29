@@ -1,21 +1,9 @@
 from django.test import TestCase
 
-from posthog.templatetags.posthog_assets import utmify_email_url
 from posthog.templatetags.posthog_filters import compact_number, percentage
 
 
 class TestTemplateTags(TestCase):
-    def test_utmify_email_url(self):
-        self.assertEqual(
-            utmify_email_url("https://posthog.com", "email_one"),
-            "https://posthog.com?utm_source=posthog&utm_medium=email&utm_campaign=email_one",
-        )
-
-        self.assertEqual(
-            utmify_email_url("https://posthog.com?qs=a", "email_two"),
-            "https://posthog.com?qs=a&utm_source=posthog&utm_medium=email&utm_campaign=email_two",
-        )
-
     def test_compact_number(self):
         self.assertEqual(compact_number(5001), "5K")
         self.assertEqual(compact_number(5312), "5.31K")

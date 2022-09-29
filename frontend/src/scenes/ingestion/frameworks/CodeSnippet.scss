@@ -1,12 +1,22 @@
-.code-container {
+.CodeSnippet {
     position: relative;
-    .action-icon-container {
+    .CodeSnippet__actions {
         position: absolute;
         display: flex;
-        top: 0.75rem;
-        right: 0.75rem;
+        top: 0.25rem;
+        right: 0.25rem;
         gap: 0.5rem;
         font-size: 1.5rem;
+
+        // NOTE: This is not ideal as we should not override core components styles but...
+        .LemonButton {
+            background: transparent !important;
+            box-shadow: transparent !important;
+
+            .LemonIcon {
+                color: var(--white);
+            }
+        }
     }
     button,
     svg {

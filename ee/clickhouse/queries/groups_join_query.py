@@ -22,14 +22,19 @@ class GroupsJoinQuery:
         team_id: int,
         column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
         join_key: Optional[str] = None,
+        using_person_on_events: bool = False,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
         self._column_optimizer = column_optimizer or EnterpriseColumnOptimizer(self._filter, self._team_id)
         self._join_key = join_key
+        self._using_person_on_events = using_person_on_events
 
     def get_join_query(self) -> Tuple[str, Dict]:
         join_queries, params = [], {}
+
+        if self._using_person_on_events:
+            return "", {}
 
         for group_type_index in self._column_optimizer.group_types_to_query:
             var = f"group_index_{group_type_index}"

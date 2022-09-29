@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { personPropertiesModelType } from './personPropertiesModelType'
+import type { personPropertiesModelType } from './personPropertiesModelType'
 import api from 'lib/api'
 import { PersonProperty } from '~/types'
 import { isUserLoggedIn } from 'lib/utils'
@@ -15,7 +15,7 @@ export const personPropertiesModel = kea<personPropertiesModelType>({
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return []
                     }
-                    return await api.get('api/person/properties')
+                    return await api.persons.getProperties()
                 },
             },
         ],

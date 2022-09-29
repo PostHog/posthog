@@ -1,12 +1,12 @@
-@import '~/vars';
+.InviteModal__share_link {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    display: flex;
+    white-space: nowrap;
+    width: 175px;
+    overflow: scroll;
+}
 
-.bulk-invite-modal {
-    .invite-row {
-        margin-top: $default_spacing;
-
-        &:first-of-type {
-            margin-top: 0;
-            background-color: red;
-        }
-    }
+.InviteModal__share_link::-webkit-scrollbar {
+    display: none;
 }

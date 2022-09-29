@@ -19,12 +19,12 @@
         display: flex;
         width: 100%;
         align-items: stretch;
-        color: var(--text-muted);
+        color: var(--muted);
         text-transform: uppercase;
         font-size: 12px;
         line-height: 12px;
-        padding-top: 16px;
-        margin-bottom: 12px;
+        padding-top: 10px;
+        padding-left: 10px;
         font-weight: 600;
         &.with-border {
             border-top: 1px solid var(--border-light);
@@ -34,31 +34,25 @@
     .taxonomic-pills {
         margin-top: 8px;
         margin-bottom: 8px;
+        padding-left: 10px;
+
         .ant-tag {
             transition: none;
             margin-right: 2px;
             margin-bottom: 2px;
             cursor: pointer;
             color: var(--primary);
-            background: var(--bg-side);
-            border-color: var(--bg-side);
+            background: var(--side);
+            border-color: var(--side);
             &.taxonomic-count-zero {
-                color: var(--text-muted);
+                color: var(--muted);
                 cursor: not-allowed;
             }
             &.taxonomic-pill-active {
-                color: var(--text-light);
+                color: var(--light);
                 background: var(--primary);
                 border-color: var(--primary);
             }
-        }
-    }
-
-    .magnifier-icon {
-        font-size: 18px;
-        color: var(--text-muted);
-        &.magnifier-icon-active {
-            color: var(--primary);
         }
     }
 }

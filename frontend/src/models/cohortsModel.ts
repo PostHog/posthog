@@ -1,8 +1,10 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { cohortsModelType } from './cohortsModelType'
-import { CohortType } from '~/types'
+import type { cohortsModelType } from './cohortsModelType'
+import { CohortType, ExporterFormat } from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
+import { deleteWithUndo, processCohort } from 'lib/utils'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
 
 const POLL_TIMEOUT = 5000
 
@@ -11,7 +13,9 @@ export const cohortsModel = kea<cohortsModelType>({
     actions: () => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),
+        deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         cohortCreated: (cohort: CohortType) => ({ cohort }),
+        exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
     }),
 
     loaders: () => ({
@@ -21,7 +25,7 @@ export const cohortsModel = kea<cohortsModelType>({
                 // TRICKY in tests this was returning undefined without calling list
                 const response = await api.cohorts.list()
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
-                return response?.results || []
+                return response?.results?.map((cohort) => processCohort(cohort)) || []
             },
         },
     }),
@@ -46,13 +50,12 @@ export const cohortsModel = kea<cohortsModelType>({
                 }
                 return [cohort, ...state]
             },
-            deleteCohort: (state, cohort) => {
-                if (!cohort) {
+            deleteCohort: (state, { cohort }) => {
+                if (!cohort.id) {
                     return state
                 }
-                return [...state].filter((flag) => flag.id !== cohort.id)
+                return [...state].filter((c) => c.id !== cohort.id)
             },
-            deleteCohortSuccess: (state) => state,
         },
     },
 
@@ -72,6 +75,26 @@ export const cohortsModel = kea<cohortsModelType>({
                 return
             }
             actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
+        },
+        exportCohortPersons: async ({ id, columns }) => {
+            const exportCommand = {
+                export_format: ExporterFormat.CSV,
+                export_context: {
+                    path: `/api/cohort/${id}/persons`,
+                    max_limit: 10000,
+                },
+            }
+            if (columns && columns.length > 0) {
+                exportCommand.export_context['columns'] = columns
+            }
+            await triggerExport(exportCommand)
+        },
+        deleteCohort: ({ cohort }) => {
+            deleteWithUndo({
+                endpoint: api.cohorts.determineDeleteEndpoint(),
+                object: cohort,
+                callback: actions.loadCohorts,
+            })
         },
     }),
 

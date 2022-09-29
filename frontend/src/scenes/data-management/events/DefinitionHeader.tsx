@@ -1,27 +1,17 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import {
-    AutocaptureIcon,
-    PageleaveIcon,
-    PageviewIcon,
+    IconAutocapture,
+    IconPageleave,
+    IconPageview,
     PropertyIcon,
-    UnverifiedEventStack,
-    VerifiedEventStack,
+    UnverifiedEvent,
+    VerifiedEvent,
     VerifiedPropertyIcon,
 } from 'lib/components/icons'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/components/Tooltip'
-import { DefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
-import {
-    TaxonomicDefinitionTypes,
-    TaxonomicFilterGroup,
-    TaxonomicFilterGroupType,
-} from 'lib/components/TaxonomicFilter/types'
-import { useActions, useValues } from 'kea'
-import {
-    createDefinitionKey,
-    eventDefinitionsTableLogic,
-} from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getSingularType } from 'lib/components/DefinitionPopup/utils'
 import clsx from 'clsx'
 import { Link } from 'lib/components/Link'
@@ -31,112 +21,85 @@ import {
     propertyTaxonomicGroupProps,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 
-export enum DefinitionType {
-    Event = 'event',
-    Property = 'property',
-}
-
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
     if (!!keyMapping.event[definition.name]) {
         return (
-            <Tooltip title="Verified PostHog event property">
+            <Tooltip title="PostHog event property">
                 <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
     }
-    return <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
+    return (
+        <Tooltip title="Event property">
+            <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
+        </Tooltip>
+    )
 }
 
 export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element {
     // Rest are events
     if (definition.name === '$pageview') {
         return (
-            <Tooltip title="Verified PostHog event">
-                <PageviewIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
+            <Tooltip title="PostHog event">
+                <IconPageview className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     if (definition.name === '$pageleave') {
         return (
-            <Tooltip title="Verified PostHog event">
-                <PageleaveIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
+            <Tooltip title="PostHog event">
+                <IconPageleave className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     if (definition.name === '$autocapture') {
         return (
-            <Tooltip title="Verified PostHog event">
-                <AutocaptureIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
+            <Tooltip title="PostHog event">
+                <IconAutocapture className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
-    if (definition.verified || !!keyMapping.event[definition.name]) {
+    if (definition.name && (definition.verified || !!keyMapping.event[definition.name])) {
         return (
-            <Tooltip title={`Verified${!!keyMapping.event[definition.name] ? ' PostHog' : ' event'}`}>
-                <VerifiedEventStack className="taxonomy-icon taxonomy-icon-verified" />
+            <Tooltip title={`${!!keyMapping.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
+                <VerifiedEvent className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
     }
-    return <UnverifiedEventStack className="taxonomy-icon taxonomy-icon-muted" />
+    return (
+        <Tooltip title={`Unverified event`}>
+            <UnverifiedEvent className="taxonomy-icon taxonomy-icon-muted" />
+        </Tooltip>
+    )
 }
 
 interface SharedDefinitionHeaderProps {
     hideIcon?: boolean
     hideText?: boolean
-    hideView?: boolean
-    hideEdit?: boolean
     asLink?: boolean
-    openDetailInNewTab?: boolean
-    updateRemoteItem?: (definition: TaxonomicDefinitionTypes) => void
 }
 
 function RawDefinitionHeader({
     definition,
-    definitionKey,
     group,
-    updateRemoteItem,
     hideIcon = false,
     hideText = false,
-    hideView = false,
-    hideEdit = false,
     asLink = false,
-    openDetailInNewTab = true,
 }: {
     definition: EventDefinition | PropertyDefinition
-    definitionKey: string
     group: TaxonomicFilterGroup
 } & SharedDefinitionHeaderProps): JSX.Element {
-    const [referenceEl, setReferenceEl] = useState<HTMLSpanElement | null>(null)
-    const { hoveredDefinition } = useValues(eventDefinitionsTableLogic)
-    const { setHoveredDefinition } = useActions(eventDefinitionsTableLogic)
-
     const fullDetailUrl = group.getFullDetailUrl?.(definition)
     const icon = group.getIcon?.(definition)
     const isLink = asLink && fullDetailUrl
 
     const innerContent = (
-        <span
-            ref={setReferenceEl}
-            onMouseOver={() => {
-                setHoveredDefinition(definitionKey)
-            }}
-            onMouseOut={() => {
-                setHoveredDefinition(null)
-            }}
-        >
-            <PropertyKeyInfo
-                value={definition.name ?? ''}
-                disablePopover
-                disableIcon
-                className={clsx('definition-column-name-content-title', asLink && 'text-primary')}
-                style={{
-                    cursor: isLink ? 'pointer' : 'text',
-                }}
-            />
+        <span className={clsx('definition-column-name-content-title', asLink && 'text-primary cursor-pointer')}>
+            <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon />
         </span>
     )
     const linkedInnerContent = isLink ? (
-        <Link target={openDetailInNewTab ? '_blank' : undefined} to={fullDetailUrl} preventClick={!fullDetailUrl}>
+        <Link to={fullDetailUrl} preventClick={!fullDetailUrl}>
             {innerContent}
         </Link>
     ) : (
@@ -148,29 +111,7 @@ function RawDefinitionHeader({
             {!hideIcon && icon && <div className="definition-column-name-icon">{icon}</div>}
             {!hideText && (
                 <div className="definition-column-name-content">
-                    <div>
-                        {hoveredDefinition !== definitionKey ? (
-                            linkedInnerContent
-                        ) : (
-                            <DefinitionPopupContents
-                                item={definition}
-                                group={group}
-                                referenceEl={referenceEl}
-                                onMouseLeave={() => {
-                                    setHoveredDefinition(null)
-                                }}
-                                onCancel={() => {
-                                    setHoveredDefinition(null)
-                                }}
-                                updateRemoteItem={updateRemoteItem}
-                                hideView={hideView}
-                                hideEdit={hideEdit}
-                                openDetailInNewTab={openDetailInNewTab}
-                            >
-                                {linkedInnerContent}
-                            </DefinitionPopupContents>
-                        )}
-                    </div>
+                    <div>{linkedInnerContent}</div>
                     <div className="definition-column-name-content-description">
                         {definition.description || <i>Add a description for this {getSingularType(group.type)}</i>}
                     </div>
@@ -189,13 +130,13 @@ export function EventDefinitionHeader({
     return (
         <RawDefinitionHeader
             definition={definition}
-            definitionKey={createDefinitionKey(definition)}
             group={{
                 name: 'Events',
                 searchPlaceholder: 'events',
                 type: TaxonomicFilterGroupType.Events,
                 getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
+                getFullDetailUrl: (eventDefinition: EventDefinition) => urls.eventDefinition(eventDefinition.id),
                 ...eventTaxonomicGroupProps,
             }}
             {...props}
@@ -214,7 +155,6 @@ export function PropertyDefinitionHeader({
     return (
         <RawDefinitionHeader
             definition={definition}
-            definitionKey={createDefinitionKey(event, definition)}
             group={{
                 name: 'Event properties',
                 searchPlaceholder: 'event properties',

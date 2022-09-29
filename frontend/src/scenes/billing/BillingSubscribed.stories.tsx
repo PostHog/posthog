@@ -5,10 +5,11 @@ import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { BillingLocked } from './BillingLocked'
 
 export default {
     title: 'Scenes-Other/Billing',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
     decorators: [
         mswDecorator({
             get: {
@@ -28,9 +29,6 @@ export const Subscribed = (): JSX.Element => {
     })
     return <BillingSubscribed />
 }
-export const FailedSubscription = (): JSX.Element => {
-    useEffect(() => {
-        router.actions.push(urls.billingSubscribed(), { session_id: 'cs_test_12345678' })
-    })
-    return <BillingSubscribed />
+export const Locked = (): JSX.Element => {
+    return <BillingLocked />
 }

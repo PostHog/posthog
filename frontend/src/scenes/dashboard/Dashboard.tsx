@@ -6,7 +6,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { DashboardPlacement, DashboardMode } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -15,47 +15,52 @@ import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/Dashboa
 import { SceneExport } from 'scenes/sceneTypes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { DashboardHeader } from './DashboardHeader'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 interface Props {
     id?: string
-    shareToken?: string
+    dashboard?: DashboardType
     placement?: DashboardPlacement
 }
 
 export const scene: SceneExport = {
-    component: Dashboard,
+    component: DashboardScene,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id } }): DashboardLogicProps => ({ id: parseInt(id) }),
+    paramsToProps: ({ params: { id, placement } }: { params: Props }): DashboardLogicProps => ({
+        id: id ? parseInt(id) : undefined,
+        placement,
+    }),
 }
 
-export function Dashboard({ id, shareToken, placement }: Props = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement }: Props = {}): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken }}>
-            <DashboardView placement={placement} />
+        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement, dashboard }}>
+            <DashboardScene />
         </BindLogic>
     )
 }
 
-function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
+function DashboardScene(): JSX.Element {
     const {
+        placement,
         dashboard,
         canEditDashboard,
-        allItemsLoading,
         items,
+        itemsLoading,
         filters: dashboardFilters,
         dashboardMode,
         receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, setDates, reportDashboardViewed } = useActions(dashboardLogic)
+    const { setDashboardMode, setDates, reportDashboardViewed, setProperties } = useActions(dashboardLogic)
 
     useEffect(() => {
         reportDashboardViewed()
     }, [])
 
     useKeyboardHotkeys(
-        placement === DashboardPlacement.Public || placement === DashboardPlacement.InternalMetrics
-            ? {}
-            : {
+        placement == DashboardPlacement.Dashboard
+            ? {
                   e: {
                       action: () =>
                           setDashboardMode(
@@ -77,61 +82,71 @@ function DashboardView({ placement }: Pick<Props, 'placement'>): JSX.Element {
                       action: () => setDashboardMode(null, DashboardEventSource.Hotkey),
                       disabled: dashboardMode !== DashboardMode.Edit,
                   },
-              },
-        [setDashboardMode, dashboardMode]
+              }
+            : {},
+        [setDashboardMode, dashboardMode, placement]
     )
 
-    if (!dashboard && !allItemsLoading) {
+    if (!dashboard && !itemsLoading && receivedErrorsFromAPI) {
         return <NotFound object="dashboard" />
     }
 
     return (
         <div className="dashboard">
-            {placement !== DashboardPlacement.ProjectHomepage &&
-                placement !== DashboardPlacement.Public &&
-                placement !== DashboardPlacement.InternalMetrics && <DashboardHeader />}
+            {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
 
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !items || items.length === 0 ? (
-                <EmptyDashboardComponent loading={allItemsLoading} />
+                <EmptyDashboardComponent loading={itemsLoading} />
             ) : (
                 <div>
-                    <div className="dashboard-items-actions">
-                        <div
-                            className="left-item"
-                            style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
-                        >
-                            {placement === DashboardPlacement.Public ? <LastRefreshText /> : <DashboardReloadAction />}
-                        </div>
-
-                        {placement !== DashboardPlacement.Public && (
-                            <div
-                                className="right-item"
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'flex-end',
-                                }}
-                            >
-                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
-                                <DateFilter
-                                    defaultValue="Custom"
-                                    showCustom
-                                    dateFrom={dashboardFilters?.date_from ?? undefined}
-                                    dateTo={dashboardFilters?.date_to ?? undefined}
-                                    onChange={setDates}
-                                    disabled={!canEditDashboard}
-                                    makeLabel={(key) => (
-                                        <>
-                                            <CalendarOutlined />
-                                            <span className="hide-when-small"> {key}</span>
-                                        </>
-                                    )}
+                    {![
+                        DashboardPlacement.Public,
+                        DashboardPlacement.Export,
+                        DashboardPlacement.InternalMetrics,
+                    ].includes(placement) && (
+                        <>
+                            <div className="flex space-x-4">
+                                <div className="flex items-center" style={{ height: '2rem' }}>
+                                    <TZIndicator style={{ marginRight: '0.5rem' }} />
+                                    <DateFilter
+                                        showCustom
+                                        dateFrom={dashboardFilters?.date_from ?? undefined}
+                                        dateTo={dashboardFilters?.date_to ?? undefined}
+                                        onChange={setDates}
+                                        disabled={!canEditDashboard}
+                                        makeLabel={(key) => (
+                                            <>
+                                                <CalendarOutlined />
+                                                <span className="hide-when-small"> {key}</span>
+                                            </>
+                                        )}
+                                    />
+                                </div>
+                                <PropertyFilters
+                                    onChange={setProperties}
+                                    pageKey={'dashboard_' + dashboard?.id}
+                                    propertyFilters={dashboard?.filters.properties}
                                 />
                             </div>
-                        )}
-                    </div>
+                            <LemonDivider className="my-4" />
+                        </>
+                    )}
+                    {placement !== DashboardPlacement.Export && (
+                        <div className="flex pb-4 space-x-4 dashoard-items-actions">
+                            <div
+                                className="left-item"
+                                style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
+                            >
+                                {[DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(placement) ? (
+                                    <LastRefreshText />
+                                ) : (
+                                    <DashboardReloadAction />
+                                )}
+                            </div>
+                        </div>
+                    )}
                     <DashboardItems />
                 </div>
             )}

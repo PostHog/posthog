@@ -1,11 +1,12 @@
 import { Tag, Select } from 'antd'
-import equal from 'fast-deep-equal'
 import { colorForString } from 'lib/utils'
-import React, { CSSProperties, useEffect, useMemo } from 'react'
+import React, { CSSProperties, useMemo } from 'react'
 import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
 import { useActions, useValues } from 'kea'
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
+import { AvailableFeature } from '~/types'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 interface ObjectTagsPropsBase {
     tags: string[]
@@ -28,7 +29,7 @@ type ObjectTagsProps =
           staticOnly?: false
           onChange?: (tag: string, tags?: string[], id?: string) => void
           /** List of all tags that already exist. */
-          tagsAvailable?: string[]
+          tagsAvailable?: string[] /** Whether this field should be gated behind a "paywall". */
       })
 
 const COLOR_OVERRIDES: Record<string, string> = {
@@ -53,15 +54,9 @@ export function ObjectTags({
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useMemo(() => uniqueMemoizedIndex++, [])
     const logic = objectTagsLogic({ id: objectTagId, onChange, tags })
-    const { addingNewTag, newTag, cleanedNewTag, deletedTags, tags: _tags } = useValues(logic)
-    const { setAddingNewTag, setNewTag, handleDelete, handleAdd, setTags } = useActions(logic)
-
-    // Necessary to keep logic updated with component props
-    useEffect(() => {
-        if (!equal(tags, _tags)) {
-            setTags(tags)
-        }
-    }, [tags])
+    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { addingNewTag, newTag, cleanedNewTag, deletedTags } = useValues(logic)
+    const { setAddingNewTag, setNewTag, handleDelete, handleAdd } = useActions(logic)
 
     /** Displaying nothing is confusing, so in case of empty static tags we use a dash as a placeholder */
     const showPlaceholder = staticOnly && !tags?.length
@@ -69,8 +64,19 @@ export function ObjectTags({
         style.color = 'var(--muted)'
     }
 
+    const onGuardClick = (callback: () => void): void => {
+        guardAvailableFeature(
+            AvailableFeature.TAGGING,
+            'tags',
+            'Tagging is an easy way to categorize events, properties, actions, insights, and more into custom groups.',
+            () => {
+                callback()
+            }
+        )
+    }
+
     return (
-        <div style={style} className={className} data-attr={dataAttr}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, ...style }} className={className} data-attr={dataAttr}>
             {showPlaceholder
                 ? '—'
                 : tags
@@ -80,7 +86,7 @@ export function ObjectTags({
                               <Tag
                                   key={index}
                                   color={COLOR_OVERRIDES[tag] || colorForString(tag)}
-                                  style={{ marginTop: 8 }}
+                                  style={{ marginRight: 0 }}
                               >
                                   {tag}{' '}
                                   {!staticOnly &&
@@ -91,7 +97,11 @@ export function ObjectTags({
                                           <CloseOutlined
                                               className="click-outside-block"
                                               style={{ cursor: 'pointer' }}
-                                              onClick={() => handleDelete(tag)}
+                                              onClick={() =>
+                                                  onGuardClick(() => {
+                                                      handleDelete(tag)
+                                                  })
+                                              }
                                           />
                                       ))}
                               </Tag>
@@ -100,7 +110,11 @@ export function ObjectTags({
             {!staticOnly && onChange && saving !== undefined && (
                 <span style={{ display: 'inline-flex', fontWeight: 400 }}>
                     <Tag
-                        onClick={() => setAddingNewTag(true)}
+                        onClick={() =>
+                            onGuardClick(() => {
+                                setAddingNewTag(true)
+                            })
+                        }
                         data-attr="button-add-tag"
                         style={{
                             cursor: 'pointer',

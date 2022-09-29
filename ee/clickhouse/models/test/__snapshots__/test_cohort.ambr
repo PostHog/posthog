@@ -1,149 +1,37 @@
-# name: TestCohort.test_cohortpeople_action_count
+# name: TestCohort.test_cohortpeople_basic
   '
   
-  SELECT count(*)
+  INSERT INTO cohortpeople
+  SELECT id,
+         2 as cohort_id,
+         2 as team_id,
+         1 AS sign,
+         0 AS version
   FROM
-    (SELECT 1
-     FROM cohortpeople
+    (SELECT id
+     FROM person
      WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.1
-  '
-  
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.10
-  '
-  
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.11
-  '
-  SELECT person_id
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', ''))))
+                  AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(person.properties, '$another_prop'), '^"|"$', '')))))) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$some_prop'), '^"|"$', ''))))
+           AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$another_prop'), '^"|"$', ''))))))) as person
+  UNION ALL
+  SELECT person_id,
+         cohort_id,
+         team_id,
+         -1,
+         version
   FROM cohortpeople
-  where cohort_id = 2
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.2
-  '
-  SELECT person_id
-  FROM cohortpeople
-  where cohort_id = 2
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.3
-  '
-  
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.4
-  '
-  
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.5
-  '
-  SELECT person_id
-  FROM cohortpeople
-  where cohort_id = 2
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.6
-  '
-  
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.7
-  '
-  
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.8
-  '
-  SELECT person_id
-  FROM cohortpeople
-  where cohort_id = 2
-  '
----
-# name: TestCohort.test_cohortpeople_action_count.9
-  '
-  
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id
-     HAVING sum(sign) > 0)
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < 0
+    AND sign = 1
   '
 ---
 # name: TestCohort.test_static_cohort_precalculated
@@ -158,7 +46,7 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0)
   WHERE person_id IN
-      (SELECT person_id
+      (SELECT person_id as id
        FROM person_static_cohort
        WHERE cohort_id = %(_cohort_id_0)s
          AND team_id = %(team_id)s)

@@ -2,8 +2,6 @@ from typing import Any, Dict, List, Optional, cast
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Count, Prefetch
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 from django.utils.timezone import now
 from rest_framework import authentication, request, serializers, viewsets
 from rest_framework.decorators import action
@@ -11,20 +9,20 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from rest_hooks.signals import raw_hook_event
 
-from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
-from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.client import sync_execute
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
+from posthog.constants import LIMIT, TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
 from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.trends.trends_actors import TrendsActors
 
+from .forbid_destroy_model import ForbidDestroyModel
 from .person import get_person_name
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 
@@ -59,6 +57,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
     steps = ActionStepSerializer(many=True, required=False)
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.SerializerMethodField()
+    is_action = serializers.BooleanField(read_only=True, default=True)
 
     class Meta:
         model = Action
@@ -76,6 +75,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "is_calculating",
             "last_calculated_at",
             "team_id",
+            "is_action",
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
 
@@ -112,7 +112,8 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
         for step in steps:
             ActionStep.objects.create(
-                action=instance, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
+                action=instance,
+                **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
             )
 
         report_user_action(validated_data["created_by"], "action created", instance.get_analytics_metadata())
@@ -153,12 +154,13 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return instance
 
 
-class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
+class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
     authentication_classes = [
         TemporaryTokenAuthentication,
+        JwtAuthentication,
         PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
@@ -180,30 +182,33 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mod
         actions_list: List[Dict[Any, Any]] = self.serializer_class(actions, many=True, context={"request": request}).data  # type: ignore
         return Response({"results": actions_list})
 
+    # NOTE: Deprecated in favour of `persons/trends` endpoint
+    # Once the old way of exporting CSVs is removed, this endpoint can be removed
     @action(methods=["GET"], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         filter = Filter(request=request, team=self.team)
+        if not filter.limit:
+            filter = filter.with_data({LIMIT: 100})
+
         entity = get_target_entity(filter)
 
-        actors, serialized_actors = ClickhouseTrendsActors(team, entity, filter).get_actors()
+        actors, serialized_actors, raw_count = TrendsActors(team, entity, filter).get_actors()
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()
+        limit = filter.limit or 100
         offset = filter.offset
-        if len(actors) > 100 and next_url:
+        if raw_count >= limit and next_url:
             if "offset" in next_url:
                 next_url = next_url[1:]
-                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
+                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + limit))
             else:
-                next_url = request.build_absolute_uri(
-                    "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
-                )
+                next_url = f"{next_url}{'&' if '?' in next_url else '?'}offset={offset+limit}"
         else:
             next_url = None
 
         if request.accepted_renderer.format == "csv":
-            csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
             content = [
                 {
                     "Name": get_person_name(person),
@@ -219,15 +224,17 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mod
 
         return Response(
             {
-                "results": [{"people": serialized_actors[0:100], "count": len(serialized_actors[0:100])}],
+                "results": [{"people": serialized_actors, "count": len(serialized_actors)}],
                 "next": next_url,
                 "previous": current_url[1:],
+                "missing_persons": raw_count - len(serialized_actors),
             }
         )
 
     @action(methods=["GET"], detail=True)
     def count(self, request: request.Request, **kwargs) -> Response:
         action = self.get_object()
+        # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
         query, params = format_action_filter(team_id=action.team_id, action=action)
         if query == "":
             return Response({"count": 0})
@@ -244,19 +251,6 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mod
             },
         )
         return Response({"count": results[0][0]})
-
-
-@receiver(post_save, sender=Action, dispatch_uid="hook-action-defined")
-def action_defined(sender, instance, created, raw, using, **kwargs):
-    """Trigger action_defined hooks on Action creation."""
-    if created:
-        raw_hook_event.send(
-            sender=None,
-            event_name="action_defined",
-            instance=instance,
-            payload=ActionSerializer(instance).data,
-            user=instance.team,
-        )
 
 
 class LegacyActionViewSet(ActionViewSet):

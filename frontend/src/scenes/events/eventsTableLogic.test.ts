@@ -1,5 +1,4 @@
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
@@ -11,18 +10,19 @@ import { fromParamsGivenUrl } from 'lib/utils'
 import { useMocks } from '~/mocks/jest'
 
 const errorToastSpy = jest.spyOn(lemonToast, 'error')
-const successToastSpy = jest.spyOn(lemonToast, 'success')
 
 const timeNow = '2021-05-05T00:00:00.000Z'
 
-jest.mock('lib/dayjs', () => {
-    const dayjs = jest.requireActual('lib/dayjs')
-    return { ...dayjs, now: () => dayjs.dayjs(timeNow) }
-})
+import * as dayjs from 'lib/dayjs'
+jest.spyOn(dayjs, 'now').mockImplementation(() => dayjs.dayjs(timeNow))
+
+import * as exporter from 'lib/components/ExportButton/exporter'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+jest.spyOn(exporter, 'triggerExport')
 
 const randomBool = (): boolean => Math.random() < 0.5
 
-const randomString = (): string => Math.random().toString(36).substr(2, 5)
+const randomString = (): string => Math.random().toString(36).substring(2, 5)
 
 const makeEvent = (id: string = '1', timestamp: string = randomString()): EventType => ({
     id: id,
@@ -32,8 +32,6 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
     event: '',
     properties: {},
 })
-
-// TODO test interactions with userLogic
 
 const makePropertyFilter = (value: string = randomString()): PropertyFilter => ({
     key: value,
@@ -50,7 +48,6 @@ const afterTheFirstEvent = 'the first timestamp'
 const afterOneYearAgo = '2020-05-05T00:00:00.000Z'
 const fiveDaysAgo = '2021-04-30T00:00:00.000Z'
 const orderByTimestamp = '["-timestamp"]'
-const propertiesWithFilterValue = '[{"key":"fixed value","operator":"exact","type":"t","value":"v"}]'
 const emptyProperties = '[]'
 
 const getUrlParameters = (url: string): Record<string, any> => {
@@ -70,26 +67,26 @@ describe('eventsTableLogic', () => {
         initKeaTests()
     })
 
-    describe('polling is disabled', () => {
+    describe('when loaded on a person page', () => {
+        const personUrl = urls.person('first-part|second-part')
+
         beforeEach(() => {
-            router.actions.push(urls.person('1'))
             logic = eventsTableLogic({
-                key: 'test-key',
-                sceneUrl: urls.person('1'),
-                disableActions: true,
+                key: 'test-person-key',
+                sceneUrl: personUrl,
             })
             logic.mount()
         })
 
-        it('can disable polling for events', async () => {
-            ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+        it('sets a key', () => {
+            expect(logic.key).toEqual('all-test-person-key-/person/first-part%7Csecond-part')
+        })
 
-            await expectLogic(logic, () => {
-                logic.actions.setPollingActive(true) // even with polling active
-                logic.actions.pollEvents()
-            })
-
-            expect(api.get).not.toHaveBeenCalled()
+        it('triggers url to action', async () => {
+            // before https://github.com/PostHog/posthog/pull/11585 any sceneURLs with encoded characters
+            // e.g. `|` becoming `%7C` could not trigger `urlToAction` for this logic
+            router.actions.push(personUrl)
+            await expectLogic(logic).toDispatchActions(['setProperties'])
         })
     })
 
@@ -268,12 +265,14 @@ describe('eventsTableLogic', () => {
                 })
 
                 it('fetch events sets after to 5 days ago and then a year ago when there are no events', async () => {
+                    ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+
                     await expectLogic(logic, () => {
                         logic.actions.fetchEvents()
                     }).toFinishListeners()
 
                     const mockCalls = (api.get as jest.Mock).mock.calls
-                    const firstGetCallUrl = mockCalls[1][0]
+                    const firstGetCallUrl = mockCalls[0][0]
                     expect(getUrlParameters(firstGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
@@ -424,30 +423,6 @@ describe('eventsTableLogic', () => {
                     })
                 })
 
-                it('can build the export URL when there are no properties or filters', async () => {
-                    await expectLogic(logic, () => {})
-
-                    expect(logic.values.exportUrl.startsWith(`/api/projects/${MOCK_TEAM_ID}/events.csv`)).toBe(true)
-                    expect(getUrlParameters(logic.values.exportUrl)).toEqual({
-                        properties: emptyProperties,
-                        orderBy: orderByTimestamp,
-                        after: afterOneYearAgo,
-                    })
-                })
-
-                it('can build the export URL when there are properties or filters', async () => {
-                    await expectLogic(logic, () => {
-                        logic.actions.setProperties([makePropertyFilter('fixed value')])
-                    })
-
-                    expect(logic.values.exportUrl.startsWith(`/api/projects/${MOCK_TEAM_ID}/events.csv`)).toBe(true)
-                    expect(getUrlParameters(logic.values.exportUrl)).toEqual({
-                        properties: propertiesWithFilterValue,
-                        orderBy: orderByTimestamp,
-                        after: afterOneYearAgo,
-                    })
-                })
-
                 it('triggers fetch events with before timestamp on fetchNextEvents when there are existing events', async () => {
                     useMocks({
                         get: {
@@ -485,6 +460,8 @@ describe('eventsTableLogic', () => {
                 })
 
                 it('preserves fetchNextEvents params when no new events found in the following timeslice', async () => {
+                    ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+
                     await expectLogic(logic, () => {
                         logic.actions.fetchEventsSuccess({
                             events: [firstEvent, secondEvent],
@@ -502,7 +479,7 @@ describe('eventsTableLogic', () => {
                         .toFinishListeners()
 
                     const mockCalls = (api.get as jest.Mock).mock.calls
-                    const firstGetCallUrl = mockCalls[1][0]
+                    const firstGetCallUrl = mockCalls[0][0]
                     expect(getUrlParameters(firstGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
@@ -704,10 +681,27 @@ describe('eventsTableLogic', () => {
             })
 
             it('fires two actions to change state, but just one API.get', async () => {
+                ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+                // Return a single event, so the logic doesn't make a second call
+                // Normally, if the logic does not receive any event in the first call
+                // it makes a second call with a longer time frame
+                useMocks({
+                    get: {
+                        '/api/projects/:team/events/': { results: [{}], count: 1 },
+                    },
+                })
                 await expectLogic(logic, () => {
                     const propertyFilter = makePropertyFilter()
                     router.actions.push(urls.events(), { properties: [propertyFilter], eventFilter: 'new event' })
-                }).toDispatchActions(['setProperties', 'fetchEvents', 'setEventFilter', 'fetchEvents'])
+                })
+                    .toDispatchActions([
+                        'setProperties',
+                        'fetchEvents',
+                        'setEventFilter',
+                        'fetchEvents',
+                        'fetchEventsSuccess',
+                    ])
+                    .toFinishAllListeners()
                 expect(api.get).toHaveBeenCalledTimes(1)
             })
         })
@@ -808,19 +802,17 @@ describe('eventsTableLogic', () => {
                 expect(errorToastSpy).toHaveBeenCalled()
             })
 
-            it('gives the user advice about the events export download', async () => {
-                window = Object.create(window)
-                Object.defineProperty(window, 'location', {
-                    value: {
-                        href: 'https://dummy.com',
-                    },
-                    writable: true,
-                })
-
+            it('can trigger CSV export', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.startDownload()
                 })
-                expect(successToastSpy).toHaveBeenCalled()
+                expect(exporter.triggerExport).toHaveBeenCalledWith({
+                    export_context: {
+                        max_limit: 3500,
+                        path: `/api/projects/${MOCK_TEAM_ID}/events?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D`,
+                    },
+                    export_format: 'text/csv',
+                })
             })
         })
     })

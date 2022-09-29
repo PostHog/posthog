@@ -16,7 +16,8 @@ class TestFilter(BaseTest):
         self.assertEqual(
             filter.to_dict(),
             {
-                "display": "RetentionTable",
+                "display": "ActionsTable",
+                "date_from": "-7d",
                 "insight": "RETENTION",
                 "period": "Day",
                 "retention_type": "retention_recurring",
@@ -43,6 +44,7 @@ class TestFilter(BaseTest):
                     "properties": {},
                     "type": "events",
                 },
+                "breakdown_attribution_type": "first_touch",
             },
         )
 
@@ -58,7 +60,7 @@ class TestFilter(BaseTest):
             filter.to_dict(),
             {
                 "date_to": "2020-08-01",
-                "display": "RetentionTable",
+                "display": "ActionsTable",
                 "insight": "RETENTION",
                 "period": "Day",
                 "retention_type": "retention_recurring",
@@ -85,6 +87,8 @@ class TestFilter(BaseTest):
                     "properties": {},
                     "type": "events",
                 },
+                "breakdown_attribution_type": "first_touch",
+                "date_from": "-7d",
             },
         )
 

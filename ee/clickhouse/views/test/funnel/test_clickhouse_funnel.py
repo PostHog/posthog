@@ -2,13 +2,12 @@ import json
 from datetime import datetime
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.group import create_group
-from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from ee.clickhouse.views.test.funnel.util import EventPattern, FunnelRequest, get_funnel_actors_ok, get_funnel_ok
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.test_journeys import journeys_for
 
 
 class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
@@ -43,10 +42,10 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
                     "event": "paid",
                     "timestamp": datetime(2020, 1, 3, 14),
                     "properties": {"$group_0": "org:5"},
-                },
+                }
             ],
         }
-        created_people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         params = FunnelRequest(
             events=json.dumps(
@@ -84,17 +83,17 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
                     "event": "paid",
                     "timestamp": datetime(2020, 1, 3, 14),
                     "properties": {"$group_0": "org:5"},
-                },
+                }
             ],
             "user_3": [
                 {  # different person, different group, so should be discarded from step 1 in funnel
                     "event": "user signed up",
                     "timestamp": datetime(2020, 1, 10, 14),
                     "properties": {"$group_0": "org:6"},
-                },
+                }
             ],
         }
-        created_people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         params = FunnelRequest(
             events=json.dumps(
@@ -143,7 +142,7 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
                     "timestamp": datetime(2020, 1, 3, 14),
                     "properties": {"$group_0": "org:6"},  # event belongs to different group, so shouldn't enter funnel
                 },
-            ],
+            ]
         }
         created_people = journeys_for(events_by_person, self.team)
 

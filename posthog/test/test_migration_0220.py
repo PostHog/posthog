@@ -1,10 +1,14 @@
+import pytest
+
 from posthog.test.base import TestMigrations
+
+pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class TagsTestCase(TestMigrations):
 
-    migrate_from = "0219_migrate_tags_v2"  # type: ignore
-    migrate_to = "0220_backfill_primary_dashboards"  # type: ignore
+    migrate_from = "0219_migrate_tags_v2"
+    migrate_to = "0220_backfill_primary_dashboards"
     assert_snapshots = True
 
     def setUpBeforeMigration(self, apps):
@@ -49,7 +53,7 @@ class TagsTestCase(TestMigrations):
         )
         Dashboard.objects.bulk_create(
             [
-                Dashboard(name=f"batch_dashboard-{dashboard_number+10}", team=team,)
+                Dashboard(name=f"batch_dashboard-{dashboard_number+10}", team=team)
                 for dashboard_number, team in enumerate(teams)
             ]
         )
@@ -82,3 +86,4 @@ class TagsTestCase(TestMigrations):
         Dashboard = self.apps.get_model("posthog", "Dashboard")  # type: ignore
         Dashboard.objects.all().delete()
         Team.objects.all().delete()
+        super().tearDown()

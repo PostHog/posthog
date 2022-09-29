@@ -1,20 +1,27 @@
 import json
+import re
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, List, Optional, Tuple, Union, cast
+from uuid import UUID
 
+import structlog
+from django.db.models import QuerySet
 from rest_framework import request, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from posthog.constants import EventDefinitionType
 from posthog.exceptions import RequestParsingError, generate_exception_response
-from posthog.models import Entity
+from posthog.models import Entity, EventDefinition
 from posthog.models.entity import MATH_TYPE
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import cors_response, load_data_from_request
+
+logger = structlog.get_logger(__name__)
 
 
 class PaginationMode(Enum):
@@ -27,6 +34,10 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         raise ValueError("An entity id and the entity type must be provided to determine an entity")
 
     entity_math = filter.target_entity_math or "total"  # make math explicit
+    possible_entity = entity_from_order(filter.target_entity_order, filter.entities)
+
+    if possible_entity:
+        return possible_entity
 
     possible_entity = retrieve_entity_from(
         filter.target_entity_id, filter.target_entity_type, entity_math, filter.events, filter.actions
@@ -37,6 +48,16 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         return Entity({"id": filter.target_entity_id, "type": filter.target_entity_type, "math": entity_math})
     else:
         raise ValueError("An entity must be provided for target entity to be determined")
+
+
+def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[Entity]:
+    if not order:
+        return None
+
+    for entity in entities:
+        if entity.index == int(order):
+            return entity
+    return None
 
 
 def retrieve_entity_from(
@@ -130,7 +151,8 @@ def get_data(request):
     try:
         data = load_data_from_request(request)
     except RequestParsingError as error:
-        capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
+        statsd.incr("capture_endpoint_invalid_payload")
+        logger.exception(f"Invalid payload", error=error)
         return (
             None,
             cors_response(
@@ -287,14 +309,95 @@ def get_event_ingestion_context_for_personal_api_key(
 def check_definition_ids_inclusion_field_sql(
     raw_included_definition_ids: Optional[str], is_property: bool, named_key: str
 ):
-
     # Create conditional field based on whether id exists in included_properties
     if is_property:
-        included_definitions_sql = f"(posthog_propertydefinition.id = ANY (%({named_key})s::uuid[]))"
+        included_definitions_sql = f"(id = ANY (%({named_key})s::uuid[]))"
     else:
-        included_definitions_sql = f"(posthog_eventdefinition.id = ANY (%({named_key})s::uuid[]))"
+        included_definitions_sql = f"(id = ANY (%({named_key})s::uuid[]))"
 
     if not raw_included_definition_ids:
         return included_definitions_sql, []
 
     return included_definitions_sql, list(set(json.loads(raw_included_definition_ids)))
+
+
+# keep in sync with posthog/plugin-server/src/utils/db/utils.ts::safeClickhouseString
+def safe_clickhouse_string(s: str) -> str:
+    surrogate_regex = re.compile("([\ud800-\udfff])")
+    matches = re.findall(surrogate_regex, s or "")
+    for match in matches:
+        s = s.replace(match, match.encode("unicode_escape").decode("utf8"))
+    return s
+
+
+def create_event_definitions_sql(
+    event_type: EventDefinitionType, is_enterprise: bool = False, conditions: str = ""
+) -> str:
+    # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
+    if is_enterprise:
+        from ee.models import EnterpriseEventDefinition
+
+        ee_model = EnterpriseEventDefinition
+    else:
+        ee_model = EventDefinition  # type: ignore
+
+    event_definition_fields = {
+        f'"{f.column}"'  # type: ignore
+        for f in ee_model._meta.get_fields()
+        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
+    }
+    shared_conditions = f"WHERE team_id = %(team_id)s {conditions}"
+
+    def select_ee_event_definitions(fields: str):
+        return f"""
+            SELECT {fields}
+            FROM ee_enterpriseeventdefinition
+            FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
+        """
+
+    def select_event_definitions(fields: str):
+        return f"""
+            SELECT {fields} FROM posthog_eventdefinition
+        """
+
+    # Only return event definitions
+    raw_event_definition_fields = ",".join(event_definition_fields)
+    ordering = (
+        "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
+        if is_enterprise
+        else "ORDER BY name ASC"
+    )
+
+    if event_type == EventDefinitionType.EVENT_CUSTOM:
+        shared_conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
+    if event_type == EventDefinitionType.EVENT_POSTHOG:
+        shared_conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
+
+    return (
+        f"""
+            {select_ee_event_definitions(raw_event_definition_fields)}
+            {shared_conditions}
+            {ordering}
+        """
+        if is_enterprise
+        else f"""
+            {select_event_definitions(raw_event_definition_fields)}
+            {shared_conditions}
+            {ordering}
+        """
+    )
+
+
+def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
+    try:
+        # Test if value is a UUID
+        UUID(key)  # type: ignore
+        return queryset.filter(uuid=key)
+    except ValueError:
+        return queryset.filter(pk=key)
+
+
+def parse_bool(value: Union[str, List[str]]) -> bool:
+    if value == "true":
+        return True
+    return False

@@ -2,12 +2,14 @@ import React, { useEffect, useRef, useState } from 'react'
 import { AutoComplete, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
-import { isOperatorDate, isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
+import { isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { PropertyOperator } from '~/types'
+import { PropertyOperator, PropertyType } from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { useValues } from 'kea'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
+import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import './PropertyValue.scss'
 
 type PropValue = {
     id?: number
@@ -26,7 +28,7 @@ export interface PropertyValueProps {
     type: string
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
-    style?: Partial<React.CSSProperties>
+    className?: string
     bordered?: boolean
     onSet: CallableFunction
     value?: string | number | Array<string | number> | null
@@ -43,23 +45,12 @@ function matchesLowerCase(needle?: string, haystack?: string): boolean {
     return haystack.toLowerCase().indexOf(needle.toLowerCase()) > -1
 }
 
-function getValidationError(operator: PropertyOperator, value: any): string | null {
-    if (isOperatorRegex(operator)) {
-        try {
-            new RegExp(value)
-        } catch (e: any) {
-            return e.message
-        }
-    }
-    return null
-}
-
 export function PropertyValue({
     propertyKey,
     type,
     endpoint = undefined,
     placeholder = undefined,
-    style = {},
+    className,
     bordered = true,
     onSet,
     value,
@@ -68,30 +59,39 @@ export function PropertyValue({
     autoFocus = false,
     allowCustom = true,
 }: PropertyValueProps): JSX.Element {
-    const isMultiSelect = operator && isOperatorMulti(operator)
-    const isDateTimeProperty = operator && isOperatorDate(operator)
-
-    const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
-    const [shouldBlur, setShouldBlur] = useState(false)
+    // what the human has typed into the box
+    const [input, setInput] = useState(Array.isArray(value) ? '' : toString(value) ?? '')
+    // options from the server for search
     const [options, setOptions] = useState({} as Record<string, Option>)
+
+    const [shouldBlur, setShouldBlur] = useState(false)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
-    const { formatForDisplay } = useValues(propertyDefinitionsModel)
+    const { formatPropertyValueForDisplay, describeProperty } = useValues(propertyDefinitionsModel)
+
+    const isMultiSelect = operator && isOperatorMulti(operator)
+    const isDateTimeProperty = operator && isOperatorDate(operator)
+    const isDurationProperty = propertyKey && describeProperty(propertyKey) === PropertyType.Duration
 
     // update the input field if passed a new `value` prop
     useEffect(() => {
-        if (!value) {
+        if (value == null) {
             setInput('')
-        } else if (value !== input) {
+        } else if (!Array.isArray(value) && toString(value) !== input) {
             const valueObject = options[propertyKey]?.values?.find((v) => v.id === value)
             if (valueObject) {
                 setInput(toString(valueObject.name))
+            } else {
+                setInput(toString(value))
             }
         }
     }, [value])
 
     const loadPropertyValues = useThrottledCallback((newInput) => {
-        if (type === 'cohort') {
+        if (['cohort', 'session'].includes(type)) {
+            return
+        }
+        if (!propertyKey) {
             return
         }
         const key = propertyKey.split('__')[0]
@@ -141,10 +141,8 @@ export function PropertyValue({
         (option) => input === '' || matchesLowerCase(input, toString(option?.name))
     )
 
-    const validationError = operator ? getValidationError(operator, value) : null
-
     const commonInputProps = {
-        style: { width: '100%', ...style },
+        className,
         onSearch: (newInput: string) => {
             setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -184,105 +182,98 @@ export function PropertyValue({
         },
     }
 
-    return (
-        <>
-            {isMultiSelect ? (
-                <SelectGradientOverflow
-                    loading={options[propertyKey]?.status === 'loading'}
-                    propertyKey={propertyKey}
-                    {...commonInputProps}
-                    autoFocus={autoFocus}
-                    value={value === null ? [] : value}
-                    mode="multiple"
-                    showSearch
-                    onChange={(val, payload) => {
-                        if (Array.isArray(payload) && payload.length > 0) {
-                            setValue(val)
-                        } else if (payload instanceof Option) {
-                            setValue(payload?.value ?? [])
-                        } else {
-                            setValue([])
-                        }
-                    }}
-                >
-                    {input && !displayOptions.some(({ name }) => input.toLowerCase() === toString(name).toLowerCase()) && (
-                        <Select.Option key="specify-value" value={input} className="ph-no-capture">
-                            Specify: {formatForDisplay(propertyKey, input)}
-                        </Select.Option>
-                    )}
-                    {displayOptions.map(({ name: _name }, index) => {
-                        const name = toString(_name)
-                        return (
-                            <Select.Option
-                                key={name}
-                                value={name}
-                                data-attr={'prop-val-' + index}
-                                className="ph-no-capture"
-                                title={name}
-                            >
-                                {name === '' ? <i>(empty string)</i> : formatForDisplay(propertyKey, name)}
-                            </Select.Option>
-                        )
-                    })}
-                </SelectGradientOverflow>
-            ) : isDateTimeProperty ? (
-                <PropertyFilterDatePicker
-                    autoFocus={autoFocus}
-                    operator={operator}
-                    value={value}
-                    setValue={setValue}
-                    style={commonInputProps.style}
-                />
-            ) : (
-                <AutoComplete
-                    {...commonInputProps}
-                    autoFocus={autoFocus}
-                    value={input}
-                    onClear={() => {
-                        setInput('')
-                        setValue('')
-                    }}
-                    onChange={(val) => {
-                        setInput(toString(val))
-                    }}
-                    onSelect={(val, option) => {
-                        setInput(option.title)
-                        setValue(toString(val))
-                    }}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            setInput(toString(input))
-                            setValue(toString(input))
-                        }
-                    }}
-                    ref={autoCompleteRef}
-                >
-                    {[
-                        ...(input && allowCustom && !displayOptions.some(({ name }) => input === toString(name))
-                            ? [
-                                  <AutoComplete.Option key="@@@specify-value" value={input} className="ph-no-capture">
-                                      Specify: {input}
-                                  </AutoComplete.Option>,
-                              ]
-                            : []),
-                        ...displayOptions.map(({ name: _name, id }, index) => {
-                            const name = toString(_name)
-                            return (
-                                <AutoComplete.Option
-                                    key={id ? toString(id) : name}
-                                    value={id ? toString(id) : name}
-                                    data-attr={'prop-val-' + index}
-                                    className="ph-no-capture"
-                                    title={name}
-                                >
-                                    {name}
-                                </AutoComplete.Option>
-                            )
-                        }),
-                    ]}
-                </AutoComplete>
+    return isMultiSelect ? (
+        <SelectGradientOverflow
+            loading={options[propertyKey]?.status === 'loading'}
+            propertyKey={propertyKey}
+            {...commonInputProps}
+            className="property-filters-property-value w-full"
+            autoFocus={autoFocus}
+            value={value === null ? [] : value}
+            mode="multiple"
+            showSearch
+            onChange={(val, payload) => {
+                if (Array.isArray(payload) && payload.length > 0) {
+                    setValue(val)
+                } else if (payload instanceof Option) {
+                    setValue(payload?.value ?? [])
+                } else {
+                    setValue([])
+                }
+            }}
+        >
+            {input && !displayOptions.some(({ name }) => input.toLowerCase() === toString(name).toLowerCase()) && (
+                <Select.Option key="specify-value" value={input} className="ph-no-capture">
+                    Specify: {formatPropertyValueForDisplay(propertyKey, input)}
+                </Select.Option>
             )}
-            {validationError && <p className="text-danger">{validationError}</p>}
-        </>
+            {displayOptions.map(({ name: _name }, index) => {
+                const name = toString(_name)
+                return (
+                    <Select.Option
+                        key={name}
+                        value={name}
+                        data-attr={'prop-val-' + index}
+                        className="ph-no-capture"
+                        title={name}
+                    >
+                        {name === '' ? <i>(empty string)</i> : formatPropertyValueForDisplay(propertyKey, name)}
+                    </Select.Option>
+                )
+            })}
+        </SelectGradientOverflow>
+    ) : isDateTimeProperty ? (
+        <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
+    ) : isDurationProperty ? (
+        <DurationPicker autoFocus={autoFocus} initialValue={value as number} onChange={setValue} />
+    ) : (
+        <AutoComplete
+            {...commonInputProps}
+            autoFocus={autoFocus}
+            value={input}
+            className="h-10 w-full property-filters-property-value"
+            onClear={() => {
+                setInput('')
+                setValue('')
+            }}
+            onChange={(val) => {
+                setInput(toString(val))
+            }}
+            onSelect={(val, option) => {
+                setInput(option.title)
+                setValue(toString(val))
+            }}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                    setInput(toString(input))
+                    setValue(toString(input))
+                }
+            }}
+            ref={autoCompleteRef}
+        >
+            {[
+                ...(input && allowCustom && !displayOptions.some(({ name }) => input === toString(name))
+                    ? [
+                          <AutoComplete.Option key="@@@specify-value" value={input} className="ph-no-capture">
+                              Specify: {input}
+                          </AutoComplete.Option>,
+                      ]
+                    : []),
+                ...displayOptions.map(({ name: _name, id }, index) => {
+                    const name = toString(_name)
+                    return (
+                        <AutoComplete.Option
+                            key={id ? toString(id) : name}
+                            value={id ? toString(id) : name}
+                            data-attr={'prop-val-' + index}
+                            className="ph-no-capture"
+                            title={name}
+                        >
+                            {name}
+                        </AutoComplete.Option>
+                    )
+                }),
+            ]}
+        </AutoComplete>
     )
 }

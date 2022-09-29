@@ -4,10 +4,6 @@ import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/T
 import React, { useEffect, useState } from 'react'
 import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from 'lib/components/LemonButton'
 import { IconArrowDropDown, IconClose } from 'lib/components/icons'
-import clsx from 'clsx'
-import { Button } from 'antd'
-import { Popup } from 'lib/components/Popup/Popup'
-import { DownOutlined } from '@ant-design/icons'
 
 export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {
@@ -22,6 +18,7 @@ export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue>
     placeholder?: React.ReactNode
     dropdownMatchSelectWidth?: boolean
     allowClear?: boolean
+    style?: React.CSSProperties
 }
 
 /** Like TaxonomicPopup, but convenient when you know you will only use string values */
@@ -45,51 +42,46 @@ export function TaxonomicPopup({
     dataAttr,
     eventNames = [],
     placeholder = 'Please select',
-    style,
     fullWidth = true,
 }: TaxonomicPopupProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
     return (
-        <Popup
-            overlay={
-                <TaxonomicFilter
-                    groupType={groupType}
-                    value={value}
-                    onChange={({ type }, payload) => {
-                        onChange?.(payload, type)
-                        setVisible(false)
-                    }}
-                    taxonomicGroupTypes={groupTypes ?? [groupType]}
-                    eventNames={eventNames}
-                />
-            }
-            visible={visible}
-            onClickOutside={() => setVisible(false)}
+        <LemonButtonWithPopup
+            data-attr={dataAttr}
+            status="stealth"
+            popup={{
+                onClickOutside: () => setVisible(false),
+                overlay: (
+                    <TaxonomicFilter
+                        groupType={groupType}
+                        value={value}
+                        onChange={({ type }, payload) => {
+                            onChange?.(payload, type)
+                            setVisible(false)
+                        }}
+                        taxonomicGroupTypes={groupTypes ?? [groupType]}
+                        eventNames={eventNames}
+                    />
+                ),
+                visible: visible,
+            }}
+            onClick={() => setVisible(!visible)}
+            fullWidth={fullWidth}
+            type={'secondary'}
         >
-            {({ setRef }) => (
-                <Button
-                    data-attr={dataAttr}
-                    onClick={() => setVisible(!visible)}
-                    ref={setRef}
-                    className={clsx('TaxonomicPopup__button', { 'full-width': fullWidth })}
-                    style={style}
-                >
-                    <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                        {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
-                    </span>
-                    <div style={{ flexGrow: 1 }} />
-                    <DownOutlined style={{ fontSize: 10 }} />
-                </Button>
-            )}
-        </Popup>
+            <span className="TaxonomicPopup__button__label text-overflow">
+                {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
+            </span>
+            <div style={{ flexGrow: 1 }} />
+        </LemonButtonWithPopup>
     )
 }
 
 /** Like TaxonomicPopup, but convenient when you know you will only use string values */
 export function LemonTaxonomicStringPopup(props: TaxonomicPopupProps<string>): JSX.Element {
     return (
-        <LemonTaxonomicProps
+        <LemonTaxonomicPopup
             {...props}
             value={String(props.value)}
             onChange={(value, groupType) => props.onChange?.(String(value), groupType)}
@@ -98,7 +90,7 @@ export function LemonTaxonomicStringPopup(props: TaxonomicPopupProps<string>): J
     )
 }
 
-export function LemonTaxonomicProps({
+export function LemonTaxonomicPopup({
     groupType,
     value,
     onChange,
@@ -123,6 +115,8 @@ export function LemonTaxonomicProps({
 
     return (
         <div className="LemonButtonWithSideAction">
+            {/* TODO: This is nasty. We embed a button in the sideicon which should be a big no-no.
+            We should merge WithPopup and WithSideaction as this is a common use case */}
             <LemonButtonWithPopup
                 className="TaxonomicPopup__button"
                 data-attr={dataAttr}
@@ -149,30 +143,31 @@ export function LemonTaxonomicProps({
                 onClick={() => {
                     setVisible(!visible)
                 }}
-                relaxedIconWidth
                 sideIcon={
-                    <div className="side-buttons-row">
-                        {isClearButtonShown && (
-                            <>
-                                <LemonButton
-                                    className="side-buttons-row-button"
-                                    type="tertiary"
-                                    icon={<IconClose style={{ fontSize: 16 }} />}
-                                    tooltip="Clear selection"
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        onChange?.('', groupType)
-                                        setLocalValue('')
-                                    }}
-                                />
-                                <div className="side-buttons-row-button-divider" />
-                            </>
+                    <div className="flex">
+                        {isClearButtonShown ? (
+                            <LemonButton
+                                className="side-buttons-row-button"
+                                type="tertiary"
+                                status="stealth"
+                                icon={<IconClose style={{ fontSize: 16 }} />}
+                                tooltip="Clear selection"
+                                noPadding
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    onChange?.('', groupType)
+                                    setLocalValue('')
+                                }}
+                            />
+                        ) : (
+                            <LemonButton
+                                className="side-buttons-row-button side-buttons-row-button-no-hover"
+                                type="tertiary"
+                                status="stealth"
+                                noPadding
+                                icon={<IconArrowDropDown />}
+                            />
                         )}
-                        <LemonButton
-                            className="side-buttons-row-button side-buttons-row-button-no-hover"
-                            type="tertiary"
-                            icon={<IconArrowDropDown />}
-                        />
                     </div>
                 }
                 {...buttonProps}

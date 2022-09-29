@@ -1,30 +1,16 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Action, Alert, EnqueuedJob, Hub, PluginTaskType, Team } from '../types'
-import { ingestEvent } from './ingestion/ingest-event'
-import { runHandleAlert, runOnAction, runOnEvent, runOnSnapshot, runPluginTask, runProcessEvent } from './plugins/run'
+import { Action, EnqueuedPluginJob, Hub, PluginTaskType, PostIngestionEvent, Team } from '../types'
+import { convertToProcessedPluginEvent } from '../utils/event'
+import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
+import { runPluginTask, runProcessEvent } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 
 type TaskRunner = (hub: Hub, args: any) => Promise<any> | any
 
 export const workerTasks: Record<string, TaskRunner> = {
-    onEvent: (hub, args: { event: PluginEvent }) => {
-        return runOnEvent(hub, args.event)
-    },
-    onAction: (hub, args: { event: PluginEvent; action: Action }) => {
-        return runOnAction(hub, args.action, args.event)
-    },
-    onSnapshot: (hub, args: { event: PluginEvent }) => {
-        return runOnSnapshot(hub, args.event)
-    },
-    processEvent: (hub, args: { event: PluginEvent }) => {
-        return runProcessEvent(hub, args.event)
-    },
-    handleAlert: async (hub, args: { alert: Alert }) => {
-        return runHandleAlert(hub, args.alert)
-    },
-    runJob: (hub, { job }: { job: EnqueuedJob }) => {
+    runPluginJob: (hub, { job }: { job: EnqueuedPluginJob }) => {
         return runPluginTask(hub, job.type, PluginTaskType.Job, job.pluginConfigId, job.payload)
     },
     runEveryMinute: (hub, args: { pluginConfigId: number }) => {
@@ -39,8 +25,20 @@ export const workerTasks: Record<string, TaskRunner> = {
     getPluginSchedule: (hub) => {
         return hub.pluginSchedule
     },
-    ingestEvent: async (hub, args: { event: PluginEvent }) => {
-        return await ingestEvent(hub, args.event)
+    pluginScheduleReady: (hub) => {
+        return hub.pluginSchedule !== null
+    },
+    runEventPipeline: async (hub, args: { event: PluginEvent }) => {
+        const runner = new EventPipelineRunner(hub, args.event)
+        return await runner.runEventPipeline(args.event)
+    },
+    runBufferEventPipeline: async (hub, args: { event: PluginEvent }) => {
+        const runner = new EventPipelineRunner(hub, args.event)
+        return await runner.runBufferEventPipeline(args.event)
+    },
+    runAsyncHandlersEventPipeline: async (hub, args: { event: PostIngestionEvent }) => {
+        const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
+        return await runner.runAsyncHandlersEventPipeline(args.event)
     },
     reloadPlugins: async (hub) => {
         await setupPlugins(hub)
@@ -61,12 +59,10 @@ export const workerTasks: Record<string, TaskRunner> = {
         await teardownPlugins(hub)
     },
     flushKafkaMessages: async (hub) => {
-        await hub.kafkaProducer?.flush()
+        await hub.kafkaProducer.flush()
     },
-    sendPluginMetrics: async (hub) => {
-        await hub.pluginMetricsManager.sendPluginMetrics(hub)
-    },
-    enqueueJob: async (hub, { job }: { job: EnqueuedJob }) => {
-        await hub.jobQueueManager.enqueue(job)
+    // Exported only for tests
+    _testsRunProcessEvent: async (hub, args: { event: PluginEvent }) => {
+        return runProcessEvent(hub, args.event)
     },
 }

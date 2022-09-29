@@ -1,41 +1,29 @@
 import React from 'react'
-import './PrimaryDashboardModal.scss'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DashboardType } from '~/types'
-import { Skeleton, Typography } from 'antd'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
-import { HomeIcon } from 'lib/components/icons'
+import { IconCottage } from 'lib/components/icons'
 import { LemonRow } from 'lib/components/LemonRow'
-
-export interface ShareModalProps {
-    visible: boolean
-    onCancel: () => void
-}
+import { LemonModal } from 'lib/components/LemonModal'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 export function PrimaryDashboardModal(): JSX.Element {
-    const { visible, primaryDashboardId } = useValues(primaryDashboardModalLogic)
+    const { isOpen, primaryDashboardId } = useValues(primaryDashboardModalLogic)
     const { closePrimaryDashboardModal, setPrimaryDashboard } = useActions(primaryDashboardModalLogic)
     const { nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
 
     return (
         <LemonModal
-            className="primary-dashboard-modal"
-            visible={visible}
-            onCancel={() => {
-                closePrimaryDashboardModal()
-            }}
+            isOpen={isOpen}
+            onClose={closePrimaryDashboardModal}
             title="Select a default dashboard for the project"
-            destroyOnClose
-            bodyStyle={{ padding: 0 }}
             footer={
                 <>
                     <LemonButton
                         type="secondary"
                         data-attr="close-primary-dashboard-modal"
-                        style={{ marginRight: '0.5rem' }}
                         onClick={closePrimaryDashboardModal}
                     >
                         Close
@@ -44,34 +32,31 @@ export function PrimaryDashboardModal(): JSX.Element {
             }
         >
             {dashboardsLoading ? (
-                <div className="loading-skeleton-container">
-                    <Skeleton active />
+                <div className="space-y-2">
+                    <LemonSkeleton.Row repeat={4} />
                 </div>
             ) : (
-                <div className="dashboard-list">
+                <div className="space-y-2">
                     {nameSortedDashboards.map((dashboard: DashboardType) => {
                         const isPrimary = dashboard.id === primaryDashboardId
-                        const rowContents = [
-                            <div key={1} className="dashboard-label-container">
-                                <strong>{dashboard.name}</strong>
-                                <Typography.Paragraph
-                                    ellipsis={{ rows: 1 }}
-                                    className="text-small dashboard-description"
-                                >
-                                    {dashboard.description}
-                                </Typography.Paragraph>
-                            </div>,
-                            <div key={2}>
+                        const rowContents = (
+                            <div className="flex flex-1 items-center justify-between overflow-hidden">
+                                <div className="flex-1 flex flex-col justify-center overflow-hidden">
+                                    <strong>{dashboard.name}</strong>
+                                    <span className="text-default font-normal text-ellipsis">
+                                        {dashboard.description}
+                                    </span>
+                                </div>
                                 {isPrimary ? (
-                                    <div className="default-indicator">
-                                        <HomeIcon className="mr-05" style={{ width: 18 }} />
+                                    <>
+                                        <IconCottage className="mr-2 text-warning text-lg" />
                                         <span>Default</span>
-                                    </div>
+                                    </>
                                 ) : (
                                     <strong className="set-default-text">Set as default</strong>
                                 )}
-                            </div>,
-                        ]
+                            </div>
+                        )
                         if (isPrimary) {
                             return (
                                 <LemonRow key={dashboard.id} fullWidth status="muted" className="dashboard-row">

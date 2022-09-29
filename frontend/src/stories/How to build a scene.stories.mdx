@@ -61,22 +61,25 @@ Create a component like: `frontend/src/scenes/dashboard/Dashboard.tsx`
 import './Dashboard.scss'
 import { dashboardLogic } './dashboardLogic.ts'
 
+export const scene: SceneExport = {
+    component: Dashboard,
+    logic: dashboardLogic,
+    // paramsToProps - Convert url _string_ params to logic props.
+    // This mounts the right logic with turbo mode before the component renders.
+    // This wraps the scene's logic in <BindLogic />
+    paramsToProps: ({ id }) => ({ id: id ? parseInt(id) : 'new' }),
+}
+
 export function Dashboard ({ id }: { id?: string } = {}): JSX.Element {
-    const { dashboard } = useValues(dashboardLogic({ scope: id ? parseInt(id) : 'new' }))
-    const { reloadDashboard } = useActions(dashboardLogic({ scope: id ? parseInt(id) : 'new' }))
+    // dashboardLogic is automatically bound to the props above with BindLogic
+    const { dashboard } = useValues(dashboardLogic)
+    const { reloadDashboard } = useActions(dashboardLogic)
     return (
         // TODO: consolidate on a recommended naming convention
         <div className='dashboard-scene'>
             Dashboard Scene!
         </div>
     )
-}
-
-export const scene: SceneExport = {
-    component: Dashboard,
-    logic: dashboardLogic,
-    // url params to logic props. This mounts the right logic with turbo mode before the component renders.
-    paramsToProps: ({ id }) => ({ scope: id ? parseInt(id) : 'new' }),
 }
 ```
 
@@ -86,7 +89,7 @@ Create the logic: `frontend/src/scenes/dashboard/dashboardLogic.tsx`
 import { dashboardLogicType } from './dashboardLogicType'
 
 export interface DashboardLogicProps {
-    id: number
+    id: number | 'new'
 }
 
 export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
@@ -181,7 +184,7 @@ export default {
         }),
     ],
     // NB! These `parameters` only apply for Scene stories.
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' }, // scene mode
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' }, // scene mode
 } as Meta
 
 export function NewDashboard (): JSX.Element {

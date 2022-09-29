@@ -19,23 +19,23 @@ describe('the feature flags logic', () => {
 
     it('can set tab to "history"', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setActiveTab('history')
+            logic.actions.setActiveTab(FeatureFlagsTabs.HISTORY)
         }).toMatchValues({ activeTab: FeatureFlagsTabs.HISTORY })
         expect(router.values.searchParams['tab']).toEqual('history')
     })
 
     it('can set tab back to "overview"', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setActiveTab('history')
-            logic.actions.setActiveTab('overview')
+            logic.actions.setActiveTab(FeatureFlagsTabs.HISTORY)
+            logic.actions.setActiveTab(FeatureFlagsTabs.OVERVIEW)
         }).toMatchValues({ activeTab: FeatureFlagsTabs.OVERVIEW })
         expect(router.values.searchParams['tab']).toEqual('overview')
     })
 
     it('ignores unexpected tab keys', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setActiveTab('history')
-            logic.actions.setActiveTab('tomato')
+            logic.actions.setActiveTab(FeatureFlagsTabs.HISTORY)
+            logic.actions.setActiveTab('tomato' as FeatureFlagsTabs)
         }).toMatchValues({
             activeTab: FeatureFlagsTabs.HISTORY,
         })
@@ -48,24 +48,6 @@ describe('the feature flags logic', () => {
             router.actions.push(urls.featureFlags(), { tab: 'history' })
         }).toMatchValues({
             activeTab: FeatureFlagsTabs.HISTORY,
-        })
-    })
-
-    it('sets the page from the URL when on history tab', async () => {
-        router.actions.push(urls.featureFlags(), { page: '4' })
-        await expectLogic(logic, () => {
-            logic.actions.setActiveTab(FeatureFlagsTabs.HISTORY)
-        }).toMatchValues({
-            historyPage: 4,
-        })
-    })
-
-    it('does not set the page from the URL when on overview tab', async () => {
-        router.actions.push(urls.featureFlags(), { page: '4' })
-        await expectLogic(logic, () => {
-            logic.actions.setActiveTab(FeatureFlagsTabs.OVERVIEW)
-        }).toMatchValues({
-            historyPage: null,
         })
     })
 })

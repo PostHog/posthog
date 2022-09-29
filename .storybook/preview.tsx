@@ -1,5 +1,6 @@
 import * as React from 'react'
 import '~/styles'
+import './storybook.scss'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { KeaStory } from './kea-story'
@@ -38,15 +39,25 @@ export const parameters = {
     },
     options: {
         // automatically show code panel
-        showPanel: true,
-        storySort: (a: any, b: any) => {
-            return a[1].kind === b[1].kind ? 0 : a[1].title.localeCompare(b[1].title, undefined, { numeric: true })
+        showPanel: false,
+        storySort: {
+            method: 'alphabetical',
+            order: [
+                'Lemon UI',
+                ['Overview', 'Utilities', 'Icons'],
+                'Components',
+                'Forms',
+                ['Field'],
+                'Filters',
+                'Layout',
+            ],
+            includeName: true,
         },
     },
     viewMode: 'docs',
     // auto-expand code blocks in docs
     docs: {
-        source: { state: 'open' },
+        source: { state: 'closed' },
     },
 }
 

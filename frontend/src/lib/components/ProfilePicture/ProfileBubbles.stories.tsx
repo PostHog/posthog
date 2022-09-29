@@ -2,6 +2,7 @@ import React from 'react'
 
 import { ProfileBubbles as ProfileBubblesComponent, ProfileBubblesProps } from './ProfileBubbles'
 import { ComponentMeta } from '@storybook/react'
+import { alphabet, range } from 'lib/utils'
 
 const DUMMIES: ProfileBubblesProps['people'] = [
     { email: 'michael@posthog.com', name: 'Michael' },
@@ -11,7 +12,7 @@ const DUMMIES: ProfileBubblesProps['people'] = [
 ]
 
 export default {
-    title: 'Components/ProfileBubbles',
+    title: 'Lemon UI/Profile Bubbles',
     component: ProfileBubblesComponent,
     argTypes: {
         people: {
@@ -26,6 +27,18 @@ export function OneBubble(props: any): JSX.Element {
 
 export function MultipleBubblesWithTooltip(props: any): JSX.Element {
     return <ProfileBubblesComponent {...props} tooltip="Cool people." />
+}
+
+export function MultipleBubblesWithNoImages(props: any): JSX.Element {
+    return (
+        <ProfileBubblesComponent
+            {...props}
+            people={range(20).map((x) => ({
+                name: alphabet[x],
+                email: 'not-real-at-all@posthog.com',
+            }))}
+        />
+    )
 }
 
 export function MultipleBubblesAtLimit(props: any): JSX.Element {

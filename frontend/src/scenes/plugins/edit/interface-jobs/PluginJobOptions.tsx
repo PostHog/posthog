@@ -1,48 +1,68 @@
-import { Tooltip } from 'lib/components/Tooltip'
-import React from 'react'
-import { PluginTypeWithConfig } from '../../types'
-import { PluginJobConfiguration } from './PluginJobConfiguration'
+import { LemonTag } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import React, { useMemo } from 'react'
+import { JobSpec } from '~/types'
+import {
+    HISTORICAL_EXPORT_JOB_NAME,
+    HISTORICAL_EXPORT_JOB_NAME_V2,
+    PluginJobConfiguration,
+} from './PluginJobConfiguration'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from '../../../../lib/constants'
 
 interface PluginJobOptionsProps {
-    plugin: PluginTypeWithConfig
+    pluginId: number
     pluginConfigId: number
+    capabilities: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
+    publicJobs: Record<string, JobSpec>
 }
 
-export function PluginJobOptions({ plugin, pluginConfigId }: PluginJobOptionsProps): JSX.Element {
-    const { capabilities, public_jobs } = plugin
+export function PluginJobOptions({
+    pluginId,
+    pluginConfigId,
+    capabilities,
+    publicJobs,
+}: PluginJobOptionsProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    if (!capabilities || !capabilities.jobs || !public_jobs || public_jobs.length === 0) {
-        return <></>
-    }
+    const jobs = useMemo(() => {
+        return capabilities.jobs
+            .filter((jobName) => jobName in publicJobs)
+            .filter((jobName) => {
+                // Hide either old or new export depending on the feature flag value
+                if (jobName === HISTORICAL_EXPORT_JOB_NAME && featureFlags[FEATURE_FLAGS.HISTORICAL_EXPORTS_V2]) {
+                    return false
+                } else if (
+                    jobName === HISTORICAL_EXPORT_JOB_NAME_V2 &&
+                    !featureFlags[FEATURE_FLAGS.HISTORICAL_EXPORTS_V2]
+                ) {
+                    return false
+                }
+
+                return true
+            })
+    }, [capabilities, publicJobs, featureFlags])
 
     return (
         <>
             <h3 className="l3" style={{ marginTop: 32 }}>
-                Jobs (Beta)
+                Jobs
+                <LemonTag type="warning" className="uppercase" style={{ verticalAlign: '0.125em', marginLeft: 6 }}>
+                    BETA
+                </LemonTag>
             </h3>
 
-            {capabilities.jobs.map((jobName) => {
-                if (!(jobName in public_jobs)) {
-                    return
-                }
-                return (
-                    <div key={jobName}>
-                        {jobName === 'Export historical events' ? (
-                            <Tooltip title="Run this plugin on all historical events ingested until now">
-                                <i>Export historical events</i>
-                            </Tooltip>
-                        ) : (
-                            <i>{jobName}</i>
-                        )}
-                        <PluginJobConfiguration
-                            jobName={jobName}
-                            jobSpec={public_jobs[jobName]}
-                            pluginConfigId={pluginConfigId}
-                            pluginId={plugin.id}
-                        />
-                    </div>
-                )
-            })}
+            {jobs.map((jobName) => (
+                <div key={jobName}>
+                    {jobName.includes('Export historical events') ? <i>Export historical events</i> : <i>{jobName}</i>}
+                    <PluginJobConfiguration
+                        jobName={jobName}
+                        jobSpec={publicJobs[jobName]}
+                        pluginConfigId={pluginConfigId}
+                        pluginId={pluginId}
+                    />
+                </div>
+            ))}
         </>
     )
 }

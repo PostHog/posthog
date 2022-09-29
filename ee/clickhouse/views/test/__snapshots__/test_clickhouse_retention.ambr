@@ -1,23 +1,21 @@
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_retention_?$ (ClickhouseInsightsViewSet) */ WITH actor_query AS
+  /* user_id:0 request:_snapshot_ */ WITH actor_query AS
     (WITH 'day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(e.timestamp) AS event_date,
-               e.uuid AS uuid,
-               e.event AS event,
+       (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                e.distinct_id as target
         FROM events e
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-04 00:00:00') ),
+          AND toDateTime(e.timestamp) <= toDateTime('2020-01-04 00:00:00')
+        GROUP BY target,
+                 event_date),
           target_event_query as
-       (SELECT min(toStartOfDay(e.timestamp)) as event_date,
-               argMin(e.uuid, toStartOfDay(e.timestamp)) as min_uuid,
-               argMin(e.event, toStartOfDay(e.timestamp)) as min_event,
+       (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                e.distinct_id as target,
                [
                           dateDiff(
@@ -61,17 +59,15 @@
 ---
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people.1
   '
-  /* request:api_person_retention_?$ (LegacyPersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
     (WITH 'day' as period,
           [0] as breakdown_values_filter,
-          0 as selected_interval,
+          NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(e.timestamp) AS event_date,
-               e.uuid AS uuid,
-               e.event AS event,
+       (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -84,11 +80,11 @@
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-04 00:00:00') ),
+          AND toDateTime(e.timestamp) <= toDateTime('2020-01-04 00:00:00')
+        GROUP BY target,
+                 event_date),
           target_event_query as
-       (SELECT min(toStartOfDay(e.timestamp)) as event_date,
-               argMin(e.uuid, toStartOfDay(e.timestamp)) as min_uuid,
-               argMin(e.event, toStartOfDay(e.timestamp)) as min_event,
+       (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                pdi.person_id as target,
                [
                           dateDiff(
@@ -128,24 +124,22 @@
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
   GROUP BY actor_id
-  ORDER BY actor_id
+  ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people.2
   '
-  /* request:api_person_retention_?$ (LegacyPersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
     (WITH 'day' as period,
           [1] as breakdown_values_filter,
-          0 as selected_interval,
+          NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(e.timestamp) AS event_date,
-               e.uuid AS uuid,
-               e.event AS event,
+       (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -158,11 +152,11 @@
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-04 00:00:00') ),
+          AND toDateTime(e.timestamp) <= toDateTime('2020-01-04 00:00:00')
+        GROUP BY target,
+                 event_date),
           target_event_query as
-       (SELECT min(toStartOfDay(e.timestamp)) as event_date,
-               argMin(e.uuid, toStartOfDay(e.timestamp)) as min_uuid,
-               argMin(e.event, toStartOfDay(e.timestamp)) as min_event,
+       (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                pdi.person_id as target,
                [
                           dateDiff(
@@ -202,21 +196,19 @@
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
   GROUP BY actor_id
-  ORDER BY actor_id
+  ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: RetentionTests.test_retention_test_account_filters
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_retention_?$ (ClickhouseInsightsViewSet) */ WITH actor_query AS
+  /* user_id:0 request:_snapshot_ */ WITH actor_query AS
     (WITH 'day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(e.timestamp) AS event_date,
-               e.uuid AS uuid,
-               e.event AS event,
+       (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -230,17 +222,22 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
+          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00')
+        GROUP BY target,
+                 event_date),
           target_event_query as
-       (SELECT min(toStartOfDay(e.timestamp)) as event_date,
-               argMin(e.uuid, toStartOfDay(e.timestamp)) as min_uuid,
-               argMin(e.event, toStartOfDay(e.timestamp)) as min_event,
+       (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                pdi.person_id as target,
                [
                           dateDiff(
@@ -261,6 +258,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -298,7 +300,7 @@
 ---
 # name: RetentionTests.test_retention_test_account_filters.1
   '
-  /* request:api_person_retention_?$ (LegacyPersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -306,9 +308,7 @@
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(e.timestamp) AS event_date,
-               e.uuid AS uuid,
-               e.event AS event,
+       (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -322,17 +322,22 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
+          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00')
+        GROUP BY target,
+                 event_date),
           target_event_query as
-       (SELECT min(toStartOfDay(e.timestamp)) as event_date,
-               argMin(e.uuid, toStartOfDay(e.timestamp)) as min_uuid,
-               argMin(e.event, toStartOfDay(e.timestamp)) as min_event,
+       (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                pdi.person_id as target,
                [
                           dateDiff(
@@ -353,6 +358,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -379,14 +389,14 @@
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
   GROUP BY actor_id
-  ORDER BY actor_id
+  ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: RetentionTests.test_retention_test_account_filters.2
   '
-  /* request:api_person_retention_?$ (LegacyPersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -394,9 +404,7 @@
           [1] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(e.timestamp) AS event_date,
-               e.uuid AS uuid,
-               e.event AS event,
+       (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -410,17 +418,22 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
+          AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00')
+        GROUP BY target,
+                 event_date),
           target_event_query as
-       (SELECT min(toStartOfDay(e.timestamp)) as event_date,
-               argMin(e.uuid, toStartOfDay(e.timestamp)) as min_uuid,
-               argMin(e.event, toStartOfDay(e.timestamp)) as min_event,
+       (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
                pdi.person_id as target,
                [
                           dateDiff(
@@ -441,6 +454,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -467,7 +485,7 @@
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
   GROUP BY actor_id
-  ORDER BY actor_id
+  ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
   '

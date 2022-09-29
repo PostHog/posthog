@@ -12,11 +12,11 @@ from ee.clickhouse.queries.experiments import (
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
-from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.constants import ACTIONS, EVENTS, TRENDS_CUMULATIVE, ExperimentSignificanceCode
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
+from posthog.queries.trends.trends import Trends
 
 Probability = float
 
@@ -53,7 +53,7 @@ class ClickhouseTrendExperimentResult:
         feature_flag: FeatureFlag,
         experiment_start_date: datetime,
         experiment_end_date: Optional[datetime] = None,
-        trend_class: Type[ClickhouseTrends] = ClickhouseTrends,
+        trend_class: Type[Trends] = Trends,
     ):
 
         breakdown_key = f"$feature/{feature_flag.key}"
@@ -102,7 +102,7 @@ class ClickhouseTrendExperimentResult:
 
     def get_results(self):
         insight_results = self.insight.run(self.query_filter, self.team)
-        exposure_results = self.insight.run(self.exposure_filter, self.team,)
+        exposure_results = self.insight.run(self.exposure_filter, self.team)
         control_variant, test_variants = self.get_variants(insight_results, exposure_results)
 
         probabilities = self.calculate_results(control_variant, test_variants)
@@ -178,8 +178,8 @@ class ClickhouseTrendExperimentResult:
         if not control_variant:
             raise ValidationError("No control variant data found", code="no_data")
 
-        if len(test_variants) > 2:
-            raise ValidationError("Can't calculate A/B test results for more than 3 variants", code="too_much_data")
+        if len(test_variants) > 3:
+            raise ValidationError("Can't calculate A/B test results for more than 4 variants", code="too_much_data")
 
         if len(test_variants) < 1:
             raise ValidationError("Can't calculate A/B test results for less than 2 variants", code="no_data")

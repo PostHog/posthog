@@ -1,6 +1,6 @@
 from typing import Counter, List, Set, cast
 
-from ee.clickhouse.models.property import box_value, extract_tables_and_properties
+from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.entity import Entity
@@ -8,14 +8,33 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier
-from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.models.property.util import box_value, extract_tables_and_properties
+from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
 
 
-class EnterpriseColumnOptimizer(ColumnOptimizer):
+class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
     @cached_property
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
-        used_properties = self._used_properties_with_type("group")
+        used_properties = self.used_properties_with_type("group")
         return set(cast(GroupTypeIndex, group_type_index) for _, _, group_type_index in used_properties)
+
+    @cached_property
+    def group_on_event_columns_to_query(self) -> Set[ColumnName]:
+        "Returns a list of event table group columns containing materialized properties that this query needs"
+        used_properties = self.used_properties_with_type("group")
+
+        columns_to_query: Set[ColumnName] = set()
+
+        for group_type_index in range(5):
+            columns_to_query = columns_to_query.union(
+                self.columns_to_query(
+                    "events",
+                    set([property for property in used_properties if property[2] == group_type_index]),
+                    f"group{group_type_index}_properties",
+                )
+            )
+
+        return columns_to_query
 
     @cached_property
     def properties_used_in_filter(self) -> Counter[PropertyIdentifier]:
@@ -59,6 +78,9 @@ class EnterpriseColumnOptimizer(ColumnOptimizer):
             # See ee/clickhouse/queries/trends/util.py#process_math
             if entity.math == "unique_group":
                 counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
+
+            if entity.math == "unique_session":
+                counter[(f"$session_id", "event", None)] += 1
 
             # :TRICKY: If action contains property filters, these need to be included
             #

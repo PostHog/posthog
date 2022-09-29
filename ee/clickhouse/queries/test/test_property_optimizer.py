@@ -42,15 +42,15 @@ class TestPersonPropertySelector(unittest.TestCase):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event", "operator": None},
-                                {"key": "person_prop2", "value": "efg2", "type": "person", "operator": None},
+                                {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event"},
+                                {"key": "person_prop2", "value": "efg2", "type": "person"},
                             ],
                         },
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "event_prop", "value": ["foo", "bar"], "type": "event", "operator": None},
-                                {"key": "person_prop", "value": "efg", "type": "person", "operator": None},
+                                {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
+                                {"key": "person_prop", "value": "efg", "type": "person"},
                             ],
                         },
                     ],
@@ -70,15 +70,15 @@ class TestPersonPropertySelector(unittest.TestCase):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "person", "operator": None},
-                                {"key": "person_prop2", "value": "efg2", "type": "person", "operator": None},
+                                {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "person"},
+                                {"key": "person_prop2", "value": "efg2", "type": "person"},
                             ],
                         },
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "event_prop", "value": ["foo", "bar"], "type": "person", "operator": None},
-                                {"key": "person_prop", "value": "efg", "type": "person", "operator": None},
+                                {"key": "event_prop", "value": ["foo", "bar"], "type": "person"},
+                                {"key": "person_prop", "value": "efg", "type": "person"},
                             ],
                         },
                     ],
@@ -102,8 +102,7 @@ class TestPersonPushdown(unittest.TestCase):
         assert outer is not None
 
         self.assertEqual(
-            inner.to_dict(),
-            {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person", "operator": None},]},
+            inner.to_dict(), {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}
         )
 
         self.assertEqual(
@@ -111,8 +110,8 @@ class TestPersonPushdown(unittest.TestCase):
             {
                 "type": "AND",
                 "values": [
-                    {"key": "event_prop", "value": ["foo", "bar"], "type": "event", "operator": None},
-                    {"key": "id", "value": 1, "type": "cohort", "operator": None},
+                    {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
+                    {"key": "id", "value": 1, "type": "cohort"},
                     {"key": "tag_name", "value": ["label"], "operator": "exact", "type": "element"},
                     {
                         "key": "group_prop",
@@ -134,15 +133,15 @@ class TestPersonPushdown(unittest.TestCase):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event", "operator": None},
-                                {"key": "person_prop2", "value": "efg2", "type": "person", "operator": None},
+                                {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event"},
+                                {"key": "person_prop2", "value": "efg2", "type": "person"},
                             ],
                         },
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "event_prop", "value": ["foo", "bar"], "type": "event", "operator": None},
-                                {"key": "person_prop", "value": "efg", "type": "person", "operator": None},
+                                {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
+                                {"key": "person_prop", "value": "efg", "type": "person"},
                             ],
                         },
                     ],
@@ -161,12 +160,7 @@ class TestPersonPushdown(unittest.TestCase):
             inner.to_dict(),
             {
                 "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [{"key": "person_prop", "value": "efg", "type": "person", "operator": None},],
-                    }
-                ],
+                "values": [{"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}],
             },
         )
 
@@ -178,15 +172,15 @@ class TestPersonPushdown(unittest.TestCase):
                     {
                         "type": "OR",
                         "values": [
-                            {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event", "operator": None},
-                            {"key": "person_prop2", "value": "efg2", "type": "person", "operator": None},
+                            {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event"},
+                            {"key": "person_prop2", "value": "efg2", "type": "person"},
                         ],
                     },
                     {
                         "type": "AND",
                         "values": [
-                            {"key": "event_prop", "value": ["foo", "bar"], "type": "event", "operator": None},
-                            # {"key": "person_prop", "value": "efg", "type": "person", "operator": None}, # this was pushed down
+                            {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
+                            # {"key": "person_prop", "value": "efg", "type": "person", }, # this was pushed down
                         ],
                     },
                 ],
@@ -202,15 +196,15 @@ class TestPersonPushdown(unittest.TestCase):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "person_prop2", "value": ["foo2", "bar2"], "type": "person", "operator": None},
-                                {"key": "person_prop2", "value": "efg2", "type": "person", "operator": None},
+                                {"key": "person_prop2", "value": ["foo2", "bar2"], "type": "person"},
+                                {"key": "person_prop2", "value": "efg2", "type": "person"},
                             ],
                         },
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "event_prop", "value": ["foo", "bar"], "type": "event", "operator": None},
-                                {"key": "person_prop", "value": "efg", "type": "person", "operator": None},
+                                {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
+                                {"key": "person_prop", "value": "efg", "type": "person"},
                             ],
                         },
                     ],
@@ -233,14 +227,11 @@ class TestPersonPushdown(unittest.TestCase):
                     {
                         "type": "OR",
                         "values": [
-                            {"key": "person_prop2", "value": ["foo2", "bar2"], "type": "person", "operator": None},
-                            {"key": "person_prop2", "value": "efg2", "type": "person", "operator": None},
+                            {"key": "person_prop2", "value": ["foo2", "bar2"], "type": "person"},
+                            {"key": "person_prop2", "value": "efg2", "type": "person"},
                         ],
                     },
-                    {
-                        "type": "AND",
-                        "values": [{"key": "person_prop", "value": "efg", "type": "person", "operator": None},],
-                    },
+                    {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]},
                 ],
             },
         )
@@ -254,10 +245,168 @@ class TestPersonPushdown(unittest.TestCase):
                     {
                         "type": "AND",
                         "values": [
-                            {"key": "event_prop", "value": ["foo", "bar"], "type": "event", "operator": None},
-                            # {"key": "person_prop", "value": "efg", "type": "person", "operator": None}, # this was pushed down
+                            {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
+                            # {"key": "person_prop", "value": "efg", "type": "person", }, # this was pushed down
                         ],
                     }
+                ],
+            },
+        )
+
+    def test_person_properties_mixed_with_event_properties_with_misdirection_using_nested_groups(self):
+        filter = BASE_FILTER.with_data(
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "type": "OR",
+                                            "values": [
+                                                {
+                                                    "type": "OR",
+                                                    "values": [
+                                                        {
+                                                            "key": "event_prop2",
+                                                            "value": ["foo2", "bar2"],
+                                                            "type": "event",
+                                                        }
+                                                    ],
+                                                }
+                                            ],
+                                        },
+                                        {
+                                            "type": "AND",
+                                            "values": [{"key": "person_prop2", "value": "efg2", "type": "person"}],
+                                        },
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "OR",
+                                    "values": [
+                                        {
+                                            "type": "AND",
+                                            "values": [{"key": "event_prop", "value": ["foo", "bar"], "type": "event"}],
+                                        }
+                                    ],
+                                },
+                                {
+                                    "type": "OR",
+                                    "values": [
+                                        {
+                                            "type": "AND",
+                                            "values": [
+                                                {
+                                                    "type": "OR",
+                                                    "values": [
+                                                        {"key": "person_prop", "value": "efg", "type": "person"}
+                                                    ],
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                }
+            }
+        )
+
+        property_groups = PropertyOptimizer().parse_property_groups(filter.property_groups)
+        inner = property_groups.inner
+        outer = property_groups.outer
+
+        assert inner is not None
+        assert outer is not None
+
+        self.assertEqual(
+            inner.to_dict(),
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "type": "AND",
+                                        "values": [
+                                            {
+                                                "type": "OR",
+                                                "values": [{"key": "person_prop", "value": "efg", "type": "person"}],
+                                            }
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(
+            outer.to_dict(),
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "OR",
+                                        "values": [
+                                            {
+                                                "type": "OR",
+                                                "values": [
+                                                    {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event"}
+                                                ],
+                                            }
+                                        ],
+                                    },
+                                    {
+                                        "type": "AND",
+                                        "values": [{"key": "person_prop2", "value": "efg2", "type": "person"}],
+                                    },
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "type": "AND",
+                                        "values": [{"key": "event_prop", "value": ["foo", "bar"], "type": "event"}],
+                                    }
+                                ],
+                            },
+                            # {"type": "OR", "values": [
+                            #     {"type": "AND", "values": [
+                            #         {"type": "OR", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}]
+                            #     }]}
+                            # this was pushed down
+                        ],
+                    },
                 ],
             },
         )

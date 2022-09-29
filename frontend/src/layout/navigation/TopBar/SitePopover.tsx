@@ -7,7 +7,6 @@ import { LemonRow } from '../../../lib/components/LemonRow'
 import {
     IconCheckmark,
     IconOffline,
-    IconPlus,
     IconLogout,
     IconUpdate,
     IconExclamation,
@@ -15,6 +14,7 @@ import {
     IconArrowDropDown,
     IconSettings,
     IconCorporate,
+    IconPlus,
 } from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
@@ -23,7 +23,7 @@ import { navigationLogic } from '../navigationLogic'
 import { LicenseType, OrganizationBasicType } from '../../../types'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
-import { licenseLogic } from '../../../scenes/instance/Licenses/logic'
+import { licenseLogic, isLicenseExpired } from '../../../scenes/instance/Licenses/licenseLogic'
 import { identifierToHuman } from '../../../lib/utils'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 import {
@@ -32,14 +32,15 @@ import {
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
 import { dayjs } from 'lib/dayjs'
-import { isLicenseExpired } from 'scenes/instance/Licenses'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonButtonPropsBase } from '@posthog/lemon-ui'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
         <div className="SitePopover__section">
-            {title && <h5 className="flex-center">{title}</h5>}
+            {title && <h5 className="flex items-center">{title}</h5>}
             {children}
         </div>
     )
@@ -63,8 +64,8 @@ function AccountInfo(): JSX.Element {
                     to={urls.mySettings()}
                     onClick={closeSitePopover}
                     data-attr="top-menu-item-me"
-                    type="stealth"
-                    icon={<IconSettings style={{ fontSize: '1.4rem' }} />}
+                    status="stealth"
+                    icon={<IconSettings className="text-2xl" />}
                 />
             </Tooltip>
         </div>
@@ -86,7 +87,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                         to={urls.organizationSettings()}
                         onClick={closeSitePopover}
                         data-attr="top-menu-item-org-settings"
-                        type="stealth"
+                        status="stealth"
                         icon={<IconSettings />}
                     />
                 </Tooltip>
@@ -95,9 +96,16 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
     )
 }
 
-function InviteMembersButton(): JSX.Element {
+export function InviteMembersButton({
+    center = false,
+    type = 'tertiary',
+}: {
+    center?: boolean
+    type?: LemonButtonPropsBase['type']
+}): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
+    const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
 
     return (
         <LemonButton
@@ -105,7 +113,10 @@ function InviteMembersButton(): JSX.Element {
             onClick={() => {
                 closeSitePopover()
                 showInviteModal()
+                reportInviteMembersButtonClicked()
             }}
+            center={center}
+            type={type}
             fullWidth
             data-attr="top-menu-invite-team-members"
         >
@@ -114,13 +125,7 @@ function InviteMembersButton(): JSX.Element {
     )
 }
 
-function License({
-    license,
-    expired,
-}: {
-    license: LicenseType | undefined
-    expired: boolean | undefined
-}): JSX.Element {
+function License({ license, expired }: { license: LicenseType | null; expired: boolean | null }): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
 
     return (
@@ -197,9 +202,8 @@ function Version(): JSX.Element {
                 </div>
                 {latestVersion && (
                     <Link
-                        href={`https://posthog.com/blog/the-posthog-array-${latestVersion.replace(/\./g, '-')}`}
+                        to={`https://posthog.com/blog/the-posthog-array-${latestVersion.replace(/\./g, '-')}`}
                         target="_blank"
-                        rel="noopener"
                         onClick={() => {
                             closeSitePopover()
                         }}
@@ -251,11 +255,7 @@ function InstanceSettings(): JSX.Element | null {
 
     return (
         <Link to={urls.instanceSettings()}>
-            <LemonButton
-                icon={<IconCorporate style={{ color: 'var(--primary)' }} />}
-                onClick={closeSitePopover}
-                fullWidth
-            >
+            <LemonButton icon={<IconCorporate className="text-primary" />} onClick={closeSitePopover} fullWidth>
                 Instance settings
             </LemonButton>
         </Link>
@@ -266,7 +266,7 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconLogout />} type="stealth" fullWidth data-attr="top-menu-item-logout">
+        <LemonButton onClick={logout} icon={<IconLogout />} status="stealth" fullWidth data-attr="top-menu-item-logout">
             Sign out
         </LemonButton>
     )
@@ -310,8 +310,12 @@ export function SitePopover(): JSX.Element {
                     </SitePopoverSection>
                     {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
                         <SitePopoverSection title="Other organizations">
-                            {otherOrganizations.map((otherOrganization) => (
-                                <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} />
+                            {otherOrganizations.map((otherOrganization, i) => (
+                                <OtherOrganizationButton
+                                    key={otherOrganization.id}
+                                    organization={otherOrganization}
+                                    index={i + 2}
+                                />
                             ))}
                             {preflight?.can_create_org && <NewOrganizationButton />}
                         </SitePopoverSection>

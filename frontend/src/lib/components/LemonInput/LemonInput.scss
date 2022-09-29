@@ -1,0 +1,77 @@
+.LemonInput {
+    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
+    display: flex;
+    min-height: 2.5rem;
+    padding: 0.25rem 0.5rem;
+    background: none;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    text-align: left;
+    line-height: 1.25rem;
+    cursor: text;
+    color: var(--default);
+    border: 1px solid var(--border);
+    background-color: var(--bg-light);
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+
+    &:not(.LemonInput--focused):not(.LemonInput--disabled):hover {
+        border: 1px solid var(--primary-light);
+    }
+
+    &.LemonInput--transparent-background {
+        background-color: inherit;
+    }
+
+    .LemonInput__input {
+        border: none;
+        outline: none;
+        background-color: inherit;
+        width: 100%;
+        text-overflow: ellipsis;
+
+        &:disabled {
+            opacity: var(--opacity-disabled);
+            cursor: not-allowed;
+        }
+
+        &:placeholder-shown {
+            font-style: italic;
+        }
+    }
+
+    .LemonIcon {
+        width: 1em;
+        height: 1em;
+        transition: color 200ms ease;
+        font-size: 1.5rem;
+        color: var(--muted-alt);
+        flex-shrink: 0;
+    }
+
+    &.LemonInput--hascontent {
+        > .LemonIcon {
+            color: var(--primary);
+        }
+    }
+
+    &.LemonInput--focused {
+        &:not(.LemonInput--disabled) {
+            border: 1px solid var(--primary);
+        }
+    }
+
+    &.LemonInput--type-search {
+        // NOTE Design: Search inputs are given a specific small width
+        max-width: 240px;
+    }
+    &.LemonInput--fullwidth {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .Field--error & {
+        border: 1px solid var(--danger) !important;
+    }
+}

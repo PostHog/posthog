@@ -1,17 +1,10 @@
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.group import create_group
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import GroupTypeMapping, Person
-from posthog.test.base import APIBaseTest
-
-
-def _create_event(**kwargs):
-    kwargs["event_uuid"] = uuid4()
-    create_event(**kwargs)
+from posthog.models.group.util import create_group
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
 
 class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
@@ -28,11 +21,9 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             )
         with freeze_time("2021-05-02"):
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"},
+                team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"}
             )
-        create_group(
-            team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"name": "Plankton"},
-        )
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"name": "Plankton"})
 
         response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
         self.assertEqual(
@@ -65,9 +56,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             group_key="key",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
-        create_group(
-            team_id=self.team.pk, group_type_index=1, group_key="foo//bar", properties={},
-        )
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="foo//bar", properties={})
 
         fail_response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=1&group_key=key")
         self.assertEqual(fail_response.status_code, 404)
@@ -98,7 +87,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-05-10")
     @snapshot_clickhouse_queries
     def test_related_groups(self):
-        uuid = self._create_related_groups_data()
+        self._create_related_groups_data()
 
         response = self.client.get(f"/api/projects/{self.team.id}/groups/related?id=0::0&group_type_index=0").json()
         self.assertEqual(
@@ -108,6 +97,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "created_at": "2021-05-10T00:00:00Z",
                     "distinct_ids": ["1", "2"],
                     "id": "01795392-cc00-0003-7dc7-67a694604d72",
+                    "uuid": "01795392-cc00-0003-7dc7-67a694604d72",
                     "is_identified": False,
                     "name": "1",
                     "properties": {},
@@ -249,9 +239,9 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
         uuid = UUID("01795392-cc00-0003-7dc7-67a694604d72")
 
-        p1 = Person.objects.create(uuid=uuid, team_id=self.team.pk, distinct_ids=["1", "2"])
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["3"])
-        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["4"])
+        Person.objects.create(uuid=uuid, team_id=self.team.pk, distinct_ids=["1", "2"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["3"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["4"])
 
         create_group(self.team.pk, 0, "0::0")
         create_group(self.team.pk, 0, "0::1")

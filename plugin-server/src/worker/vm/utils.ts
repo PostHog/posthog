@@ -1,4 +1,3 @@
-import { StatsD } from 'hot-shots'
 import { QueryResult } from 'pg'
 
 import { PluginConfig } from '../../types'
@@ -32,7 +31,7 @@ export const postgresSetOnce = async (
     key: string,
     value: number
 ): Promise<void> => {
-    const se = await db.postgresQuery(
+    await db.postgresQuery(
         `
         INSERT INTO posthog_pluginstorage (plugin_config_id, key, value)
         VALUES ($1, $2, $3)

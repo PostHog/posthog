@@ -10,5 +10,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(model_name="featureflag", name="name", field=models.TextField(blank=True),),
+        migrations.AlterField(
+            model_name="featureflag",
+            name="name",
+            field=models.TextField(blank=True),
+        ),
     ]

@@ -1,10 +1,12 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 
-import { TimestampFormat } from '../../types'
-import { castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
-import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../config/kafka-topics'
+import { TeamId, TimestampFormat } from '../../types'
+import { DB } from '../../utils/db/db'
+import { safeClickhouseString } from '../../utils/db/utils'
+import { castTimestampOrNow, castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
+import { KAFKA_EVENTS_DEAD_LETTER_QUEUE, KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
 
 function getClickhouseTimestampOrNull(isoTimestamp?: string): string | null {
     return isoTimestamp
@@ -13,7 +15,7 @@ function getClickhouseTimestampOrNull(isoTimestamp?: string): string | null {
 }
 
 export function generateEventDeadLetterQueueMessage(
-    event: PluginEvent,
+    event: PluginEvent | ProcessedPluginEvent,
     error: unknown,
     errorLocation = 'plugin_server_ingest_event'
 ): ProducerRecord {
@@ -21,20 +23,25 @@ export function generateEventDeadLetterQueueMessage(
     if (error instanceof Error) {
         errorMessage += `Error: ${error.message}`
     }
-    const { now, sent_at, timestamp, ...usefulEvent } = event
+    const pluginEvent: PluginEvent = { now: event.timestamp, sent_at: event.timestamp, ...event } as any as PluginEvent
+    const { now, sent_at, timestamp, ...usefulEvent } = pluginEvent
     const currentTimestamp = getClickhouseTimestampOrNull(new Date().toISOString())
     const eventNow = getClickhouseTimestampOrNull(now)
 
     const deadLetterQueueEvent = {
         ...usefulEvent,
+        event: safeClickhouseString(usefulEvent.event),
+        distinct_id: safeClickhouseString(usefulEvent.distinct_id),
+        site_url: safeClickhouseString(usefulEvent.site_url || ''),
+        ip: safeClickhouseString(usefulEvent.ip || ''),
         id: new UUIDT().toString(),
         event_uuid: event.uuid,
         properties: JSON.stringify(event.properties ?? {}),
         now: eventNow,
         error_timestamp: currentTimestamp,
         raw_payload: JSON.stringify(event),
-        error_location: errorLocation,
-        error: errorMessage,
+        error_location: safeClickhouseString(errorLocation),
+        error: safeClickhouseString(errorMessage),
         tags: ['plugin_server', 'ingest_event'],
     }
 
@@ -42,17 +49,31 @@ export function generateEventDeadLetterQueueMessage(
         topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE,
         messages: [
             {
-                value: Buffer.from(JSON.stringify(deadLetterQueueEvent)),
+                value: JSON.stringify(deadLetterQueueEvent),
             },
         ],
     }
     return message
 }
 
-export function parseDate(supposedIsoString: string): DateTime {
-    const jsDate = new Date(supposedIsoString)
-    if (Number.isNaN(jsDate.getTime())) {
-        return DateTime.fromISO(supposedIsoString)
-    }
-    return DateTime.fromJSDate(jsDate)
+// These get displayed under Data Management > Ingestion Warnings
+// These warnings get displayed to end users. Make sure these errors are actionable and useful for them and
+// also update IngestionWarningsView.tsx to display useful context.
+export function captureIngestionWarning(db: DB, teamId: TeamId, type: string, details: Record<string, any>) {
+    db.promiseManager.trackPromise(
+        db.kafkaProducer.queueMessage({
+            topic: KAFKA_INGESTION_WARNINGS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        team_id: teamId,
+                        type: type,
+                        source: 'plugin-server',
+                        details: JSON.stringify(details),
+                        timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                    }),
+                },
+            ],
+        })
+    )
 }

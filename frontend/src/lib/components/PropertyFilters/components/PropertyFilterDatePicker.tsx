@@ -1,13 +1,10 @@
-import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { dayjs } from 'lib/dayjs'
-import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import React, { useEffect, useState } from 'react'
 import { isOperatorDate } from 'lib/utils'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { PropertyOperator } from '~/types'
 import { PropertyValueProps } from 'lib/components/PropertyFilters/components/PropertyValue'
-
-export const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
+import { DatePicker } from 'lib/components/DatePicker'
 
 const dayJSMightParse = (
     candidateDateTimeValue: string | number | (string | number)[] | null | undefined
@@ -23,7 +20,6 @@ interface PropertyFilterDatePickerProps {
     operator: PropertyOperator
     setValue: (newValue: PropertyValueProps['value']) => void
     value: string | number | (string | number)[] | null | undefined
-    style: Partial<React.CSSProperties>
 }
 
 const dateAndTimeFormat = 'YYYY-MM-DD HH:mm:ss'
@@ -34,7 +30,6 @@ export function PropertyFilterDatePicker({
     operator,
     setValue,
     value,
-    style,
 }: PropertyFilterDatePickerProps): JSX.Element {
     // if ten characters then value is YYYY-MM-DD not YYYY-MM-DD HH:mm:ss
     const valueIsYYYYMMDD = narrowToString(value) && value?.length === 10
@@ -50,12 +45,10 @@ export function PropertyFilterDatePicker({
 
     return (
         <DatePicker
-            style={style}
             autoFocus={autoFocus}
             open={datePickerOpen}
             inputReadOnly={false}
-            className={'filter-date-picker'}
-            dropdownClassName={'filter-date-picker-dropdown'}
+            className={'filter-date-picker w-full h-10'}
             format={dateFormat}
             showTime={includeTimeInFilter}
             showNow={false}
@@ -90,6 +83,7 @@ export function PropertyFilterDatePicker({
                     onChange={(active) => {
                         setIncludeTimeInFilter(active)
                     }}
+                    bordered
                 />
             )}
         />

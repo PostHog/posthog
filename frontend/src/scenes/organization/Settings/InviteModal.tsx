@@ -1,15 +1,18 @@
-import { Alert, Button, Col, Input, Row } from 'antd'
-import Modal from 'antd/lib/modal/Modal'
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import { userLogic } from 'scenes/userLogic'
-import { PlusOutlined, CloseOutlined } from '@ant-design/icons'
 import './InviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from './inviteLogic'
-import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
-import { IconOpenInNew } from 'lib/components/icons'
+import { IconDelete, IconOpenInNew, IconPlus } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
+import { AlertMessage } from 'lib/components/AlertMessage'
+import { LemonTextArea, LemonInput } from '@posthog/lemon-ui'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { OrganizationInviteType } from '~/types'
+import { userLogic } from 'scenes/userLogic'
+import { LemonModal } from 'lib/components/LemonModal'
+import { LemonDialog } from 'lib/components/LemonDialog'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -19,7 +22,7 @@ const MAX_INVITES_AT_ONCE = 20
 
 export function EmailUnavailableMessage(): JSX.Element {
     return (
-        <InfoMessage style={{ marginTop: 16 }}>
+        <AlertMessage type="info" className="my-2">
             <>
                 This PostHog instance isn't{' '}
                 <a href="https://posthog.com/docs/self-host/configure/email" target="_blank" rel="noopener">
@@ -29,7 +32,7 @@ export function EmailUnavailableMessage(): JSX.Element {
                 .<br />
                 Remember to <u>share the invite link</u> with each team member you invite.
             </>
-        </InfoMessage>
+        </AlertMessage>
     )
 }
 
@@ -38,21 +41,21 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
 
     const { invitesToSend } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
+    const { preflight } = useValues(preflightLogic)
 
     return (
-        <Row gutter={16} className="invite-row" align="middle">
-            <Col xs={isDeletable ? 11 : 12}>
-                <Input
+        <div className="flex gap-2">
+            <div className="flex-1">
+                <LemonInput
                     placeholder={`${name.toLowerCase()}@posthog.com`}
                     type="email"
                     className={`error-on-blur${!invitesToSend[index]?.isValid ? ' errored' : ''}`}
-                    onChange={(e) => {
-                        const { value } = e.target
+                    onChange={(v) => {
                         let isValid = true
-                        if (value && !isEmail(value)) {
+                        if (v && !isEmail(v)) {
                             isValid = false
                         }
-                        updateInviteAtIndex({ target_email: e.target.value, isValid }, index)
+                        updateInviteAtIndex({ target_email: v, isValid }, index)
                     }}
                     value={invitesToSend[index]?.target_email}
                     onKeyDown={(e) => {
@@ -63,103 +66,217 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                     autoFocus={index === 0}
                     data-attr="invite-email-input"
                 />
-            </Col>
-            <Col xs={isDeletable ? 11 : 12}>
-                <Input
-                    placeholder={name}
-                    onChange={(e) => {
-                        updateInviteAtIndex({ first_name: e.target.value }, index)
-                    }}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+            </div>
+            <div className="flex-1 flex gap-1 items-center justify-between">
+                {!preflight?.email_service_available ? (
+                    <LemonButton
+                        type="secondary"
+                        className="flex-1"
+                        disabled={!isEmail(invitesToSend[index].target_email)}
+                        onClick={() => {
                             inviteTeamMembers()
-                        }
-                    }}
-                />
-            </Col>
-            {isDeletable && (
-                <Col xs={2}>
-                    <CloseOutlined style={{ color: 'var(--danger)' }} onClick={() => deleteInviteAtIndex(index)} />
-                </Col>
-            )}
-        </Row>
+                        }}
+                        fullWidth
+                        center
+                        data-attr="invite-generate-invite-link"
+                    >
+                        Submit
+                    </LemonButton>
+                ) : (
+                    <LemonInput
+                        placeholder={name}
+                        className="flex-1"
+                        onChange={(v) => {
+                            updateInviteAtIndex({ first_name: v }, index)
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                inviteTeamMembers()
+                            }
+                        }}
+                    />
+                )}
+                {isDeletable && (
+                    <LemonButton icon={<IconDelete />} status="danger" onClick={() => deleteInviteAtIndex(index)} />
+                )}
+            </div>
+        </div>
     )
 }
 
-export function InviteModal({ visible, onClose }: { visible: boolean; onClose: () => void }): JSX.Element {
+export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, canSubmit, invitedTeamMembersInternalLoading: loading } = useValues(inviteLogic)
-    const { appendInviteRow, resetInviteRows, inviteTeamMembers } = useActions(inviteLogic)
+    const { invitesToSend, canSubmit, invites } = useValues(inviteLogic)
+    const { appendInviteRow, resetInviteRows, inviteTeamMembers, deleteInvite, updateMessage } = useActions(inviteLogic)
 
+    const invitesReversed = invites.slice().reverse()
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invitesToSend.length > 1
     const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
 
     return (
-        <Modal
-            title={`Inviting team members${user?.organization ? ' to ' + user?.organization?.name : ''}`}
-            visible={visible}
-            onCancel={() => {
-                resetInviteRows()
-                onClose()
-            }}
-            onOk={inviteTeamMembers}
-            okText={validInvitesCount ? `Invite ${pluralize(validInvitesCount, 'team member')}` : 'Invite team members'}
-            destroyOnClose
-            okButtonProps={{
-                disabled: !canSubmit,
-                loading,
-                // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
-                'data-attr': 'invite-team-member-submit',
-            }}
-            cancelButtonProps={{ disabled: loading }}
-            closable={!loading}
-        >
-            {preflight?.licensed_users_available === 0 ? (
-                <Alert
-                    type="warning"
-                    showIcon
-                    message={
-                        <>
-                            You've hit the limit of team members you can invite to your PostHog instance given your
-                            license. Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to upgrade
-                            your license.
-                        </>
-                    }
-                />
-            ) : (
-                <div className="bulk-invite-modal">
-                    <p>
-                        An invite is <b>specific to an email address</b> and <b>expires after 3 days</b>.
-                        <br />
-                        Name can be provided for the team member's convenience.
-                    </p>
-                    <Row gutter={16}>
-                        <Col xs={areInvitesDeletable ? 11 : 12}>
-                            <b>Email address</b>
-                        </Col>
-                        <Col xs={areInvitesDeletable ? 11 : 12}>
-                            <b>
-                                Name <i>(optional)</i>
-                            </b>
-                        </Col>
-                    </Row>
+        <div className="InviteModal">
+            <LemonModal
+                isOpen={isOpen}
+                onClose={() => {
+                    resetInviteRows()
+                    onClose()
+                }}
+                title={<>Invite others to {user?.organization?.name || 'PostHog'}</>}
+                description={
+                    preflight?.email_service_available ? (
+                        <p>
+                            Invite others to your project to collaborate together in PostHog. An invite is specific to
+                            an email address and expires after 3 days. Name can be provided for the team member's
+                            convenience.
+                        </p>
+                    ) : (
+                        <p>
+                            This PostHog instance isn't configured to send emails. In the meantime, you can generate a
+                            link for each team member you want to invite. You can always invite others at a later time.{' '}
+                            <strong>Make sure you share links with the project members you want to invite.</strong>
+                        </p>
+                    )
+                }
+                footer={
+                    <>
+                        {!preflight?.email_service_available ? (
+                            <LemonButton center type="secondary" onClick={onClose}>
+                                Done
+                            </LemonButton>
+                        ) : (
+                            <>
+                                <LemonButton
+                                    onClick={() => {
+                                        resetInviteRows()
+                                        onClose()
+                                    }}
+                                    type="secondary"
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={() => inviteTeamMembers()}
+                                    type="primary"
+                                    disabled={!canSubmit}
+                                    data-attr="invite-team-member-submit"
+                                >
+                                    {validInvitesCount
+                                        ? `Invite ${pluralize(validInvitesCount, 'user')}`
+                                        : 'Invite users'}
+                                </LemonButton>
+                            </>
+                        )}
+                    </>
+                }
+            >
+                {preflight?.licensed_users_available === 0 && (
+                    <AlertMessage type="warning">
+                        You've hit the limit of team members you can invite to your PostHog instance given your license.
+                        Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to upgrade your license.
+                    </AlertMessage>
+                )}
+                <div className="space-y-2">
+                    <div className="flex gap-2">
+                        <b className="flex-1">Email address</b>
+                        <b className="flex-1">
+                            {preflight?.email_service_available ? 'Name (optional)' : 'Invite link'}
+                        </b>
+                    </div>
+
+                    {invitesReversed.map((invite: OrganizationInviteType) => {
+                        return (
+                            <div className="flex gap-2 items-start" key={invite.id}>
+                                <div className="flex-1">
+                                    <div className="flex-1 rounded border p-2">{invite.target_email} </div>
+                                </div>
+
+                                <div className="flex-1 flex gap-2 overflow-hidden">
+                                    {invite.is_expired ? (
+                                        <b>Expired! Delete and recreate</b>
+                                    ) : (
+                                        <>
+                                            {preflight?.email_service_available ? (
+                                                <div className="flex-1 border rounded p-2"> {invite.first_name} </div>
+                                            ) : (
+                                                <CopyToClipboardInline
+                                                    data-attr="invite-link"
+                                                    explicitValue={
+                                                        new URL(`/signup/${invite.id}`, document.baseURI).href
+                                                    }
+                                                    description="invite link"
+                                                    style={{
+                                                        color: 'var(--primary)',
+                                                        background: 'var(--side)',
+                                                        borderRadius: 4,
+                                                        padding: '0.5rem',
+                                                    }}
+                                                >
+                                                    <div className="InviteModal__share_link">
+                                                        {new URL(`/signup/${invite.id}`, document.baseURI).href}
+                                                    </div>
+                                                </CopyToClipboardInline>
+                                            )}
+                                        </>
+                                    )}
+                                    <LemonButton
+                                        title="Cancel the invite"
+                                        data-attr="invite-delete"
+                                        icon={<IconDelete />}
+                                        status="danger"
+                                        onClick={() => {
+                                            invite.is_expired
+                                                ? deleteInvite(invite)
+                                                : LemonDialog.open({
+                                                      title: `Do you want to cancel the invite for ${invite.target_email}?`,
+                                                      primaryButton: {
+                                                          children: 'Yes, cancel invite',
+                                                          status: 'danger',
+                                                          onClick: () => deleteInvite(invite),
+                                                      },
+                                                      secondaryButton: {
+                                                          children: 'No, keep invite',
+                                                      },
+                                                  })
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        )
+                    })}
 
                     {invitesToSend.map((_, index) => (
                         <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
                     ))}
 
-                    <div className="mt">
+                    <div className="mt-4">
                         {areInvitesCreatable && (
-                            <Button block onClick={appendInviteRow} icon={<PlusOutlined />}>
-                                Add another team member
-                            </Button>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlus />}
+                                onClick={appendInviteRow}
+                                fullWidth
+                                center
+                            >
+                                Add email address
+                            </LemonButton>
                         )}
                     </div>
                 </div>
-            )}
-            {!preflight?.email_service_available && <EmailUnavailableMessage />}
-        </Modal>
+                {preflight?.email_service_available && (
+                    <div className="mb-4">
+                        <div className="mb-2">
+                            <b>Message</b> (optional)
+                        </div>
+                        <LemonTextArea
+                            data-attr="invite-optional-message"
+                            placeholder="Tell your teammates why you're inviting them to PostHog"
+                            onChange={(e) => updateMessage(e)}
+                        />
+                    </div>
+                )}
+            </LemonModal>
+        </div>
     )
 }

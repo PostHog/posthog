@@ -4,25 +4,60 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { BindLogic, Provider, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
-import React, { CSSProperties, useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { isPostHogProp, keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
-import { LockOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, LockOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { IconOpenInNew } from 'lib/components/icons'
+import { IconInfo, IconOpenInNew } from 'lib/components/icons'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
 import { CohortPopupInfo } from 'lib/components/DefinitionPopup/CohortPopupInfo'
-import { Button, Checkbox, Input, Typography } from 'antd'
+import { Button, Checkbox, Typography } from 'antd'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/components/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
-import { usePopper } from 'react-popper'
-import ReactDOM from 'react-dom'
+import { TitleWithIcon } from '../TitleWithIcon'
+import { UseFloatingReturn } from '@floating-ui/react-dom-interactions'
+import { LemonTextArea } from '../LemonTextArea/LemonTextArea'
+
+export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
+    <TitleWithIcon
+        icon={
+            <Tooltip
+                title="Estimated event volume in the past 30 days, updated every 24 hours."
+                placement={tooltipPlacement}
+            >
+                <IconInfo />
+            </Tooltip>
+        }
+    >
+        30-day volume
+    </TitleWithIcon>
+)
+
+export const ThirtyDayQueryCountTitle = ({
+    tooltipPlacement,
+}: {
+    tooltipPlacement?: 'top' | 'bottom'
+}): JSX.Element => (
+    <TitleWithIcon
+        icon={
+            <Tooltip
+                title="Estimated number of queries in which the event was used in the past 30 days, updated once every 24 hours."
+                placement={tooltipPlacement}
+            >
+                <IconInfo />
+            </Tooltip>
+        }
+    >
+        30-day query count
+    </TitleWithIcon>
+)
 
 function TaxonomyIntroductionSection(): JSX.Element {
     const Lock = (): JSX.Element => (
@@ -32,7 +67,7 @@ function TaxonomyIntroductionSection(): JSX.Element {
                 width: '100%',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
-                color: 'var(--text-muted)',
+                color: 'var(--muted)',
             }}
         >
             <Tooltip title="Viewing ingestion data requires a premium license">
@@ -46,21 +81,59 @@ function TaxonomyIntroductionSection(): JSX.Element {
             <DefinitionPopup.Grid cols={2}>
                 <DefinitionPopup.Card title="First seen" value={<Lock />} />
                 <DefinitionPopup.Card title="Last seen" value={<Lock />} />
-                <DefinitionPopup.Card title="30 day volume" value={<Lock />} />
-                <DefinitionPopup.Card title="30 day queries" value={<Lock />} />
+                <DefinitionPopup.Card title={<ThirtyDayVolumeTitle />} value={<Lock />} />
+                <DefinitionPopup.Card title={<ThirtyDayQueryCountTitle />} value={<Lock />} />
             </DefinitionPopup.Grid>
             <DefinitionPopup.Section>
                 <Link
                     to="https://posthog.com/docs/user-guides/data-management"
                     target="_blank"
                     data-attr="taxonomy-learn-more"
-                    style={{ fontWeight: 600, marginTop: 8 }}
+                    className="mt-2 font-semibold"
                 >
-                    Learn more about Taxonomy
+                    Learn more about Data Management
                     <IconOpenInNew style={{ marginLeft: 8 }} />
                 </Link>
             </DefinitionPopup.Section>
         </>
+    )
+}
+
+export function VerifiedEventCheckbox({
+    verified,
+    onChange,
+    compact = false,
+}: {
+    verified: boolean
+    onChange: (nextVerified: boolean) => void
+    compact?: boolean
+}): JSX.Element {
+    const copy =
+        'Verified events are prioritized in filters and other selection components. Verifying an event is a signal to collaborators that this event should be used in favor of similar events.'
+
+    return (
+        <div style={{ border: '1px solid var(--border)', padding: '0.5rem', borderRadius: 'var(--radius)' }}>
+            <Checkbox
+                checked={verified}
+                onChange={() => {
+                    onChange(!verified)
+                }}
+            >
+                <span style={{ fontWeight: 600 }}>
+                    Verified event
+                    {compact && (
+                        <Tooltip title={copy}>
+                            <InfoCircleOutlined style={{ marginLeft: '0.5rem', color: 'var(--muted)' }} />
+                        </Tooltip>
+                    )}
+                </span>
+                {!compact && (
+                    <div className="text-muted" style={{ marginTop: '0.25rem' }}>
+                        {copy}
+                    </div>
+                )}
+            </Checkbox>
+        </div>
     )
 }
 
@@ -115,13 +188,13 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(_definition.created_at)} />
                         <DefinitionPopup.Card title="Last seen" value={formatTimeFromNow(_definition.last_seen_at)} />
                         <DefinitionPopup.Card
-                            title="30 day volume"
+                            title={<ThirtyDayVolumeTitle />}
                             value={
                                 _definition.volume_30_day == null ? '-' : humanFriendlyNumber(_definition.volume_30_day)
                             }
                         />
                         <DefinitionPopup.Card
-                            title="30 day queries"
+                            title={<ThirtyDayQueryCountTitle />}
                             value={
                                 _definition.query_usage_30_day == null
                                     ? '-'
@@ -161,12 +234,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 <DefinitionPopup.Grid cols={2}>
-                    <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(_definition.created_at)} />
-                    <DefinitionPopup.Card title="Last seen" value={formatTimeFromNow(_definition.last_seen_at)} />
-                    <DefinitionPopup.Card
-                        title="30 day volume"
-                        value={_definition.volume_30_day == null ? '-' : humanFriendlyNumber(_definition.volume_30_day)}
-                    />
                     <DefinitionPopup.Card
                         title="30 day queries"
                         value={
@@ -175,6 +242,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 : humanFriendlyNumber(_definition.query_usage_30_day)
                         }
                     />
+                    <DefinitionPopup.Card title="Property Type" value={_definition.property_type ?? '-'} />
                 </DefinitionPopup.Grid>
                 <DefinitionPopup.HorizontalLine />
                 <DefinitionPopup.Grid cols={2}>
@@ -191,11 +259,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 </Typography.Text>
                             </>
                         }
-                    />
-                    <DefinitionPopup.Card
-                        title={<>&nbsp;</>}
-                        value={<DefinitionPopup.Type propertyType={_definition.property_type} />}
-                        alignItems={'end'}
                     />
                 </DefinitionPopup.Grid>
             </>
@@ -228,8 +291,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             value={formatTimeFromNow(_definition.last_calculation)}
                         />
                     </DefinitionPopup.Grid>
-                    {(_definition.groups?.length || 0 > 0) && <DefinitionPopup.HorizontalLine />}
-                    <CohortPopupInfo entity={_definition} />
+                    <CohortPopupInfo cohort={_definition} />
                 </>
             )
         }
@@ -292,16 +354,15 @@ function DefinitionEdit(): JSX.Element {
                             <span className="label-text">Description</span>
                             <span className="text-muted-alt">(optional)</span>
                         </label>
-                        <Input.TextArea
+                        <LemonTextArea
                             id="description"
                             className="definition-popup-edit-form-value"
                             autoFocus
                             placeholder={`Add a description for this ${singularType}.`}
                             value={localDefinition.description || ''}
-                            onChange={(e) => {
-                                setLocalDefinition({ description: e.target.value })
-                            }}
-                            autoSize={{ minRows: 3, maxRows: 4 }}
+                            onChange={(value) => setLocalDefinition({ description: value })}
+                            minRows={3}
+                            maxRows={4}
                             data-attr="definition-popup-edit-description"
                         />
                     </>
@@ -323,21 +384,13 @@ function DefinitionEdit(): JSX.Element {
                     </>
                 )}
                 {definition && definition.name && !isPostHogProp(definition.name) && 'verified' in localDefinition && (
-                    <Checkbox
-                        checked={localDefinition.verified}
-                        onChange={() => {
-                            setLocalDefinition({ verified: !localDefinition.verified })
+                    <VerifiedEventCheckbox
+                        verified={!!localDefinition.verified}
+                        onChange={(nextVerified) => {
+                            setLocalDefinition({ verified: nextVerified })
                         }}
-                    >
-                        <div className="definition-popup-edit-form-label">
-                            <span className="label-text">Verified event</span>
-                        </div>
-                        <div className="text-muted definition-popup-edit-form-value">
-                            Verified events are prioritized in filters and other selection components. Verifying an
-                            event is a signal to collaborators that this event should be used in favor of similar
-                            events.
-                        </div>
-                    </Checkbox>
+                        compact
+                    />
                 )}
                 <DefinitionPopup.HorizontalLine style={{ marginTop: 0 }} />
                 <div className="definition-popup-edit-form-buttons click-outside-block">
@@ -385,19 +438,13 @@ interface BaseDefinitionPopupContentsProps {
 }
 
 interface ControlledDefinitionPopupContentsProps extends BaseDefinitionPopupContentsProps {
-    popper: {
-        styles: CSSProperties
-        attributes?: Record<string, any>
-        forceUpdate: (() => void) | null
-        setRef: React.Dispatch<React.SetStateAction<HTMLDivElement | null>>
-        ref: HTMLDivElement | null
-    }
+    floatingReturn: UseFloatingReturn<HTMLElement>
 }
 
 export function ControlledDefinitionPopupContents({
     item,
     group,
-    popper,
+    floatingReturn,
 }: ControlledDefinitionPopupContentsProps): JSX.Element {
     // Supports all types specified in selectedItemHasPopup
     const value = group.getValue?.(item)
@@ -416,9 +463,18 @@ export function ControlledDefinitionPopupContents({
         setDefinition(item)
     }, [item])
 
+    const {
+        x,
+        y,
+        floating: setFloatingRef,
+        refs: { floating: floatingRef },
+        strategy,
+        update,
+    } = floatingReturn
+
     // Force popper to recalculate position when popup state changes. Keep this independent of logic
     useEffect(() => {
-        popper.forceUpdate?.()
+        update()
     }, [state])
 
     return (
@@ -436,21 +492,22 @@ export function ControlledDefinitionPopupContents({
                     // If not in edit mode, bury it.
                     style={{ zIndex: 1062 }}
                     onClick={() => {
-                        popper.ref?.focus()
+                        floatingRef.current?.focus()
                     }}
                 />
             </CSSTransition>
             <div
                 className="popper-tooltip click-outside-block hotkey-block Popup Popup__box"
                 tabIndex={-1} // Only programmatically focusable
-                ref={popper.setRef}
+                ref={setFloatingRef}
                 // zIndex: 1063 ensures it opens above the overlay which is 1062
                 style={{
-                    ...popper.styles,
+                    position: strategy,
+                    top: y ?? 0,
+                    left: x ?? 0,
                     transition: 'none',
                     zIndex: 1063,
                 }}
-                {...popper.attributes}
                 onMouseLeave={() => {
                     if (state !== DefinitionPopupState.Edit) {
                         onMouseLeave?.()
@@ -475,88 +532,6 @@ export function ControlledDefinitionPopupContents({
                     {state === DefinitionPopupState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
                 </DefinitionPopup.Wrapper>
             </div>
-        </>
-    )
-}
-
-interface DefinitionPopupContentsProps extends BaseDefinitionPopupContentsProps {
-    referenceEl: HTMLElement | null
-    children?: React.ReactNode
-    updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
-    onMouseLeave?: () => void
-    onCancel?: () => void
-    onSave?: () => void
-    hideView?: boolean
-    hideEdit?: boolean
-    openDetailInNewTab?: boolean
-}
-
-export function DefinitionPopupContents({
-    item,
-    group,
-    referenceEl,
-    children,
-    updateRemoteItem,
-    onMouseLeave,
-    onCancel,
-    onSave,
-    hideView = false,
-    hideEdit = false,
-    openDetailInNewTab = true,
-}: DefinitionPopupContentsProps): JSX.Element {
-    const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
-
-    const { styles, attributes, forceUpdate } = usePopper(referenceEl, popperElement, {
-        placement: 'right',
-        modifiers: [
-            {
-                name: 'offset',
-                options: {
-                    offset: [0, 10],
-                },
-            },
-            {
-                name: 'preventOverflow',
-                options: {
-                    padding: 10,
-                },
-            },
-        ],
-    })
-
-    return (
-        <>
-            <Provider>
-                {ReactDOM.createPortal(
-                    <BindLogic
-                        logic={definitionPopupLogic}
-                        props={{
-                            type: group.type,
-                            updateRemoteItem,
-                            onMouseLeave,
-                            onSave,
-                            onCancel,
-                            hideView,
-                            hideEdit,
-                            openDetailInNewTab,
-                        }}
-                    >
-                        <ControlledDefinitionPopupContents
-                            item={item}
-                            group={group}
-                            popper={{
-                                styles: styles.popper,
-                                attributes: attributes.popper,
-                                forceUpdate,
-                                setRef: setPopperElement,
-                                ref: popperElement,
-                            }}
-                        />
-                    </BindLogic>,
-                    document.querySelector('body') as HTMLElement
-                )}
-            </Provider>
-            {children}
         </>
     )
 }

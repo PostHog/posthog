@@ -15,8 +15,8 @@ export function VisibilitySensor({ id, offset, children }: VisibilityProps): JSX
 
     useEffect(() => {
         const element = ref.current
-        document.addEventListener('scroll', () => scrolling(element))
-        return () => document.removeEventListener('scroll', () => scrolling(element))
+        document.addEventListener('scroll', () => element && scrolling(element))
+        return () => document.removeEventListener('scroll', () => element && scrolling(element))
     }, [ref.current])
 
     return <div ref={ref}>{children}</div>

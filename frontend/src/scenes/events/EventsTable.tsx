@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { Link } from 'lib/components/Link'
-import { Button } from 'antd'
+import { Popconfirm } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -11,58 +11,115 @@ import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { ActionType, AnyPropertyFilter, ChartDisplayType, EventsTableRowItem, FilterType, InsightType } from '~/types'
+import {
+    ActionType,
+    AnyPropertyFilter,
+    ChartDisplayType,
+    ColumnChoice,
+    EventsTableRowItem,
+    FilterType,
+    InsightType,
+} from '~/types'
 import { LemonEventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { urls } from 'scenes/urls'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { TableCellRepresentation } from 'lib/components/LemonTable/types'
 import { IconExport, IconSync } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { EventBufferNotice } from './EventBufferNotice'
+import { LemonDivider } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
+    event_filter?: string
     person_id?: string | number
     distinct_ids?: string[]
     properties?: AnyPropertyFilter[]
 }
 
 interface EventsTable {
-    fixedFilters?: FixedFilters
-    disableActions?: boolean
     pageKey: string
-    hidePersonColumn?: boolean
-    hideTableConfig?: boolean
+    fixedFilters?: FixedFilters
+    fixedColumns?: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined>[]
     sceneUrl?: string
     fetchMonths?: number
+    startingColumns?: ColumnChoice
+    showCustomizeColumns?: boolean
+    showExport?: boolean
+    showAutoload?: boolean
+    showEventFilter?: boolean
+    showPropertyFilter?: boolean
+    showRowExpanders?: boolean
+    showActionsButton?: boolean
+    showPersonColumn?: boolean
+    linkPropertiesToFilters?: boolean
+    'data-attr'?: string
+}
+
+interface ExportWithConfirmationProps {
+    placement: 'topRight' | 'bottomRight'
+    onConfirm: (e?: React.MouseEvent<HTMLElement>) => void
+    children: React.ReactNode
+}
+
+function ExportWithConfirmation({ placement, onConfirm, children }: ExportWithConfirmationProps): JSX.Element {
+    return (
+        <Popconfirm
+            placement={placement}
+            title={
+                <>
+                    Exporting by csv is limited to 3,500 events.
+                    <br />
+                    To return more, please use <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to
+                    export by CSV?
+                </>
+            }
+            onConfirm={onConfirm}
+        >
+            {children}
+        </Popconfirm>
+    )
 }
 
 export function EventsTable({
-    fixedFilters,
     pageKey,
-    hidePersonColumn,
-    hideTableConfig,
+    fixedFilters,
+    fixedColumns,
     sceneUrl,
-    // Disables all interactivity and polling for filters
-    disableActions,
     // How many months of data to fetch?
     fetchMonths = 12,
+    startingColumns,
+    // disableLinkingPropertiesToFilters,
+
+    showCustomizeColumns = true,
+    showExport = true,
+    showAutoload = true,
+    showEventFilter = true,
+    showPropertyFilter = true,
+    showRowExpanders = true,
+    showActionsButton = true,
+    showPersonColumn = true,
+    linkPropertiesToFilters = true,
+    'data-attr': dataAttr,
 }: EventsTable): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({
         fixedFilters,
         key: pageKey,
         sceneUrl: sceneUrl || urls.events(),
-        disableActions,
         fetchMonths,
     })
     const {
@@ -73,11 +130,14 @@ export function EventsTable({
         isLoadingNext,
         eventFilter,
         automaticLoadEnabled,
-        exportUrl,
         highlightEvents,
         months,
     } = useValues(logic)
-    const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
+    const { tableWidth, selectedColumns } = useValues(
+        tableConfigLogic({
+            startingColumns: (currentTeam && currentTeam.live_events_columns) ?? startingColumns,
+        })
+    )
 
     const {
         fetchNextEvents,
@@ -91,7 +151,15 @@ export function EventsTable({
 
     const showLinkToPerson = !fixedFilters?.person_id
 
-    usePageVisibility(setPollingActive)
+    const { reportEventsTablePollingReactedToPageVisibility } = useActions(eventUsageLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const allowColumnChoice = featureFlags[FEATURE_FLAGS.ALLOW_CSV_EXPORT_COLUMN_CHOICE]
+
+    usePageVisibility((pageIsVisible) => {
+        setPollingActive(pageIsVisible)
+        reportEventsTablePollingReactedToPageVisibility(pageIsVisible)
+    })
 
     const newEventsRender = (
         { date_break, new_events }: EventsTableRowItem,
@@ -101,13 +169,7 @@ export function EventsTable({
             children:
                 date_break ||
                 (new_events ? (
-                    <LemonButton
-                        icon={<IconSync />}
-                        style={{ borderRadius: 0 }}
-                        onClick={() => prependNewEvents()}
-                        center
-                        fullWidth
-                    >
+                    <LemonButton icon={<IconSync />} onClick={() => prependNewEvents()} center fullWidth>
                         There are new events. Click here to load them
                     </LemonButton>
                 ) : (
@@ -119,6 +181,7 @@ export function EventsTable({
             },
         }
     }
+
     const personColumn: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> = {
         title: 'Person',
         key: 'person',
@@ -128,7 +191,7 @@ export function EventsTable({
             }
             return showLinkToPerson && event.person?.distinct_ids?.length ? (
                 <Link to={urls.person(event.person.distinct_ids[0])}>
-                    <PersonHeader withIcon person={event.person} />
+                    <PersonHeader noLink withIcon person={event.person} />
                 </Link>
             ) : (
                 <PersonHeader withIcon person={event.person} />
@@ -136,8 +199,8 @@ export function EventsTable({
         },
     }
 
-    const defaultColumns = useMemo<LemonTableColumns<EventsTableRowItem>>(() => {
-        const _localColumns = [
+    const defaultColumns = useMemo(() => {
+        const _localColumns: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined>[] = [
             {
                 title: 'Event',
                 key: 'event',
@@ -147,9 +210,18 @@ export function EventsTable({
                         return newEventsRender(item, tableWidth)
                     }
                     const { event } = item
-                    return <PropertyKeyInfo value={autoCaptureEventToDescription(event)} />
+                    const content = <PropertyKeyInfo value={autoCaptureEventToDescription(event)} />
+
+                    const url = event.properties.$sentry_url
+
+                    return url ? (
+                        <Link to={url} target="_blank">
+                            {content}
+                        </Link>
+                    ) : (
+                        content
+                    )
                 },
-                ellipsis: true,
             },
             {
                 title: 'URL / Screen',
@@ -160,7 +232,7 @@ export function EventsTable({
                         return { props: { colSpan: 0 } }
                     }
                     const param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
-                    if (!disableActions) {
+                    if (linkPropertiesToFilters) {
                         return (
                             <FilterPropertyLink
                                 className="ph-no-capture"
@@ -172,16 +244,19 @@ export function EventsTable({
                     }
                     return <Property value={event.properties[param]} />
                 },
-                ellipsis: true,
             },
             {
-                title: 'Source',
+                title: (
+                    <Tooltip title='This is the "Library" property on events. Sent by the SDK as "$lib"'>
+                        Source
+                    </Tooltip>
+                ),
                 key: 'source',
                 render: function renderSource(_, { event }: EventsTableRowItem) {
                     if (!event) {
                         return { props: { colSpan: 0 } }
                     }
-                    if (!disableActions) {
+                    if (linkPropertiesToFilters) {
                         return (
                             <FilterPropertyLink
                                 property="$lib"
@@ -193,45 +268,72 @@ export function EventsTable({
                     return <Property value={event.properties['$lib']} />
                 },
             },
-        ] as LemonTableColumns<EventsTableRowItem>
-        if (!hidePersonColumn) {
+        ]
+        if (showPersonColumn) {
             _localColumns.splice(1, 0, personColumn)
         }
         return _localColumns
     }, [tableWidth])
 
     const columns = useMemo(() => {
-        const columnsSoFar =
-            selectedColumns === 'DEFAULT'
-                ? [...defaultColumns]
-                : selectedColumns.map(
-                      (e, index): LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> =>
-                          defaultColumns.find((d) => d.key === e) || {
-                              title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
-                              key: e,
-                              render: function render(_, item: EventsTableRowItem) {
-                                  const { event } = item
-                                  if (!event) {
-                                      if (index === 0) {
-                                          return newEventsRender(item, tableWidth)
-                                      } else {
-                                          return { props: { colSpan: 0 } }
-                                      }
-                                  }
-                                  if (!disableActions) {
-                                      return (
-                                          <FilterPropertyLink
-                                              className="ph-no-capture "
-                                              property={e}
-                                              value={event.properties[e] as string}
-                                              filters={{ properties }}
-                                          />
-                                      )
-                                  }
-                                  return <Property value={event.properties[e]} />
-                              },
-                          }
-                  )
+        let columnsSoFar: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined>[] = []
+        if (selectedColumns === 'DEFAULT') {
+            columnsSoFar = [...defaultColumns]
+        } else {
+            const columnsToBeMapped = !showPersonColumn
+                ? selectedColumns.filter((column) => column !== 'person')
+                : selectedColumns
+            columnsSoFar = columnsToBeMapped.map(
+                (e, index): LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> => {
+                    const defaultColumn = defaultColumns.find((d) => d.key === e)
+                    if (defaultColumn) {
+                        return {
+                            ...defaultColumn,
+                            render: function render(_, item: EventsTableRowItem) {
+                                const { event } = item
+                                if (!event) {
+                                    if (index === 0) {
+                                        return newEventsRender(item, tableWidth)
+                                    } else {
+                                        return { props: { colSpan: 0 } }
+                                    }
+                                }
+                                if (defaultColumn.render) {
+                                    return defaultColumn.render(_, item, index)
+                                }
+                                return { props: { colSpan: 0 } }
+                            },
+                        }
+                    } else {
+                        return {
+                            title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
+                            key: e,
+                            render: function render(_, item: EventsTableRowItem) {
+                                const { event } = item
+                                if (!event) {
+                                    if (index === 0) {
+                                        return newEventsRender(item, tableWidth)
+                                    } else {
+                                        return { props: { colSpan: 0 } }
+                                    }
+                                }
+                                if (linkPropertiesToFilters) {
+                                    return (
+                                        <FilterPropertyLink
+                                            className="ph-no-capture "
+                                            property={e}
+                                            value={event.properties[e] as string}
+                                            filters={{ properties }}
+                                        />
+                                    )
+                                }
+                                return <Property value={event.properties[e]} />
+                            },
+                        }
+                    }
+                }
+            )
+        }
         columnsSoFar.push({
             title: 'Time',
             key: 'time',
@@ -242,239 +344,273 @@ export function EventsTable({
                 return <TZLabel time={event.timestamp} showSeconds />
             },
         })
-        columnsSoFar.push({
-            key: 'actions',
-            width: 0,
-            render: function renderActions(_, { event }: EventsTableRowItem) {
-                if (!event) {
-                    return { props: { colSpan: 0 } }
-                }
-
-                let insightParams: Partial<FilterType> | undefined
-                if (event.event === '$pageview') {
-                    insightParams = {
-                        insight: InsightType.TRENDS,
-                        interval: 'day',
-                        display: ChartDisplayType.ActionsLineGraph,
-                        actions: [],
-                        events: [
-                            {
-                                id: '$pageview',
-                                name: '$pageview',
-                                type: 'events',
-                                order: 0,
-                                properties: [
-                                    {
-                                        key: '$current_url',
-                                        value: event.properties.$current_url,
-                                        type: 'event',
-                                    },
-                                ],
-                            },
-                        ],
+        if (showActionsButton) {
+            columnsSoFar.push({
+                key: 'actions',
+                width: 0,
+                render: function renderActions(_, { event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
                     }
-                } else if (event.event !== '$autocapture') {
-                    insightParams = {
-                        insight: InsightType.TRENDS,
-                        interval: 'day',
-                        display: ChartDisplayType.ActionsLineGraph,
-                        actions: [],
-                        events: [
-                            {
-                                id: event.event,
-                                name: event.event,
-                                type: 'events',
-                                order: 0,
-                                properties: [],
-                            },
-                        ],
-                    }
-                }
 
-                return (
-                    <More
-                        overlay={
-                            <>
-                                {currentTeam && (
-                                    <LemonButton
-                                        type="stealth"
-                                        onClick={() =>
-                                            createActionFromEvent(
-                                                currentTeam.id,
-                                                event,
-                                                0,
-                                                currentTeam.data_attributes || []
-                                            )
-                                        }
-                                        fullWidth
-                                        data-attr="events-table-create-action"
-                                    >
-                                        Create action from event
-                                    </LemonButton>
-                                )}
-                                {insightParams && (
-                                    <LemonButton
-                                        type="stealth"
-                                        to={urls.insightNew(insightParams)}
-                                        fullWidth
-                                        data-attr="events-table-usage"
-                                    >
-                                        Try out in Insights
-                                    </LemonButton>
-                                )}
-                            </>
+                    let insightParams: Partial<FilterType> | undefined
+                    if (event.event === '$pageview') {
+                        insightParams = {
+                            insight: InsightType.TRENDS,
+                            interval: 'day',
+                            display: ChartDisplayType.ActionsLineGraph,
+                            actions: [],
+                            events: [
+                                {
+                                    id: '$pageview',
+                                    name: '$pageview',
+                                    type: 'events',
+                                    order: 0,
+                                    properties: [
+                                        {
+                                            key: '$current_url',
+                                            value: event.properties.$current_url,
+                                            type: 'event',
+                                        },
+                                    ],
+                                },
+                            ],
                         }
-                    />
-                )
-            },
-        })
-        return columnsSoFar
-    }, [selectedColumns])
+                    } else if (event.event !== '$autocapture') {
+                        insightParams = {
+                            insight: InsightType.TRENDS,
+                            interval: 'day',
+                            display: ChartDisplayType.ActionsLineGraph,
+                            actions: [],
+                            events: [
+                                {
+                                    id: event.event,
+                                    name: event.event,
+                                    type: 'events',
+                                    order: 0,
+                                    properties: [],
+                                },
+                            ],
+                        }
+                    }
+
+                    return (
+                        <More
+                            overlay={
+                                <>
+                                    {currentTeam && (
+                                        <LemonButton
+                                            status="stealth"
+                                            onClick={() =>
+                                                createActionFromEvent(
+                                                    currentTeam.id,
+                                                    event,
+                                                    0,
+                                                    currentTeam.data_attributes || []
+                                                )
+                                            }
+                                            fullWidth
+                                            data-attr="events-table-create-action"
+                                        >
+                                            Create action from event
+                                        </LemonButton>
+                                    )}
+                                    {insightParams && (
+                                        <LemonButton
+                                            status="stealth"
+                                            to={urls.insightNew(insightParams)}
+                                            fullWidth
+                                            data-attr="events-table-usage"
+                                        >
+                                            Try out in Insights
+                                        </LemonButton>
+                                    )}
+                                </>
+                            }
+                        />
+                    )
+                },
+            })
+        }
+        return fixedColumns ? columnsSoFar.concat(fixedColumns) : columnsSoFar
+    }, [selectedColumns, tableWidth])
+
+    const showFirstRow = showEventFilter || showPropertyFilter
+    const showSecondRow = showAutoload || showCustomizeColumns || showExport
+
+    const exportColumns = useMemo(() => {
+        const columnMapping = {
+            url: ['properties.$current_url', 'properties.$screen_name'],
+            time: 'timestamp',
+            event: 'event',
+            source: 'properties.$lib',
+            person: ['person.distinct_ids.0', 'person.properties.email'],
+        }
+
+        return (selectedColumns === 'DEFAULT' ? defaultColumns.map((e) => e.key || '') : selectedColumns).flatMap(
+            (x) => {
+                return columnMapping[x] || `properties.${x}`
+            }
+        )
+    }, [defaultColumns, selectedColumns])
 
     return (
-        <div data-attr="manage-events-table">
-            <div
-                className="events"
-                data-attr="events-table"
-                style={{
-                    paddingTop: '1rem',
-                    borderTop: '1px solid var(--border)',
-                }}
-            >
-                {!disableActions && (
-                    <div
-                        className="mb"
-                        style={{
-                            display: 'flex',
-                            gap: '1rem',
-                            flexWrap: 'wrap',
-                            justifyContent: 'space-between',
-                            alignItems: 'start',
-                        }}
-                    >
-                        <div
-                            style={{
-                                display: 'flex',
-                                flexWrap: 'wrap',
-                                gap: '0.5rem',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                width: '100%',
+        <div className="events" data-attr="events-table">
+            {showFirstRow && (
+                <div className="flex space-x-4 mb-4">
+                    {showEventFilter && (
+                        <LemonEventName
+                            value={eventFilter}
+                            onChange={(value: string) => {
+                                setEventFilter(value || '')
                             }}
-                        >
-                            <PropertyFilters
-                                propertyFilters={properties}
-                                onChange={setProperties}
-                                pageKey={pageKey}
-                                taxonomicPopoverPlacement="bottom-start"
-                                style={{ marginBottom: 0, marginTop: 0 }}
-                                eventNames={eventFilter ? [eventFilter] : []}
-                                useLemonButton
-                                prefixComponent={
-                                    <LemonEventName
-                                        value={eventFilter}
-                                        onChange={(value: string) => {
-                                            setEventFilter(value || '')
-                                        }}
-                                    />
-                                }
-                            />
-                        </div>
+                        />
+                    )}
+                    {showPropertyFilter && (
+                        <PropertyFilters
+                            propertyFilters={properties}
+                            onChange={setProperties}
+                            pageKey={pageKey}
+                            style={{ marginBottom: 0, marginTop: 0 }}
+                            eventNames={eventFilter ? [eventFilter] : []}
+                        />
+                    )}
+                </div>
+            )}
 
-                        <div
-                            style={{
-                                display: 'flex',
-                                flexWrap: 'wrap',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                gap: '1rem',
-                                borderTop: '1px solid var(--border)',
-                                width: '100%',
-                                paddingTop: '1rem',
-                            }}
-                        >
-                            <LemonSwitch
-                                type="primary"
-                                id="autoload-switch"
-                                label="Automatically load new events"
-                                checked={automaticLoadEnabled}
-                                onChange={toggleAutomaticLoad}
+            {showFirstRow && showSecondRow ? (
+                <div className="my-4">
+                    <LemonDivider />
+                </div>
+            ) : null}
+
+            {showSecondRow ? (
+                <div className={clsx('flex justify-between items-center mb-4')}>
+                    {showAutoload && (
+                        <LemonSwitch
+                            bordered
+                            data-attr="live-events-refresh-toggle"
+                            id="autoload-switch"
+                            label="Automatically load new events"
+                            checked={automaticLoadEnabled}
+                            onChange={toggleAutomaticLoad}
+                        />
+                    )}
+                    <div className="flex space-x-2">
+                        {showCustomizeColumns && (
+                            <LemonTableConfig
+                                immutableColumns={['event', 'person']}
+                                defaultColumns={defaultColumns.map((e) => e.key || '')}
                             />
-                            <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'row' }}>
-                                {!hideTableConfig && (
-                                    <LemonTableConfig
-                                        immutableColumns={['event', 'person']}
-                                        defaultColumns={defaultColumns.map((e) => e.key || '')}
-                                    />
-                                )}
-                                {exportUrl && (
-                                    <Tooltip title="Export up to 10,000 latest events." placement="left">
-                                        <LemonButton
-                                            type="secondary"
-                                            icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                                            onClick={startDownload}
+                        )}
+                        {showExport && allowColumnChoice ? (
+                            <LemonButtonWithPopup
+                                popup={{
+                                    sameWidth: false,
+                                    closeOnClickInside: false,
+                                    overlay: [
+                                        <ExportWithConfirmation
+                                            key={1}
+                                            placement={'topRight'}
+                                            onConfirm={() => {
+                                                startDownload(exportColumns)
+                                            }}
                                         >
-                                            Export
-                                        </LemonButton>
-                                    </Tooltip>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                <LemonTable
-                    dataSource={eventsFormatted}
-                    loading={isLoading}
-                    columns={columns}
-                    key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
-                    className="ph-no-capture"
-                    loadingSkeletonRows={20}
-                    emptyState={
-                        isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) ||
-                          eventFilter ? (
-                            `No events matching filters found in the last ${months} months!`
+                                            <LemonButton fullWidth={true} status="stealth">
+                                                Export current columns
+                                            </LemonButton>
+                                        </ExportWithConfirmation>,
+                                        <ExportWithConfirmation
+                                            key={0}
+                                            placement={'bottomRight'}
+                                            onConfirm={() => startDownload()}
+                                        >
+                                            <LemonButton fullWidth={true} status="stealth">
+                                                Export all columns
+                                            </LemonButton>
+                                        </ExportWithConfirmation>,
+                                    ],
+                                }}
+                                type="secondary"
+                                icon={<IconExport />}
+                            >
+                                Export
+                            </LemonButtonWithPopup>
                         ) : (
-                            <>
-                                This project doesn't have any events. If you haven't integrated PostHog yet,{' '}
-                                <Link to="/project/settings">
-                                    click here to instrument analytics with PostHog in your product
-                                </Link>
-                                .
-                            </>
-                        )
-                    }
-                    rowKey={(row) =>
-                        row.event ? row.event.id + '-' + row.event.event : row.date_break?.toString() || ''
-                    }
-                    rowClassName={(row) => {
-                        return clsx({
-                            'event-row': row.event,
-                            highlighted: row.event && highlightEvents[row.event.id],
-                            'event-row-is-exception': row.event && row.event.event === '$exception',
-                            'event-row-date-separator': row.date_break,
-                            'event-row-new': row.new_events,
-                        })
-                    }}
-                    expandable={{
-                        expandedRowRender: function renderExpand({ event }) {
-                            return event && <EventDetails event={event} />
-                        },
-                        rowExpandable: ({ event, date_break, new_events }) => (date_break || new_events ? -1 : !!event),
-                    }}
-                />
-                <Button
-                    type="primary"
-                    onClick={fetchNextEvents}
-                    loading={isLoadingNext}
-                    style={{
-                        display: hasNext || isLoadingNext ? 'block' : 'none',
-                        margin: '2rem auto 1rem',
-                    }}
-                >
+                            <Popconfirm
+                                placement="topRight"
+                                title={
+                                    <>
+                                        Exporting by csv is limited to 3,500 events.
+                                        <br />
+                                        To return more, please use{' '}
+                                        <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to export
+                                        by CSV?
+                                    </>
+                                }
+                                onConfirm={() => startDownload()}
+                            >
+                                <LemonButton type="secondary" icon={<IconExport style={{ color: 'var(--primary)' }} />}>
+                                    Export
+                                </LemonButton>
+                            </Popconfirm>
+                        )}
+                    </div>
+                </div>
+            ) : null}
+            <EventBufferNotice
+                additionalInfo=" - this helps ensure accuracy of insights grouped by unique users"
+                className="mb-4"
+            />
+            <LemonTable
+                data-attr={dataAttr}
+                dataSource={eventsFormatted}
+                loading={isLoading}
+                columns={columns}
+                key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
+                className="ph-no-capture"
+                loadingSkeletonRows={20}
+                emptyState={
+                    isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) || eventFilter ? (
+                        `No events matching filters found in the last ${months} months!`
+                    ) : (
+                        <>
+                            This project doesn't have any events. If you haven't integrated PostHog yet,{' '}
+                            <Link to="/project/settings">
+                                click here to instrument analytics with PostHog in your product
+                            </Link>
+                            .
+                        </>
+                    )
+                }
+                rowKey={(row) => (row.event ? row.event.id + '-' + row.event.event : row.date_break?.toString() || '')}
+                rowClassName={(row) => {
+                    return clsx({
+                        'event-row': row.event,
+                        highlighted: row.event && highlightEvents[row.event.id],
+                        'event-row-is-exception': row.event && row.event.event === '$exception',
+                        'event-row-date-separator': row.date_break,
+                        'event-row-new': row.new_events,
+                    })
+                }}
+                expandable={
+                    showRowExpanders
+                        ? {
+                              expandedRowRender: function renderExpand({ event }) {
+                                  return event && <EventDetails event={event} />
+                              },
+                              rowExpandable: ({ event, date_break, new_events }) =>
+                                  date_break || new_events ? -1 : !!event,
+                              noIndent: true,
+                          }
+                        : undefined
+                }
+            />
+            {hasNext || isLoadingNext ? (
+                <LemonButton type="primary" onClick={fetchNextEvents} loading={isLoadingNext} className="my-8 mx-auto">
                     Load more events
-                </Button>
-            </div>
+                </LemonButton>
+            ) : null}
         </div>
     )
 }

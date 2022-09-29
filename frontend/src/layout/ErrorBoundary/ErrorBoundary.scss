@@ -1,12 +1,11 @@
-@import '~/vars.scss';
-
 .ErrorBoundary {
-    margin-top: 1.5rem;
-    background: rgba($danger, 0.1);
+    background: var(--danger-highlight);
     border-radius: var(--radius);
     margin: 1.5rem;
     padding: 0.75rem 1rem 1rem;
-    .main-app-content & {
+    min-width: 0;
+    height: fit-content;
+    .main-app-content > & {
         margin: 1.5rem 0;
     }
     h2 {
@@ -16,7 +15,7 @@
     }
     pre {
         margin-bottom: 0.75rem;
-        background: rgba($danger, 0.1);
+        background: var(--border-light);
         border-radius: var(--radius);
         padding: 0.75rem 1rem;
     }

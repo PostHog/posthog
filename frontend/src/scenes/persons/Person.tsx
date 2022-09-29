@@ -1,14 +1,13 @@
 import React from 'react'
-import { Tabs, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { Dropdown, Menu, Tabs, Tag } from 'antd'
+import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
-import { useActions, useValues, BindLogic } from 'kea'
-import { PersonLogicProps, personsLogic } from './personsLogic'
+import { useActions, useValues } from 'kea'
+import { personsLogic } from './personsLogic'
 import { asDisplay } from './PersonHeader'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { DownOutlined } from '@ant-design/icons'
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -19,21 +18,36 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
-import { Loading } from 'lib/utils'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { teamLogic } from 'scenes/teamLogic'
+import { AlertMessage } from 'lib/components/AlertMessage'
+import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/SessionRecordingsPlaylist'
+import { NotFound } from 'lib/components/NotFound'
+import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
 const { TabPane } = Tabs
 
 export const scene: SceneExport = {
     component: Person,
     logic: personsLogic,
-    paramsToProps: ({ params }) => ({ syncWithUrl: true, urlId: params._ }), // wildcard is stored in _
+    paramsToProps: ({ params: { _: rawUrlId } }): typeof personsLogic['props'] => ({
+        syncWithUrl: true,
+        urlId: decodeURIComponent(rawUrlId),
+    }),
 }
 
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
-        <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-            <div className="mr">
+        <div className="flex flex-wrap items-center gap-2">
+            <div>
                 <span className="text-muted">IDs:</span>{' '}
                 <CopyToClipboardInline
                     tooltipMessage={null}
@@ -75,64 +89,57 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     )
 }
 
-export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
-    const personsLogicProps: PersonLogicProps = { syncWithUrl: true, urlId }
-    const { person, personLoading, deletedPersonLoading, currentTab, showSessionRecordings, splitMergeModalShown } =
-        useValues(personsLogic(personsLogicProps))
-    const { deletePerson, editProperty, navigateToTab, setSplitMergeModalShown } = useActions(
-        personsLogic(personsLogicProps)
-    )
+export function Person(): JSX.Element | null {
+    const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId } =
+        useValues(personsLogic)
+    const { editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, showPersonDeleteModal } =
+        useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!person) {
-        return personLoading ? (
-            <Loading />
-        ) : (
-            <PageHeader
-                title="Person not found"
-                caption={urlId ? `There's no person matching distinct ID "${urlId}".` : undefined}
-            />
-        )
+        return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
     }
 
     return (
-        <BindLogic logic={personsLogic} props={personsLogicProps}>
+        <>
             <PageHeader
                 title={asDisplay(person)}
                 caption={<PersonCaption person={person} />}
                 buttons={
-                    <div>
-                        <Popconfirm
-                            title="Are you sure you want to delete this person?"
-                            onConfirm={deletePerson}
-                            okText={`Yes, delete ${asDisplay(person)}`}
-                            cancelText="No, cancel"
+                    <div className="flex gap-2">
+                        <LemonButton
+                            onClick={() => showPersonDeleteModal(person)}
+                            disabled={deletedPersonLoading}
+                            loading={deletedPersonLoading}
+                            type="secondary"
+                            status="danger"
+                            data-attr="delete-person"
                         >
-                            <Button
-                                className="text-danger"
-                                disabled={deletedPersonLoading}
-                                loading={deletedPersonLoading}
-                                data-attr="delete-person"
-                            >
-                                Delete person
-                            </Button>
-                        </Popconfirm>
-                        <Button
+                            Delete person
+                        </LemonButton>
+
+                        <LemonButton
                             onClick={() => setSplitMergeModalShown(true)}
                             data-attr="merge-person-button"
-                            style={{ marginLeft: 8 }}
+                            type="secondary"
                         >
                             Split or merge IDs
-                        </Button>
+                        </LemonButton>
                     </div>
                 }
             />
+
+            <PersonDeleteModal />
 
             <Tabs
                 activeKey={currentTab}
                 onChange={(tab) => {
                     navigateToTab(tab as PersonsTabType)
                 }}
+                destroyInactiveTabPane={true}
+                data-attr="persons-tabs"
             >
                 <TabPane
                     tab={<span data-attr="persons-properties-tab">Properties</span>}
@@ -144,29 +151,44 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                         onEdit={editProperty}
                         sortProperties
                         embedded={false}
-                        onDelete={(key) => editProperty(key, undefined)}
+                        onDelete={(key) => deleteProperty(key)}
                     />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
                     <EventsTable
                         pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                         fixedFilters={{ person_id: person.id }}
-                        hidePersonColumn
-                        sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id), false)}
+                        showPersonColumn={false}
+                        sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
                     />
                 </TabPane>
-                {showSessionRecordings && (
-                    <TabPane
-                        tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
-                        key={PersonsTabType.SESSION_RECORDINGS}
-                    >
+                <TabPane
+                    tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
+                    key={PersonsTabType.SESSION_RECORDINGS}
+                >
+                    {!currentTeam?.session_recording_opt_in ? (
+                        <div className="mb-4">
+                            <AlertMessage type="info">
+                                Session recordings are currently disabled for this project. To use this feature, please
+                                go to your <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link> and
+                                enable it.
+                            </AlertMessage>
+                        </div>
+                    ) : null}
+                    {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3] ? (
+                        <SessionRecordingsPlaylist
+                            key={person.uuid} // force refresh if user changes
+                            personUUID={person.uuid}
+                            isPersonPage
+                        />
+                    ) : (
                         <SessionRecordingsTable
                             key={person.uuid} // force refresh if user changes
                             personUUID={person.uuid}
                             isPersonPage
                         />
-                    </TabPane>
-                )}
+                    )}
+                </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>
                     <PersonCohorts />
@@ -186,9 +208,34 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                         <RelatedGroups id={person.uuid} groupTypeIndex={null} />
                     </TabPane>
                 )}
+                {person.uuid && (
+                    <TabPane
+                        tab={<span data-attr="persons-related-flags-tab">Feature flags</span>}
+                        key={PersonsTabType.FEATURE_FLAGS}
+                    >
+                        <RelatedFeatureFlags distinctId={person.distinct_ids[0]} />
+                    </TabPane>
+                )}
+
+                <TabPane tab="History" key="history">
+                    <ActivityLog
+                        scope={ActivityScope.PERSON}
+                        id={person.id}
+                        describer={personActivityDescriber}
+                        caption={
+                            <div>
+                                <InfoCircleOutlined style={{ marginRight: '.25rem' }} />
+                                <span>
+                                    This page only shows changes made by users in the PostHog site. Automatic changes
+                                    from the API aren't shown here.
+                                </span>
+                            </div>
+                        }
+                    />
+                </TabPane>
             </Tabs>
 
             {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
-        </BindLogic>
+        </>
     )
 }

@@ -1,8 +1,6 @@
-import React, { CSSProperties } from 'react'
+import React from 'react'
 import '../../../scenes/actions/Actions.scss'
-import { TooltipPlacement } from 'antd/lib/tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Placement } from '@popperjs/core'
 import { FilterRow } from '../PropertyFilters/components/FilterRow'
 import { PathRegexPopup } from './PathCleanFilter'
 
@@ -14,11 +12,7 @@ interface PropertyFiltersProps {
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
-    popoverPlacement?: TooltipPlacement | null
-    taxonomicPopoverPlacement?: Placement
-    style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    showNestedArrow?: boolean
 }
 
 export function PathCleanFilters({
@@ -28,13 +22,9 @@ export function PathCleanFilters({
     pathCleaningFilters,
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
-    popoverPlacement = null,
-    taxonomicPopoverPlacement = undefined,
-    style = {},
-    showNestedArrow = false,
 }: PropertyFiltersProps): JSX.Element {
     return (
-        <div className="mb" style={style}>
+        <div className="flex items-center gap-2 flex-wrap">
             {pathCleaningFilters.length > 0 &&
                 pathCleaningFilters.map((item, index) => {
                     return (
@@ -47,9 +37,6 @@ export function PathCleanFilters({
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadge}
                             disablePopover={disablePopover}
-                            popoverPlacement={popoverPlacement}
-                            taxonomicPopoverPlacement={taxonomicPopoverPlacement}
-                            showNestedArrow={showNestedArrow}
                             label={'Add rule'}
                             onRemove={onRemove}
                             filterComponent={(onComplete) => {

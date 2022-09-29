@@ -1,4 +1,4 @@
-@import '~/vars.scss';
+@import '../../../styles/mixins';
 
 .Breadcrumbs {
     display: flex;
@@ -10,7 +10,7 @@
     margin-top: 1rem;
     cursor: default;
     overflow-x: auto;
-    @media screen and (min-width: $md) {
+    @include screen($md) {
         // Disable fullwidth hacks for viewport widths where the sidebar affects layout
         width: auto;
         padding: 0;
@@ -22,22 +22,19 @@
 .Breadcrumbs__breadcrumb {
     display: flex;
     align-items: center;
-    font-weight: $medium;
+    font-weight: var(--font-medium);
     white-space: pre;
     user-select: none;
+    gap: 0.5rem;
 
     &--current {
-        color: $text_default;
+        color: var(--default);
         cursor: default;
-    }
-
-    > :first-child {
-        margin-right: 0.5rem;
     }
 
     &--actionable {
         cursor: pointer;
-        color: $primary;
+        color: var(--primary);
     }
 }
 

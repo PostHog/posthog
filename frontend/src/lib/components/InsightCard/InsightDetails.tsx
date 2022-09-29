@@ -1,22 +1,24 @@
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties } from 'lib/utils'
+import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties, formatPropertyLabel } from 'lib/utils'
 import React from 'react'
-import { LocalFilter, toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
-import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
+import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { BreakdownFilter } from 'scenes/insights/filters/BreakdownFilter'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 import { FilterType, InsightModel, InsightType, PropertyFilter } from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../icons'
-import { LemonRow, LemonSpacer } from '../LemonRow'
+import { LemonRow } from '../LemonRow'
+import { LemonDivider } from '../LemonDivider'
 import { Lettermark } from '../Lettermark/Lettermark'
 import { Link } from '../Link'
 import { ProfilePicture } from '../ProfilePicture'
-import { PropertyFilterText } from '../PropertyFilters/components/PropertyFilterButton'
-import { PropertyKeyInfo } from '../PropertyKeyInfo'
+import { keyMapping, PropertyKeyInfo } from '../PropertyKeyInfo'
 import { TZLabel } from '../TimezoneAware'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
 
 function CompactPropertyFiltersDisplay({
     properties,
@@ -25,6 +27,9 @@ function CompactPropertyFiltersDisplay({
     properties: PropertyFilter[]
     embedded?: boolean
 }): JSX.Element {
+    const { cohortsById } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
     return (
         <>
             {properties.map((subFilter, subIndex) => (
@@ -36,7 +41,12 @@ function CompactPropertyFiltersDisplay({
                             <>
                                 person belongs to cohort
                                 <span className="SeriesDisplay__raw-name">
-                                    <PropertyFilterText item={subFilter} />
+                                    {formatPropertyLabel(
+                                        subFilter,
+                                        cohortsById,
+                                        keyMapping,
+                                        (s) => formatPropertyValueForDisplay(subFilter.key, s)?.toString() || '?'
+                                    )}
                                 </span>
                             </>
                         ) : (
@@ -45,7 +55,8 @@ function CompactPropertyFiltersDisplay({
                                 <span className="SeriesDisplay__raw-name">
                                     {subFilter.key && <PropertyKeyInfo value={subFilter.key} />}
                                 </span>
-                                {allOperatorsMapping[subFilter.operator || 'exact']} <b>{subFilter.value}</b>
+                                {allOperatorsMapping[subFilter.operator || 'exact']}{' '}
+                                <b>{Array.isArray(subFilter.value) ? subFilter.value.join(' or ') : subFilter.value}</b>
                             </>
                         )}
                     </span>
@@ -144,17 +155,11 @@ function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Elemen
     )
 }
 
-function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
-    const { filters, created_at, created_by } = insight
-
-    const properties = convertPropertyGroupToProperties(filters.properties)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-
+export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
     const localFilters = toLocalFilters(filters)
 
     return (
-        <div className="InsightDetails" ref={ref}>
+        <>
             <h5>Query summary</h5>
             <section className="InsightDetails__query">
                 {filters.formula && (
@@ -164,7 +169,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                                 Formula:<code>{filters.formula}</code>
                             </span>
                         </LemonRow>
-                        <LemonSpacer />
+                        <LemonDivider />
                     </>
                 )}
                 <div className="InsightDetails__series">
@@ -177,7 +182,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                                     <SeriesDisplay filter={localFilters[0]} insightType={filters.insight} index={0} />
                                     {localFilters.slice(1).map((filter, index) => (
                                         <>
-                                            <LemonSpacer />
+                                            <LemonDivider />
                                             <SeriesDisplay
                                                 key={index}
                                                 filter={filter}
@@ -192,10 +197,46 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                     )}
                 </div>
             </section>
+        </>
+    )
+}
+
+export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+    const properties = convertPropertyGroupToProperties(filters.properties)
+
+    return (
+        <>
             <h5>Filters</h5>
             <section>
                 {properties?.length ? <CompactPropertyFiltersDisplay properties={properties} /> : <i>None</i>}
             </section>
+        </>
+    )
+}
+
+export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return (
+        <div>
+            <h5>Breakdown by</h5>
+            <BreakdownFilter
+                filters={filters}
+                useMultiBreakdown={
+                    filters.insight === InsightType.FUNNELS &&
+                    !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
+                }
+            />
+        </div>
+    )
+}
+
+function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
+    const { filters, created_at, created_by } = insight
+
+    return (
+        <div className="InsightDetails" ref={ref}>
+            <QuerySummary filters={filters} />
+            <FiltersSummary filters={filters} />
             <div className="InsightDetails__footer">
                 <div>
                     <h5>Created by</h5>
@@ -204,18 +245,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                         <TZLabel time={created_at} />
                     </section>
                 </div>
-                {filters.breakdown_type && (
-                    <div>
-                        <h5>Breakdown by</h5>
-                        <BreakdownFilter
-                            filters={filters}
-                            useMultiBreakdown={
-                                filters.insight === InsightType.FUNNELS &&
-                                !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
-                            }
-                        />
-                    </div>
-                )}
+                {filters.breakdown_type && <BreakdownSummary filters={filters} />}
             </div>
         </div>
     )

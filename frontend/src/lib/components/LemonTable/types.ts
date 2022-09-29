@@ -30,7 +30,13 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     /** Set width. */
     width?: string | number
 }
-export type LemonTableColumns<T extends Record<string, any>> = LemonTableColumn<T, keyof T | undefined>[]
+export interface LemonTableColumnGroup<T extends Record<string, any>> {
+    title?: string | React.ReactNode
+    children: LemonTableColumn<T, keyof T | undefined>[]
+}
+export type LemonTableColumns<T extends Record<string, any>> =
+    | LemonTableColumn<T, keyof T | undefined>[]
+    | LemonTableColumnGroup<T>[]
 
 export interface ExpandableConfig<T extends Record<string, any>> {
     /** Row expansion render function. */
@@ -41,11 +47,11 @@ export interface ExpandableConfig<T extends Record<string, any>> {
      * A zero (like 0 or false) means that the row isn't expandable.
      * A negative value (like -1) means that the row isn't expandable and that also the expand button cell is skipped.
      */
-    rowExpandable?: (record: T) => boolean | number
+    rowExpandable?: (record: T, recordIndex: number) => boolean | number
     /** Called when row is expanded */
-    onRowExpand?: (record: T) => void
+    onRowExpand?: (record: T, recordIndex: number) => void
     /** Called when row is collapsed */
-    onRowCollapse?: (record: T) => void
+    onRowCollapse?: (record: T, recordIndex: number) => void
     /** Disable indentation */
     noIndent?: boolean
     /**
@@ -54,5 +60,5 @@ export interface ExpandableConfig<T extends Record<string, any>> {
      * A zero (like 0 or false) means that the row is collapsed.
      * A negative value (like -1) means that the row is uncontrolled.
      */
-    isRowExpanded?: (record: T) => boolean | number
+    isRowExpanded?: (record: T, recordIndex: number) => boolean | number
 }

@@ -1,35 +1,37 @@
-import React, { useMemo, useState } from 'react'
-import { Select } from 'antd'
-import { SelectProps } from 'antd/lib/select'
-import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
-import { DateFilterRange } from 'lib/components/DateFilter/DateFilterRange'
+import React, { useRef } from 'react'
+import { dateMapping, dateFilterToText, uuid } from 'lib/utils'
+import { DateMappingOption } from '~/types'
 import { dayjs } from 'lib/dayjs'
-import { dateMappingOption } from '~/types'
+import { Tooltip } from 'lib/components/Tooltip'
+import { dateFilterLogic } from './dateFilterLogic'
+import { RollingDateRangeFilter } from './RollingDateRangeFilter'
+import { useActions, useValues } from 'kea'
+import { LemonButtonWithPopup, LemonDivider, LemonButton } from '@posthog/lemon-ui'
+import { IconCalendar } from '../icons'
+import { LemonCalendarSelect } from 'lib/components/LemonCalendar/LemonCalendarSelect'
+import { LemonCalendarRange } from 'lib/components/LemonCalendarRange/LemonCalendarRange'
+import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 
 export interface DateFilterProps {
-    defaultValue: string
     showCustom?: boolean
-    bordered?: boolean
+    showRollingRangePicker?: boolean
     makeLabel?: (key: React.ReactNode) => React.ReactNode
-    style?: React.CSSProperties
-    onChange?: (fromDate: string, toDate: string) => void
+    className?: string
+    onChange?: (fromDate: string, toDate: string | null) => void
     disabled?: boolean
-    getPopupContainer?: (props: any) => HTMLElement
-    dateOptions?: Record<string, dateMappingOption>
+    getPopupContainer?: () => HTMLElement
+    dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
-    selectProps?: SelectProps<any>
 }
-
 interface RawDateFilterProps extends DateFilterProps {
-    dateFrom?: string | dayjs.Dayjs
-    dateTo?: string | dayjs.Dayjs
+    dateFrom?: string | null | dayjs.Dayjs
+    dateTo?: string | null | dayjs.Dayjs
 }
 
 export function DateFilter({
-    bordered,
-    defaultValue,
     showCustom,
-    style,
+    showRollingRangePicker = true,
+    className,
     disabled,
     makeLabel,
     onChange,
@@ -37,131 +39,128 @@ export function DateFilter({
     dateFrom,
     dateTo,
     dateOptions = dateMapping,
-    isDateFormatted = false,
-    selectProps = {},
+    isDateFormatted = true,
 }: RawDateFilterProps): JSX.Element {
-    const [rangeDateFrom, setRangeDateFrom] = useState(
-        dateFrom && isDate.test(dateFrom as string) ? dayjs(dateFrom) : undefined
-    )
-    const [rangeDateTo, setRangeDateTo] = useState(dateTo && isDate.test(dateTo as string) ? dayjs(dateTo) : undefined)
-    const [dateRangeOpen, setDateRangeOpen] = useState(false)
-    const [open, setOpen] = useState(false)
-
-    function onClickOutside(): void {
-        setOpen(false)
-        setDateRangeOpen(false)
+    const key = useRef(uuid()).current
+    const logicProps: DateFilterLogicProps = {
+        key,
+        dateFrom,
+        dateTo,
+        onChange,
+        dateOptions,
+        isDateFormatted,
     }
+    const { open, openFixedRange, openDateToNow, close, setRangeDateFrom, setRangeDateTo, setDate, applyRange } =
+        useActions(dateFilterLogic(logicProps))
+    const { isVisible, view, rangeDateFrom, rangeDateTo, label, isFixedRange, isDateToNow, isRollingDateRange } =
+        useValues(dateFilterLogic(logicProps))
 
-    function setDate(fromDate: string, toDate: string): void {
-        onChange?.(fromDate, toDate)
-    }
+    const optionsRef = useRef<HTMLDivElement | null>(null)
+    const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
 
-    function _onChange(v: string): void {
-        if (v === 'Date range') {
-            if (open) {
-                setOpen(false)
-                setDateRangeOpen(true)
-            }
-        } else {
-            setDate(dateOptions[v].values[0], dateOptions[v].values[1])
-        }
-    }
-
-    function onBlur(): void {
-        if (dateRangeOpen) {
-            return
-        }
-        onClickOutside()
-    }
-
-    function onClick(): void {
-        if (dateRangeOpen) {
-            return
-        }
-        setOpen(!open)
-    }
-
-    function dropdownOnClick(e: React.MouseEvent): void {
-        e.preventDefault()
-        setOpen(true)
-        setDateRangeOpen(false)
-        document.getElementById('daterange_selector')?.focus()
-    }
-
-    function onApplyClick(): void {
-        onClickOutside()
-        setDate(dayjs(rangeDateFrom).format('YYYY-MM-DD'), dayjs(rangeDateTo).format('YYYY-MM-DD'))
-    }
-
-    const currKey = useMemo(
-        () => dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions, false),
-        [dateFrom, dateTo, defaultValue]
-    )
-
-    return (
-        <Select
-            data-attr="date-filter"
-            bordered={bordered}
-            id="daterange_selector"
-            value={
-                isDateFormatted && !(currKey in dateOptions)
-                    ? dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions, true)
-                    : currKey
-            }
-            onChange={_onChange}
-            style={style}
-            open={open || dateRangeOpen}
-            onBlur={onBlur}
-            onClick={onClick}
-            listHeight={440}
-            dropdownMatchSelectWidth={false}
-            disabled={disabled}
-            optionLabelProp={makeLabel ? 'label' : undefined}
-            getPopupContainer={getPopupContainer}
-            dropdownRender={(menu: React.ReactElement) => {
-                if (dateRangeOpen) {
-                    return (
-                        <DateFilterRange
-                            getPopupContainer={getPopupContainer}
-                            onClick={dropdownOnClick}
-                            onDateFromChange={(date) => setRangeDateFrom(date)}
-                            onDateToChange={(date) => setRangeDateTo(date)}
-                            onApplyClick={onApplyClick}
-                            onClickOutside={onClickOutside}
-                            rangeDateFrom={rangeDateFrom}
-                            rangeDateTo={rangeDateTo}
-                            disableBeforeYear={2015}
-                        />
-                    )
-                } else {
-                    return menu
-                }
-            }}
-            {...selectProps}
-        >
-            {[
-                ...Object.entries(dateOptions).map(([key, { values, inactive }]) => {
+    const popupOverlay =
+        view === DateFilterView.FixedRange ? (
+            <LemonCalendarRange
+                value={[(rangeDateTo ?? dayjs()).format('YYYY-MM-DD'), (rangeDateTo ?? dayjs()).format('YYYY-MM-DD')]}
+                onChange={([from, to]) => {
+                    setRangeDateFrom(from ? dayjs(from) : null)
+                    setRangeDateTo(to ? dayjs(to) : null)
+                    applyRange()
+                }}
+                onClose={open}
+                months={2}
+            />
+        ) : view === DateFilterView.DateToNow ? (
+            <LemonCalendarSelect
+                value={(rangeDateFrom as any) ?? dayjs().format('YYYY-MM-DD')}
+                onChange={(date) => {
+                    setRangeDateFrom(dayjs(date))
+                    setRangeDateTo(null)
+                    applyRange()
+                }}
+                onClose={open}
+            />
+        ) : (
+            <div ref={optionsRef} onClick={(e) => e.stopPropagation()}>
+                {dateOptions.map(({ key, values, inactive }) => {
                     if (key === 'Custom' && !showCustom) {
                         return null
                     }
 
-                    if (inactive && currKey !== key) {
+                    if (inactive && label !== key) {
                         return null
                     }
 
-                    const dateValue = dateFilterToText(values[0], values[1], defaultValue, dateOptions, isDateFormatted)
+                    const isActive =
+                        (dateFrom ?? null) === (values[0] ?? null) && (dateTo ?? null) === (values[1] ?? null)
+                    const dateValue = dateFilterToText(
+                        values[0],
+                        values[1],
+                        'No date selected',
+                        dateOptions,
+                        isDateFormatted
+                    )
 
                     return (
-                        <Select.Option key={key} value={key} label={makeLabel ? makeLabel(dateValue) : undefined}>
-                            {key}
-                        </Select.Option>
+                        <Tooltip key={key} title={makeLabel ? makeLabel(dateValue) : undefined}>
+                            <LemonButton
+                                key={key}
+                                onClick={() => setDate(values[0], values[1])}
+                                active={isActive}
+                                status="stealth"
+                                fullWidth
+                            >
+                                {key}
+                            </LemonButton>
+                        </Tooltip>
                     )
-                }),
+                })}
+                <LemonButton onClick={openDateToNow} active={isDateToNow} status="stealth" fullWidth>
+                    {'Date to Now'}
+                </LemonButton>
+                {showRollingRangePicker && (
+                    <RollingDateRangeFilter
+                        dateFrom={dateFrom}
+                        selected={isRollingDateRange}
+                        onChange={(fromDate) => {
+                            setDate(fromDate, '')
+                        }}
+                        makeLabel={makeLabel}
+                        popup={{
+                            ref: rollingDateRangeRef,
+                        }}
+                    />
+                )}
+                <LemonDivider />
+                <LemonButton onClick={openFixedRange} active={isFixedRange} status="stealth" fullWidth>
+                    {'Custom fixed time period'}
+                </LemonButton>
+            </div>
+        )
 
-                <Select.Option key={'Date range'} value={'Date range'}>
-                    {'Date range'}
-                </Select.Option>,
-            ]}
-        </Select>
+    return (
+        <LemonButtonWithPopup
+            data-attr="date-filter"
+            id="daterange_selector"
+            onClick={isVisible ? close : open}
+            disabled={disabled}
+            className={className}
+            size={'small'}
+            type={'secondary'}
+            status="stealth"
+            popup={{
+                onClickOutside: close,
+                visible: isVisible,
+                overlay: popupOverlay,
+                placement: 'bottom-start',
+                actionable: true,
+                closeOnClickInside: false,
+                additionalRefs: [rollingDateRangeRef, '.datefilter-datepicker'],
+                getPopupContainer,
+            }}
+            icon={<IconCalendar />}
+        >
+            {label}
+        </LemonButtonWithPopup>
     )
 }

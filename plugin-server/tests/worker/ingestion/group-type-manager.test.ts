@@ -1,5 +1,3 @@
-import { mocked } from 'ts-jest/utils'
-
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
@@ -42,7 +40,7 @@ describe('GroupTypeManager()', () => {
             await hub.db.insertGroupType(2, 'foo', 0)
             await hub.db.insertGroupType(2, 'bar', 1)
 
-            mocked(hub.db.postgresQuery).mockClear()
+            jest.mocked(hub.db.postgresQuery).mockClear()
 
             groupTypes = await groupTypeManager.fetchGroupTypes(2)
 
@@ -70,8 +68,8 @@ describe('GroupTypeManager()', () => {
             await hub.db.insertGroupType(2, 'foo', 0)
             await hub.db.insertGroupType(2, 'bar', 1)
 
-            mocked(hub.db.postgresQuery).mockClear()
-            mocked(hub.db.insertGroupType).mockClear()
+            jest.mocked(hub.db.postgresQuery).mockClear()
+            jest.mocked(hub.db.insertGroupType).mockClear()
 
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 'foo')).toEqual(0)
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 'bar')).toEqual(1)
@@ -84,8 +82,8 @@ describe('GroupTypeManager()', () => {
         it('inserts value if it does not exist yet at next index, resets cache', async () => {
             await hub.db.insertGroupType(2, 'foo', 0)
 
-            mocked(hub.db.insertGroupType).mockClear()
-            mocked(hub.db.postgresQuery).mockClear()
+            jest.mocked(hub.db.insertGroupType).mockClear()
+            jest.mocked(hub.db.postgresQuery).mockClear()
 
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 'second')).toEqual(1)
 
@@ -93,11 +91,15 @@ describe('GroupTypeManager()', () => {
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(3) // FETCH + INSERT + Team lookup
 
             const team = await hub.db.fetchTeam(2)
-            expect(posthog.capture).toHaveBeenCalledWith('group type ingested', {
-                team: team!.uuid,
-                groupType: 'second',
-                groupTypeIndex: 1,
-                $groups: {
+            expect(posthog.capture).toHaveBeenCalledWith({
+                distinctId: 'plugin-server',
+                event: 'group type ingested',
+                properties: {
+                    team: team!.uuid,
+                    groupType: 'second',
+                    groupTypeIndex: 1,
+                },
+                groups: {
                     project: team!.uuid,
                     organization: team!.organization_id,
                     instance: 'unknown',
@@ -105,7 +107,7 @@ describe('GroupTypeManager()', () => {
             })
 
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 'third')).toEqual(2)
-            mocked(hub.db.postgresQuery).mockClear()
+            jest.mocked(hub.db.postgresQuery).mockClear()
 
             expect(await groupTypeManager.fetchGroupTypes(2)).toEqual({
                 foo: 0,

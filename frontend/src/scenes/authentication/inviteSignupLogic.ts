@@ -1,8 +1,11 @@
-import { kea } from 'kea'
+import { kea, path, actions, reducers, listeners } from 'kea'
+import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
+import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { PrevalidatedInvite } from '~/types'
-import { inviteSignupLogicType } from './inviteSignupLogicType'
+import type { inviteSignupLogicType } from './inviteSignupLogicType'
 
 export enum ErrorCodes {
     InvalidInvite = 'invalid_invite',
@@ -10,31 +13,31 @@ export enum ErrorCodes {
     Unknown = 'unknown',
 }
 
-interface ErrorInterface {
+export interface ErrorInterface {
     code: ErrorCodes
     detail?: string
 }
 
-interface AcceptInvitePayloadInterface {
+export interface AcceptInvitePayloadInterface {
     first_name?: string
     password: string
     email_opt_in: boolean
 }
 
-export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadInterface, ErrorInterface>>({
-    path: ['scenes', 'authentication', 'inviteSignupLogic'],
-    actions: {
+export const inviteSignupLogic = kea<inviteSignupLogicType>([
+    path(['scenes', 'authentication', 'inviteSignupLogic']),
+    actions({
         setError: (payload: ErrorInterface) => ({ payload }),
-    },
-    reducers: {
+    }),
+    reducers({
         error: [
             null as ErrorInterface | null,
             {
                 setError: (_, { payload }) => payload,
             },
         ],
-    },
-    loaders: ({ actions, values }) => ({
+    }),
+    loaders(({ actions, values }) => ({
         invite: [
             null as PrevalidatedInvite | null,
             {
@@ -63,24 +66,59 @@ export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadIn
             {
                 acceptInvite: async (payload?: AcceptInvitePayloadInterface, breakpoint?) => {
                     breakpoint()
-
                     if (!values.invite) {
                         return null
                     }
-
                     return await api.create(`api/signup/${values.invite.id}/`, payload)
                 },
             },
         ],
-    }),
-    listeners: ({ values }) => ({
-        acceptInviteSuccess: async (_, breakpoint) => {
-            lemonToast.success(`You have joined ${values.invite?.organization_name}! Taking you to PostHog now…`)
-            await breakpoint(2000) // timeout for the user to read the toast
-            window.location.href = '/' // hard refresh because the current_organization changed
+    })),
+    forms(({ actions, values }) => ({
+        signup: {
+            defaults: { email_opt_in: true } as AcceptInvitePayloadInterface,
+            errors: ({ password, first_name }) => ({
+                password: !password
+                    ? 'Please enter your password to continue'
+                    : password.length < 8
+                    ? 'Password must be at least 8 characters'
+                    : undefined,
+                first_name: !first_name ? 'Please enter your name' : undefined,
+            }),
+            submit: async (payload, breakpoint) => {
+                await breakpoint()
+
+                if (!values.invite) {
+                    return
+                }
+
+                try {
+                    await api.create(`api/signup/${values.invite.id}/`, payload)
+                    lemonToast.success(
+                        `You have joined ${values.invite?.organization_name}! Taking you to PostHog now…`
+                    )
+                    await breakpoint(2000) // timeout for the user to read the toast
+                    window.location.href = '/' // hard refresh because the current_organization changed
+                } catch (e) {
+                    actions.setSignupManualErrors({
+                        generic: {
+                            code: (e as Record<string, any>).code,
+                            detail: (e as Record<string, any>).detail,
+                        },
+                    })
+                    throw e
+                }
+            },
         },
-    }),
-    urlToAction: ({ actions }) => ({
+    })),
+    listeners(({ actions }) => ({
+        prevalidateInviteSuccess: ({ invite }) => {
+            if (invite?.first_name) {
+                actions.setSignupValue('first_name', invite.first_name)
+            }
+        },
+    })),
+    urlToAction(({ actions }) => ({
         '/signup/*': ({ _: id }, { error_code, error_detail }) => {
             if (error_code) {
                 if ((Object.values(ErrorCodes) as string[]).includes(error_code)) {
@@ -92,5 +130,5 @@ export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadIn
                 actions.prevalidateInvite(id)
             }
         },
-    }),
-})
+    })),
+])

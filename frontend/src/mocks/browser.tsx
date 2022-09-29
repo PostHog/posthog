@@ -12,3 +12,7 @@ export const mswDecorator = (mocks: Mocks): ((Story: () => JSX.Element) => JSX.E
         useStorybookMocks(mocks)
         return <Story />
     }
+
+export const useFeatureFlags = (featureFlags: string[]): void => {
+    ;(window as any).POSTHOG_APP_CONTEXT.persisted_feature_flags = featureFlags
+}

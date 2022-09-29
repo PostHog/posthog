@@ -1,10 +1,7 @@
-@import '~/vars';
-
 .properties-table-key {
-    min-width: 12rem;
+    min-width: 8rem;
+    max-width: 24rem;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
 }
 
 .property-value-type {
@@ -21,6 +18,7 @@
     font-size: 0.625rem;
     font-weight: 500;
     text-transform: uppercase;
+    white-space: nowrap;
     cursor: default;
     &:not(:first-child) {
         margin-left: 0.25rem;
@@ -45,7 +43,7 @@
 
     .editable {
         text-decoration: underline dotted;
-        text-decoration-color: $primary;
+        text-decoration-color: var(--primary);
         cursor: pointer;
     }
 }

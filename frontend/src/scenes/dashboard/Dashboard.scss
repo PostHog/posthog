@@ -1,102 +1,20 @@
-@import '~/vars';
+@import '../../styles/mixins';
 
 .dashboard {
-    margin-top: 1rem;
-
-    .dashboard-items-actions {
-        margin-bottom: $default_spacing;
-        display: flex;
-
-        .left-item {
-            flex-grow: 1;
-
-            .dashboard-items-action-icon {
-                margin-right: 6px;
-            }
-
-            .dashboard-items-action-refresh-text {
-                visibility: visible;
-
-                &.hidden {
-                    visibility: hidden;
-                }
-
-                &.completed {
-                    position: absolute;
-                    left: 30px;
-                }
-            }
-        }
-
-        .right-item {
-            .ant-btn {
-                padding-left: 4px !important;
-            }
-        }
+    .dashboard-items-action-icon {
+        margin-right: 6px;
     }
 
-    .empty-state {
-        position: relative;
+    .dashboard-items-action-refresh-text {
+        visibility: visible;
 
-        .skeleton-actions {
-            text-align: right;
-            .ant-skeleton-avatar {
-                margin-right: 8px;
-            }
+        &.hidden {
+            visibility: hidden;
         }
 
-        .pie-chart {
-            height: 200px;
-            width: 200px;
-            max-width: 100%;
-            margin-top: $default_spacing;
-
-            @media (max-width: 992px) {
-                height: 140px;
-                width: 140px;
-            }
-        }
-
-        .bar-chart {
-            display: flex;
-            margin-top: $default_spacing;
-            align-items: flex-end;
-            .bar-el {
-                width: 12.5%;
-                margin-left: 4px;
-                height: 100px;
-            }
-        }
-
-        .ant-col {
-            flex-grow: 1;
-            .ant-card {
-                height: 100%;
-            }
-        }
-
-        .fade-out-graphs {
-            margin-top: $default_spacing;
-            height: 150px;
-            overflow: hidden;
-            position: relative;
-
-            &::after {
-                @extend %mixin-gradient-overlay;
-                width: calc(100% - 16px); // .ant-row gutter
-                left: 8px;
-                height: 150px;
-            }
-        }
-
-        .cta {
-            width: 360px;
-            max-width: calc(100% - 32px);
+        &.completed {
             position: absolute;
-            top: 16px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: $z_content_overlay;
+            left: 30px;
         }
     }
 }
@@ -111,49 +29,6 @@
         margin-top: 1rem;
     }
 
-    .dashboard-select {
-        flex: 1;
-        @extend .text-ellipsis;
-        padding-right: $default_spacing * 2;
-
-        .ant-select-single {
-            max-width: 100%;
-            line-height: 40px;
-
-            .ant-select-selector {
-                align-items: center;
-                padding-left: 0;
-                padding-right: 8px;
-                line-height: 40px;
-                height: 40px;
-
-                .ant-select-selection-item {
-                    font-size: 28px;
-                    font-weight: 600;
-                    line-height: 40px;
-                    width: 100%;
-                    height: 35px;
-                    display: flex;
-                    align-items: center;
-
-                    .anticon-share-alt {
-                        font-size: 16px;
-                        margin-left: 6px !important;
-                        margin-right: 4px;
-                    }
-                }
-            }
-            &.ant-select-open {
-                .ant-select-arrow {
-                    color: rgba($text_default, 0.4);
-                }
-            }
-            .ant-select-arrow {
-                color: $text_default;
-                font-size: 14px;
-            }
-        }
-    }
     .dashboard-meta {
         white-space: nowrap;
         display: flex;
@@ -172,7 +47,7 @@
     @media (max-width: 768px) {
         flex-direction: column;
         .dashboard-meta {
-            padding-top: $default_spacing;
+            padding-top: 1rem;
             justify-content: flex-end;
         }
     }
@@ -181,21 +56,4 @@
 #auto-refresh-check {
     padding: 5px 12px;
     cursor: pointer;
-}
-
-.CollaboratorRow {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 2rem;
-    margin-top: 0.5rem;
-    padding-left: 0.5rem;
-}
-
-.CollaboratorRow__details {
-    display: flex;
-    align-items: center;
-    > span {
-        margin-right: 0.5rem;
-    }
 }

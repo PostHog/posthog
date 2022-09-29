@@ -1,8 +1,8 @@
-import posthog from 'posthog-js'
+import posthog, { PostHogConfig } from 'posthog-js'
 import * as Sentry from '@sentry/react'
 import { Integration } from '@sentry/types'
 
-const configWithSentry = (config: posthog.Config): posthog.Config => {
+const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig> => {
     if ((window as any).SENTRY_DSN) {
         config.on_xhr_error = (failedRequest: XMLHttpRequest) => {
             const status = failedRequest.status
@@ -22,28 +22,24 @@ export function loadPostHogJS(): void {
             window.JS_POSTHOG_API_KEY,
             configWithSentry({
                 api_host: window.JS_POSTHOG_HOST,
-                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                // @ts-ignore
                 _capture_metrics: true,
                 rageclick: true,
                 debug: window.JS_POSTHOG_SELF_CAPTURE,
                 persistence: 'localStorage+cookie',
                 _capture_performance: true,
                 enable_recording_console_log: true,
+                bootstrap: !!window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
             })
         )
         // Make sure we have access to the object in window for debugging
         window.posthog = posthog
     } else {
-        posthog.init(
-            'fake token',
-            configWithSentry({
-                autocapture: false,
-                loaded: function (ph) {
-                    ph.opt_out_capturing()
-                },
-            })
-        )
+        posthog.init('fake token', {
+            autocapture: false,
+            loaded: function (ph) {
+                ph.opt_out_capturing()
+            },
+        })
     }
 
     if ((window as any).SENTRY_DSN) {

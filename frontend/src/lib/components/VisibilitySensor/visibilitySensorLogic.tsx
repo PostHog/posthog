@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 
-import { visibilitySensorLogicType } from './visibilitySensorLogicType'
+import type { visibilitySensorLogicType } from './visibilitySensorLogicType'
 export const visibilitySensorLogic = kea<visibilitySensorLogicType>({
     path: (key) => ['lib', 'components', 'VisibilitySensor', 'visibilitySensorLogic', key],
     props: {} as {

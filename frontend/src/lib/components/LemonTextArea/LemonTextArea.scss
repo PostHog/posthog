@@ -1,0 +1,38 @@
+.LemonTextArea {
+    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
+    min-height: 2.5rem;
+    padding: 0.5rem;
+    background: none;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    text-align: left;
+    line-height: 1.25rem;
+    cursor: text;
+    color: var(--default);
+    border: 1px solid var(--border);
+    outline: none;
+
+    &:not(:disabled):hover {
+        border: 1px solid var(--primary-light);
+    }
+
+    width: 100%;
+    text-overflow: ellipsis;
+
+    &:disabled {
+        opacity: var(--opacity-disabled);
+        cursor: not-allowed;
+    }
+
+    &:focus:not(:disabled) {
+        border: 1px solid var(--primary);
+    }
+
+    &:placeholder-shown {
+        font-style: italic;
+    }
+
+    .Field--error & {
+        border: 1px solid var(--danger);
+    }
+}

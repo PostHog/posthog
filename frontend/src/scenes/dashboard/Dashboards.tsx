@@ -1,10 +1,10 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Card, Col, Input, Row, Tabs } from 'antd'
+import { Card, Tabs } from 'antd'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
-import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
+import { AppstoreAddOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
@@ -18,11 +18,15 @@ import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/colu
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { dashboardLogic } from './dashboardLogic'
-import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
+import { LemonRow } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { Tooltip } from 'lib/components/Tooltip'
-import { HomeIcon } from 'lib/components/icons'
+import { IconCottage, IconLock } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { DashboardPrivilegeLevel } from 'lib/constants'
+import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { LemonInput } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -37,6 +41,7 @@ export function Dashboards(): JSX.Element {
     const { showNewDashboardModal, addDashboard } = useActions(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { closePrompts } = useActions(inAppPromptLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -60,14 +65,20 @@ export function Dashboards(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             width: '40%',
-            render: function Render(name, { id, description, _highlight, is_shared }) {
+            render: function Render(name, { id, description, _highlight, is_shared, effective_privilege_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
+                const canEditDashboard = effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
                 return (
                     <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
                         <div className="row-name">
                             <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
                                 {name || 'Untitled'}
                             </Link>
+                            {!canEditDashboard && (
+                                <Tooltip title="You don't have edit permissions for this dashboard.">
+                                    <IconLock style={{ marginLeft: 6, verticalAlign: '-0.125em', display: 'inline' }} />
+                                </Tooltip>
+                            )}
                             {is_shared && (
                                 <Tooltip title="This dashboard is shared publicly.">
                                     <ShareAltOutlined style={{ marginLeft: 6 }} />
@@ -75,7 +86,15 @@ export function Dashboards(): JSX.Element {
                             )}
                             {isPrimary && (
                                 <Tooltip title="Primary dashboards are shown on the project home page">
-                                    <HomeIcon style={{ marginLeft: 6, height: 14, width: 14 }} />
+                                    <IconCottage
+                                        style={{
+                                            marginLeft: 6,
+                                            color: 'var(--warning)',
+                                            fontSize: '1rem',
+                                            verticalAlign: '-0.125em',
+                                            display: 'inline',
+                                        }}
+                                    />
                                 </Tooltip>
                             )}
                         </div>
@@ -108,7 +127,7 @@ export function Dashboards(): JSX.Element {
                         overlay={
                             <div style={{ maxWidth: 250 }}>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={urls.dashboard(id)}
                                     onClick={() => {
                                         dashboardLogic({ id }).mount()
@@ -122,7 +141,7 @@ export function Dashboards(): JSX.Element {
                                     View
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={urls.dashboard(id)}
                                     onClick={() => {
                                         dashboardLogic({ id }).mount()
@@ -135,19 +154,22 @@ export function Dashboards(): JSX.Element {
                                 >
                                     Edit
                                 </LemonButton>
-                                <LemonButton type="stealth" onClick={() => duplicateDashboard({ id, name })} fullWidth>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => duplicateDashboard({ id, name })}
+                                    fullWidth
+                                >
                                     Duplicate
                                 </LemonButton>
-                                <LemonSpacer />
-                                <LemonRow icon={<HomeIcon />} fullWidth status="muted">
-                                    <span>
+                                <LemonDivider />
+                                <LemonRow icon={<IconCottage className="text-warning" />} fullWidth status="warning">
+                                    <span className="text-muted">
                                         Change the default dashboard on the{' '}
                                         <Link to={urls.projectHomepage()}>project home page</Link>.
                                     </span>
                                 </LemonRow>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
                                     onClick={() => deleteDashboard({ id, redirect: false })}
                                     fullWidth
                                     status="danger"
@@ -168,14 +190,16 @@ export function Dashboards(): JSX.Element {
             <PageHeader
                 title="Dashboards"
                 buttons={
-                    <Button
+                    <LemonButton
                         data-attr={'new-dashboard'}
-                        onClick={showNewDashboardModal}
+                        onClick={() => {
+                            closePrompts()
+                            showNewDashboardModal()
+                        }}
                         type="primary"
-                        icon={<PlusOutlined />}
                     >
-                        New Dashboard
-                    </Button>
+                        New dashboard
+                    </LemonButton>
                 }
             />
             <Tabs
@@ -187,21 +211,20 @@ export function Dashboards(): JSX.Element {
                 <Tabs.TabPane tab="Pinned" key={DashboardsTab.Pinned} />
                 <Tabs.TabPane tab="Shared" key={DashboardsTab.Shared} />
             </Tabs>
-            <div>
-                <Input.Search
-                    allowClear
-                    enterButton
+            <div className="flex">
+                <LemonInput
+                    type="search"
                     placeholder="Search for dashboards"
-                    style={{ width: 240 }}
+                    onChange={setSearchTerm}
                     value={searchTerm}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                    }}
                 />
+                <div />
             </div>
-            <LemonSpacer large />
+            <LemonDivider className="my-4" />
             {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
+                    data-attr="dashboards-table"
+                    pagination={{ pageSize: 100 }}
                     dataSource={dashboards}
                     rowKey="id"
                     columns={columns}
@@ -235,44 +258,40 @@ export function Dashboards(): JSX.Element {
                     nouns={['dashboard', 'dashboards']}
                 />
             ) : (
-                <div className="mt">
+                <div className="mt-4">
                     <p>Create your first dashboard:</p>
-                    <Row gutter={[16, 16]}>
-                        <Col xs={24} xl={6}>
-                            <Card
-                                title="Empty"
-                                size="small"
-                                style={{ cursor: 'pointer' }}
-                                onClick={() =>
-                                    addDashboard({
-                                        name: 'New Dashboard',
-                                        useTemplate: '',
-                                    })
-                                }
-                            >
-                                <div style={{ textAlign: 'center', fontSize: 40 }}>
-                                    <AppstoreAddOutlined />
-                                </div>
-                            </Card>
-                        </Col>
-                        <Col xs={24} xl={6}>
-                            <Card
-                                title="App Default"
-                                size="small"
-                                style={{ cursor: 'pointer' }}
-                                onClick={() =>
-                                    addDashboard({
-                                        name: 'Web App Dashboard',
-                                        useTemplate: 'DEFAULT_APP',
-                                    })
-                                }
-                            >
-                                <div style={{ textAlign: 'center', fontSize: 40 }}>
-                                    <AppstoreAddOutlined />
-                                </div>
-                            </Card>
-                        </Col>
-                    </Row>
+                    <div className="flex justify-center items-center gap-4">
+                        <Card
+                            title="Empty"
+                            size="small"
+                            style={{ width: 200, cursor: 'pointer' }}
+                            onClick={() =>
+                                addDashboard({
+                                    name: 'New Dashboard',
+                                    useTemplate: '',
+                                })
+                            }
+                        >
+                            <div style={{ textAlign: 'center', fontSize: 40 }}>
+                                <AppstoreAddOutlined />
+                            </div>
+                        </Card>
+                        <Card
+                            title="App Default"
+                            size="small"
+                            style={{ width: 200, cursor: 'pointer' }}
+                            onClick={() =>
+                                addDashboard({
+                                    name: 'Web App Dashboard',
+                                    useTemplate: 'DEFAULT_APP',
+                                })
+                            }
+                        >
+                            <div style={{ textAlign: 'center', fontSize: 40 }}>
+                                <AppstoreAddOutlined />
+                            </div>
+                        </Card>
+                    </div>
                 </div>
             )}
         </div>

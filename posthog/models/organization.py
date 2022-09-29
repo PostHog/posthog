@@ -1,3 +1,4 @@
+import sys
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from django.conf import settings
@@ -12,7 +13,7 @@ from rest_framework import exceptions
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
-from posthog.utils import mask_email_address
+from posthog.utils import absolute_uri, mask_email_address
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -31,7 +32,7 @@ class OrganizationManager(models.Manager):
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
-        self, user: Optional["User"], *, team_fields: Optional[Dict[str, Any]] = None, **kwargs,
+        self, user: Optional["User"], *, team_fields: Optional[Dict[str, Any]] = None, **kwargs
     ) -> Tuple["Organization", Optional["OrganizationMembership"], "Team"]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .team import Team  # Avoiding circular import
@@ -42,7 +43,7 @@ class OrganizationManager(models.Manager):
             organization_membership: Optional[OrganizationMembership] = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(
-                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER,
+                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER
                 )
                 user.current_organization = organization
                 user.current_team = team
@@ -57,7 +58,7 @@ class Organization(UUIDModel):
                 fields=["for_internal_metrics"],
                 condition=Q(for_internal_metrics=True),
                 name="single_for_internal_metrics",
-            ),
+            )
         ]
 
     class PluginsAccessLevel(models.IntegerChoices):
@@ -111,13 +112,14 @@ class Organization(UUIDModel):
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
         """
-
+        # Demo gets all features
+        if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
+            return (License.ENTERPRISE_PLAN, "demo")
         # If on Cloud, grab the organization's price
         if hasattr(self, "billing"):
             if self.billing is None:  # type: ignore
                 return (None, None)
             return (self.billing.get_plan_key(), "cloud")  # type: ignore
-
         # Otherwise, try to find a valid license on this instance
         if License is not None:
             license = License.objects.first_valid()
@@ -134,7 +136,7 @@ class Organization(UUIDModel):
         plan, realm = self._billing_plan_details
         if not plan:
             self.available_features = []
-        elif realm == "ee":
+        elif realm in ("ee", "demo"):
             self.available_features = License.PLANS.get(plan, [])
         else:
             self.available_features = self.billing.available_features  # type: ignore
@@ -226,7 +228,7 @@ class OrganizationMembership(UUIDModel):
 
 class OrganizationInvite(UUIDModel):
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite",
+        "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite"
     )
     target_email: models.EmailField = models.EmailField(null=True, db_index=True)
     first_name: models.CharField = models.CharField(max_length=30, blank=True, default="")
@@ -240,6 +242,7 @@ class OrganizationInvite(UUIDModel):
     emailing_attempt_made: models.BooleanField = models.BooleanField(default=False)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    message: models.TextField = models.TextField(blank=True, null=True)
 
     def validate(self, *, user: Optional["User"] = None, email: Optional[str] = None) -> None:
         _email = email or getattr(user, "email", None)
@@ -253,16 +256,16 @@ class OrganizationInvite(UUIDModel):
 
         if self.is_expired():
             raise exceptions.ValidationError(
-                "This invite has expired. Please ask your admin for a new one.", code="expired",
+                "This invite has expired. Please ask your admin for a new one.", code="expired"
             )
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise exceptions.ValidationError(
-                "You already are a member of this organization.", code="user_already_member",
+                "You already are a member of this organization.", code="user_already_member"
             )
 
         if OrganizationMembership.objects.filter(
-            organization=self.organization, user__email=self.target_email,
+            organization=self.organization, user__email=self.target_email
         ).exists():
             raise exceptions.ValidationError(
                 "Another user with this email address already belongs to this organization.",
@@ -276,7 +279,7 @@ class OrganizationInvite(UUIDModel):
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
 
-            send_member_join.apply_async(kwargs={"invitee_uuid": user.uuid, "organization_id": self.organization.id})
+            send_member_join.apply_async(kwargs={"invitee_uuid": user.uuid, "organization_id": self.organization_id})
         OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:
@@ -284,7 +287,7 @@ class OrganizationInvite(UUIDModel):
         return self.created_at < timezone.now() - timezone.timedelta(INVITE_DAYS_VALIDITY)
 
     def __str__(self):
-        return f"{settings.SITE_URL}/signup/{self.id}"
+        return absolute_uri(f"/signup/{self.id}")
 
     __repr__ = sane_repr("organization", "target_email", "created_by")
 

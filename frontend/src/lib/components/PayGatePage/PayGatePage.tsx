@@ -1,17 +1,18 @@
 import { useValues } from 'kea'
 import React from 'react'
-import { LinkButton } from '../LinkButton'
 import { userLogic } from 'scenes/userLogic'
 import { identifierToHuman } from 'lib/utils'
 import { IconOpenInNew } from '../icons'
 import './PayGatePage.scss'
+import { AvailableFeature } from '~/types'
+import { LemonButton } from '../LemonButton'
 
 interface PayGatePageInterface {
     header: string | JSX.Element
     caption: string | JSX.Element
     hideUpgradeButton?: boolean
     docsLink?: string // Link to the docs of the feature, if no link is sent, it will be hidden
-    featureKey: 'group-analytics' | 'experimentation'
+    featureKey: AvailableFeature
 }
 
 export function PayGatePage({
@@ -28,27 +29,21 @@ export function PayGatePage({
         <div className="pay-gate-page">
             <h2>{header}</h2>
             <div className="pay-caption">{caption}</div>
-            <div className="pay-buttons">
+            <div className="pay-buttons space-y-4">
                 {!hideUpgradeButton && (
-                    <LinkButton
-                        to={upgradeLink}
-                        type="primary"
-                        data-attr={`${featureKey}-upgrade`}
-                        className="LemonLinkButton"
-                    >
+                    <LemonButton to={upgradeLink} type="primary" data-attr={`${featureKey}-upgrade`} center>
                         Upgrade now to get {featureName}
-                    </LinkButton>
+                    </LemonButton>
                 )}
                 {docsLink && (
-                    <LinkButton
-                        type={hideUpgradeButton ? 'primary' : undefined}
+                    <LemonButton
+                        type={hideUpgradeButton ? 'primary' : 'secondary'}
                         to={`${docsLink}?utm_medium=in-product&utm_campaign=${featureKey}-upgrade-learn-more`}
-                        target="_blank"
+                        center
                         data-attr={`${featureKey}-learn-more`}
-                        className="LemonLinkButton"
                     >
                         Learn more about {featureName} <IconOpenInNew style={{ marginLeft: 8 }} />
-                    </LinkButton>
+                    </LemonButton>
                 )}
             </div>
         </div>

@@ -1,27 +1,21 @@
 import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
-import { isMobile } from 'lib/utils'
 import React, { ReactNode, RefObject, useMemo, useRef } from 'react'
-import { HotKeys, InsightType } from '~/types'
+import { InsightType } from '~/types'
 import { insightLogic } from './insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
-import { FunnelsCue } from './InsightTabs/TrendTab/FunnelsCue'
+import { FunnelsCue } from './views/Trends/FunnelsCue'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 
 const { TabPane } = Tabs
 
-function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
-    return !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
-}
-
 interface Tab {
     label: string
     type: InsightType
     dataAttr: string
-    hotkey: HotKeys
     ref?: RefObject<HTMLSpanElement>
     className?: string
 }
@@ -37,38 +31,32 @@ export function InsightsNav(): JSX.Element {
                 label: 'Trends',
                 type: InsightType.TRENDS,
                 dataAttr: 'insight-trends-tab',
-                hotkey: 't',
             },
             {
                 label: 'Funnels',
                 type: InsightType.FUNNELS,
                 dataAttr: 'insight-funnels-tab',
-                hotkey: 'f',
                 ref: funnelTab,
             },
             {
                 label: 'Retention',
                 type: InsightType.RETENTION,
                 dataAttr: 'insight-retention-tab',
-                hotkey: 'r',
             },
             {
                 label: 'User Paths',
                 type: InsightType.PATHS,
                 dataAttr: 'insight-path-tab',
-                hotkey: 'p',
             },
             {
                 label: 'Stickiness',
                 type: InsightType.STICKINESS,
                 dataAttr: 'insight-stickiness-tab',
-                hotkey: 'i',
             },
             {
                 label: 'Lifecycle',
                 type: InsightType.LIFECYCLE,
                 dataAttr: 'insight-lifecycle-tab',
-                hotkey: 'l',
             },
             {
                 label: 'SQL',
@@ -94,7 +82,7 @@ export function InsightsNav(): JSX.Element {
                 onChange={(key) => setActiveView(key as InsightType)}
                 animated={false}
             >
-                {tabs.map(({ label, type, dataAttr, hotkey, ref, className }) => {
+                {tabs.map(({ label, type, dataAttr, ref, className }) => {
                     const Outer = ({ children }: { children: ReactNode }): JSX.Element =>
                         INSIGHT_TYPES_METADATA[type]?.description ? (
                             <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[type].description}>
@@ -113,10 +101,7 @@ export function InsightsNav(): JSX.Element {
                                     preventClick
                                     data-attr={dataAttr}
                                 >
-                                    <Outer>
-                                        {label}
-                                        <InsightHotkey hotkey={hotkey} />
-                                    </Outer>
+                                    <Outer>{label}</Outer>
                                 </Link>
                             }
                         />

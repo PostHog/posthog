@@ -18,11 +18,11 @@ export function usePageVisibility(callback: (pageIsVisible: boolean) => void): v
         // Opera 12.10 and Firefox 18 and later support
         let hidden = 'hidden'
         let visibilityChange = 'visibilitychange'
-        // @ts-ignore - to avoid complaint that msHidden isn't on document
+        // @ts-expect-error - to avoid complaint that msHidden isn't on document
         if (typeof document.msHidden !== 'undefined') {
             hidden = 'msHidden'
             visibilityChange = 'msvisibilitychange'
-            // @ts-ignore - to avoid complaint that webkitHidden isn't on document
+            // @ts-expect-error - to avoid complaint that webkitHidden isn't on document
         } else if (typeof document.webkitHidden !== 'undefined') {
             hidden = 'webkitHidden'
             visibilityChange = 'webkitvisibilitychange'

@@ -8,11 +8,24 @@ import {
     PluginError,
     PluginLogEntrySource,
     PluginLogEntryType,
-    StoredPluginMetrics,
 } from '../../types'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
-    return `SELECT posthog_pluginconfig.${specificField || '*'}
+    const fields = specificField
+        ? `posthog_pluginconfig.${specificField}`
+        : `
+        posthog_pluginconfig.id,
+        posthog_pluginconfig.team_id,
+        posthog_pluginconfig.plugin_id,
+        posthog_pluginconfig.enabled,
+        posthog_pluginconfig.order,
+        posthog_pluginconfig.config,
+        posthog_pluginconfig.updated_at,
+        posthog_pluginconfig.created_at,
+        posthog_pluginconfig.error IS NOT NULL AS has_error
+    `
+
+    return `SELECT ${fields}
        FROM posthog_pluginconfig
        LEFT JOIN posthog_team ON posthog_team.id = posthog_pluginconfig.team_id
        LEFT JOIN posthog_organization ON posthog_organization.id = posthog_team.organization_id
@@ -24,13 +37,44 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
 }
 
 export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
-    const { rows: pluginRows }: { rows: Plugin[] } = await hub.db.postgresQuery(
-        `SELECT posthog_plugin.* FROM posthog_plugin
-            WHERE id IN (${pluginConfigsInForceQuery('plugin_id')} GROUP BY posthog_pluginconfig.plugin_id)`,
+    const { rows }: { rows: Plugin[] } = await hub.db.postgresQuery(
+        // `posthog_plugin` columns have to be listed individually, as we want to exclude a few columns
+        // and Postgres syntax unfortunately doesn't have a column exclusion feature. The excluded columns are:
+        // - archive - this is a potentially large blob, only extracted in Django as a plugin server optimization
+        // - latest_tag - not used in this service
+        // - latest_tag_checked_at - not used in this service
+        `SELECT
+            posthog_plugin.id,
+            posthog_plugin.name,
+            posthog_plugin.url,
+            posthog_plugin.tag,
+            posthog_plugin.from_json,
+            posthog_plugin.from_web,
+            posthog_plugin.error,
+            posthog_plugin.plugin_type,
+            posthog_plugin.organization_id,
+            posthog_plugin.is_global,
+            posthog_plugin.capabilities,
+            posthog_plugin.public_jobs,
+            posthog_plugin.is_stateless,
+            posthog_plugin.log_level,
+            psf__plugin_json.source as source__plugin_json,
+            psf__index_ts.source as source__index_ts,
+            psf__frontend_tsx.source as source__frontend_tsx
+        FROM posthog_plugin
+        LEFT JOIN posthog_pluginsourcefile psf__plugin_json
+            ON (psf__plugin_json.plugin_id = posthog_plugin.id AND psf__plugin_json.filename = 'plugin.json')
+        LEFT JOIN posthog_pluginsourcefile psf__index_ts
+            ON (psf__index_ts.plugin_id = posthog_plugin.id AND psf__index_ts.filename = 'index.ts')
+        LEFT JOIN posthog_pluginsourcefile psf__frontend_tsx
+            ON (psf__frontend_tsx.plugin_id = posthog_plugin.id AND psf__frontend_tsx.filename = 'frontend.tsx')
+        WHERE posthog_plugin.id IN (${pluginConfigsInForceQuery('plugin_id')}
+        GROUP BY posthog_pluginconfig.plugin_id)`,
         undefined,
         'getPluginRows'
     )
-    return pluginRows
+
+    return rows
 }
 
 export async function getPluginAttachmentRows(hub: Hub): Promise<PluginAttachmentDB[]> {
@@ -64,18 +108,6 @@ export async function setPluginCapabilities(
     )
 }
 
-export async function setPluginMetrics(
-    hub: Hub,
-    pluginConfig: PluginConfig,
-    metrics: StoredPluginMetrics
-): Promise<void> {
-    await hub.db.postgresQuery(
-        'UPDATE posthog_plugin SET metrics = ($1) WHERE id = $2',
-        [metrics, pluginConfig.plugin_id],
-        'setPluginMetrics'
-    )
-}
-
 export async function setError(hub: Hub, pluginError: PluginError | null, pluginConfig: PluginConfig): Promise<void> {
     await hub.db.postgresQuery(
         'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
@@ -87,7 +119,7 @@ export async function setError(hub: Hub, pluginError: PluginError | null, plugin
             pluginConfig,
             source: PluginLogEntrySource.Plugin,
             type: PluginLogEntryType.Error,
-            message: pluginError.message,
+            message: pluginError.stack ?? pluginError.message,
             instanceId: hub.instanceId,
             timestamp: pluginError.time,
         })
@@ -100,4 +132,5 @@ export async function disablePlugin(hub: Hub, pluginConfigId: PluginConfigId): P
         [pluginConfigId],
         'disablePlugin'
     )
+    await hub.db.redisPublish(hub.PLUGINS_RELOAD_PUBSUB_CHANNEL, 'reload!')
 }

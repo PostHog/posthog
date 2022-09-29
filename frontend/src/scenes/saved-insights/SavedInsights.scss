@@ -1,4 +1,4 @@
-@import '~/vars';
+@import '../../styles/mixins';
 
 .saved-insights {
     height: 100%;
@@ -8,7 +8,7 @@
     > .LemonTable td {
         padding-bottom: 0.75rem !important;
         padding-top: 0.75rem !important;
-        &.icon-column .ant-skeleton-title {
+        &.icon-column .LemonSkeleton {
             height: 2rem;
             width: 2rem;
         }
@@ -17,9 +17,9 @@
     .new-insight-dropdown-btn {
         cursor: pointer;
         height: 40px;
-        background-color: $primary;
+        background-color: var(--primary);
         padding: 8px 12px 8px 16px;
-        border: 1px solid $border;
+        border: 1px solid var(--border);
         border-radius: 4px;
         color: white;
     }
@@ -31,15 +31,7 @@
     }
 
     .star-outlined {
-        color: $border_dark;
-    }
-
-    .list-or-card-layout {
-        color: $text_muted_alt;
-        padding: 1rem 0;
-        border-top: 1px solid $border;
-        justify-content: space-between;
-        align-items: center;
+        color: var(--border-dark);
     }
 
     .saved-insight-empty-state {
@@ -58,7 +50,7 @@
                 line-height: 1em;
                 text-align: center;
                 margin-bottom: 1rem;
-                color: $border;
+                color: var(--border);
             }
 
             .empty-state__title {
@@ -71,7 +63,7 @@
                 font-weight: 500;
                 font-size: 1rem;
                 line-height: 1.7rem;
-                color: $text_muted;
+                color: var(--muted);
             }
 
             button.add-insight-button {
@@ -86,9 +78,6 @@
     max-width: 18rem;
 }
 
-.insight-type-icon-dropdown {
-    vertical-align: middle;
-}
 .insight-type-icon-wrapper {
     display: flex;
     align-items: center;
@@ -108,13 +97,10 @@
     position: relative;
     display: grid;
     grid-gap: 1rem;
-    @media screen and (min-width: $xl) {
+    @include screen($xl) {
         grid-template-columns: repeat(2, 1fr);
     }
-    @media screen and (min-width: $xxl) {
+    @include screen($xxl) {
         grid-template-columns: repeat(3, 1fr);
-    }
-    .loading-overlay {
-        min-height: 30rem;
     }
 }

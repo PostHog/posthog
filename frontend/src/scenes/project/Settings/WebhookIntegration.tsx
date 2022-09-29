@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { Input, Button, Col, Row } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
 import { webhookIntegrationLogic } from './webhookIntegrationLogic'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 export function WebhookIntegration(): JSX.Element {
     const [webhook, setWebhook] = useState('')
@@ -22,26 +22,24 @@ export function WebhookIntegration(): JSX.Element {
                 Send notifications when selected actions are performed by users.
                 <br />
                 Guidance on integrating with webhooks available in our docs,{' '}
-                <a href="https://posthog.com/docs/integrations/slack">for Slack</a> and{' '}
+                <a href="https://posthog.com/docs/integrate/third-party/slack">for Slack</a> and{' '}
                 <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also
                 supported.
             </p>
 
-            <Input
-                value={webhook}
-                addonBefore="Webhook URL"
-                onChange={(e) => setWebhook(e.target.value)}
-                style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
-                type="url"
-                placeholder={
-                    currentTeam?.slack_incoming_webhook ? '' : 'integration disabled – enter URL, then Test & Save'
-                }
-                disabled={loading}
-                onPressEnter={() => testWebhook(webhook)}
-            />
-            <Row>
-                <Col>
-                    <Button
+            <div className="space-y-4" style={{ maxWidth: '40rem' }}>
+                <LemonInput
+                    value={webhook}
+                    onChange={setWebhook}
+                    type="url"
+                    placeholder={
+                        currentTeam?.slack_incoming_webhook ? '' : 'integration disabled - enter URL, then Test & Save'
+                    }
+                    disabled={loading}
+                    onPressEnter={() => testWebhook(webhook)}
+                />
+                <div className="flex items-center gap-2">
+                    <LemonButton
                         type="primary"
                         disabled={!webhook}
                         onClick={(e) => {
@@ -51,12 +49,10 @@ export function WebhookIntegration(): JSX.Element {
                         loading={loading}
                     >
                         Test & Save
-                    </Button>
-                </Col>
-                <Col style={{ marginLeft: 10 }}>
-                    <Button
-                        type="default"
-                        danger
+                    </LemonButton>
+                    <LemonButton
+                        status="danger"
+                        type="secondary"
                         onClick={(e) => {
                             e.preventDefault()
                             removeWebhook()
@@ -65,9 +61,9 @@ export function WebhookIntegration(): JSX.Element {
                         disabled={!currentTeam?.slack_incoming_webhook}
                     >
                         Clear & Disable
-                    </Button>
-                </Col>
-            </Row>
+                    </LemonButton>
+                </div>
+            </div>
         </div>
     )
 }

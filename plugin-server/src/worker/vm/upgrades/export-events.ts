@@ -1,7 +1,7 @@
-import { Plugin, PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
+import { Plugin, PluginEvent, PluginMeta, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
-import { Hub, MetricMathOperations, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
-import { determineNodeEnv, NodeEnv } from '../../../utils/env-utils'
+import { Hub, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
+import { isTestEnv } from '../../../utils/env-utils'
 import { status } from '../../../utils/status'
 import { stringClamp } from '../../../utils/utils'
 import { ExportEventsBuffer } from './utils/export-events-buffer'
@@ -12,7 +12,7 @@ const EXPORT_BUFFER_BYTES_DEFAULT = 1024 * 1024
 const EXPORT_BUFFER_BYTES_MAXIMUM = 100 * 1024 * 1024
 const EXPORT_BUFFER_SECONDS_MINIMUM = 1
 const EXPORT_BUFFER_SECONDS_MAXIMUM = 600
-const EXPORT_BUFFER_SECONDS_DEFAULT = determineNodeEnv() === NodeEnv.Test ? EXPORT_BUFFER_SECONDS_MAXIMUM : 10
+const EXPORT_BUFFER_SECONDS_DEFAULT = isTestEnv() ? EXPORT_BUFFER_SECONDS_MAXIMUM : 10
 
 type ExportEventsUpgrade = Plugin<{
     global: {
@@ -61,15 +61,6 @@ export function upgradeExportEvents(
         EXPORT_BUFFER_SECONDS_MAXIMUM
     )
 
-    function incrementMetric(metricName: string, value: number) {
-        hub.pluginMetricsManager.updateMetric({
-            metricName,
-            value,
-            pluginConfig,
-            metricOperation: MetricMathOperations.Increment,
-        })
-    }
-
     meta.global.exportEventsToIgnore = new Set(
         meta.config.exportEventsToIgnore
             ? meta.config.exportEventsToIgnore.split(',').map((event: string) => event.trim())
@@ -96,18 +87,13 @@ export function upgradeExportEvents(
     ) => {
         const start = new Date()
         try {
-            if (!payload.retriesPerformedSoFar) {
-                incrementMetric('events_seen', payload.batch.length)
-            }
             await methods.exportEvents?.(payload.batch)
             hub.statsd?.timing('plugin.export_events.success', start, {
                 plugin: pluginConfig.plugin?.name ?? '?',
                 teamId: pluginConfig.team_id.toString(),
             })
-            incrementMetric('events_delivered_successfully', payload.batch.length)
         } catch (err) {
             if (err instanceof RetryError) {
-                incrementMetric('retry_errors', payload.batch.length)
                 if (payload.retriesPerformedSoFar < MAXIMUM_RETRIES) {
                     const nextRetrySeconds = 2 ** (payload.retriesPerformedSoFar + 1) * 3
                     await meta.jobs
@@ -126,7 +112,6 @@ export function upgradeExportEvents(
                         teamId: pluginConfig.team_id.toString(),
                     })
                 } else {
-                    incrementMetric('undelivered_events', payload.batch.length)
                     status.info(
                         '☠️',
                         `Dropped PluginConfig ${pluginConfig.id} batch ${payload.batchId} after retrying ${payload.retriesPerformedSoFar} times`
@@ -138,8 +123,6 @@ export function upgradeExportEvents(
                     })
                 }
             } else {
-                incrementMetric('other_errors', payload.batch.length)
-                incrementMetric('undelivered_events', payload.batch.length)
                 throw err
             }
         }
@@ -152,7 +135,7 @@ export function upgradeExportEvents(
     }
 
     const oldOnEvent = methods.onEvent
-    methods.onEvent = async (event: PluginEvent) => {
+    methods.onEvent = async (event: ProcessedPluginEvent) => {
         if (!meta.global.exportEventsToIgnore.has(event.event)) {
             await meta.global.exportEventsBuffer.add(event, JSON.stringify(event).length)
         }

@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { bulkInviteLogicType } from './bulkInviteLogicType'
+import type { bulkInviteLogicType } from './bulkInviteLogicType'
 import { OrganizationInviteType } from '~/types'
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -8,7 +8,7 @@ import { invitesLogic } from './invitesLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
-interface InviteRowState {
+export interface InviteRowState {
     target_email: string
     first_name: string
     isValid: boolean
@@ -16,7 +16,7 @@ interface InviteRowState {
 
 const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid: true }
 
-export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
+export const bulkInviteLogic = kea<bulkInviteLogicType>({
     path: ['scenes', 'organization', 'Settings', 'bulkInviteLogic'],
     actions: {
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),

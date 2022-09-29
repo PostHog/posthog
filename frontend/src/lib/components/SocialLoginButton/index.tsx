@@ -1,12 +1,13 @@
-import { Button } from 'antd'
 import { useValues } from 'kea'
 import React from 'react'
 import './index.scss'
 import clsx from 'clsx'
 import { SocialLoginIcon } from './SocialLoginIcon'
 import { SSOProviders } from '~/types'
-import { SSOProviderNames } from 'lib/constants'
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { LemonButton } from '../LemonButton'
+import { LemonDivider } from '../LemonDivider'
 
 interface SharedProps {
     queryString?: string
@@ -19,7 +20,8 @@ interface SocialLoginButtonProps extends SharedProps {
 interface SocialLoginButtonsProps extends SharedProps {
     title?: string
     caption?: string
-    displayStyle?: 'button' | 'link'
+    className?: string
+    topDivider?: boolean
 }
 
 export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
@@ -33,18 +35,24 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
     const extraParam = provider === 'saml' ? (queryString ? '&idp=posthog_custom' : '?idp=posthog_custom') : ''
 
     return (
-        <Button
-            className={`link-social-login ${provider}`}
-            href={`/login/${provider}/${queryString || ''}${extraParam}`}
+        <LemonButton
+            size="small"
+            to={`/login/${provider}/${queryString || ''}${extraParam}`}
+            disableClientSideRouting
             icon={SocialLoginIcon(provider)}
-            type="link"
         >
-            <span>{SSOProviderNames[provider]}</span>
-        </Button>
+            <span>{SSO_PROVIDER_NAMES[provider]}</span>
+        </LemonButton>
     )
 }
 
-export function SocialLoginButtons({ title, caption, ...props }: SocialLoginButtonsProps): JSX.Element | null {
+export function SocialLoginButtons({
+    title,
+    caption,
+    className,
+    topDivider,
+    ...props
+}: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
     if (
@@ -55,16 +63,18 @@ export function SocialLoginButtons({ title, caption, ...props }: SocialLoginButt
     }
 
     return (
-        <div
-            className={clsx('social-logins', {
-                empty: !Object.values(preflight.available_social_auth_providers).filter((v) => v).length,
-            })}
-        >
-            {title && <h3 className="l3">{title}</h3>}
-            {caption && <div className="caption">{caption}</div>}
-            {Object.keys(preflight.available_social_auth_providers).map((provider) => (
-                <SocialLoginLink key={provider} provider={provider as SSOProviders} {...props} />
-            ))}
-        </div>
+        <>
+            {topDivider ? <LemonDivider dashed className="my-4" /> : null}
+
+            <div className={clsx(className, 'text-center space-y-2')}>
+                {title && <h3>{title}</h3>}
+                {caption && <span className="text-muted">{caption}</span>}
+                <div className="flex gap-2 justify-center flex-wrap">
+                    {Object.keys(preflight.available_social_auth_providers).map((provider) => (
+                        <SocialLoginLink key={provider} provider={provider as SSOProviders} {...props} />
+                    ))}
+                </div>
+            </div>
+        </>
     )
 }

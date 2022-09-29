@@ -5,8 +5,8 @@ from typing import Any, Dict, List
 from django.db import models, transaction
 from django.forms.models import model_to_dict
 
-from .element import Element
-from .team import Team
+from posthog.models.element import Element
+from posthog.models.team import Team
 
 
 def hash_elements(elements: List) -> str:
@@ -30,7 +30,7 @@ class ElementGroupManager(models.Manager):
                     group = super().create(*args, **kwargs)
             except:
                 return ElementGroup.objects.get(
-                    hash=kwargs["hash"], team_id=kwargs["team"].pk if kwargs.get("team") else kwargs["team_id"],
+                    hash=kwargs["hash"], team_id=kwargs["team"].pk if kwargs.get("team") else kwargs["team_id"]
                 )
             for index, element in enumerate(elements):
                 element.group = group

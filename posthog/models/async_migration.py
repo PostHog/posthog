@@ -1,3 +1,5 @@
+from typing import List
+
 from django.db import models
 
 
@@ -21,7 +23,7 @@ class AsyncMigrationError(models.Model):
 
 class AsyncMigration(models.Model):
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["name"], name="unique name",)]
+        constraints = [models.UniqueConstraint(fields=["name"], name="unique name")]
 
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     name: models.CharField = models.CharField(max_length=50, null=False, blank=False)
@@ -45,6 +47,13 @@ class AsyncMigration(models.Model):
     posthog_min_version: models.CharField = models.CharField(max_length=20, null=True, blank=True)
     posthog_max_version: models.CharField = models.CharField(max_length=20, null=True, blank=True)
 
+    parameters: models.JSONField = models.JSONField(default=dict)
+
+    def get_name_with_requirements(self) -> str:
+        return (
+            f"{self.name} - must be ran on PostHog version {self.posthog_min_version} up to {self.posthog_max_version}"
+        )
+
 
 def get_all_completed_async_migrations():
     return AsyncMigration.objects.filter(status=MigrationStatus.CompletedSuccessfully)
@@ -52,6 +61,10 @@ def get_all_completed_async_migrations():
 
 def get_all_running_async_migrations():
     return AsyncMigration.objects.filter(status=MigrationStatus.Running)
+
+
+def get_async_migrations_by_status(target_statuses: List[int]):
+    return AsyncMigration.objects.filter(status__in=target_statuses)
 
 
 # allow for splitting code paths

@@ -4,12 +4,13 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { actionsTabLogicType } from './actionsTabLogicType'
+import type { actionsTabLogicType } from './actionsTabLogicType'
 import { ActionType } from '~/types'
 import { ActionDraftType, ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/lib/form'
 import { posthog } from '~/toolbar/posthog'
 import { lemonToast } from 'lib/components/lemonToast'
+import { urls } from 'scenes/urls'
 
 function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
     return {
@@ -18,9 +19,9 @@ function newAction(element: HTMLElement | null, dataAttributes: string[] = []): 
     }
 }
 
-type ActionFormInstance = FormInstance<ActionForm>
+export type ActionFormInstance = FormInstance<ActionForm>
 
-export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
+export const actionsTabLogic = kea<actionsTabLogicType>({
     path: ['toolbar', 'actions', 'actionsTabLogic'],
     actions: {
         setForm: (form: ActionFormInstance) => ({ form }),
@@ -181,7 +182,7 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
             lemonToast.success('Action saved', {
                 button: {
                     label: 'Open in PostHog',
-                    action: () => window.open(`${apiURL}/projects/@current/actions/${response.id}`, '_blank'),
+                    action: () => window.open(`${apiURL}${urls.action(response.id)}`, '_blank'),
                 },
             })
         },

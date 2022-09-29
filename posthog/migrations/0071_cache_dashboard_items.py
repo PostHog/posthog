@@ -36,17 +36,30 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="dashboard", name="is_shared", field=models.BooleanField(default=False),),
         migrations.AddField(
-            model_name="dashboard", name="share_token", field=models.CharField(blank=True, max_length=400, null=True),
+            model_name="dashboard",
+            name="is_shared",
+            field=models.BooleanField(default=False),
         ),
         migrations.AddField(
-            model_name="dashboard", name="last_accessed_at", field=models.DateTimeField(blank=True, null=True),
+            model_name="dashboard",
+            name="share_token",
+            field=models.CharField(blank=True, max_length=400, null=True),
+        ),
+        migrations.AddField(
+            model_name="dashboard",
+            name="last_accessed_at",
+            field=models.DateTimeField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="dashboarditem",
             name="funnel",
-            field=models.ForeignKey(blank=True, null=True, on_delete=models.deletion.CASCADE, to="posthog.Funnel",),
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=models.deletion.CASCADE,
+                to="posthog.Funnel",
+            ),
         ),
         migrations.RunPython(forwards_func, reverse_func),
     ]

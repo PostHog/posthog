@@ -1,14 +1,23 @@
-.ph-graph-tooltip {
-    padding: 0 !important;
+.InsightTooltipWrapper {
+    position: absolute;
+    transition: all 0.4s;
+    z-index: var(--z-graph-tooltip);
+    pointer-events: none;
+}
+
+.InsightTooltip {
     overflow: hidden;
     border: 1px solid var(--border);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    font-size: 14px;
-    z-index: var(--z-graph-tooltip);
-    transition: all 0.4s;
-    max-width: 480px;
+    box-shadow: var(--shadow-elevation);
+    font-size: 0.8125rem;
+    max-width: 30rem;
     border-radius: var(--radius);
-    background: #fafafa;
+    background: var(--bg-light);
+    pointer-events: none;
+
+    .LemonRow {
+        font-size: 0.8125rem;
+    }
 
     .LemonTable {
         font-size: 0.75rem;
@@ -23,26 +32,21 @@
             margin: 0;
         }
 
-        .color-column {
-            padding: 0;
-            width: 6px;
-        }
-
         .datum-column {
             padding-left: 0.5rem;
         }
 
-        .LemonTable__scroll {
+        .scrollable__inner {
             width: 100%;
             overflow: hidden;
         }
         .LemonTable__content > table > thead {
+            letter-spacing: 0;
             .datum-column {
                 .LemonTable__header-content {
                     white-space: nowrap;
                 }
             }
-
             .datum-counts-column {
                 .ant-typography {
                     text-align: left;
@@ -56,23 +60,11 @@
                 }
             }
         }
-
-        .LemonTable__content > table > tbody {
-            .color-column {
-                position: relative;
-
-                .color-cell {
-                    position: absolute;
-                    top: 0;
-                    bottom: 0;
-                    width: 6px;
-                }
-            }
+        .LemonTable__content > table {
             .datum-label-column {
                 font-weight: 600;
                 display: flex;
                 align-items: center;
-                height: inherit;
 
                 .ant-typography {
                     text-align: left;
@@ -102,8 +94,8 @@
     .table-subtext {
         font-size: 0.75rem;
         text-align: center;
-        padding: 8px 16px;
-        color: var(--text-muted);
+        padding: 0.5rem 1rem;
+        color: var(--muted);
         background-color: var(--bg-light);
 
         .table-subtext-truncated {
@@ -114,8 +106,9 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            color: var(--text-default);
+            color: var(--default);
             font-weight: 600;
+            white-space: nowrap;
         }
     }
 }

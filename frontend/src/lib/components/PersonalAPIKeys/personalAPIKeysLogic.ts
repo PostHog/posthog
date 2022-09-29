@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { PersonalAPIKeyType } from '~/types'
-import { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
+import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 import { copyToClipboard } from 'lib/utils'
 import { lemonToast } from '../lemonToast'
 

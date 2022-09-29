@@ -1,19 +1,21 @@
-import { Col, Row, Form, Input, Button } from 'antd'
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import './Login.scss'
 import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
 import { Link } from 'lib/components/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
-import { PasswordInput } from './PasswordInput'
-import { ExclamationCircleFilled } from '@ant-design/icons'
 import clsx from 'clsx'
-import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
-import { WelcomeLogo } from './WelcomeLogo'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
-import { SSOProviderNames } from 'lib/constants'
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
+import { SSOProviders } from '~/types'
+import { LemonButton, LemonButtonProps, LemonInput } from '@posthog/lemon-ui'
+import { Form } from 'kea-forms'
+import { Field } from 'lib/forms/Field'
+import { AlertMessage } from 'lib/components/AlertMessage'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import RegionSelect from './RegionSelect'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -37,6 +39,8 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
             for details.
         </>
     ),
+    jit_not_enabled:
+        'We could not find an account with your email address and your organization does not support automatic enrollment. Please contact your administrator for an invite.',
 }
 
 export const scene: SceneExport = {
@@ -44,111 +48,113 @@ export const scene: SceneExport = {
     logic: loginLogic,
 }
 
+function SSOLoginButton({
+    email,
+    provider,
+    status = 'primary',
+}: {
+    email: string
+    provider: SSOProviders
+    status?: LemonButtonProps['status']
+}): JSX.Element {
+    return (
+        <LemonButton
+            className="btn-bridge"
+            data-attr="sso-login"
+            htmlType="button"
+            fullWidth
+            onClick={() => (window.location.href = `/login/${provider}/?email=${email}`)}
+            icon={SocialLoginIcon(provider)}
+            status={status}
+        >
+            Login with {SSO_PROVIDER_NAMES[provider]}
+        </LemonButton>
+    )
+}
+
 export function Login(): JSX.Element {
-    const [form] = Form.useForm()
-    const { authenticate, precheck } = useActions(loginLogic)
-    const { authenticateResponseLoading, authenticateResponse, precheckResponse, precheckResponseLoading } =
+    const { precheck } = useActions(loginLogic)
+    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, loginManualErrors } =
         useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
+    const passwordInputRef = useRef<HTMLInputElement>(null)
+    const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
+
+    useEffect(() => {
+        if (!isPasswordHidden) {
+            passwordInputRef.current?.focus()
+        }
+    }, [isPasswordHidden])
+
     return (
-        <div className="bridge-page login">
-            <Row>
-                <Col span={24} className="auth-main-content">
-                    <WelcomeLogo view="login" />
-                    <div className="inner">
-                        <h2 className="subtitle" style={{ justifyContent: 'center' }}>
-                            Get started
-                        </h2>
-                        {!authenticateResponseLoading && authenticateResponse?.errorCode && (
-                            <InlineMessage style={{ marginBottom: 16 }} type="danger">
-                                {authenticateResponse?.errorDetail ||
-                                    ERROR_MESSAGES[authenticateResponse.errorCode] ||
-                                    'Could not complete your login. Please try again.'}
-                            </InlineMessage>
-                        )}
-                        <Form
-                            layout="vertical"
-                            form={form}
-                            onFinish={(values) => authenticate(values)}
-                            requiredMark={false}
-                            noValidate
-                        >
-                            <Form.Item
-                                name="email"
-                                label="Email"
-                                rules={[
-                                    {
-                                        required: true,
-                                        message: (
-                                            <>
-                                                <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Please enter your
-                                                email to continue
-                                            </>
-                                        ),
-                                    },
-                                ]}
-                            >
-                                <Input
-                                    className="ph-ignore-input"
-                                    autoFocus
-                                    data-attr="login-email"
-                                    placeholder="email@yourcompany.com"
-                                    type="email"
-                                    onBlur={() => precheck({ email: form.getFieldValue('email') })}
-                                    autoComplete="off"
-                                />
-                            </Form.Item>
-                            <div
-                                className={clsx(
-                                    'password-wrapper',
-                                    (precheckResponse.status === 'pending' || precheckResponse.sso_enforcement) &&
-                                        'hidden'
-                                )}
-                            >
-                                <PasswordInput />
-                            </div>
-                            <Form.Item>
-                                {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
-                                    <Button
-                                        className="btn-bridge"
-                                        htmlType="submit"
-                                        data-attr="password-login"
-                                        loading={authenticateResponseLoading || precheckResponseLoading}
-                                        block
-                                    >
-                                        Login
-                                    </Button>
-                                ) : (
-                                    <Button
-                                        className="btn-bridge"
-                                        data-attr="sso-login"
-                                        htmlType="button"
-                                        block
-                                        onClick={() =>
-                                            (window.location.href = `/login/${precheckResponse.sso_enforcement}/`)
-                                        }
-                                    >
-                                        {SocialLoginIcon(precheckResponse.sso_enforcement)} Login with{' '}
-                                        {SSOProviderNames[precheckResponse.sso_enforcement]}
-                                    </Button>
-                                )}
-                            </Form.Item>
-                        </Form>
-                        <div className={clsx('helper-links', { cloud: preflight?.cloud })}>
-                            {preflight?.cloud && (
-                                <Link to="/signup" data-attr="signup" className="lhs">
-                                    Create an account
-                                </Link>
-                            )}
-                            <Link to="/reset" data-attr="forgot-password" className="rhs">
-                                Forgot your password?
-                            </Link>
-                        </div>
-                        <SocialLoginButtons caption="Or log in with" />
+        <BridgePage view="login" noHedgehog>
+            <div className="space-y-2">
+                <h2>Get started</h2>
+                {loginManualErrors.generic && (
+                    <AlertMessage type="error">
+                        {loginManualErrors.generic.detail ||
+                            ERROR_MESSAGES[loginManualErrors.generic.code] ||
+                            'Could not complete your login. Please try again.'}
+                    </AlertMessage>
+                )}
+                <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
+                    <RegionSelect />
+                    <Field name="email" label="Email">
+                        <LemonInput
+                            className="ph-ignore-input"
+                            autoFocus
+                            data-attr="login-email"
+                            placeholder="email@yourcompany.com"
+                            type="email"
+                            onBlur={() => precheck({ email: login.email })}
+                            onPressEnter={() => {
+                                precheck({ email: login.email })
+                            }}
+                        />
+                    </Field>
+                    <div className={clsx('PasswordWrapper', isPasswordHidden && 'hidden')}>
+                        <Field name="password" label="Password">
+                            <LemonInput
+                                type="password"
+                                ref={passwordInputRef}
+                                className="ph-ignore-input"
+                                data-attr="password"
+                                placeholder="••••••••••"
+                                autoComplete="current-password"
+                            />
+                        </Field>
                     </div>
-                </Col>
-            </Row>
-        </div>
+                    {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
+                        <LemonButton
+                            htmlType="submit"
+                            data-attr="password-login"
+                            fullWidth
+                            type="primary"
+                            center
+                            loading={isLoginSubmitting || precheckResponseLoading}
+                        >
+                            Login
+                        </LemonButton>
+                    ) : (
+                        <SSOLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
+                    )}
+                    {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
+                        <SSOLoginButton provider="saml" email={login.email} status="primary" />
+                    )}
+                </Form>
+                <div className="flex items-center justify-center flex-wrap gap-4 mt-4 font-semibold">
+                    {preflight?.cloud && (
+                        <Link to="/signup" data-attr="signup">
+                            Create an account
+                        </Link>
+                    )}
+                    <Link to="/reset" data-attr="forgot-password">
+                        Forgot your password?
+                    </Link>
+                </div>
+                <SocialLoginButtons caption="Or log in with" topDivider />
+            </div>
+        </BridgePage>
     )
 }

@@ -21,7 +21,6 @@ describe('primaryDashboardModalLogic', () => {
             },
         })
         initKeaTests()
-        teamLogic.mount()
         userLogic.mount()
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         router.actions.push(urls.projectHomepage())
@@ -31,19 +30,19 @@ describe('primaryDashboardModalLogic', () => {
 
     it('modal starts off hidden', async () => {
         await expectLogic(logic).toMatchValues({
-            visible: false,
+            isOpen: false,
         })
     })
-    describe('visible', () => {
+    describe('isOpen', () => {
         it('can be set to true and false', async () => {
             logic.actions.showPrimaryDashboardModal()
             await expectLogic(logic).toMatchValues({
-                visible: true,
+                isOpen: true,
             })
 
             logic.actions.closePrimaryDashboardModal()
             await expectLogic(logic).toMatchValues({
-                visible: false,
+                isOpen: false,
             })
         })
     })

@@ -5,13 +5,13 @@ import pytest
 
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
-from posthog.test.base import BaseTest
+from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 
 MIGRATION_NAME = "0003_fill_person_distinct_id2"
 
 
 @pytest.mark.ee
-class Test0003FillPersonDistinctId2(BaseTest):
+class Test0003FillPersonDistinctId2(AsyncMigrationBaseTest):
     def setUp(self):
         from posthog.client import sync_execute
 
@@ -21,6 +21,7 @@ class Test0003FillPersonDistinctId2(BaseTest):
         sync_execute("TRUNCATE TABLE person_distinct_id2")
         sync_execute("ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'dont_skip_0003'")
 
+    @pytest.mark.async_migrations
     def test_is_required(self):
         from posthog.client import sync_execute
 
@@ -29,6 +30,7 @@ class Test0003FillPersonDistinctId2(BaseTest):
         sync_execute("ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'")
         self.assertFalse(self.migration.is_required())
 
+    @pytest.mark.async_migrations
     def test_migration(self):
         from posthog.client import sync_execute
 
@@ -49,8 +51,8 @@ class Test0003FillPersonDistinctId2(BaseTest):
 
         self.create_distinct_id(team_id=3, distinct_id="d", person_id=str(p6), sign=1)
 
-        setup_async_migrations()
-        migration_successful = start_async_migration(MIGRATION_NAME)
+        setup_async_migrations(ignore_posthog_version=True)
+        migration_successful = start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
         self.assertTrue(migration_successful)
 
         rows = sync_execute(
@@ -64,6 +66,6 @@ class Test0003FillPersonDistinctId2(BaseTest):
 
         sync_execute(
             "INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(sign)s, %(timestamp)s, 0 VALUES",
-            {**kwargs, "timestamp": datetime(2020, 1, 2) + timedelta(days=self.timestamp),},
+            {**kwargs, "timestamp": datetime(2020, 1, 2) + timedelta(days=self.timestamp)},
         )
         self.timestamp += 1

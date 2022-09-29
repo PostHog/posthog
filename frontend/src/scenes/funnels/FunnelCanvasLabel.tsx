@@ -1,6 +1,6 @@
 // This file contains funnel-related components that are used in the general insights scope
 import { useActions, useValues } from 'kea'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration, percentage } from 'lib/utils'
 import React from 'react'
 import { Button, Row } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
@@ -9,9 +9,8 @@ import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { FunnelVizType, InsightType } from '~/types'
-import { formatDisplayPercentage } from './funnelUtils'
 import { Tooltip } from 'lib/components/Tooltip'
-import { FunnelStepsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepsPicker'
+import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, filters, activeView } = useValues(insightLogic)
@@ -34,8 +33,8 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           </Tooltip>
                           Total conversion rate
                       </span>
-                      <span className="text-muted-alt mr-025">:</span>
-                      <span className="l4">{formatDisplayPercentage(conversionMetrics.totalRate)}%</span>
+                      <span className="text-muted-alt mr-1">:</span>
+                      <span className="l4">{percentage(conversionMetrics.totalRate, 2, true)}</span>
                   </>,
               ]
             : []),
@@ -51,7 +50,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           Average time to convert{' '}
                       </span>
                       {filters.funnel_viz_type === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
-                      <span className="text-muted-alt mr-025">:</span>
+                      <span className="text-muted-alt mr-1">:</span>
                       <Button
                           type="link"
                           onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}

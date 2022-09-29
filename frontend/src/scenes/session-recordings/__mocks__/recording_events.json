@@ -50,5 +50,44 @@
         },
         "elements": [],
         "elements_hash": ""
+    },
+    {
+        "id": "backend event",
+        "name": "backend event",
+        "event": "backend event",
+        "type": "events",
+        "order": 4,
+        "timestamp": "2021-12-09T19:37:40.223000Z",
+        "properties": {
+            "$window_id": null
+        },
+        "elements": [],
+        "elements_hash": ""
+    },
+    {
+        "id": "nightly",
+        "name": "nightly",
+        "event": "nightly",
+        "type": "events",
+        "order": 5,
+        "timestamp": "2021-12-09T19:38:39.223000Z",
+        "properties": {
+            "$window_id": "182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841"
+        },
+        "elements": [],
+        "elements_hash": ""
+    },
+    {
+        "id": "gooddog",
+        "name": "gooddog",
+        "event": "gooddog",
+        "type": "events",
+        "order": 6,
+        "timestamp": "2021-12-09T19:39:39.223000Z",
+        "properties": {
+            "$window_id": "182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841"
+        },
+        "elements": [],
+        "elements_hash": ""
     }
 ]

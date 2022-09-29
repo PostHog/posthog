@@ -1,9 +1,11 @@
 import dataclasses
+import json
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, cast
 
 from rest_framework.request import Request
 
+from posthog.client import sync_execute
 from posthog.helpers.session_recording import (
     DecompressedRecordingData,
     EventActivityData,
@@ -27,15 +29,58 @@ class RecordingMetadata:
 class SessionRecording:
     _request: Request
     _session_recording_id: str
+    _recording_start_time: Optional[datetime]
     _team: Team
 
-    def __init__(self, request: Request, session_recording_id: str, team: Team) -> None:
+    def __init__(
+        self, request: Request, session_recording_id: str, team: Team, recording_start_time: Optional[datetime] = None
+    ) -> None:
         self._request = request
         self._session_recording_id = session_recording_id
         self._team = team
+        self._recording_start_time = recording_start_time
+
+    _recording_snapshot_query = """
+        SELECT session_id, window_id, distinct_id, timestamp, snapshot_data
+        FROM session_recording_events
+        PREWHERE
+            team_id = %(team_id)s
+            AND session_id = %(session_id)s
+            {date_clause}
+        ORDER BY timestamp
+    """
+
+    def get_recording_snapshot_date_clause(self) -> Tuple[str, Dict]:
+        if self._recording_start_time:
+            # If we can, we want to limit the time range being queried.
+            # Theoretically, we shouldn't have to look before the recording start time,
+            # but until we straighten out the recording start time logic, we should have a buffer
+            return (
+                """
+                    AND timestamp >= toDateTime(%(start_time)s) - INTERVAL 1 DAY
+                    AND timestamp <= toDateTime(%(start_time)s) + INTERVAL 2 DAY
+            """,
+                {"start_time": self._recording_start_time},
+            )
+        return ("", {})
 
     def _query_recording_snapshots(self) -> List[SessionRecordingEvent]:
-        raise NotImplementedError()
+        date_clause, date_clause_params = self.get_recording_snapshot_date_clause()
+        query = self._recording_snapshot_query.format(date_clause=date_clause)
+
+        response = sync_execute(
+            query, {"team_id": self._team.id, "session_id": self._session_recording_id, **date_clause_params}
+        )
+        return [
+            SessionRecordingEvent(
+                session_id=session_id,
+                window_id=window_id,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                snapshot_data=json.loads(snapshot_data),
+            )
+            for session_id, window_id, distinct_id, timestamp, snapshot_data in response
+        ]
 
     def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
         all_snapshots = [

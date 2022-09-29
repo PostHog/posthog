@@ -1,11 +1,11 @@
 import { kea } from 'kea'
-import { toolbarLogicType } from './toolbarLogicType'
+import type { toolbarLogicType } from './toolbarLogicType'
 import { ToolbarProps } from '~/types'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
 import { posthog } from '~/toolbar/posthog'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { PostHog } from 'posthog-js'
+import type { PostHog } from 'posthog-js'
 
 export const toolbarLogic = kea<toolbarLogicType>({
     path: ['toolbar', 'toolbarLogic'],

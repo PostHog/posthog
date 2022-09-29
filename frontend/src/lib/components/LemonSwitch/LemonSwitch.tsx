@@ -1,72 +1,71 @@
 import clsx from 'clsx'
-import React, { useState } from 'react'
-import { LemonRow } from '../LemonRow'
+import React, { useMemo, useState } from 'react'
 import './LemonSwitch.scss'
 
 export interface LemonSwitchProps {
-    id?: string
-    onChange: (newChecked: boolean) => void
+    className?: string
+    onChange?: (newChecked: boolean) => void
     checked: boolean
-    loading?: boolean
     label?: string | JSX.Element
-    /** Whether the switch should use the alternative primary color. */
-    alt?: boolean
-    /** Default switches are inline. Primary switches _with a label_ are wrapped in an outlined block. */
-    type?: 'default' | 'primary'
-    style?: React.CSSProperties
-    rowStyle?: React.CSSProperties
+    id?: string
+    fullWidth?: boolean
+    bordered?: boolean
     disabled?: boolean
     'data-attr'?: string
+    size?: 'small' | 'medium'
+    icon?: React.ReactElement | null
 }
 
+/** Counter used for collision-less automatic switch IDs. */
+let switchCounter = 0
+
 export function LemonSwitch({
-    id,
+    className,
+    id: rawId,
     onChange,
     checked,
-    loading,
-    label,
-    alt,
-    type = 'default',
-    style,
-    rowStyle,
+    fullWidth,
+    bordered,
     disabled,
+    label,
+    icon,
+    size,
     'data-attr': dataAttr,
 }: LemonSwitchProps): JSX.Element {
+    const id = useMemo(() => rawId || `lemon-checkbox-${switchCounter++}`, [rawId])
     const [isActive, setIsActive] = useState(false)
 
-    const button = (
-        <button
-            id={id}
-            type="button"
-            role="switch"
-            className={clsx(
-                'LemonSwitch',
-                checked && 'LemonSwitch--checked',
-                isActive && 'LemonSwitch--active',
-                loading && 'LemonSwitch--loading',
-                alt && 'LemonSwitch--alt'
-            )}
-            onClick={() => onChange(!checked)}
-            onMouseDown={() => setIsActive(true)}
-            onMouseUp={() => setIsActive(false)}
-            onMouseOut={() => setIsActive(false)}
-            style={style}
-            disabled={disabled}
-            data-attr={dataAttr}
+    return (
+        <div
+            className={clsx('LemonSwitch', className, {
+                'LemonSwitch--checked': checked,
+                'LemonSwitch--active': isActive,
+                'LemonSwitch--bordered': bordered,
+                'LemonSwitch--disabled': disabled,
+                'LemonSwitch--full-width': fullWidth,
+                [`LemonSwitch--${size}`]: size,
+            })}
         >
-            <div className="LemonSwitch__slider" />
-            <div className="LemonSwitch__handle" />
-        </button>
-    )
-
-    return label ? (
-        <LemonRow outlined={type === 'primary'} style={rowStyle}>
-            <label className="LemonSwitch__label" htmlFor={id}>
-                {label}
-            </label>
-            {button}
-        </LemonRow>
-    ) : (
-        button
+            {icon}
+            {label && <label htmlFor={id}>{label}</label>}
+            <button
+                id={id}
+                className="LemonSwitch__button"
+                role="switch"
+                onClick={() => {
+                    if (onChange) {
+                        onChange(!checked)
+                    }
+                }}
+                onMouseDown={() => setIsActive(true)}
+                onMouseUp={() => setIsActive(false)}
+                onMouseOut={() => setIsActive(false)}
+                data-attr={dataAttr}
+                disabled={disabled}
+            >
+                <div className="LemonSwitch__slider" />
+                <div className="LemonSwitch__handle" />
+            </button>
+        </div>
     )
 }

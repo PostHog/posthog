@@ -148,8 +148,8 @@ describe('getIncompleteConversionWindowStartDate()', () => {
 describe('getClampedStepRangeFilter', () => {
     it('prefers step range to existing filters', () => {
         const stepRange = {
-            funnel_from_step: 2,
-            funnel_to_step: 3,
+            funnel_from_step: 0,
+            funnel_to_step: 1,
         } as FunnelStepRangeEntityFilter
         const filters = {
             funnel_from_step: 1,
@@ -162,8 +162,8 @@ describe('getClampedStepRangeFilter', () => {
             filters,
         })
         expect(clampedStepRange).toEqual({
-            funnel_from_step: 2,
-            funnel_to_step: 3,
+            funnel_from_step: 0,
+            funnel_to_step: 1,
         })
     })
 
@@ -182,24 +182,6 @@ describe('getClampedStepRangeFilter', () => {
         expect(clampedStepRange).toEqual({
             funnel_from_step: 0,
             funnel_to_step: 3,
-        })
-    })
-
-    it('sets values to undefined if they match the event and action length', () => {
-        const stepRange = {} as FunnelStepRangeEntityFilter
-        const filters = {
-            funnel_from_step: 0,
-            funnel_to_step: 3,
-            actions: [{}, {}],
-            events: [{}, {}],
-        } as FilterType
-        const clampedStepRange = getClampedStepRangeFilter({
-            stepRange,
-            filters,
-        })
-        expect(clampedStepRange).toEqual({
-            funnel_from_step: undefined,
-            funnel_to_step: undefined,
         })
     })
 

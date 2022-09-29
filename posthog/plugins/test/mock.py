@@ -1,8 +1,9 @@
 import base64
 import json
+from typing import cast
 
 # This method will be used by the mock to replace requests.get
-from posthog.plugins.utils import get_json_from_zip_archive, put_json_into_zip_archive
+from posthog.plugins.utils import get_file_from_zip_archive, put_json_into_zip_archive
 
 from .plugin_archives import (
     HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP,
@@ -109,7 +110,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
         url_version = args[0].split("/")[6].split(".zip")[0]
 
         archive = base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1])
-        plugin_json = get_json_from_zip_archive(archive, "plugin.json")
+        plugin_json = cast(dict, get_file_from_zip_archive(archive, "plugin.json", json_parse=True))
         plugin_json["posthogVersion"] = url_version
 
         if url_repo == "version-greater-than":

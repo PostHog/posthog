@@ -66,8 +66,8 @@ export function InfiniteSelectResults({
     const openTab = activeTab || taxonomicGroups[0].type
     return (
         <>
-            <div className={'taxonomic-group-title'}>Categories</div>
-            <div className={'taxonomic-pills'}>
+            <div className="taxonomic-group-title">Categories</div>
+            <div className="taxonomic-pills">
                 {taxonomicGroupTypes.map((groupType) => {
                     return (
                         <CategoryPill
@@ -88,7 +88,7 @@ export function InfiniteSelectResults({
             </div>
             {taxonomicGroupTypes.map((groupType) => {
                 return (
-                    <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none' }}>
+                    <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none', marginTop: 8 }}>
                         <BindLogic
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}

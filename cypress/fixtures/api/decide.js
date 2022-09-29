@@ -1,4 +1,4 @@
-export default function decideResponse(featureFlags) {
+export function decideResponse(featureFlags) {
     return {
         config: {
             enable_collect_everything: true,

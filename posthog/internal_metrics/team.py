@@ -1,5 +1,4 @@
 import json
-import secrets
 from functools import lru_cache
 from typing import Dict, Optional
 
@@ -7,8 +6,10 @@ from django.conf import settings
 from django.db import transaction
 from sentry_sdk.api import capture_exception
 
+from posthog.models import DashboardTile
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight
+from posthog.models.sharing_configuration import SharingConfiguration
 
 NAME = "PostHog Internal Metrics"
 CLICKHOUSE_DASHBOARD = {
@@ -89,7 +90,7 @@ CLICKHOUSE_DASHBOARD = {
                         "type": "event",
                         "order": 0,
                         "properties": [],
-                    },
+                    }
                 ],
                 "display": "ActionsLineGraph",
                 "insight": "TRENDS",
@@ -168,7 +169,7 @@ CLICKHOUSE_DASHBOARD = {
                         "order": 0,
                         "properties": [],
                         "math_property": "value",
-                    },
+                    }
                 ],
                 "display": "ActionsLineGraph",
                 "insight": "TRENDS",
@@ -344,7 +345,7 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
     ],
-    "filters": {"interval": "hour", "date_from": "-24h",},
+    "filters": {"interval": "hour", "date_from": "-24h"},
 }
 
 
@@ -386,7 +387,7 @@ def get_internal_metrics_dashboards() -> Dict:
 
     clickhouse_dashboard = get_or_create_dashboard(team_id, CLICKHOUSE_DASHBOARD)
 
-    return {"clickhouse": {"id": clickhouse_dashboard.id, "share_token": clickhouse_dashboard.share_token}}
+    return {"clickhouse": clickhouse_dashboard}
 
 
 def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
@@ -397,16 +398,15 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
     if dashboard is None:
         Dashboard.objects.filter(team_id=team_id, name=definition["name"]).delete()
         dashboard = Dashboard.objects.create(
-            name=definition["name"],
-            filters=definition["filters"],
-            description=description,
-            team_id=team_id,
-            is_shared=True,
-            share_token=secrets.token_urlsafe(22),
+            name=definition["name"], filters=definition["filters"], description=description, team_id=team_id
         )
+        SharingConfiguration.objects.create(team_id=team_id, dashboard=dashboard, enabled=True)
 
         for index, item in enumerate(definition["items"]):
-            Insight.objects.create(team_id=team_id, dashboard=dashboard, order=index, **item)
+            layouts = item.pop("layouts", {})
+            color = item.pop("color", None)
+            insight = Insight.objects.create(team_id=team_id, order=index, **item)
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight, layouts=layouts, color=color)
 
     return dashboard
 

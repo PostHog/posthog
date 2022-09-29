@@ -3,11 +3,11 @@ import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
 import '../../../scenes/actions/Actions.scss'
-import { TooltipPlacement } from 'antd/lib/tooltip'
 import { AnyPropertyFilter, PropertyFilter, FilterLogicalOperator } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Placement } from '@popperjs/core'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import './PropertyFilters.scss'
+import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -16,16 +16,15 @@ interface PropertyFiltersProps {
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
-    popoverPlacement?: TooltipPlacement | null
-    taxonomicPopoverPlacement?: Placement
     style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
     eventNames?: string[]
+    logicalRowDivider?: boolean
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
-    useLemonButton?: boolean
-    prefixComponent?: React.ReactNode
+    addButton?: JSX.Element | null
+    hasRowOperator?: boolean
 }
 
 export function PropertyFilters({
@@ -34,16 +33,15 @@ export function PropertyFilters({
     pageKey,
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
-    popoverPlacement = null,
-    taxonomicPopoverPlacement = undefined,
     taxonomicGroupTypes,
     style = {},
     showNestedArrow = false,
     eventNames = [],
     orFiltering = false,
+    logicalRowDivider = false,
     propertyGroupType = null,
-    useLemonButton = false,
-    prefixComponent,
+    addButton = null,
+    hasRowOperator = true,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -55,48 +53,53 @@ export function PropertyFilters({
     }, [propertyFilters])
 
     return (
-        <div className="property-filters" style={style}>
-            {prefixComponent}
-            <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                {filtersWithNew.map((item: AnyPropertyFilter, index: number) => {
-                    return (
-                        <FilterRow
-                            key={index}
-                            item={item}
-                            index={index}
-                            totalCount={filtersWithNew.length - 1} // empty state
-                            filters={filtersWithNew}
-                            pageKey={pageKey}
-                            showConditionBadge={showConditionBadge}
-                            disablePopover={disablePopover || orFiltering}
-                            popoverPlacement={popoverPlacement}
-                            taxonomicPopoverPlacement={taxonomicPopoverPlacement}
-                            showNestedArrow={showNestedArrow}
-                            label={'Add filter'}
-                            onRemove={remove}
-                            useLemonButton={useLemonButton}
-                            orFiltering={orFiltering}
-                            filterComponent={(onComplete) => (
-                                <TaxonomicPropertyFilter
+        <div className="PropertyFilters" style={style}>
+            {showNestedArrow && !disablePopover && <div className="PropertyFilters-prefix">{<>&#8627;</>}</div>}
+            <div className="PropertyFilters-content">
+                <BindLogic logic={propertyFilterLogic} props={logicProps}>
+                    {filtersWithNew.map((item: AnyPropertyFilter, index: number) => {
+                        return (
+                            <React.Fragment key={index}>
+                                {logicalRowDivider && index > 0 && index !== filtersWithNew.length - 1 && (
+                                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
+                                )}
+                                <FilterRow
                                     key={index}
-                                    pageKey={pageKey}
+                                    item={item}
                                     index={index}
-                                    onComplete={onComplete}
-                                    orFiltering={orFiltering}
-                                    taxonomicGroupTypes={taxonomicGroupTypes}
-                                    eventNames={eventNames}
-                                    propertyGroupType={propertyGroupType}
+                                    totalCount={filtersWithNew.length - 1} // empty state
+                                    filters={filtersWithNew}
+                                    pageKey={pageKey}
+                                    showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
-                                    selectProps={{
-                                        delayBeforeAutoOpen: 150,
-                                        placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
-                                    }}
+                                    label={'Add filter'}
+                                    onRemove={remove}
+                                    orFiltering={orFiltering}
+                                    filterComponent={(onComplete) => (
+                                        <TaxonomicPropertyFilter
+                                            key={index}
+                                            pageKey={pageKey}
+                                            index={index}
+                                            onComplete={onComplete}
+                                            orFiltering={orFiltering}
+                                            taxonomicGroupTypes={taxonomicGroupTypes}
+                                            eventNames={eventNames}
+                                            propertyGroupType={propertyGroupType}
+                                            disablePopover={disablePopover || orFiltering}
+                                            addButton={addButton}
+                                            hasRowOperator={hasRowOperator}
+                                            selectProps={{
+                                                delayBeforeAutoOpen: 150,
+                                                placement: pageKey === 'insight-filters' ? 'bottomLeft' : undefined,
+                                            }}
+                                        />
+                                    )}
                                 />
-                            )}
-                        />
-                    )
-                })}
-            </BindLogic>
+                            </React.Fragment>
+                        )
+                    })}
+                </BindLogic>
+            </div>
         </div>
     )
 }

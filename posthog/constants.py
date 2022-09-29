@@ -21,6 +21,9 @@ class AvailableFeature(str, Enum):
     MULTIVARIATE_FLAGS = "multivariate_flags"
     EXPERIMENTATION = "experimentation"
     TAGGING = "tagging"
+    BEHAVIORAL_COHORT_FILTERING = "behavioral_cohort_filtering"
+    WHITE_LABELLING = "white_labelling"
+    SUBSCRIPTIONS = "subscriptions"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -33,12 +36,16 @@ TRENDS_LINEAR = "ActionsLineGraph"
 TRENDS_TABLE = "ActionsTable"
 TRENDS_FUNNEL = "FunnelViz"
 TRENDS_PIE = "ActionsPie"
-TRENDS_RETENTION = "RetentionTable"
 TRENDS_PATHS = "PathsViz"
 TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
+TRENDS_WORLD_MAP = "WorldMap"
+TRENDS_BOLD_NUMBER = "BoldNumber"
 
-TRENDS_DISPLAY_BY_VALUE = [TRENDS_TABLE, TRENDS_PIE, TRENDS_BAR_VALUE]
+# Sync with frontend NON_TIME_SERIES_DISPLAY_TYPES
+NON_TIME_SERIES_DISPLAY_TYPES = [TRENDS_TABLE, TRENDS_PIE, TRENDS_BAR_VALUE, TRENDS_WORLD_MAP, TRENDS_BOLD_NUMBER]
+# Sync with frontend NON_TIME_SERIES_DISPLAY_TYPES
+NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER]
 
 # CONSTANTS
 INSIGHT_TRENDS = "TRENDS"
@@ -55,18 +62,26 @@ INSIGHT_TO_DISPLAY = {
     INSIGHT_LIFECYCLE: TRENDS_LINEAR,
     INSIGHT_FUNNELS: TRENDS_FUNNEL,
     INSIGHT_PATHS: TRENDS_PATHS,
-    INSIGHT_RETENTION: TRENDS_RETENTION,
     INSIGHT_USER_SQL: TRENDS_TABLE,
+    INSIGHT_RETENTION: TRENDS_TABLE,
     # :KLUDGE: Sessions insight is no longer supported, but this is needed to make updating these insights possible.
     "SESSIONS": TRENDS_LINEAR,
 }
 
 DISPLAY_TYPES = Literal[
-    "ActionsLineGraph", "ActionsLineGraphCumulative", "ActionsTable", "ActionsPie", "ActionsBar", "ActionsBarValue",
+    "ActionsLineGraph",
+    "ActionsLineGraphCumulative",
+    "ActionsTable",
+    "ActionsPie",
+    "ActionsBar",
+    "ActionsBarValue",
+    "WorldMap",
+    "BoldNumber",
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
-    "PathsViz", "FunnelViz",
+    "PathsViz",
+    "FunnelViz",
 ]
 
 
@@ -92,6 +107,7 @@ INTERVAL = "interval"
 SMOOTHING_INTERVALS = "smoothing_intervals"
 DISPLAY = "display"
 SHOWN_AS = "shown_as"
+CLIENT_QUERY_ID = "client_query_id"
 FILTER_TEST_ACCOUNTS = "filter_test_accounts"
 BREAKDOWN_TYPE = "breakdown_type"
 BREAKDOWN_VALUE = "breakdown_value"
@@ -101,6 +117,8 @@ INSIGHT = "insight"
 SESSION = "session"
 BREAKDOWN = "breakdown"
 BREAKDOWNS = "breakdowns"
+BREAKDOWN_ATTRIBUTION_TYPE = "breakdown_attribution_type"
+BREAKDOWN_ATTRIBUTION_VALUE = "breakdown_attribution_value"
 BREAKDOWN_LIMIT = "breakdown_limit"
 FROM_DASHBOARD = "from_dashboard"
 PATH_TYPE = "path_type"
@@ -166,8 +184,9 @@ PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
 PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
 AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
 USER_SQL = "user_sql"
+BREAKDOWN_HISTOGRAM_BIN_COUNT = "breakdown_histogram_bin_count"
 
-BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group"]
+BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group", "session"]
 
 
 class FunnelOrderType(str, Enum):
@@ -223,7 +242,29 @@ class PropertyOperatorType(str, Enum):
     OR = "OR"
 
 
+class BreakdownAttributionType(str, Enum):
+    FIRST_TOUCH = "first_touch"
+    # FIRST_TOUCH attribution means the breakdown value is the first property value found within all funnel steps
+    LAST_TOUCH = "last_touch"
+    # LAST_TOUCH attribution means the breakdown value is the last property value found within all funnel steps
+    STEP = "step"
+    # STEP attribution means the breakdown value is the X'th step property value found within the funnel.
+    # where X is the `breakdown_attribution_value`
+    ALL_EVENTS = "all_events"
+    # ALL_EVENTS attribution means the breakdown value is valid only when it exists on all funnel steps
+
+
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
 BREAKDOWN_VALUES_LIMIT = 25
+BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 CSV_EXPORT_LIMIT = 10000
+
+
+class EventDefinitionType(str, Enum):
+    # Mimics EventDefinitionType in frontend/src/types.ts
+    ALL = "all"
+    ACTION_EVENT = "action_event"
+    EVENT = "event"
+    EVENT_POSTHOG = "event_posthog"
+    EVENT_CUSTOM = "event_custom"

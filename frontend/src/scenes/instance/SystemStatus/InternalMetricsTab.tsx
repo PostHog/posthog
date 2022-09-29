@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Button, Card, Checkbox, Collapse, Table } from 'antd'
+import { Button, Checkbox, Collapse, Table } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -27,19 +27,19 @@ export function InternalMetricsTab(): JSX.Element {
     }
 
     return (
-        <Card>
+        <>
             <Collapse activeKey={openSections} onChange={(keys) => setOpenSections(keys as string[])}>
                 {dashboard ? (
                     <Collapse.Panel header="Dashboards" key="0">
                         <Dashboard
                             id={dashboard.id.toString()}
-                            shareToken={dashboard.share_token}
+                            dashboard={dashboard}
                             placement={DashboardPlacement.InternalMetrics}
                         />
                     </Collapse.Panel>
                 ) : null}
                 <Collapse.Panel header="PostgreSQL - currently running queries" key="1">
-                    <div className="mb float-right">
+                    <div className="mb-4 float-right">
                         <Checkbox
                             checked={showIdle}
                             onChange={(e) => {
@@ -56,7 +56,7 @@ export function InternalMetricsTab(): JSX.Element {
                 </Collapse.Panel>
                 {queries?.clickhouse_running != undefined ? (
                     <Collapse.Panel header="Clickhouse - currently running queries" key="2">
-                        <div className="mb float-right">
+                        <div className="mb-4 float-right">
                             <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
                                 <ReloadOutlined /> Reload Queries
                             </Button>
@@ -70,7 +70,7 @@ export function InternalMetricsTab(): JSX.Element {
                 ) : null}
                 {queries?.clickhouse_slow_log != undefined ? (
                     <Collapse.Panel header="Clickhouse - slow query log (past 6 hours)" key="3">
-                        <div className="mb float-right">
+                        <div className="mb-4 float-right">
                             <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
                                 <ReloadOutlined /> Reload Queries
                             </Button>
@@ -83,9 +83,8 @@ export function InternalMetricsTab(): JSX.Element {
                     </Collapse.Panel>
                 ) : null}
             </Collapse>
-
             <AnalyzeQueryModal />
-        </Card>
+        </>
     )
 }
 

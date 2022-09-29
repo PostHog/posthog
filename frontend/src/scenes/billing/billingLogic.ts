@@ -1,11 +1,21 @@
-import { kea } from 'kea'
+import { kea, path, actions, connect, reducers, selectors, events, listeners } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { billingLogicType } from './billingLogicType'
+import type { billingLogicType } from './billingLogicType'
 import { PlanInterface, BillingType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import posthog from 'posthog-js'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { lemonToast } from 'lib/components/lemonToast'
+import { router } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { windowValues } from 'kea-window-values'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { urlToAction } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -13,14 +23,46 @@ export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of e
 export enum BillingAlertType {
     SetupBilling = 'setup_billing',
     UsageNearLimit = 'usage_near_limit',
+    UsageLimitExceeded = 'usage_limit_exceeded',
+    FreeUsageNearLimit = 'free_usage_near_limit',
 }
 
-export const billingLogic = kea<billingLogicType<BillingAlertType>>({
-    path: ['scenes', 'billing', 'billingLogic'],
-    actions: {
+export const billingLogic = kea<billingLogicType>([
+    path(['scenes', 'billing', 'billingLogic']),
+    actions({
         registerInstrumentationProps: true,
-    },
-    loaders: ({ actions }) => ({
+        toggleUsageTiers: true,
+        setPlans: (plans: PlanInterface[]) => ({ plans }),
+        referer: (referer: string) => ({ referer }),
+    }),
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+        actions: [eventUsageLogic, ['reportIngestionBillingCancelled']],
+    }),
+    reducers({
+        showUsageTiers: [
+            false as boolean,
+            {
+                toggleUsageTiers: (state) => !state,
+            },
+        ],
+        billingSuccessRedirect: [
+            urls.projectHomepage() as string,
+            {
+                referer: (_, { referer }) => {
+                    if (referer === 'ingestion') {
+                        return urls.events()
+                    } else {
+                        return urls.projectHomepage()
+                    }
+                },
+            },
+        ],
+    }),
+    windowValues({
+        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
+    }),
+    loaders(({ actions, values }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -28,9 +70,27 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
                     const response = await api.get('api/billing/')
                     if (!response?.plan) {
                         actions.loadPlans()
+                    } else {
+                        actions.setPlans([response.plan])
+                    }
+                    if (
+                        response.event_allocation &&
+                        response.current_usage > response.event_allocation &&
+                        response.should_setup_billing &&
+                        router.values.location.pathname !== '/organization/billing/locked' &&
+                        values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
+                    ) {
+                        posthog.capture('billing locked screen shown')
+                        router.actions.replace('/organization/billing/locked')
                     }
                     actions.registerInstrumentationProps()
                     return response as BillingType
+                },
+                setBillingLimit: async (billing: BillingType) => {
+                    const res = await api.update('api/billing/', billing)
+                    lemonToast.success(`Billing limit set to $${billing.billing_limit} usd/month`)
+
+                    return res as BillingType
                 },
             },
         ],
@@ -41,6 +101,7 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
                     const response = await api.get('api/plans?self_serve=1')
                     return response.results
                 },
+                setPlans: ({ plans }) => plans,
             },
         ],
         billingSubscription: [
@@ -51,8 +112,20 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
                 },
             },
         ],
-    }),
-    selectors: {
+        planDetails: [
+            null as string | null,
+            {
+                loadPlanDetails: async (plan) => {
+                    const response = await fetch(`/api/plans/${plan}/template/`)
+                    if (response.ok) {
+                        return await response.text()
+                    }
+                    return null
+                },
+            },
+        ],
+    })),
+    selectors({
         eventAllocation: [(s) => [s.billing], (billing: BillingType) => billing?.event_allocation],
         percentage: [
             (s) => [s.eventAllocation, s.billing],
@@ -85,8 +158,13 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
             },
         ],
         alertToShow: [
-            (s) => [s.eventAllocation, s.billing, sceneLogic.selectors.scene],
-            (eventAllocation: number | null, billing: BillingType, scene: Scene): BillingAlertType | undefined => {
+            (s) => [s.eventAllocation, s.percentage, s.billing, sceneLogic.selectors.scene],
+            (
+                eventAllocation: number | null,
+                percentage: number,
+                billing: BillingType,
+                scene: Scene
+            ): BillingAlertType | undefined => {
                 // Determines which billing alert/warning to show to the user (if any)
 
                 // Priority 1: In-progress incomplete billing setup
@@ -94,26 +172,37 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
                     return BillingAlertType.SetupBilling
                 }
 
-                // Priority 2: Event allowance near limit
+                // Priority 2: Event allowance exceeded or near limit
+                if (billing?.billing_limit_exceeded) {
+                    return BillingAlertType.UsageLimitExceeded
+                }
+
+                // Priority 3: Event allowance near threshold
                 if (
                     scene !== Scene.Billing &&
+                    billing?.is_billing_active &&
+                    billing?.current_usage &&
                     eventAllocation &&
-                    billing.current_usage &&
-                    billing.current_usage / eventAllocation >= ALLOCATION_THRESHOLD_ALERT
+                    percentage >= ALLOCATION_THRESHOLD_ALERT
                 ) {
                     return BillingAlertType.UsageNearLimit
                 }
+
+                // Priority 4: Users on free account that are almost reaching free events threshold
+                if (!billing?.is_billing_active && billing?.current_usage && percentage > ALLOCATION_THRESHOLD_ALERT) {
+                    return BillingAlertType.FreeUsageNearLimit
+                }
             },
         ],
-    },
-    events: ({ actions }) => ({
+    }),
+    events(({ actions }) => ({
         afterMount: () => {
             if (preflightLogic.values.preflight?.cloud) {
                 actions.loadBilling()
             }
         },
-    }),
-    listeners: ({ values }) => ({
+    })),
+    listeners(({ values }) => ({
         subscribeSuccess: ({ billingSubscription }) => {
             if (billingSubscription?.subscription_url) {
                 window.location.href = billingSubscription.subscription_url
@@ -133,5 +222,15 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
                 })
             }
         },
-    }),
-})
+    })),
+    urlToAction(({ actions }) => ({
+        '/ingestion/billing': (_, params) => {
+            if (params.reason === 'cancelled') {
+                actions.reportIngestionBillingCancelled()
+            }
+        },
+        '/organization/billing/subscribed': (_, { referer }) => {
+            actions.referer(referer)
+        },
+    })),
+])

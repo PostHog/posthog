@@ -1,7 +1,7 @@
-@import '~/vars';
+@import '../../../styles/mixins';
 
 .TopBar {
-    z-index: $z_main_nav;
+    z-index: var(--z-main-nav);
     position: sticky;
     top: 0;
     display: flex;
@@ -11,7 +11,8 @@
     padding: 0.5rem;
     background: var(--bg-bridge);
     border-bottom: 1px solid var(--border);
-    @media screen and (min-width: $sm) {
+    gap: 1rem;
+    @include screen($sm) {
         padding: 0.5rem 1rem;
     }
     .anticon-caret-down {
@@ -24,10 +25,13 @@
     display: flex;
     align-items: center;
     height: 100%;
-    &--left > * {
-        margin-right: 1rem;
+    &--left {
+        flex-grow: 1;
     }
-    &--right > * {
+    &--left > * + * {
+        margin-left: 1rem;
+    }
+    &--right > * + * {
         margin-left: 1rem;
     }
 }
@@ -41,9 +45,21 @@
 }
 
 .TopBar__logo {
-    font-size: 1rem;
-    display: flex;
-    align-items: center;
+    width: 40px;
+    overflow: hidden;
+    flex-shrink: 0;
+
+    svg {
+        vertical-align: middle;
+    }
+
+    @include screen($md) {
+        width: auto;
+        overflow: hidden;
+        font-size: 1rem;
+        display: flex;
+        align-items: center;
+    }
 }
 
 .Announcement {
@@ -61,7 +77,7 @@
     &--hidden {
         margin-top: -3rem;
     }
-    @media screen and (min-width: $sm) {
+    @include screen($sm) {
         padding: 0 1rem;
     }
     p {
@@ -87,52 +103,14 @@
 .Announcement__close {
     position: absolute;
     right: 0.5rem;
-    @media screen and (min-width: $sm) {
+    @include screen($sm) {
         right: 1rem;
     }
 }
 
-.SearchBox {
-    transition: background-color 200ms ease, border-color 200ms ease;
-    display: none;
-    align-items: center;
-    width: 15rem;
-    height: 100%;
-    padding: 0 0.625rem;
-    border-radius: var(--radius);
-    border: 1px solid var(--border-dark);
-    color: var(--text-muted);
-    user-select: none;
-    cursor: pointer;
-    &:hover {
-        background-color: var(--bg-shaded);
-    }
-    &:active {
-        border-color: var(--border-active);
-    }
-    @media screen and (min-width: $sm) {
-        display: flex;
-    }
-}
-
-.SearchBox__primary-area {
-    flex-grow: 1;
-    display: flex;
-    align-items: center;
-}
-
-.SearchBox__magnifier {
-    color: var(--text-default);
-    font-size: 1rem;
-    padding-right: 0.5rem;
-}
-
-.SearchBox__keyboard-shortcut {
-    font-weight: 600;
-}
-
 .SitePopover {
     max-width: 22rem;
+    min-width: 16rem;
 }
 
 .SitePopover__main-info {
@@ -197,12 +175,8 @@
     overflow: hidden;
 }
 
-.SitePopover__organization {
-    display: flex;
-    align-items: center;
-}
-
 .AccessLevelIndicator {
     font-size: 0.625rem;
     margin-left: 0.5rem;
+    text-transform: uppercase;
 }

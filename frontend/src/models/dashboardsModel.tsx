@@ -1,10 +1,10 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { delay, idToKey, isUserLoggedIn, setPageTitle } from 'lib/utils'
+import { delay, idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
-import { dashboardsModelType } from './dashboardsModelType'
+import type { dashboardsModelType } from './dashboardsModelType'
 import { InsightModel, DashboardType, InsightShortId } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
@@ -19,7 +19,13 @@ export const dashboardsModel = kea<dashboardsModelType>({
         addDashboardSuccess: (dashboard: DashboardType) => ({ dashboard }),
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
-        updateDashboardItem: (item: InsightModel) => ({ item }),
+        // can provide extra dashboard ids if not all listeners will choose to respond to this action
+        // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
+        // specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
+        updateDashboardInsight: (item: InsightModel, extraDashboardIds?: number[]) => ({
+            item,
+            extraDashboardIds,
+        }),
         // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
         // to dashboard items in dashboards
         updateDashboardRefreshStatus: (
@@ -34,33 +40,33 @@ export const dashboardsModel = kea<dashboardsModelType>({
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         loadDashboards: true,
-        loadSharedDashboard: (shareToken: string) => ({ shareToken }),
         duplicateDashboard: ({ id, name, show }: { id: number; name?: string; show?: boolean }) => ({
             id: id,
             name: name || `#${id}`,
             show: show || false,
         }),
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         rawDashboards: [
             {} as Record<string, DashboardType>,
             {
                 loadDashboards: async (_, breakpoint) => {
+                    // looking at a fully exported dashboard, return its contents
+                    const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
+                    if (exportedDashboard?.id && exportedDashboard?.items) {
+                        return { [exportedDashboard.id]: exportedDashboard }
+                    }
+
                     await breakpoint(50)
+
                     if (!isUserLoggedIn()) {
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
-                        return []
+                        return {}
                     }
-                    const { results } = await api.get(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`)
+                    const { results } = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=300`
+                    )
                     return idToKey(results ?? [])
-                },
-            },
-        ],
-        sharedDashboard: [
-            null as DashboardType | null,
-            {
-                loadSharedDashboard: async ({ shareToken }) => {
-                    return await api.get(`api/shared_dashboards/${shareToken}`)
                 },
             },
         ],
@@ -68,11 +74,14 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
             __default: null as null | DashboardType,
-            updateDashboard: async ({ id, ...payload }, breakpoint) => {
+            updateDashboard: async ({ id, allowUndo, ...payload }, breakpoint) => {
                 if (!Object.entries(payload).length) {
                     return
                 }
-                await breakpoint(700)
+                breakpoint()
+
+                const beforeChange = { ...values.rawDashboards[id] }
+
                 const response = (await api.update(
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
@@ -84,16 +93,24 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
                         payload[updatedAttribute].length
                     )
-                    if (updatedAttribute === 'name') {
-                        setPageTitle(response.name ? `${response.name} • Dashboard` : 'Dashboard')
-                    }
+                }
+                if (allowUndo) {
+                    lemonToast.success('Dashboard updated', {
+                        button: {
+                            label: 'Undo',
+                            action: async () => {
+                                const reverted = (await api.update(
+                                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                                    beforeChange
+                                )) as DashboardType
+                                actions.updateDashboardSuccess(reverted)
+                                lemonToast.success('Dashboard change reverted')
+                            },
+                        },
+                    })
                 }
                 return response
             },
-            setIsSharedDashboard: async ({ id, isShared }) =>
-                (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    is_shared: isShared,
-                })) as DashboardType,
             deleteDashboard: async ({ id }) =>
                 (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     deleted: true,
@@ -145,14 +162,13 @@ export const dashboardsModel = kea<dashboardsModelType>({
             restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             updateDashboardSuccess: (state, { dashboard }) =>
                 dashboard ? { ...state, [dashboard.id]: dashboard } : state,
-            setIsSharedDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             deleteDashboardSuccess: (state, { dashboard }) => ({
                 ...state,
                 [dashboard.id]: { ...state[dashboard.id], deleted: true },
             }),
             delayedDeleteDashboard: (state, { id }) => {
-                // this gives us time to leave the /dashboard/:deleted_id page
-                const { [id]: _discard, ...rest } = state // eslint-disable-line
+                // This gives us time to leave the /dashboard/:deleted_id page
+                const { [id]: _discard, ...rest } = state
                 return rest
             },
             pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
@@ -191,10 +207,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 )
             },
         ],
-        dashboardsLoading: [
-            () => [selectors.rawDashboardsLoading, selectors.sharedDashboardLoading],
-            (dashesLoading, sharedLoading) => dashesLoading || sharedLoading,
-        ],
+        dashboardsLoading: [() => [selectors.rawDashboardsLoading], (dashesLoading) => dashesLoading],
         pinnedDashboards: [
             () => [selectors.nameSortedDashboards],
             (nameSortedDashboards) => nameSortedDashboards.filter((d) => d.pinned),
@@ -207,11 +220,12 @@ export const dashboardsModel = kea<dashboardsModelType>({
 
     listeners: ({ actions, values }) => ({
         addDashboardSuccess: ({ dashboard }) => {
-            lemonToast.success(
-                <>
-                    Dashboard <b>{dashboard.name}</b> created
-                </>
-            )
+            lemonToast.success(<>Dashboard created</>, {
+                button: {
+                    label: 'View',
+                    action: () => router.actions.push(urls.dashboard(dashboard.id)),
+                },
+            })
         },
 
         restoreDashboardSuccess: ({ dashboard }) => {

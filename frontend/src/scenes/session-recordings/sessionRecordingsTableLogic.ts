@@ -11,27 +11,27 @@ import {
     SessionRecordingId,
     SessionRecordingsResponse,
 } from '~/types'
-import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
+import type { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
-import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { SessionRecordingType } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export type PersonUUID = string
 interface Params {
     filters?: RecordingFilters
-    source?: RecordingWatchedSource
 }
 
 interface HashParams {
     sessionRecordingId?: SessionRecordingId
 }
 
-const LIMIT = 50
+const TABLE_LIMIT = 50
+export const PLAYLIST_LIMIT = 20
+
+export const getRecordingListLimit = (isPlaylist?: boolean): number => (isPlaylist ? PLAYLIST_LIMIT : TABLE_LIMIT)
 
 export const DEFAULT_DURATION_FILTER: RecordingDurationFilter = {
     type: 'recording',
@@ -47,29 +47,32 @@ export const DEFAULT_ENTITY_FILTERS = {
     actions: [],
     new_entity: [
         {
-            id: null,
-            type: EntityTypes.EVENTS,
+            id: 'empty',
+            type: EntityTypes.NEW_ENTITY,
             order: 0,
-            name: null,
+            name: 'empty',
         },
     ],
 }
 
-export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<PersonUUID>>({
+export interface SessionRecordingTableLogicProps {
+    isPlaylist?: boolean
+    personUUID?: PersonUUID
+    key?: string
+}
+
+export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>({
     path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsTableLogic', key],
-    key: (props) => props.personUUID || 'global',
-    props: {} as {
-        personUUID?: PersonUUID
-    },
+    props: {} as SessionRecordingTableLogicProps,
+    key: (props) => `${props.key || props.personUUID || 'global'}-${props.isPlaylist ? 'playlist' : 'table'}`,
     connect: {
         values: [teamLogic, ['currentTeamId']],
         actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
     },
     actions: {
         getSessionRecordings: true,
-        openSessionPlayer: (sessionRecordingId: SessionRecordingId | null, source: RecordingWatchedSource) => ({
-            sessionRecordingId,
-            source,
+        openSessionPlayer: (sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'> | null) => ({
+            sessionRecording,
         }),
         closeSessionPlayer: true,
         setEntityFilters: (filters: Partial<FilterType>) => ({ filters }),
@@ -78,7 +81,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
         },
         loadNext: true,
         loadPrev: true,
-        enableFilter: true,
+        setFiltersEnabled: (showing: boolean) => ({ showing }),
         setOffset: (offset: number) => ({ offset }),
         setDateRange: (incomingFromDate: string | undefined, incomingToDate: string | undefined) => ({
             incomingFromDate,
@@ -97,7 +100,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
                     const paramsDict = {
                         ...values.filterQueryParams,
                         person_uuid: props.personUUID ?? '',
-                        limit: LIMIT,
+                        limit: getRecordingListLimit(props.isPlaylist),
                     }
                     const params = toParams(paramsDict)
                     await breakpoint(100) // Debounce for lots of quick filter changes
@@ -119,11 +122,11 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             actions.getSessionRecordings()
         },
     }),
-    reducers: {
-        filterEnabled: [
+    reducers: ({ props }) => ({
+        filtersEnabled: [
             false,
             {
-                enableFilter: () => true,
+                setFiltersEnabled: (_, { showing }) => showing,
             },
         ],
         sessionRecordings: [
@@ -132,26 +135,26 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
                 getSessionRecordingsSuccess: (_, { sessionRecordingsResponse }) => {
                     return [...sessionRecordingsResponse.results]
                 },
-                openSessionPlayer: (sessionRecordings, { sessionRecordingId }) => {
+                openSessionPlayer: (prevSessionRecordings, { sessionRecording }) => {
                     return [
-                        ...sessionRecordings.map((sessionRecording) => {
-                            if (sessionRecording.id === sessionRecordingId) {
+                        ...prevSessionRecordings.map((s) => {
+                            if (s.id === sessionRecording?.id) {
                                 return {
-                                    ...sessionRecording,
+                                    ...s,
                                     viewed: true,
                                 }
                             } else {
-                                return { ...sessionRecording }
+                                return { ...s }
                             }
                         }),
                     ]
                 },
             },
         ],
-        sessionRecordingId: [
-            null as SessionRecordingId | null,
+        partialSessionRecording: [
+            null as Pick<SessionRecordingType, 'id' | 'matching_events'> | null,
             {
-                openSessionPlayer: (_, { sessionRecordingId }) => sessionRecordingId,
+                openSessionPlayer: (_, { sessionRecording }) => sessionRecording ?? null,
                 closeSessionPlayer: () => null,
             },
         ],
@@ -176,13 +179,13 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
         offset: [
             0,
             {
-                loadNext: (previousOffset) => previousOffset + LIMIT,
-                loadPrev: (previousOffset) => Math.max(previousOffset - LIMIT),
+                loadNext: (previousOffset) => previousOffset + getRecordingListLimit(props.isPlaylist),
+                loadPrev: (previousOffset) => Math.max(previousOffset - getRecordingListLimit(props.isPlaylist), 0),
                 setOffset: (_, { offset }) => offset,
             },
         ],
         fromDate: [
-            dayjs().subtract(7, 'days').format('YYYY-MM-DD') as null | string,
+            dayjs().subtract(21, 'days').format('YYYY-MM-DD') as null | string,
             {
                 setDateRange: (_, { incomingFromDate }) => incomingFromDate ?? null,
             },
@@ -193,8 +196,8 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
                 setDateRange: (_, { incomingToDate }) => incomingToDate ?? null,
             },
         ],
-    },
-    listeners: ({ actions }) => ({
+    }),
+    listeners: ({ actions, values, props }) => ({
         setEntityFilters: () => {
             actions.getSessionRecordings()
         },
@@ -213,23 +216,26 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
         loadPrev: () => {
             actions.getSessionRecordings()
         },
+        getSessionRecordingsSuccess: () => {
+            if (props.isPlaylist && !values.partialSessionRecording?.id && values.sessionRecordings.length > 0) {
+                actions.openSessionPlayer(values.sessionRecordings[0])
+            }
+        },
     }),
     selectors: {
+        activeSessionRecording: [
+            (s) => [s.partialSessionRecording, s.sessionRecordings],
+            (partialSessionRecording, sessionRecordings) => {
+                return (
+                    sessionRecordings.find((sessionRecording) => sessionRecording.id === partialSessionRecording?.id) ??
+                    null
+                )
+            },
+        ],
         hasPrev: [(s) => [s.offset], (offset) => offset > 0],
         hasNext: [
             (s) => [s.sessionRecordingsResponse],
             (sessionRecordingsResponse) => sessionRecordingsResponse.has_next,
-        ],
-        showFilters: [
-            (s) => [s.filterEnabled, s.entityFilters, s.propertyFilters, featureFlagLogic.selectors.featureFlags],
-            (filterEnabled, entityFilters, propertyFilters, featureFlags) => {
-                return (
-                    featureFlags[FEATURE_FLAGS.RECORDINGS_FILTER_EXPERIMENT] === 'test' ||
-                    filterEnabled ||
-                    entityFilters !== DEFAULT_ENTITY_FILTERS ||
-                    propertyFilters !== DEFAULT_PROPERTY_FILTERS
-                )
-            },
         ],
         filterQueryParams: [
             (s) => [s.entityFilters, s.fromDate, s.toDate, s.offset, s.durationFilter, s.propertyFilters],
@@ -248,7 +254,6 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
     },
     actionToUrl: ({ values }) => {
         const buildURL = (
-            overrides: Partial<Params> = {},
             replace: boolean
         ): [
             string,
@@ -260,39 +265,37 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
         ] => {
             const params: Params = {
                 filters: values.filterQueryParams,
-                ...overrides,
             }
             const hashParams: HashParams = {
                 ...router.values.hashParams,
             }
-
-            if (!values.sessionRecordingId) {
+            if (!values.partialSessionRecording?.id) {
                 delete hashParams.sessionRecordingId
             } else {
-                hashParams.sessionRecordingId = values.sessionRecordingId
+                hashParams.sessionRecordingId = values.partialSessionRecording.id
             }
 
             return [router.values.location.pathname, params, hashParams, { replace }]
         }
 
         return {
-            loadSessionRecordings: () => buildURL({}, true),
-            openSessionPlayer: ({ source }) => buildURL({ source }, false),
-            closeSessionPlayer: () => buildURL({}, false),
-            setEntityFilters: () => buildURL({}, true),
-            setPropertyFilters: () => buildURL({}, true),
-            setDateRange: () => buildURL({}, true),
-            setDurationFilter: () => buildURL({}, true),
-            loadNext: () => buildURL({}, true),
-            loadPrev: () => buildURL({}, true),
+            loadSessionRecordings: () => buildURL(true),
+            openSessionPlayer: () => buildURL(false),
+            closeSessionPlayer: () => buildURL(false),
+            setEntityFilters: () => buildURL(true),
+            setPropertyFilters: () => buildURL(true),
+            setDateRange: () => buildURL(true),
+            setDurationFilter: () => buildURL(true),
+            loadNext: () => buildURL(true),
+            loadPrev: () => buildURL(true),
         }
     },
 
     urlToAction: ({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
             const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
-            if (nulledSessionRecordingId !== values.sessionRecordingId) {
-                actions.openSessionPlayer(nulledSessionRecordingId, RecordingWatchedSource.Direct)
+            if (nulledSessionRecordingId && nulledSessionRecordingId !== values.partialSessionRecording?.id) {
+                actions.openSessionPlayer({ id: nulledSessionRecordingId })
             }
 
             const filters = params.filters

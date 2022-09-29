@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react'
-import { LineGraph } from '../../insights/LineGraph/LineGraph'
-import { getChartColors } from 'lib/colors'
-import { useActions, useValues } from 'kea'
+import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
+import { getSeriesColor } from 'lib/colors'
+import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
-import { ActionFilter, ChartParams, GraphType } from '~/types'
-import { personsModalLogic } from '../personsModalLogic'
+import { ChartParams, GraphType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 
 type DataSet = any
 
@@ -17,16 +19,11 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     const [total, setTotal] = useState(0)
     const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { results, labelGroupType } = useValues(logic)
+    const { indexedResults, labelGroupType } = useValues(logic)
 
     function updateData(): void {
-        const _data = [...results]
-        _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
-
-        // If there are more series than colors, we reuse colors sequentially so all series are colored
-        const rawColorList = getChartColors('white', results.length)
-        const colorList = results.map((_, idx) => rawColorList[idx % rawColorList.length])
+        const _data = [...indexedResults]
+        const colorList = indexedResults.map((_, idx) => getSeriesColor(idx))
 
         setData([
             {
@@ -48,10 +45,10 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     }
 
     useEffect(() => {
-        if (results) {
+        if (indexedResults) {
             updateData()
         }
-    }, [results])
+    }, [indexedResults])
 
     return data && total > 0 ? (
         <LineGraph
@@ -62,7 +59,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                     return (
                         <>
                             <SeriesLetter
-                                className="mr-025"
+                                className="mr-1"
                                 hasBreakdown={false}
                                 seriesIndex={tooltipData?.[0]?.action?.order ?? 0}
                             />
@@ -82,41 +79,26 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             labelGroupType={labelGroupType}
             datasets={data}
             labels={data[0].labels}
-            insightNumericId={insight.id}
             hiddenLegendKeys={hiddenLegendKeys}
             showPersonsModal={showPersonsModal}
+            aggregationAxisFormat={insight.filters?.aggregation_axis_format}
             onClick={
                 !showPersonsModal || insight.filters?.formula
                     ? undefined
                     : (point) => {
-                          const { value: pointValue, index, points, seriesId } = point
+                          const { index, points, crossDataset } = point
 
                           const dataset = points.referencePoint.dataset
-
-                          const action = dataset.actions?.[point.index]
                           const label = dataset.labels?.[point.index]
-                          const date_from = insight.filters?.date_from || ''
-                          const date_to = insight.filters?.date_to || ''
-                          const breakdown_value = dataset.breakdownValues?.[point.index]
-                              ? dataset.breakdownValues[point.index]
-                              : null
-                          const params = {
-                              action: action as ActionFilter,
-                              label: label ?? '',
-                              date_from,
-                              date_to,
-                              filters: insight.filters ?? {},
-                              breakdown_value: breakdown_value ?? '',
-                              pointValue,
-                              seriesId,
-                          }
-                          if (dataset.persons_urls?.[index].url) {
-                              loadPeopleFromUrl({
-                                  ...params,
-                                  url: dataset.persons_urls?.[index].url,
+                          const urls = urlsForDatasets(crossDataset, index)
+                          const selectedUrl = urls[index]?.value
+
+                          if (selectedUrl) {
+                              openPersonsModal({
+                                  urlsIndex: index,
+                                  urls,
+                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
                               })
-                          } else {
-                              loadPeople(params)
                           }
                       }
             }

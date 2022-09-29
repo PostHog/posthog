@@ -2,20 +2,15 @@ import { dayjs } from 'lib/dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
-import { toParams } from 'lib/utils'
+import { range, toParams } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import {
-    RetentionTablePayload,
-    RetentionTablePeoplePayload,
-    RetentionTrendPayload,
-    RetentionTrendPeoplePayload,
-} from 'scenes/retention/types'
+import { RetentionTablePayload, RetentionTablePeoplePayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { ActionType, FilterType, InsightLogicProps, InsightType } from '~/types'
-import { retentionTableLogicType } from './retentionTableLogicType'
+import type { retentionTableLogicType } from './retentionTableLogicType'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -25,6 +20,13 @@ const dateOptionToTimeIntervalMap = {
     Day: 'd',
     Week: 'w',
     Month: 'M',
+}
+
+export const dateOptionPlurals = {
+    Hour: 'hours',
+    Day: 'days',
+    Week: 'weeks',
+    Month: 'months',
 }
 
 export const retentionOptions = {
@@ -59,16 +61,15 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setRetentionReference: (retentionReference: FilterType['retention_reference']) => ({ retentionReference }),
         loadMorePeople: true,
-        updatePeople: (people) => ({ people }),
+        updatePeople: (people: RetentionTablePeoplePayload) => ({ people }),
         clearPeople: true,
     }),
     loaders: ({ values }) => ({
         people: {
-            __default: {} as RetentionTablePeoplePayload | RetentionTrendPeoplePayload,
+            __default: {} as RetentionTablePeoplePayload,
             loadPeople: async (rowIndex: number) => {
                 const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
-                const res = await api.get(`api/person/retention/?${urlParams}`)
-                return res
+                return (await api.get(`api/person/retention/?${urlParams}`)) as RetentionTablePeoplePayload
             },
         },
     }),
@@ -202,6 +203,48 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 }
             },
         ],
+
+        maxIntervalsCount: [
+            (s) => [s.results],
+            (results) => {
+                return Math.max(...results.map((result) => result.values.length))
+            },
+        ],
+
+        tableHeaders: [
+            (s) => [s.results],
+            (results) => {
+                return ['Cohort', 'Size', ...results.map((x) => x.label)]
+            },
+        ],
+
+        tableRows: [
+            (s) => [s.results, s.maxIntervalsCount, s.filters],
+            (results, maxIntervalsCount, { period, breakdowns }) => {
+                return range(maxIntervalsCount).map((rowIndex: number) => [
+                    // First column is the cohort label
+                    breakdowns?.length
+                        ? results[rowIndex].label
+                        : period === 'Hour'
+                        ? dayjs(results[rowIndex].date).format('MMM D, h A')
+                        : dayjs.utc(results[rowIndex].date).format('MMM D'),
+                    // Second column is the first value (which is essentially the total)
+                    results[rowIndex].values[0].count,
+                    // All other columns are rendered as percentage
+                    ...results[rowIndex].values.map((row) => {
+                        const percentage =
+                            results[rowIndex].values[0]['count'] > 0
+                                ? (row['count'] / results[rowIndex].values[0]['count']) * 100
+                                : 0
+
+                        return {
+                            count: row['count'],
+                            percentage,
+                        }
+                    }),
+                ])
+            },
+        ],
     },
     listeners: ({ actions, values, props }) => ({
         setProperties: ({ properties }) => {
@@ -223,10 +266,11 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         },
         loadMorePeople: async () => {
             if (values.people.next) {
-                const peopleResult = await api.get(values.people.next)
-                const newPeople = {
-                    result: [...(values.people.result as Record<string, any>[]), ...peopleResult['result']],
-                    next: peopleResult['next'],
+                const peopleResult: RetentionTablePeoplePayload = await api.get(values.people.next)
+                const newPeople: RetentionTablePeoplePayload = {
+                    result: [...(values.people.result || []), ...(peopleResult.result || [])],
+                    next: peopleResult.next,
+                    missing_persons: (peopleResult.missing_persons || 0) + (values.people.missing_persons || 0),
                 }
                 actions.updatePeople(newPeople)
             }

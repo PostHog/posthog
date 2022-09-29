@@ -1,32 +1,25 @@
-from datetime import datetime
-from typing import Callable, List, Optional, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
 
 from posthog.constants import AnalyticsDBMS
 from posthog.models.utils import sane_repr
 from posthog.settings import ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
 from posthog.version_requirement import ServiceVersionRequirement
 
-
-# used to prevent circular imports
-class AsyncMigrationType:
-    id: int
-    name: str
-    description: str
-    progress: int
-    status: int
-    current_operation_index: int
-    current_query_id: str
-    celery_task_id: str
-    started_at: datetime
-    finished_at: datetime
-    posthog_min_version: str
-    posthog_max_version: str
+if TYPE_CHECKING:
+    from posthog.models.async_migration import AsyncMigration
 
 
 class AsyncMigrationOperation:
-    def __init__(
-        self, fn: Callable[[str], None], rollback_fn: Callable[[str], None] = lambda _: None,
-    ):
+    def __init__(self, fn: Callable[[str], None], rollback_fn: Callable[[str], None] = lambda _: None):
         self.fn = fn
 
         # This should not be a long operation as it will be executed synchronously!
@@ -39,27 +32,39 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
         self,
         *,
         sql: str,
+        sql_settings: Optional[Dict] = None,
         rollback: Optional[str],
+        rollback_settings: Optional[Dict] = None,
         database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
         timeout_seconds: int = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
+        per_shard: bool = False,
     ):
         self.sql = sql
+        self.sql_settings = sql_settings
         self.rollback = rollback
+        self.rollback_settings = rollback_settings
         self.database = database
         self.timeout_seconds = timeout_seconds
+        self.per_shard = per_shard
 
     def fn(self, query_id: str):
-        self._execute_op(query_id, self.sql)
+        self._execute_op(query_id, self.sql, self.sql_settings)
 
     def rollback_fn(self, query_id: str):
         if self.rollback is not None:
-            self._execute_op(query_id, self.rollback)
+            self._execute_op(query_id, self.rollback, self.rollback_settings)
 
-    def _execute_op(self, query_id: str, sql: str):
+    def _execute_op(self, query_id: str, sql: str, settings: Optional[Dict]):
         from posthog.async_migrations.utils import execute_op_clickhouse, execute_op_postgres
 
         if self.database == AnalyticsDBMS.CLICKHOUSE:
-            execute_op_clickhouse(sql, query_id, self.timeout_seconds)
+            execute_op_clickhouse(
+                sql,
+                query_id=query_id,
+                timeout_seconds=self.timeout_seconds,
+                settings=settings,
+                per_shard=self.per_shard,
+            )
         else:
             execute_op_postgres(sql, query_id)
 
@@ -67,6 +72,7 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
 
 
 class AsyncMigrationDefinition:
+    name: str
 
     # the migration cannot be run before this version
     posthog_min_version = "0.0.0"
@@ -86,6 +92,12 @@ class AsyncMigrationDefinition:
     # name of async migration this migration depends on
     depends_on: Optional[str] = None
 
+    # optional parameters for this async migration. Shown in the UI when starting the migration
+    parameters: Dict[str, Tuple[(Optional[Union[int, str]], str, Callable[[Any], Any])]] = {}
+
+    def __init__(self, name: str):
+        self.name = name
+
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
     # e.g. instances where fresh setups are already set up correctly
     def is_required(self) -> bool:
@@ -100,5 +112,19 @@ class AsyncMigrationDefinition:
         return (True, None)
 
     # return an int between 0-100 to specify how far along this migration is
-    def progress(self, migration_instance: AsyncMigrationType) -> int:
+    def progress(self, migration_instance: "AsyncMigration") -> int:
         return int(100 * migration_instance.current_operation_index / len(self.operations))
+
+    # returns the async migration instance for this migration. Only works during the migration
+    def migration_instance(self) -> "AsyncMigration":
+        from posthog.models.async_migration import AsyncMigration
+
+        return AsyncMigration.objects.get(name=self.name)
+
+    def get_parameter(self, parameter_name: str):
+        instance = self.migration_instance()
+        if parameter_name in instance.parameters:
+            return instance.parameters[parameter_name]
+        else:
+            # Return the default value
+            return self.parameters[parameter_name][0]

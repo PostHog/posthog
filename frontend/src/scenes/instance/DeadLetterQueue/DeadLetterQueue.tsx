@@ -50,7 +50,7 @@ export function DeadLetterQueue(): JSX.Element {
                 }
             />
 
-            <Tabs activeKey={activeTab} onChange={(key) => setActiveTab(key)}>
+            <Tabs activeKey={activeTab} onChange={(key) => setActiveTab(key as DeadLetterQueueTab)}>
                 <TabPane tab="Metrics" key={DeadLetterQueueTab.Metrics} />
             </Tabs>
 

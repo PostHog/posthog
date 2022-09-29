@@ -1,9 +1,10 @@
 import './PropertyKeyInfo.scss'
 import React from 'react'
-import { Col, Popover, Row, Typography } from 'antd'
+import { Popover } from 'antd'
 import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { TooltipPlacement } from 'antd/lib/tooltip'
+import clsx from 'clsx'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -58,6 +59,7 @@ export const keyMapping: KeyMappingInterface = {
                 'The version of the browser that the user first used (first-touch). Used in combination with Browser.',
             examples: ['70', '79'],
         },
+
         $screen_height: {
             label: 'Screen Height',
             description: "The height of the user's entire screen (in pixels).",
@@ -67,6 +69,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Screen Width',
             description: "The width of the user's entire screen (in pixels).",
             examples: ['1440', '1920'],
+        },
+        $screen_name: {
+            label: 'Screen Name',
+            description: 'The name of the active screen.',
         },
         $viewport_height: {
             label: 'Viewport Height',
@@ -87,16 +93,6 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Library Version',
             description: 'Version of the library used to send the event. Used in combination with Library.',
             examples: ['1.0.3'],
-        },
-        $initial_referrer: {
-            label: 'Initial Referrer URL',
-            description: 'URL of where the user initially came from (first-touch).',
-            examples: ['https://google.com/search?q=posthog&rlz=1C...'],
-        },
-        $initial_referring_domain: {
-            label: 'Initial Referring Domain',
-            description: 'Domain of where the user initially came from (first-touch).',
-            examples: ['google.com', 'facebook.com'],
         },
         $referrer: {
             label: 'Referrer URL',
@@ -226,6 +222,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Identify',
             description: 'A user has been identified with properties',
         },
+        $create_alias: {
+            label: 'Alias',
+            description: 'An alias ID has been added to a user',
+        },
         $groupidentify: {
             label: 'Group Identify',
             description: 'A group has been identified with properties',
@@ -350,6 +350,16 @@ export const keyMapping: KeyMappingInterface = {
             description: 'UTM campaign tag (last-touch).',
             examples: ['feature launch', 'discount'],
         },
+        utm_name: {
+            label: 'UTM Name',
+            description: 'UTM campaign tag, sent via Segment (last-touch).',
+            examples: ['feature launch', 'discount'],
+        },
+        $initial_utm_name: {
+            label: 'Initial UTM Name',
+            description: 'UTM campaign tag, sent via Segment (first-touch).',
+            examples: ['feature launch', 'discount'],
+        },
         $initial_utm_campaign: {
             label: 'Initial UTM Campaign',
             description: 'UTM campaign tag (first-touch).',
@@ -402,6 +412,17 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Sentry exception',
             description: 'Raw Sentry exception data',
             hide: true,
+        },
+        $sentry_exception_message: {
+            label: 'Sentry exception message',
+        },
+        $sentry_exception_type: {
+            label: 'Sentry exception type',
+            description: 'Class name of the exception object',
+        },
+        $sentry_tags: {
+            label: 'Sentry tags',
+            description: 'Tags sent to Sentry along with the exception',
         },
         $ce_version: {
             label: '$ce_version',
@@ -508,6 +529,81 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Subdivision 3 Code',
             description: `Code of the third subdivision matched to this event's IP address.`,
         },
+        // NOTE: This is a hack. $session_duration is a session property, not an event property
+        // but we don't do a good job of tracking property types, so making it a session property
+        // would require a large refactor, and this works (because all properties are treated as
+        // event properties if they're not elements)
+        $session_duration: {
+            label: 'Session duration',
+            description: (
+                <span>
+                    The duration of the session being tracked. Learn more about how PostHog tracks sessions in{' '}
+                    <a href="https://posthog.com/docs/user-guides/sessions">our documentation.</a>
+                    <br /> <br />
+                    Note, if the duration is formatted as a single number (not 'HH:MM:SS'), it's in seconds.
+                </span>
+            ),
+            examples: ['01:04:12'],
+        },
+        $app_build: {
+            label: 'App Build',
+            description: 'The build number for the app',
+        },
+        $app_name: {
+            label: 'App Name',
+            description: 'The name of the app',
+        },
+        $app_namespace: {
+            label: 'App Namespace',
+            description: 'The namespace of the app as identified in the app store',
+            examples: ['com.posthog.app'],
+        },
+        $app_version: {
+            label: 'App Version',
+            description: 'The version of the app',
+        },
+        $device_manufacturer: {
+            label: 'Device Manufacturer',
+            description: 'The manufacturer of the device',
+            examples: ['Apple', 'Samsung'],
+        },
+        $device_name: {
+            label: 'Device Name',
+            description: 'Name of the device',
+            examples: ['iPhone 12 Pro', 'Samsung Galaxy 10'],
+        },
+        $locale: {
+            label: 'Locale',
+            description: 'The locale of the device',
+            examples: ['en-US', 'de-DE'],
+        },
+        $os_name: {
+            label: 'OS Name',
+            description: 'The Operating System name',
+            examples: ['iOS', 'Android'],
+        },
+        $os_version: {
+            label: 'OS Version',
+            description: 'The Operating System version',
+            examples: ['15.5'],
+        },
+        $timezone: {
+            label: 'Timezone',
+            description: 'The timezone as reported by the device',
+        },
+
+        $touch_x: {
+            label: 'Touch X',
+            description: 'The location of a Touch event on the X axis',
+        },
+        $touch_y: {
+            label: 'Touch Y',
+            description: 'The location of a Touch event on the Y axis',
+        },
+        $exception: {
+            label: 'Exception',
+            description: 'Automatically captured exceptions from the client Sentry integration',
+        },
     },
     element: {
         tag_name: {
@@ -552,7 +648,6 @@ export function isPostHogProp(key: string): boolean {
 interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
-    style?: React.CSSProperties
     tooltipPlacement?: TooltipPlacement
     disablePopover?: boolean
     disableIcon?: boolean
@@ -560,16 +655,16 @@ interface PropertyKeyInfoInterface {
     className?: string
 }
 
-export function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
+function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
     return (
-        <span>
-            <span className="property-key-info-logo" />
+        <span className="PropertyKeyInfo">
+            <span className="PropertyKeyInfoLogo" />
             {data.label}
         </span>
     )
 }
 
-export function PropertyKeyDescription({
+function PropertyKeyDescription({
     data,
     value,
     propertyType,
@@ -588,14 +683,12 @@ export function PropertyKeyDescription({
                 </p>
             ) : null}
             {data.description || data.examples ? <hr /> : null}
-            <Row align={'middle'}>
-                <Col flex="1 1 75%" style={{ padding: '4px 0px' }}>
-                    Sent as <code style={{ padding: '2px 3px' }}>{value}</code>
-                </Col>
-                <Col flex="1 0 25%" style={{ padding: '4px 0px' }}>
-                    {propertyType && <div className="property-value-type">{propertyType}</div>}
-                </Col>
-            </Row>
+            <div>
+                <span>
+                    Sent as <code className="p-1">{value}</code>
+                </span>
+                <span>{propertyType && <div className="property-value-type">{propertyType}</div>}</span>
+            </div>
         </span>
     )
 }
@@ -632,10 +725,17 @@ export function getKeyMapping(
     return null
 }
 
+export function getPropertyLabel(
+    value: PropertyKeyInfoInterface['value'],
+    type: PropertyKeyInfoInterface['type'] = 'event'
+): string {
+    const data = getKeyMapping(value, type)
+    return (data ? data.label : value)?.trim() ?? '(empty string)'
+}
+
 export function PropertyKeyInfo({
     value,
     type = 'event',
-    style,
     tooltipPlacement = undefined,
     disablePopover = false,
     disableIcon = false,
@@ -650,16 +750,14 @@ export function PropertyKeyInfo({
 
     // By this point, property is a PH defined property
     const innerContent = (
-        <span className="property-key-info">
-            {!disableIcon && !!data && <span className="property-key-info-logo" />}
-            <Typography.Text
-                ellipsis={ellipsis}
-                style={{ color: 'inherit', maxWidth: 400, ...style }}
+        <span className={clsx('PropertyKeyInfo', className)}>
+            {!disableIcon && !!data && <span className="PropertyKeyInfoLogo" />}
+            <span
+                className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--elipsis')}
                 title={baseValue}
-                className={className}
             >
                 {baseValueNode}
-            </Typography.Text>
+            </span>
         </span>
     )
 
@@ -682,7 +780,7 @@ export function PropertyKeyInfo({
     return (
         <Popover
             overlayStyle={{ zIndex: 99999 }}
-            overlayClassName={`property-key-info-tooltip ${className || ''}`}
+            overlayClassName={`PropertyKeyInfoTooltip ${className || ''}`}
             title={popoverTitle}
             content={popoverContent}
             {...popoverProps}

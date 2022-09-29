@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
-import { savedInsightsLogicType } from './savedInsightsLogicType'
+import type { savedInsightsLogicType } from './savedInsightsLogicType'
 import { dayjs } from 'lib/dayjs'
 import { insightsModel } from '~/models/insightsModel'
 import { teamLogic } from '../teamLogic'
@@ -12,6 +12,7 @@ import { Sorting } from 'lib/components/LemonTable'
 import { urls } from 'scenes/urls'
 import { lemonToast } from 'lib/components/lemonToast'
 import { PaginationManual } from 'lib/components/PaginationControl'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -39,7 +40,7 @@ export interface SavedInsightFilters {
 function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
         layoutView: values.layoutView || LayoutView.List,
-        order: values.order || '-updated_at',
+        order: values.order || '-last_modified_at', // Sync with `sorting` selector
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
@@ -50,7 +51,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
     }
 }
 
-export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, SavedInsightFilters>>({
+export const savedInsightsLogic = kea<savedInsightsLogicType>({
     path: ['scenes', 'saved-insights', 'savedInsightsLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId']],
@@ -60,7 +61,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
         updateFavoritedInsight: (insight: InsightModel, favorited: boolean) => ({ insight, favorited }),
         renameInsight: (insight: InsightModel) => ({ insight }),
-        duplicateInsight: (insight: InsightModel) => ({ insight }),
+        duplicateInsight: (insight: InsightModel, redirectToInsight = false) => ({
+            insight,
+            redirectToInsight,
+        }),
         loadInsights: true,
     },
     loaders: ({ values }) => ({
@@ -73,7 +77,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 const { filters } = values
                 const params = values.paramsFromFilters
                 const response = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({ ...params, basic: true })}`
                 )
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
@@ -93,7 +97,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 }
 
                 // scroll to top if the page changed, except if changed via back/forward
-                if (router.values.lastMethod !== 'POP' && values.insights.filters?.page !== filters.page) {
+                if (
+                    router.values.location.pathname === urls.savedInsights() &&
+                    router.values.lastMethod !== 'POP' &&
+                    values.insights.filters?.page !== filters.page
+                ) {
                     window.scrollTo(0, 0)
                 }
 
@@ -142,11 +150,15 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             (s) => [s.filters],
             (filters): Sorting | null => {
                 if (!filters.order) {
-                    return null
+                    // Sync with `cleanFilters` function
+                    return {
+                        columnKey: 'last_modified_at',
+                        order: -1,
+                    }
                 }
                 return filters.order.startsWith('-')
                     ? {
-                          columnKey: filters.order.substr(1),
+                          columnKey: filters.order.slice(1),
                           order: -1,
                       }
                     : {
@@ -229,9 +241,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         renameInsight: async ({ insight }) => {
             insightsModel.actions.renameInsight(insight)
         },
-        duplicateInsight: async ({ insight }) => {
-            await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
+        duplicateInsight: async ({ insight, redirectToInsight }) => {
+            insight.name = insight.name + ' (copy)'
+            const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
             actions.loadInsights()
+            redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
         setDates: () => {
             actions.loadInsights()
@@ -239,6 +253,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.setInsight(item)
         },
+        // include params to help kea typegen
+        [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
     }),
     actionToUrl: ({ values }) => {
         const changeUrl = ():
@@ -251,10 +267,17 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                   }
               ]
             | void => {
-            const nextValues = cleanFilters(values.filters)
-            const urlValues = cleanFilters(router.values.searchParams)
-            if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.savedInsights(), objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: false }]
+            if (router.values.location.pathname === urls.savedInsights()) {
+                const nextValues = cleanFilters(values.filters)
+                const urlValues = cleanFilters(router.values.searchParams)
+                if (!objectsEqual(nextValues, urlValues)) {
+                    return [
+                        urls.savedInsights(),
+                        objectDiffShallow(cleanFilters({}), nextValues),
+                        {},
+                        { replace: false },
+                    ]
+                }
             }
         }
         return {

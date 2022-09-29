@@ -2,7 +2,7 @@ import './EventDefinitionsTable.scss'
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
-import { EventDefinition } from '~/types'
+import { EventDefinition, EventDefinitionType } from '~/types'
 import {
     EVENT_DEFINITIONS_PER_PAGE,
     eventDefinitionsTableLogic,
@@ -13,11 +13,26 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { Alert, Input } from 'antd'
-import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
-import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
+import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+
+const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
+    { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
+    {
+        value: EventDefinitionType.EventCustom,
+        label: 'Custom events',
+        'data-attr': 'event-type-option-event-custom',
+    },
+    {
+        value: EventDefinitionType.EventPostHog,
+        label: 'PostHog events',
+        'data-attr': 'event-type-option-event-posthog',
+    },
+]
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,
@@ -27,10 +42,8 @@ export const scene: SceneExport = {
 
 export function EventDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { eventDefinitions, eventDefinitionsLoading, openedDefinitionId, filters } =
-        useValues(eventDefinitionsTableLogic)
-    const { loadEventDefinitions, setOpenedDefinition, setLocalEventDefinition, setFilters } =
-        useActions(eventDefinitionsTableLogic)
+    const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<EventDefinition> = [
@@ -38,7 +51,7 @@ export function EventDefinitionsTable(): JSX.Element {
             key: 'icon',
             className: 'definition-column-icon',
             render: function Render(_, definition: EventDefinition) {
-                return <EventDefinitionHeader definition={definition} hideView hideText />
+                return <EventDefinitionHeader definition={definition} hideText />
             },
         },
         {
@@ -46,18 +59,9 @@ export function EventDefinitionsTable(): JSX.Element {
             key: 'name',
             className: 'definition-column-name',
             render: function Render(_, definition: EventDefinition) {
-                return (
-                    <EventDefinitionHeader
-                        definition={definition}
-                        hideView
-                        hideIcon
-                        updateRemoteItem={(nextEventDefinition) =>
-                            setLocalEventDefinition(nextEventDefinition as EventDefinition)
-                        }
-                    />
-                )
+                return <EventDefinitionHeader definition={definition} hideIcon asLink />
             },
-            sorter: (a, b) => a.name.localeCompare(b.name),
+            sorter: (a, b) => a.name?.localeCompare(b.name ?? '') ?? 0,
         },
         ...(hasDashboardCollaboration
             ? [
@@ -73,7 +77,7 @@ export function EventDefinitionsTable(): JSX.Element {
         ...(hasIngestionTaxonomy
             ? [
                   {
-                      title: '30 day volume',
+                      title: <ThirtyDayVolumeTitle tooltipPlacement="bottom" />,
                       key: 'volume_30_day',
                       align: 'right',
                       render: function Render(_, definition: EventDefinition) {
@@ -86,7 +90,7 @@ export function EventDefinitionsTable(): JSX.Element {
                       sorter: (a, b) => (a?.volume_30_day ?? 0) - (b?.volume_30_day ?? 0),
                   } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
                   {
-                      title: '30 day queries',
+                      title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
                       key: 'query_usage_30_day',
                       align: 'right',
                       render: function Render(_, definition: EventDefinition) {
@@ -104,39 +108,33 @@ export function EventDefinitionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <DataManagementPageHeader activeTab={DataManagementTab.EventDefinitions} />
-            {preflight && !preflight?.is_event_property_usage_enabled ? (
-                <UsageDisabledWarning tab="Event Definitions" />
-            ) : (
-                eventDefinitions.results?.[0]?.volume_30_day === null && (
-                    <Alert
-                        type="warning"
-                        message="We haven't been able to get usage and volume data yet. Please check later."
-                        style={{ marginBottom: '1rem' }}
-                    />
-                )
-            )}
-            <div
-                style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '0.5rem',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    width: '100%',
-                    marginBottom: '1rem',
-                }}
-            >
-                <Input.Search
+            <PageHeader
+                title="Data Management"
+                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
+                tabbedPage
+            />
+            {preflight && !preflight?.is_event_property_usage_enabled && <UsageDisabledWarning />}
+            <DataManagementPageTabs tab={DataManagementTab.EventDefinitions} />
+            <div className="flex justify-between items-center gap-2 mb-4">
+                <LemonInput
+                    type="search"
                     placeholder="Search for events"
-                    allowClear
-                    enterButton
+                    onChange={(v) => setFilters({ event: v || '' })}
                     value={filters.event}
-                    style={{ maxWidth: 600, width: 'initial' }}
-                    onChange={(e) => {
-                        setFilters({ event: e.target.value || '' })
-                    }}
                 />
+                <div className="flex items-center gap-2">
+                    <span>Type:</span>
+                    <LemonSelect
+                        value={filters.event_type}
+                        options={eventTypeOptions}
+                        data-attr="event-type-filter"
+                        dropdownMatchSelectWidth={false}
+                        onChange={(value) => {
+                            setFilters({ event_type: value as EventDefinitionType })
+                        }}
+                        size="small"
+                    />
+                </div>
             </div>
             <LemonTable
                 columns={columns}
@@ -144,9 +142,6 @@ export function EventDefinitionsTable(): JSX.Element {
                 data-attr="events-definition-table"
                 loading={eventDefinitionsLoading}
                 rowKey="id"
-                rowStatus={(row) => {
-                    return row.id === openedDefinitionId ? 'highlighted' : undefined
-                }}
                 pagination={{
                     controlled: true,
                     currentPage: eventDefinitions?.page ?? 1,
@@ -167,9 +162,8 @@ export function EventDefinitionsTable(): JSX.Element {
                     expandedRowRender: function RenderPropertiesTable(definition) {
                         return <EventDefinitionProperties definition={definition} />
                     },
+                    rowExpandable: () => true,
                     noIndent: true,
-                    isRowExpanded: (record) => (record.id === openedDefinitionId ? true : -1),
-                    onRowCollapse: (record) => record.id === openedDefinitionId && setOpenedDefinition(null),
                 }}
                 dataSource={eventDefinitions.results}
                 emptyState="No event definitions"

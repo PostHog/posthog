@@ -46,7 +46,7 @@
                 font-weight: 600;
                 letter-spacing: 0.5px;
                 text-transform: uppercase;
-                color: var(--text-muted);
+                color: var(--muted);
             }
 
             .definition-popup-header-row-buttons {
@@ -60,7 +60,7 @@
                 }
 
                 .definition-popup-disabled-button {
-                    color: var(--text-muted);
+                    color: var(--muted);
                     cursor: not-allowed;
                 }
             }
@@ -76,38 +76,14 @@
 
             svg.taxonomy-icon {
                 margin-right: 8px;
-                width: 28px;
                 flex-shrink: 0;
 
                 &.taxonomy-icon-muted {
-                    path {
-                        fill: var(--taxonomy-icon-muted);
-                    }
+                    color: var(--muted-alt);
                 }
 
                 &.taxonomy-icon-verified {
-                    path {
-                        fill: var(--success);
-                    }
-
-                    &:not(.taxonomy-icon-ph) {
-                        margin-bottom: -4px; // Slightly larger height requires offset to look vertically centered
-                    }
-                }
-            }
-
-            // Override property key inside popup
-            .property-key-info {
-                display: flex;
-                white-space: unset;
-                align-items: center;
-                font-size: 20px;
-                line-height: 24px;
-
-                .property-key-info-logo {
-                    width: 26px;
-                    height: 24px;
-                    margin-right: 8px;
+                    color: var(--success);
                 }
             }
         }
@@ -115,11 +91,6 @@
 
     .definition-popup-tags {
         margin: 0 !important;
-
-        .ant-tag {
-            margin-top: 4px !important;
-            margin-bottom: 4px !important;
-        }
     }
 
     .definition-popup-description {
@@ -129,7 +100,7 @@
 
         &.empty {
             font-style: italic;
-            color: var(--text-muted);
+            color: var(--muted);
         }
     }
 
@@ -173,7 +144,7 @@
                 font-weight: 600;
                 letter-spacing: 0.5px;
                 text-transform: uppercase;
-                color: var(--text-muted);
+                color: var(--muted);
                 margin-bottom: 4px;
             }
 

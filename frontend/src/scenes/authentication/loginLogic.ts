@@ -1,18 +1,24 @@
-import { kea } from 'kea'
+import { kea, path, connect, listeners } from 'kea'
+import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
+import { forms } from 'kea-forms'
 import api from 'lib/api'
-import { loginLogicType } from './loginLogicType'
+import type { loginLogicType } from './loginLogicType'
 import { router } from 'kea-router'
 import { SSOProviders } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-interface AuthenticateResponseType {
+export interface AuthenticateResponseType {
     success: boolean
     errorCode?: string
     errorDetail?: string
 }
 
-interface PrecheckResponseType {
+export interface PrecheckResponseType {
     sso_enforcement?: SSOProviders | null
+    saml_available: boolean
     status: 'pending' | 'completed'
 }
 
@@ -29,16 +35,28 @@ export function handleLoginRedirect(): void {
     router.actions.replace(nextURL)
 }
 
-export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckResponseType>>({
-    path: ['scenes', 'authentication', 'loginLogic'],
-    connect: {
-        values: [preflightLogic, ['preflight']],
-    },
-    loaders: () => ({
+export interface LoginForm {
+    email: string
+    password: string
+}
+
+export const loginLogic = kea<loginLogicType>([
+    path(['scenes', 'authentication', 'loginLogic']),
+    connect({
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
+    }),
+    loaders(() => ({
         precheckResponse: [
             { status: 'pending' } as PrecheckResponseType,
             {
-                precheck: async ({ email }: { email: string }, breakpoint) => {
+                precheck: async (
+                    {
+                        email,
+                    }: {
+                        email: string
+                    },
+                    breakpoint
+                ) => {
                     if (!email) {
                         return { status: 'pending' }
                     }
@@ -49,38 +67,53 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckR
                 },
             },
         ],
-        authenticateResponse: [
-            null as AuthenticateResponseType | null,
-            {
-                authenticate: async ({ email, password }: { email: string; password: string }) => {
-                    try {
-                        await api.create('api/login', { email, password })
-                        return { success: true }
-                    } catch (e) {
-                        return {
-                            success: false,
-                            errorCode: (e as Record<string, any>).code,
-                            errorDetail: (e as Record<string, any>).detail,
-                        }
+    })),
+
+    forms(({ actions, values }) => ({
+        login: {
+            defaults: { email: '', password: '' } as LoginForm,
+            errors: ({ email, password }) => ({
+                email: !email ? 'Please enter your email to continue' : undefined,
+                password: !password
+                    ? 'Please enter your password to continue'
+                    : password.length < 8
+                    ? 'Password must be at least 8 characters'
+                    : undefined,
+            }),
+            submit: async ({ email, password }, breakpoint) => {
+                await breakpoint()
+                try {
+                    return await api.create('api/login', { email, password })
+                } catch (e) {
+                    const { code } = e as Record<string, any>
+                    let { detail } = e as Record<string, any>
+                    if (values.featureFlags[FEATURE_FLAGS.REGION_SELECT] && code === 'invalid_credentials') {
+                        detail = 'Invalid email or password. Make sure you have selected the right data region.'
                     }
-                },
+                    actions.setLoginManualErrors({
+                        generic: {
+                            code,
+                            detail,
+                        },
+                    })
+                    throw e
+                }
             },
-        ],
-    }),
-    listeners: {
-        authenticateSuccess: ({ authenticateResponse }) => {
-            if (authenticateResponse?.success) {
-                handleLoginRedirect()
-                // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
-                window.location.reload()
-            }
         },
-    },
-    urlToAction: ({ actions }) => ({
+    })),
+    listeners({
+        submitLoginSuccess: () => {
+            handleLoginRedirect()
+            // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
+            window.location.reload()
+        },
+    }),
+    urlToAction(({ actions }) => ({
         '/login': ({}, { error_code, error_detail }) => {
             if (error_code) {
-                actions.authenticateSuccess({ success: false, errorCode: error_code, errorDetail: error_detail })
+                actions.setLoginManualErrors({ generic: { code: error_code, detail: error_detail } })
+                router.actions.replace('/login', {})
             }
         },
-    }),
-})
+    })),
+])

@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .dashboard-items-wrapper {
     width: 100%; // This provides the width for the dashboard items grid
 }
@@ -83,18 +81,4 @@
 // All dropdowns must be below top navigation
 .ant-dropdown {
     z-index: 700;
-}
-
-.dive-btn {
-    margin-right: 0.5rem;
-
-    &.dive-btn-dive {
-        border-color: $primary;
-        color: $primary;
-
-        &:hover {
-            border-color: darken($primary, 30%);
-            color: darken($primary, 30%);
-        }
-    }
 }

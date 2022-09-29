@@ -3,6 +3,7 @@
 exports[`verifiedDomainsLogic values has proper defaults 1`] = `
 Object {
   "addModalShown": false,
+  "configureSAMLModalId": null,
   "currentOrganization": Object {
     "available_features": Array [
       "sso_enforcement",
@@ -28,6 +29,7 @@ Object {
           "https://posthog.com/",
           "https://app.posthog.com",
         ],
+        "capture_console_log_opt_in": true,
         "completed_snippet_onboarding": true,
         "correlation_config": Object {
           "excluded_event_names": Array [
@@ -53,10 +55,22 @@ Object {
         "id": 997,
         "ingested_event": true,
         "is_demo": false,
+        "live_events_columns": Array [
+          "event",
+          "person",
+        ],
         "name": "MockHog App + Marketing",
         "organization": "ABCD",
         "path_cleaning_filters": Array [],
-        "primary_dashboard": 20464,
+        "person_display_name_properties": Array [
+          "email",
+          "name",
+          "username",
+        ],
+        "primary_dashboard": 1,
+        "recording_domains": Array [
+          "https://recordings.posthog.com/",
+        ],
         "session_recording_opt_in": true,
         "slack_incoming_webhook": "",
         "test_account_filters": Array [
@@ -67,16 +81,33 @@ Object {
             "value": "posthog.com",
           },
         ],
-        "timezone": "Europe/Brussels",
-        "updated_at": "2022-03-17T16:09:21.566252Z",
+        "test_account_filters_default_checked": false,
+        "timezone": "UTC",
+        "updated_at": "2022-03-17T16:09:21.566253Z",
         "uuid": "TEAM_UUID",
       },
     ],
     "updated_at": "2022-01-03T13:50:55.369557Z",
   },
   "domainBeingVerified": null,
-  "isFeatureAvailable": true,
+  "isSAMLAvailable": true,
   "isSSOEnforcementAvailable": true,
+  "isSamlConfigSubmitting": false,
+  "isSamlConfigValid": true,
+  "samlConfig": Object {},
+  "samlConfigAllErrors": Object {
+    "saml_acs_url": undefined,
+  },
+  "samlConfigChanged": false,
+  "samlConfigErrors": Object {},
+  "samlConfigHasErrors": false,
+  "samlConfigManualErrors": Object {},
+  "samlConfigTouched": false,
+  "samlConfigTouches": Object {},
+  "samlConfigValidationErrors": Object {
+    "saml_acs_url": undefined,
+  },
+  "showSamlConfigErrors": false,
   "updatingDomain": false,
   "updatingDomainLoading": false,
   "verifiedDomains": Array [

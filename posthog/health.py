@@ -32,11 +32,11 @@ from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from structlog import get_logger
 
-from ee.kafka_client.client import can_connect as can_connect_to_kafka
 from posthog.celery import app
 from posthog.client import sync_execute
+from posthog.kafka_client.client import can_connect as can_connect_to_kafka
 
-logger = get_logger(__file__)
+logger = get_logger(__name__)
 
 ServiceRole = Literal["events", "web", "worker"]
 

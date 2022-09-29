@@ -2,18 +2,23 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { CombinedFeatureFlagAndOverrideType } from '~/types'
+import { CombinedFeatureFlagAndValueType } from '~/types'
 
 const featureFlags = [
     { feature_flag: { key: 'flag 1' } },
     { feature_flag: { key: 'flag 2' } },
     { feature_flag: { key: 'flag 3', name: 'mentions 2' } },
-] as CombinedFeatureFlagAndOverrideType[]
+] as CombinedFeatureFlagAndValueType[]
 
 const featureFlagsWithExtraInfo = [
-    { currentValue: undefined, hasVariants: false, feature_flag: { key: 'flag 1' } },
-    { currentValue: undefined, hasVariants: false, feature_flag: { key: 'flag 2' } },
-    { currentValue: undefined, hasVariants: false, feature_flag: { key: 'flag 3', name: 'mentions 2' } },
+    { currentValue: undefined, hasOverride: false, hasVariants: false, feature_flag: { key: 'flag 1' } },
+    { currentValue: undefined, hasOverride: false, hasVariants: false, feature_flag: { key: 'flag 2' } },
+    {
+        currentValue: undefined,
+        hasOverride: false,
+        hasVariants: false,
+        feature_flag: { key: 'flag 3', name: 'mentions 2' },
+    },
 ]
 
 describe('toolbar featureFlagsLogic', () => {
@@ -48,13 +53,14 @@ describe('toolbar featureFlagsLogic', () => {
             logic.actions.setSearchTerm('2')
         }).toMatchValues({
             filteredFlags: [
-                { currentValue: undefined, hasVariants: false, feature_flag: { key: 'flag 2' } },
+                { currentValue: undefined, hasOverride: false, hasVariants: false, feature_flag: { key: 'flag 2' } },
                 {
                     currentValue: undefined,
                     feature_flag: {
                         key: 'flag 3',
                         name: 'mentions 2',
                     },
+                    hasOverride: false,
                     hasVariants: false,
                 },
             ],

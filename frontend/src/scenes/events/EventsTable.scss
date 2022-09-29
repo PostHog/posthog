@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .events {
     .events-table-button-clear {
         padding: 0 4px;
@@ -7,7 +5,7 @@
         &:hover,
         &:focus,
         &.visible {
-            border: 1px solid $primary;
+            border: 1px solid var(--primary);
         }
     }
     .event-row-new {
@@ -15,14 +13,14 @@
     }
     .event-row-date-separator {
         background-color: var(--bg-mid);
-        color: var(--text-muted);
+        color: var(--muted);
         font-weight: 600;
         font-size: 0.75rem;
         height: 2rem;
         text-align: center;
     }
     .event-row-is-exception {
-        background-color: lighten($danger, 40%);
+        background-color: var(--danger-highlight);
     }
     td {
         max-width: 20rem;

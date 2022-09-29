@@ -1,56 +1,38 @@
-@import '~/vars';
-
-.spinner {
-    animation: spin 1s infinite linear;
-    display: inline-block;
-    width: 32px;
-    height: 32px;
+.Spinner {
+    display: block;
+    animation: spinner 2s infinite linear;
     flex-shrink: 0;
-    color: var(--primary);
-    .base,
-    .overlay {
-        display: block;
-        fill: transparent;
-        stroke: currentColor;
-        stroke-width: 8px;
-        transform-origin: center;
+}
+
+@keyframes spinner {
+    0% {
+        transform: rotate(0deg);
     }
-    .base {
-        opacity: 0.25;
+    25% {
+        transform: rotate(90deg);
     }
-    .overlay {
-        animation: writhe 1s infinite ease both;
-        stroke-linecap: round;
-        stroke-dashoffset: -30;
-        stroke-dasharray: 60;
+    50% {
+        transform: rotate(180deg);
     }
-    &.inverse {
-        .base,
-        .overlay {
-            stroke: #fff;
-        }
+    75% {
+        transform: rotate(270deg);
     }
-    &.sm {
-        width: 16px;
-        height: 16px;
-    }
-    &.lg {
-        width: 64px;
-        height: 64px;
+    100% {
+        transform: rotate(360deg);
     }
 }
 
-@keyframes writhe {
-    0% {
-        stroke-dashoffset: -40;
-        stroke-dasharray: 50;
-    }
-    50% {
-        stroke-dashoffset: -30;
-        stroke-dasharray: 70;
-    }
-    100% {
-        stroke-dashoffset: -40;
-        stroke-dasharray: 50;
-    }
+.SpinnerOverlay {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: rgba(255, 255, 255, 0.5);
+    text-align: center;
+    min-height: 6rem;
+    z-index: var(--z-content-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }

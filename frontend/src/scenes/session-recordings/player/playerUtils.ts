@@ -1,5 +1,6 @@
 import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 import { PlayerPosition, RecordingSegment, RecordingStartAndEndTime } from '~/types'
+import { ExpandableConfig } from 'lib/components/LemonTable'
 
 export const THUMB_SIZE = 15
 export const THUMB_OFFSET = THUMB_SIZE / 2
@@ -109,6 +110,22 @@ export function getPlayerPositionFromPlayerTime(
     return null
 }
 
+// Gets the player position from an epoch-time without a window-id
+// Used to place backend events in a recording even though, they don't
+// have a window id
+export function guessPlayerPositionFromEpochTimeWithoutWindowId(
+    epochTime: number,
+    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>,
+    segments: RecordingSegment[]
+): PlayerPosition | null {
+    for (const segment of segments) {
+        if (epochTime >= segment.startTimeEpochMs && epochTime <= segment.endTimeEpochMs) {
+            return getPlayerPositionFromEpochTime(epochTime, segment.windowId, startAndEndTimesByWindowId)
+        }
+    }
+    return null
+}
+
 export function getPlayerPositionFromEpochTime(
     epochTime: number,
     windowId: string,
@@ -159,4 +176,23 @@ export const convertPlayerPositionToX = (
 ): number => {
     const playerTime = getPlayerTimeFromPlayerPosition(playerPosition, segments)
     return ((playerTime ?? 0) / durationMs) * containerWidth
+}
+
+// Determines whether a given PlayerList row should be expanded or not.
+//
+// Checks if the row should be expanded depending on the expandable prop that was passed into the component,
+// and if it's undeterminable, defaults to the component's local state. This logic is copied over from
+// LemonTable and reappropriated for session recordings.
+export function getRowExpandedState<T extends Record<string, any>>(
+    record: T,
+    recordIndex: number,
+    expandable?: ExpandableConfig<T>,
+    isRowExpandedLocal: boolean = false
+): boolean {
+    return (
+        Number(!!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record, recordIndex))) > 0 &&
+        (!expandable?.isRowExpanded || expandable?.isRowExpanded?.(record, recordIndex) === -1
+            ? isRowExpandedLocal
+            : !!expandable?.isRowExpanded?.(record, recordIndex))
+    )
 }

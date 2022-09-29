@@ -1,5 +1,7 @@
 from unittest.mock import call, patch
 
+import pytest
+from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
 from django.test import TestCase
 from django.test.client import RequestFactory
@@ -12,6 +14,8 @@ from posthog.models import EventDefinition
 from posthog.settings.utils import get_from_env
 from posthog.test.base import BaseTest
 from posthog.utils import (
+    PotentialSecurityProblemException,
+    absolute_uri,
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
     get_default_event_name,
@@ -20,6 +24,98 @@ from posthog.utils import (
     relative_date_parse,
     should_refresh,
 )
+
+
+class TestAbsoluteUrls(TestCase):
+    def test_format_absolute_url(self) -> None:
+        regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%22product%20viewed%22%2C%22name%22%3A%22product%20viewed%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&display=ActionsTable&insight=TRENDS&interval=day&breakdown=productName&new_entity=%5B%5D&properties=%5B%5D&step_limit=5&funnel_filter=%7B%7D&breakdown_type=event&exclude_events=%5B%5D&path_groupings=%5B%5D&include_event_types=%5B%22%24pageview%22%5D&filter_test_accounts=false&local_path_cleaning_filters=%5B%5D&date_from=-14d&offset=50"
+        absolute_urls_test_cases = [
+            (None, "https://my-amazing.site", "https://my-amazing.site"),
+            (None, "https://my-amazing.site/", "https://my-amazing.site/"),
+            ("api/path", "https://my-amazing.site/", "https://my-amazing.site/api/path"),
+            ("/api/path", "https://my-amazing.site/", "https://my-amazing.site/api/path"),
+            ("api/path", "https://my-amazing.site/base_url/", "https://my-amazing.site/base_url/api/path"),
+            ("/api/path", "https://my-amazing.site/base_url", "https://my-amazing.site/base_url/api/path"),
+            (regression_11204, "https://app.posthog.com", f"https://app.posthog.com/{regression_11204}"),
+            ("https://app.posthog.com", "https://app.posthog.com", "https://app.posthog.com"),
+            (
+                "https://app.posthog.com/some/path?=something",
+                "https://app.posthog.com",
+                "https://app.posthog.com/some/path?=something",
+            ),
+            (
+                "an.attackers.domain.com/bitcoin-miner.exe",
+                "https://app.posthog.com",
+                "https://app.posthog.com/an.attackers.domain.com/bitcoin-miner.exe",
+            ),
+            ("/api/path", "", "/api/path"),  # current behavior whether correct or not
+            (
+                "/api/path",
+                "some-internal-dns-value",
+                "some-internal-dns-value/api/path",
+            ),  # current behavior whether correct or not
+        ]
+        for url, site_url, expected in absolute_urls_test_cases:
+            with self.subTest():
+                with self.settings(SITE_URL=site_url):
+                    self.assertEqual(
+                        expected,
+                        absolute_uri(url),
+                        msg=f"with URL='{url}' & site_url setting='{site_url}' actual did not equal {expected}",
+                    )
+
+    def test_absolute_uri_can_not_escape_out_host(self) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri("https://an.attackers.domain.com/bitcoin-miner.exe"),
+
+    def test_absolute_uri_can_not_escape_out_host_on_different_scheme(self) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri("ftp://an.attackers.domain.com/bitcoin-miner.exe"),
+
+    def test_absolute_uri_can_not_escape_out_host_when_site_url_is_the_empty_string(self) -> None:
+        with self.settings(SITE_URL=""):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri("https://an.attackers.domain.com/bitcoin-miner.exe"),
+
+
+class TestFormatUrls(TestCase):
+    factory = RequestFactory()
+
+    def test_format_query_params_absolute_url(self) -> None:
+        build_req = HttpRequest()
+        build_req.META = {"HTTP_HOST": "www.testserver"}
+
+        test_to_expected: list = [
+            ((50, None), "http://www.testserver?offset=50"),
+            ((50, None), "http://www.testserver?offset=50"),
+            ((None, 50), "http://www.testserver?limit=50"),
+            ((50, 100), "http://www.testserver?offset=50&limit=100"),
+            ((None, None), "http://www.testserver"),
+            ((50, None), "http://www.testserver?offset=50"),
+            ((None, 50), "http://www.testserver?limit=50"),
+            ((50, 50), "http://www.testserver?offset=50&limit=50"),
+            # test with alias
+            ((50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
+            ((50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
+            ((None, 50, "off2", "lim2"), "http://www.testserver?lim2=50"),
+            ((50, 100, "off2", "lim2"), "http://www.testserver?off2=50&lim2=100"),
+            ((None, None, "off2", "lim2"), "http://www.testserver"),
+            ((50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
+            ((None, 50, "off2", "lim2"), "http://www.testserver?lim2=50"),
+            ((50, 50, "off2", "lim2"), "http://www.testserver?off2=50&lim2=50"),
+        ]
+
+        for params, expected in test_to_expected:
+            self.assertEqual(expected, format_query_params_absolute_url(Request(request=build_req), *params))
+
+    def test_format_query_params_absolute_url_with_https(self) -> None:
+        with self.settings(SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https")):
+            build_req = HttpRequest()
+            build_req.META = {"HTTP_HOST": "www.testserver", "HTTP_X_FORWARDED_PROTO": "https"}
+            request: Request = Request(build_req)
+            self.assertEqual("https://www.testserver", format_query_params_absolute_url(request))
 
 
 class TestGeneralUtils(TestCase):
@@ -38,37 +134,6 @@ class TestGeneralUtils(TestCase):
     def test_available_timezones(self):
         timezones = get_available_timezones_with_offsets()
         self.assertEqual(timezones.get("Europe/Moscow"), 3)
-
-    def test_format_query_params_absolute_url(self):
-        build_req = HttpRequest()
-        build_req.META = {"HTTP_HOST": "www.testserver"}
-
-        test_to_expected: list = [
-            (None, (50, None), "http://www.testserver?offset=50"),
-            (None, (50, None), "http://www.testserver?offset=50"),
-            (None, (None, 50), "http://www.testserver?limit=50"),
-            (None, (50, 100), "http://www.testserver?offset=50&limit=100"),
-            (None, (None, None), "http://www.testserver"),
-            ("http://www.testserver?offset=20", (50, None), "http://www.testserver?offset=50"),
-            ("http://www.testserver?limit=20", (None, 50), "http://www.testserver?limit=50"),
-            ("http://www.testserver?offset=20&limit=20", (50, 50), "http://www.testserver?offset=50&limit=50"),
-            # test with alias
-            (None, (50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
-            (None, (50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
-            (None, (None, 50, "off2", "lim2"), "http://www.testserver?lim2=50"),
-            (None, (50, 100, "off2", "lim2"), "http://www.testserver?off2=50&lim2=100"),
-            (None, (None, None, "off2", "lim2"), "http://www.testserver"),
-            ("http://www.testserver?off2=20", (50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
-            ("http://www.testserver?lim2=20", (None, 50, "off2", "lim2"), "http://www.testserver?lim2=50"),
-            (
-                "http://www.testserver?off2=20&lim2=20",
-                (50, 50, "off2", "lim2"),
-                "http://www.testserver?off2=50&lim2=50",
-            ),
-        ]
-
-        for start_url, params, expected in test_to_expected:
-            self.assertEqual(expected, format_query_params_absolute_url(Request(build_req, start_url), *params))
 
     @patch("os.getenv")
     def test_fetching_env_var_parsed_as_int(self, mock_env):
@@ -131,19 +196,41 @@ class TestDefaultEventName(BaseTest):
 
 
 class TestLoadDataFromRequest(TestCase):
+    def _create_request_with_headers(self, origin: str, referer: str) -> WSGIRequest:
+        rf = RequestFactory()
+        # the server presents any http headers in upper case with http_ as a prefix
+        # see https://docs.djangoproject.com/en/4.0/ref/request-response/#django.http.HttpRequest.META
+        headers = {"HTTP_ORIGIN": origin, "HTTP_REFERER": referer}
+        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain", False, **headers)
+        return post_request
+
     @patch("posthog.utils.configure_scope")
-    def test_pushes_debug_information_into_sentry_scope(self, patched_scope):
+    def test_pushes_debug_information_into_sentry_scope_from_origin_header(self, patched_scope):
         origin = "potato.io"
         referer = "https://" + origin
 
         mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
-        rf = RequestFactory()
-        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain")
-        post_request.META["REMOTE_HOST"] = origin
-        post_request.META["HTTP_REFERER"] = referer
+        post_request = self._create_request_with_headers(origin, referer)
 
-        with self.assertRaises(RequestParsingError) as ctx:
+        with self.assertRaises(RequestParsingError):
+            load_data_from_request(post_request)
+
+        patched_scope.assert_called_once()
+        mock_set_tag.assert_has_calls(
+            [call("origin", origin), call("referer", referer), call("library.version", "1.20.0")]
+        )
+
+    @patch("posthog.utils.configure_scope")
+    def test_pushes_debug_information_into_sentry_scope_when_origin_header_not_present(self, patched_scope):
+        origin = "potato.io"
+        referer = "https://" + origin
+
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
+
+        post_request = self._create_request_with_headers(origin, referer)
+
+        with self.assertRaises(RequestParsingError):
             load_data_from_request(post_request)
 
         patched_scope.assert_called_once()
@@ -192,6 +279,22 @@ class TestLoadDataFromRequest(TestCase):
             "data being loaded from the request body for decompression is the literal string 'undefined'",
             str(ctx.exception),
         )
+
+    @patch("posthog.utils.gzip")
+    def test_can_decompress_gzipped_body_received_with_no_compression_flag(self, patched_gzip):
+        # see https://sentry.io/organizations/posthog2/issues/3136510367
+        # one organization is causing a request parsing error by sending an encoded body
+        # but the empty string for the compression value
+        # this accounts for a large majority of our Sentry errors
+
+        patched_gzip.decompress.return_value = '{"what is it": "the decompressed value"}'
+
+        rf = RequestFactory()
+        # a request with no compression set
+        post_request = rf.post("/s/", "the gzip compressed string", "text/plain")
+
+        data = load_data_from_request(post_request)
+        self.assertEqual({"what is it": "the decompressed value"}, data)
 
 
 class TestShouldRefresh(TestCase):

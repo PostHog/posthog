@@ -45,7 +45,7 @@ import { ComponentMeta } from '@storybook/react'
 import { LemonSwitch, LemonSwitchProps } from './LemonSwitch'
 
 export default {
-    title: 'Components/Lemon Switch',
+    title: 'Lemon UI/Lemon Switch',
     component: LemonSwitch,
     argTypes: {
         loading: {
@@ -67,7 +67,7 @@ export default {
             },
         },
     },
-} as ComponentMeta<typeof LemonTable>
+} as ComponentMeta<typeof LemonSwitch>
 
 export function LemonSwitch_(props: LemonSwitchProps): JSX.Element {
     const [isChecked, setIsChecked] = useState(false)

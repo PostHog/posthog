@@ -1,12 +1,14 @@
-import { kea } from 'kea'
+import { kea, connect, path, actions, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '../navigationLogic'
 
-import { announcementLogicType } from './announcementLogicType'
+import type { announcementLogicType } from './announcementLogicType'
 
 export enum AnnouncementType {
     Demo = 'Demo',
@@ -19,9 +21,9 @@ export enum AnnouncementType {
 const ShowNewFeatureAnnouncement = false
 const ShowAttentionRequiredBanner = false
 
-export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
-    path: ['layout', 'navigation', 'TopBar', 'announcementLogic'],
-    connect: {
+export const announcementLogic = kea<announcementLogicType>([
+    path(['layout', 'navigation', 'TopBar', 'announcementLogic']),
+    connect({
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -31,14 +33,14 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
             ['user'],
             navigationLogic,
             ['asyncMigrationsOk'],
-            teamLogic,
-            ['currentTeam'],
+            billingLogic,
+            ['alertToShow'],
         ],
-    },
-    actions: {
+    }),
+    actions({
         hideAnnouncement: (type: AnnouncementType | null) => ({ type }),
-    },
-    reducers: {
+    }),
+    reducers({
         persistedClosedAnnouncements: [
             {} as Record<AnnouncementType, boolean>,
             { persist: true },
@@ -58,19 +60,36 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
                 hideAnnouncement: () => true,
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         closable: [
             (s) => [s.relevantAnnouncementType],
             // The demo announcement is persistent
             (relevantAnnouncementType): boolean => relevantAnnouncementType !== AnnouncementType.Demo,
         ],
         shownAnnouncementType: [
-            (s) => [s.relevantAnnouncementType, s.closable, s.closed, s.persistedClosedAnnouncements],
-            (relevantAnnouncementType, closable, closed, persistedClosedAnnouncements): AnnouncementType | null => {
+            (s) => [
+                router.selectors.location,
+                s.relevantAnnouncementType,
+                s.closable,
+                s.closed,
+                s.persistedClosedAnnouncements,
+                s.alertToShow,
+            ],
+            (
+                { pathname },
+                relevantAnnouncementType,
+                closable,
+                closed,
+                persistedClosedAnnouncements,
+                alertToShow
+            ): AnnouncementType | null => {
                 if (
-                    closable &&
-                    (closed || (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))
+                    (closable &&
+                        (closed ||
+                            (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))) || // hide if already closed
+                    alertToShow || // hide if there is a billing alert
+                    pathname == urls.ingestion() // hide during the ingestion phase
                 ) {
                     return null
                 }
@@ -78,15 +97,12 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
             },
         ],
         relevantAnnouncementType: [
-            (s) => [s.currentTeam, s.cloudAnnouncement, s.preflight, s.user, s.asyncMigrationsOk],
-            (currentTeam, cloudAnnouncement, preflight, user, asyncMigrationsOk): AnnouncementType | null => {
+            (s) => [s.cloudAnnouncement, s.preflight, s.user, s.asyncMigrationsOk],
+            (cloudAnnouncement, preflight, user, asyncMigrationsOk): AnnouncementType | null => {
                 if (preflight?.demo) {
                     return AnnouncementType.Demo
                 } else if (cloudAnnouncement) {
                     return AnnouncementType.CloudFlag
-                } else if (!currentTeam || !currentTeam.completed_snippet_onboarding) {
-                    // Hide announcements during onboarding
-                    return null
                 } else if (
                     ShowAttentionRequiredBanner &&
                     !asyncMigrationsOk &&
@@ -102,11 +118,12 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
         cloudAnnouncement: [
             (s) => [s.featureFlags],
             (featureFlags): string | null => {
+                console.log(featureFlags)
                 const flagValue = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
                 return !!flagValue && typeof flagValue === 'string'
-                    ? featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
+                    ? String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]).replace(/_/g, ' ')
                     : null
             },
         ],
-    },
-})
+    }),
+])

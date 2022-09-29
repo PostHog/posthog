@@ -2,17 +2,47 @@ import React from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { Button, Tag } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
-import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
+import { SortableContainer, SortableElement } from 'react-sortable-hoc'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconPlus } from '../icons'
+import { LemonSnack } from '../LemonSnack/LemonSnack'
+import clsx from 'clsx'
 
 interface PersonPropertySelectProps {
+    addText: string
     onChange: (names: string[]) => void
     selectedProperties: string[]
+    sortable?: boolean
 }
 
-export const PersonPropertySelect = ({ onChange, selectedProperties }: PersonPropertySelectProps): JSX.Element => {
-    const { open, toggle, hide } = usePopup()
+const PropertyTag = ({
+    name,
+    onRemove,
+    sortable = false,
+}: {
+    name: string
+    onRemove: (val: string) => void
+    sortable?: boolean
+}): JSX.Element => (
+    <span className={clsx(sortable ? 'cursor-move' : 'cursor-auto')}>
+        <LemonSnack onClose={() => onRemove(name)}>{name}</LemonSnack>
+    </span>
+)
+
+const SortableProperty = SortableElement(PropertyTag)
+
+const SortablePropertyList = SortableContainer(({ children }: { children: React.ReactNode }) => {
+    return <span className="flex items-center gap-2">{children}</span>
+})
+
+export const PersonPropertySelect = ({
+    onChange,
+    selectedProperties,
+    addText,
+    sortable = false,
+}: PersonPropertySelectProps): JSX.Element => {
+    const [open, setOpen] = React.useState<boolean>(false)
 
     const handleChange = (name: string): void => {
         onChange(Array.from(new Set(selectedProperties.concat([name]))))
@@ -22,73 +52,49 @@ export const PersonPropertySelect = ({ onChange, selectedProperties }: PersonPro
         onChange(selectedProperties.filter((p) => p !== name))
     }
 
-    return (
-        <div style={{ marginBottom: 16 }}>
-            {selectedProperties.length > 0 &&
-                selectedProperties.map((name) => {
-                    return (
-                        <Tag
-                            key={name}
-                            closable
-                            onClose={(): void => handleRemove(name)}
-                            style={{
-                                margin: '0.25rem',
-                                padding: '0.25rem 0.5em',
-                                background: '#D9D9D9',
-                                border: '1px solid #D9D9D9',
-                                borderRadius: '40px',
-                                fontSize: 'inherit',
-                            }}
-                        >
-                            {name}
-                        </Tag>
-                    )
-                })}
+    const handleSort = ({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void => {
+        const newSelectedProperties = [...selectedProperties]
+        const [removed] = newSelectedProperties.splice(oldIndex, 1)
+        newSelectedProperties.splice(newIndex, 0, removed)
+        onChange(newSelectedProperties)
+    }
 
+    return (
+        <div className="flex items-center flex-wrap gap-2">
+            {sortable ? (
+                <SortablePropertyList onSortEnd={handleSort} axis="x" lockAxis="x" lockToContainerEdges distance={5}>
+                    {selectedProperties.map((value, index) => (
+                        <SortableProperty
+                            key={`item-${value}`}
+                            index={index}
+                            name={value}
+                            onRemove={handleRemove}
+                            sortable
+                        />
+                    ))}
+                </SortablePropertyList>
+            ) : (
+                selectedProperties?.map((value) => (
+                    <PropertyTag key={`item-${value}`} name={value} onRemove={handleRemove} />
+                ))
+            )}
             <Popup
                 visible={open}
-                onClickOutside={() => hide()}
+                onClickOutside={() => setOpen(false)}
                 overlay={
                     <TaxonomicFilter
                         onChange={(_, value) => {
                             handleChange(value as string)
-                            hide()
+                            setOpen(false)
                         }}
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
                     />
                 }
             >
-                {({ setRef }) => (
-                    <Button
-                        ref={setRef}
-                        onClick={() => toggle()}
-                        type="link"
-                        className="new-prop-filter"
-                        icon={<PlusCircleOutlined />}
-                    >
-                        Add exclusion
-                    </Button>
-                )}
+                <LemonButton onClick={() => setOpen(!open)} type="secondary" size="small" icon={<IconPlus />}>
+                    {addText}
+                </LemonButton>
             </Popup>
         </div>
     )
-}
-
-const popupLogic = {
-    // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-    toggle: (open: boolean) => !open,
-
-    // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-    hide: () => false,
-}
-
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-const usePopup = () => {
-    const [open, setOpen] = React.useState<boolean>(false)
-
-    return {
-        open,
-        toggle: () => setOpen(popupLogic.toggle(open)),
-        hide: () => setOpen(popupLogic.hide()),
-    }
 }

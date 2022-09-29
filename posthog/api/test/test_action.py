@@ -1,18 +1,10 @@
 from unittest.mock import patch
-from uuid import uuid4
 
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Action, ActionStep, Organization, Tag
-from posthog.test.base import APIBaseTest
-
-
-def _create_event(uuid=None, **kwargs):
-    kwargs.update({"event_uuid": uuid if uuid else uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest):
@@ -68,7 +60,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/", {"name": "user signed up"}, HTTP_ORIGIN="http://testserver",
+            f"/api/projects/{self.team.id}/actions/", {"name": "user signed up"}, HTTP_ORIGIN="http://testserver"
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -163,7 +155,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
-            data={"name": "user signed up 2", "steps": [],},
+            data={"name": "user signed up 2", "steps": []},
             HTTP_ORIGIN="http://testserver",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -179,7 +171,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         # Django HttpResponse does not have an attribute `data`. Better use rest_framework.test.APIClient.
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
-            data={"name": "user signed up",},
+            data={"name": "user signed up"},
             HTTP_ORIGIN="https://evilwebsite.com",
         )
         self.assertEqual(response.status_code, 403)
@@ -189,40 +181,38 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
-            data={"name": "user signed up",},
+            data={"name": "user signed up"},
             HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(response.status_code, 201)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
-            data={"name": "user signed up and post to slack", "post_to_slack": True,},
+            data={"name": "user signed up and post to slack", "post_to_slack": True},
             HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["post_to_slack"], True)
 
-        list_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/", HTTP_ORIGIN="https://evilwebsite.com",
-        )
+        list_response = self.client.get(f"/api/projects/{self.team.id}/actions/", HTTP_ORIGIN="https://evilwebsite.com")
         self.assertEqual(list_response.status_code, 403)
 
         detail_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/{response.json()['id']}/", HTTP_ORIGIN="https://evilwebsite.com",
+            f"/api/projects/{self.team.id}/actions/{response.json()['id']}/", HTTP_ORIGIN="https://evilwebsite.com"
         )
         self.assertEqual(detail_response.status_code, 403)
 
         self.client.logout()
         list_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/",
-            data={"temporary_token": "token123",},
+            data={"temporary_token": "token123"},
             HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(list_response.status_code, 200)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
-            data={"name": "user signed up 22",},
+            data={"name": "user signed up 22"},
             HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(response.status_code, 201, response.json())
@@ -231,7 +221,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
     def test_http_to_https(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
-            data={"name": "user signed up again",},
+            data={"name": "user signed up again"},
             HTTP_ORIGIN="https://testserver/",
         )
         self.assertEqual(response.status_code, 201, response.json())
@@ -240,7 +230,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
     def test_create_action_event_with_space(self, patch_capture, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
-            data={"name": "test event", "steps": [{"event": "test_event "}],},
+            data={"name": "test event", "steps": [{"event": "test_event "}]},
             HTTP_ORIGIN="http://testserver",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -273,7 +263,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
     def test_create_tags_on_non_ee_not_allowed(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/", {"name": "Default", "tags": ["random", "hello"]},
+            f"/api/projects/{self.team.id}/actions/", {"name": "Default", "tags": ["random", "hello"]}
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -287,7 +277,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.id}",
-            {"name": "action new name", "tags": ["random", "hello"], "description": "Internal system metrics.",},
+            {"name": "action new name", "tags": ["random", "hello"], "description": "Internal system metrics."},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -300,7 +290,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.id}",
-            {"name": "action new name", "description": "Internal system metrics.",},
+            {"name": "action new name", "description": "Internal system metrics."},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -322,3 +312,18 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], [])
         self.assertEqual(Tag.objects.all().count(), 1)
+
+    def test_hard_deletion_is_forbidden(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "user signed up",
+                "steps": [{"text": "sign up", "selector": "div > button", "url": "/signup", "isNew": "asdf"}],
+                "description": "Test description",
+            },
+            HTTP_ORIGIN="http://testserver",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        deletion_response = self.client.delete(f"/api/projects/{self.team.id}/actions/{response.json()['id']}")
+        self.assertEqual(deletion_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)

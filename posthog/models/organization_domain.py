@@ -10,7 +10,7 @@ from django.utils import timezone
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.utils import UUIDModel
-from posthog.utils import get_available_sso_providers
+from posthog.utils import get_instance_available_sso_providers
 
 logger = structlog.get_logger(__name__)
 
@@ -24,7 +24,45 @@ class OrganizationDomainManager(models.Manager):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
         return self.exclude(verified_at__isnull=True)
 
+    def get_verified_for_email_address(self, email: str) -> Optional["OrganizationDomain"]:
+        """
+        Returns an `OrganizationDomain` configuration for a specific email address (if it exists and is verified),
+        using the domain of the email address
+        """
+        domain = email[email.index("@") + 1 :]
+        return self.verified_domains().filter(domain=domain).first()
+
+    def get_is_saml_available_for_email(self, email: str) -> bool:
+        """
+        Returns whether SAML is available for a specific email address.
+        """
+        domain = email[email.index("@") + 1 :]
+        query = (
+            self.verified_domains()
+            .filter(domain=domain)
+            .exclude(
+                models.Q(saml_entity_id="")
+                | models.Q(saml_acs_url="")
+                | models.Q(saml_x509_cert="")
+                | models.Q(
+                    saml_entity_id__isnull=True
+                )  # normally we would have just a nil state (i.e. ""), but to avoid migration locks we had to introduce this
+                | models.Q(saml_acs_url__isnull=True)
+                | models.Q(saml_x509_cert__isnull=True)
+            )
+            .values("organization__available_features")
+            .first()
+        )
+
+        if query and AvailableFeature.SAML in query["organization__available_features"]:
+            return True
+        return False
+
     def get_sso_enforcement_for_email_address(self, email: str) -> Optional[str]:
+        """
+        Returns the specific `sso_enforcement` applicable for an email address or an `OrganizationDomain` objects.
+        Validates SSO providers are properly configured and all the proper licenses exist.
+        """
         domain = email[email.index("@") + 1 :]
         query = (
             self.verified_domains()
@@ -48,25 +86,33 @@ class OrganizationDomainManager(models.Manager):
             )
             return None
 
-        # Check SSO provider is properly configured
-        sso_providers = get_available_sso_providers()
-        if not sso_providers[candidate_sso_enforcement]:
-            logger.warning(
-                f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured.",
-                domain=domain,
-                candidate_sso_enforcement=candidate_sso_enforcement,
-            )
-            return None
+        # Check SSO provider is properly configured and has a valid license (to use the specific SSO) if applicable
+        if candidate_sso_enforcement == "saml":
+            # SAML uses special handling because it's configured at the domain level instead of at the instance-level
+            if AvailableFeature.SAML not in query["organization__available_features"]:
+                logger.warning(
+                    f"🤑🚪 SAML SSO is enforced for domain {domain} but the organization does not have a SAML license.",
+                    domain=domain,
+                    organization=str(query["organization_id"]),
+                )
+                return None
+        else:
+            sso_providers = get_instance_available_sso_providers()
+            if not sso_providers[candidate_sso_enforcement]:
+                logger.warning(
+                    f"SSO is enforced for domain {domain} but the SSO provider ({candidate_sso_enforcement}) is not properly configured.",
+                    domain=domain,
+                    candidate_sso_enforcement=candidate_sso_enforcement,
+                )
+                return None
 
         return candidate_sso_enforcement
 
 
 class OrganizationDomain(UUIDModel):
-    objects = OrganizationDomainManager()
+    objects: OrganizationDomainManager = OrganizationDomainManager()
 
-    organization: models.ForeignKey = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="domains",
-    )
+    organization: models.ForeignKey = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="domains")
     domain: models.CharField = models.CharField(max_length=128, unique=True)
     verification_challenge: models.CharField = models.CharField(max_length=128, default=generate_verification_challenge)
     verified_at: models.DateTimeField = models.DateTimeField(
@@ -80,6 +126,13 @@ class OrganizationDomain(UUIDModel):
         max_length=28, blank=True
     )  # currently only used for PostHog Cloud; SSO enforcement on self-hosted is set by env var
 
+    # ---- SAML attributes ----
+    # Normally not good practice to have `null=True` in `CharField` (as you have to nil states now), but creating non-nullable
+    # attributes locks up tables when migrating. Remove `null=True` on next major release.
+    saml_entity_id: models.CharField = models.CharField(max_length=512, blank=True, null=True)
+    saml_acs_url: models.CharField = models.CharField(max_length=512, blank=True, null=True)
+    saml_x509_cert: models.TextField = models.TextField(blank=True, null=True)
+
     class Meta:
         verbose_name = "domain"
 
@@ -90,6 +143,13 @@ class OrganizationDomain(UUIDModel):
         """
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
         return bool(self.verified_at)
+
+    @property
+    def has_saml(self) -> bool:
+        """
+        Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places).
+        """
+        return bool(self.saml_entity_id) and bool(self.saml_acs_url) and bool(self.saml_x509_cert)
 
     def _complete_verification(self) -> Tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None
@@ -109,7 +169,7 @@ class OrganizationDomain(UUIDModel):
         try:
             # TODO: Should we manually validate DNSSEC?
             dns_response = dns.resolver.resolve(f"_posthog-challenge.{self.domain}", "TXT")
-        except dns.resolver.NoAnswer:
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
             pass
         else:
             for item in list(dns_response.response.answer[0]):

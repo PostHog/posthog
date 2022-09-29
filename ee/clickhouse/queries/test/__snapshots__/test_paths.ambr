@@ -24,10 +24,10 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY
-                        AND latest_1 < latest_2
-                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 < latest_1
+                        AND latest_1 <= latest_2
+                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
                                                                          AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
@@ -77,7 +77,8 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target
+                                    pdi.person_id as aggregation_target,
+                                    pdi.person_id as person_id
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
@@ -88,8 +89,8 @@
                                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
-                               AND timestamp >= '2021-05-01 00:00:00'
-                               AND timestamp <= '2021-05-07 23:59:59' ) events
+                               AND timestamp >= toDateTime('2021-05-01 00:00:00')
+                               AND timestamp <= toDateTime('2021-05-07 00:00:00') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -143,7 +144,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id as person_id,
+                        pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
@@ -165,8 +166,8 @@
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
-                   AND timestamp >= '2021-05-01 00:00:00'
-                   AND timestamp <= '2021-05-07 23:59:59'
+                   AND timestamp >= toDateTime('2021-05-01 00:00:00')
+                   AND timestamp <= toDateTime('2021-05-07 00:00:00')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -211,10 +212,10 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY
-                        AND latest_1 < latest_2
-                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 < latest_1
+                        AND latest_1 <= latest_2
+                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
                                                                          AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
@@ -264,7 +265,8 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target
+                                    pdi.person_id as aggregation_target,
+                                    pdi.person_id as person_id
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
@@ -275,8 +277,8 @@
                                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
-                               AND timestamp >= '2021-05-01 00:00:00'
-                               AND timestamp <= '2021-05-07 23:59:59' ) events
+                               AND timestamp >= toDateTime('2021-05-01 00:00:00')
+                               AND timestamp <= toDateTime('2021-05-07 00:00:00') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -327,7 +329,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id as person_id,
+                        pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
@@ -349,8 +351,8 @@
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
-                   AND timestamp >= '2021-05-01 00:00:00'
-                   AND timestamp <= '2021-05-07 23:59:59'
+                   AND timestamp >= toDateTime('2021-05-01 00:00:00')
+                   AND timestamp <= toDateTime('2021-05-07 00:00:00')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -393,10 +395,10 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY
-                        AND latest_1 < latest_2
-                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 < latest_1
+                        AND latest_1 <= latest_2
+                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
                                                                          AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
@@ -446,7 +448,8 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target
+                                    pdi.person_id as aggregation_target,
+                                    pdi.person_id as person_id
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
@@ -457,8 +460,8 @@
                                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
-                               AND timestamp >= '2021-05-01 00:00:00'
-                               AND timestamp <= '2021-05-07 23:59:59' ) events
+                               AND timestamp >= toDateTime('2021-05-01 00:00:00')
+                               AND timestamp <= toDateTime('2021-05-07 00:00:00') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -509,7 +512,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id as person_id,
+                        pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
@@ -531,8 +534,8 @@
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
-                   AND timestamp >= '2021-05-01 00:00:00'
-                   AND timestamp <= '2021-05-07 23:59:59'
+                   AND timestamp >= toDateTime('2021-05-01 00:00:00')
+                   AND timestamp <= toDateTime('2021-05-07 00:00:00')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -575,10 +578,10 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY
-                        AND latest_1 < latest_2
-                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 < latest_1
+                        AND latest_1 <= latest_2
+                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
                                                                          AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
@@ -628,7 +631,8 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target
+                                    pdi.person_id as aggregation_target,
+                                    pdi.person_id as person_id
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
@@ -639,8 +643,8 @@
                                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
-                               AND timestamp >= '2021-05-01 00:00:00'
-                               AND timestamp <= '2021-05-07 23:59:59' ) events
+                               AND timestamp >= toDateTime('2021-05-01 00:00:00')
+                               AND timestamp <= toDateTime('2021-05-07 00:00:00') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -691,7 +695,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id as person_id,
+                        pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
@@ -713,8 +717,8 @@
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
-                   AND timestamp >= '2021-05-01 00:00:00'
-                   AND timestamp <= '2021-05-07 23:59:59'
+                   AND timestamp >= toDateTime('2021-05-01 00:00:00')
+                   AND timestamp <= toDateTime('2021-05-07 00:00:00')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -757,10 +761,10 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY
-                        AND latest_1 < latest_2
-                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 < latest_1
+                        AND latest_1 <= latest_2
+                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
                                                                          AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
@@ -810,7 +814,8 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target
+                                    pdi.person_id as aggregation_target,
+                                    pdi.person_id as person_id
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
@@ -821,8 +826,8 @@
                                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
-                               AND timestamp >= '2021-05-01 00:00:00'
-                               AND timestamp <= '2021-05-07 23:59:59' ) events
+                               AND timestamp >= toDateTime('2021-05-01 00:00:00')
+                               AND timestamp <= toDateTime('2021-05-07 00:00:00') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -873,7 +878,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id as person_id,
+                        pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
@@ -895,8 +900,8 @@
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
-                   AND timestamp >= '2021-05-01 00:00:00'
-                   AND timestamp <= '2021-05-07 23:59:59'
+                   AND timestamp >= toDateTime('2021-05-01 00:00:00')
+                   AND timestamp <= toDateTime('2021-05-07 00:00:00')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -960,7 +965,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id as person_id,
+                        pdi.person_id AS person_id,
                         if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
@@ -983,8 +988,8 @@
                    AND (event = '$pageview'
                         OR event = '$screen'
                         OR NOT event LIKE '$%')
-                   AND timestamp >= '2012-01-01 00:00:00'
-                   AND timestamp <= '2012-02-01 23:59:59'
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-02-01 23:59:59')
                    AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -1049,7 +1054,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id as person_id,
+                        pdi.person_id AS person_id,
                         if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
@@ -1072,8 +1077,8 @@
                    AND (event = '$pageview'
                         OR event = '$screen'
                         OR NOT event LIKE '$%')
-                   AND timestamp >= '2012-01-01 00:00:00'
-                   AND timestamp <= '2012-02-01 23:59:59'
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-02-01 23:59:59')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -1138,7 +1143,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id as person_id,
+                        pdi.person_id AS person_id,
                         if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
@@ -1161,10 +1166,460 @@
                    AND (event = '$pageview'
                         OR event = '$screen'
                         OR NOT event LIKE '$%')
-                   AND timestamp >= '2012-01-01 00:00:00'
-                   AND timestamp <= '2012-02-01 23:59:59'
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-02-01 23:59:59')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'industry'), '^"|"$', '')))
                  ORDER BY pdi.person_id,
+                          e.timestamp)
+              GROUP BY person_id) ARRAY
+           JOIN session_paths AS path_time_tuple,
+                arrayEnumerate(session_paths) AS session_index) ARRAY
+        JOIN limited_path_timings AS joined_path_tuple,
+             arrayEnumerate(limited_path_timings) AS event_in_session_index))
+  WHERE source_event IS NOT NULL
+  GROUP BY source_event,
+           target_event
+  ORDER BY event_count DESC,
+           source_event,
+           target_event
+  LIMIT 50
+  '
+---
+# name: TestClickhousePaths.test_path_groups_filtering_person_on_events
+  '
+  
+  SELECT last_path_key as source_event,
+         path_key as target_event,
+         COUNT(*) AS event_count,
+         avg(conversion_time) AS average_conversion_time
+  FROM
+    (SELECT person_id,
+            path,
+            conversion_time,
+            event_in_session_index,
+            concat(toString(event_in_session_index), '_', path) as path_key,
+            if(event_in_session_index > 1, concat(toString(event_in_session_index-1), '_', prev_path), null) AS last_path_key,
+            path_dropoff_key
+     FROM
+       (SELECT person_id ,
+               joined_path_tuple.1 as path ,
+               joined_path_tuple.2 as conversion_time ,
+               joined_path_tuple.3 as prev_path ,
+               event_in_session_index ,
+               session_index ,
+               arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0 ,
+               arrayMap((x, y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping ,
+               arrayFilter((x, y) -> y, time, mapping) as timings ,
+               arrayFilter((x, y)->y, path_basic, mapping) as compact_path ,
+               indexOf(compact_path, NULL) as target_index ,
+               if(target_index > 0, arraySlice(compact_path, target_index), compact_path) as filtered_path ,
+               if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
+               arraySlice(filtered_path, 1, 4) as limited_path ,
+               arraySlice(filtered_timings, 1, 4) as limited_timings ,
+               arrayDifference(limited_timings) as timings_diff ,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
+               concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
+        FROM
+          (SELECT person_id ,
+                  path_time_tuple.1 as path_basic ,
+                  path_time_tuple.2 as time ,
+                  session_index ,
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
+           FROM
+             (SELECT person_id,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
+                     groupArray(path_item) as paths
+              FROM
+                (SELECT e.timestamp AS timestamp,
+                        e.person_id AS person_id,
+                        if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
+                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                        if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
+                 FROM events e
+                 WHERE team_id = 2
+                   AND (event = '$pageview'
+                        OR event = '$screen'
+                        OR NOT event LIKE '$%')
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-02-01 23:59:59')
+                   AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+                 ORDER BY e.person_id,
+                          e.timestamp)
+              GROUP BY person_id) ARRAY
+           JOIN session_paths AS path_time_tuple,
+                arrayEnumerate(session_paths) AS session_index) ARRAY
+        JOIN limited_path_timings AS joined_path_tuple,
+             arrayEnumerate(limited_path_timings) AS event_in_session_index))
+  WHERE source_event IS NOT NULL
+  GROUP BY source_event,
+           target_event
+  ORDER BY event_count DESC,
+           source_event,
+           target_event
+  LIMIT 50
+  '
+---
+# name: TestClickhousePaths.test_path_groups_filtering_person_on_events.1
+  '
+  
+  SELECT last_path_key as source_event,
+         path_key as target_event,
+         COUNT(*) AS event_count,
+         avg(conversion_time) AS average_conversion_time
+  FROM
+    (SELECT person_id,
+            path,
+            conversion_time,
+            event_in_session_index,
+            concat(toString(event_in_session_index), '_', path) as path_key,
+            if(event_in_session_index > 1, concat(toString(event_in_session_index-1), '_', prev_path), null) AS last_path_key,
+            path_dropoff_key
+     FROM
+       (SELECT person_id ,
+               joined_path_tuple.1 as path ,
+               joined_path_tuple.2 as conversion_time ,
+               joined_path_tuple.3 as prev_path ,
+               event_in_session_index ,
+               session_index ,
+               arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0 ,
+               arrayMap((x, y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping ,
+               arrayFilter((x, y) -> y, time, mapping) as timings ,
+               arrayFilter((x, y)->y, path_basic, mapping) as compact_path ,
+               indexOf(compact_path, NULL) as target_index ,
+               if(target_index > 0, arraySlice(compact_path, target_index), compact_path) as filtered_path ,
+               if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
+               arraySlice(filtered_path, 1, 4) as limited_path ,
+               arraySlice(filtered_timings, 1, 4) as limited_timings ,
+               arrayDifference(limited_timings) as timings_diff ,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
+               concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
+        FROM
+          (SELECT person_id ,
+                  path_time_tuple.1 as path_basic ,
+                  path_time_tuple.2 as time ,
+                  session_index ,
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
+           FROM
+             (SELECT person_id,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
+                     groupArray(path_item) as paths
+              FROM
+                (SELECT e.timestamp AS timestamp,
+                        e.person_id AS person_id,
+                        if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
+                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                        if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
+                 FROM events e
+                 WHERE team_id = 2
+                   AND (event = '$pageview'
+                        OR event = '$screen'
+                        OR NOT event LIKE '$%')
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-02-01 23:59:59')
+                   AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+                 ORDER BY e.person_id,
+                          e.timestamp)
+              GROUP BY person_id) ARRAY
+           JOIN session_paths AS path_time_tuple,
+                arrayEnumerate(session_paths) AS session_index) ARRAY
+        JOIN limited_path_timings AS joined_path_tuple,
+             arrayEnumerate(limited_path_timings) AS event_in_session_index))
+  WHERE source_event IS NOT NULL
+  GROUP BY source_event,
+           target_event
+  ORDER BY event_count DESC,
+           source_event,
+           target_event
+  LIMIT 50
+  '
+---
+# name: TestClickhousePaths.test_path_groups_filtering_person_on_events.2
+  '
+  
+  SELECT last_path_key as source_event,
+         path_key as target_event,
+         COUNT(*) AS event_count,
+         avg(conversion_time) AS average_conversion_time
+  FROM
+    (SELECT person_id,
+            path,
+            conversion_time,
+            event_in_session_index,
+            concat(toString(event_in_session_index), '_', path) as path_key,
+            if(event_in_session_index > 1, concat(toString(event_in_session_index-1), '_', prev_path), null) AS last_path_key,
+            path_dropoff_key
+     FROM
+       (SELECT person_id ,
+               joined_path_tuple.1 as path ,
+               joined_path_tuple.2 as conversion_time ,
+               joined_path_tuple.3 as prev_path ,
+               event_in_session_index ,
+               session_index ,
+               arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0 ,
+               arrayMap((x, y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping ,
+               arrayFilter((x, y) -> y, time, mapping) as timings ,
+               arrayFilter((x, y)->y, path_basic, mapping) as compact_path ,
+               indexOf(compact_path, NULL) as target_index ,
+               if(target_index > 0, arraySlice(compact_path, target_index), compact_path) as filtered_path ,
+               if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
+               arraySlice(filtered_path, 1, 4) as limited_path ,
+               arraySlice(filtered_timings, 1, 4) as limited_timings ,
+               arrayDifference(limited_timings) as timings_diff ,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
+               concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
+        FROM
+          (SELECT person_id ,
+                  path_time_tuple.1 as path_basic ,
+                  path_time_tuple.2 as time ,
+                  session_index ,
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
+           FROM
+             (SELECT person_id,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
+                     groupArray(path_item) as paths
+              FROM
+                (SELECT e.timestamp AS timestamp,
+                        e.person_id AS person_id,
+                        if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
+                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                        if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
+                 FROM events e
+                 WHERE team_id = 2
+                   AND (event = '$pageview'
+                        OR event = '$screen'
+                        OR NOT event LIKE '$%')
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-02-01 23:59:59')
+                   AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group1_properties, 'industry'), '^"|"$', '')))
+                 ORDER BY e.person_id,
+                          e.timestamp)
+              GROUP BY person_id) ARRAY
+           JOIN session_paths AS path_time_tuple,
+                arrayEnumerate(session_paths) AS session_index) ARRAY
+        JOIN limited_path_timings AS joined_path_tuple,
+             arrayEnumerate(limited_path_timings) AS event_in_session_index))
+  WHERE source_event IS NOT NULL
+  GROUP BY source_event,
+           target_event
+  ORDER BY event_count DESC,
+           source_event,
+           target_event
+  LIMIT 50
+  '
+---
+# name: TestClickhousePaths.test_path_groups_filtering_person_on_events_materialized
+  '
+  
+  SELECT last_path_key as source_event,
+         path_key as target_event,
+         COUNT(*) AS event_count,
+         avg(conversion_time) AS average_conversion_time
+  FROM
+    (SELECT person_id,
+            path,
+            conversion_time,
+            event_in_session_index,
+            concat(toString(event_in_session_index), '_', path) as path_key,
+            if(event_in_session_index > 1, concat(toString(event_in_session_index-1), '_', prev_path), null) AS last_path_key,
+            path_dropoff_key
+     FROM
+       (SELECT person_id ,
+               joined_path_tuple.1 as path ,
+               joined_path_tuple.2 as conversion_time ,
+               joined_path_tuple.3 as prev_path ,
+               event_in_session_index ,
+               session_index ,
+               arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0 ,
+               arrayMap((x, y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping ,
+               arrayFilter((x, y) -> y, time, mapping) as timings ,
+               arrayFilter((x, y)->y, path_basic, mapping) as compact_path ,
+               indexOf(compact_path, NULL) as target_index ,
+               if(target_index > 0, arraySlice(compact_path, target_index), compact_path) as filtered_path ,
+               if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
+               arraySlice(filtered_path, 1, 4) as limited_path ,
+               arraySlice(filtered_timings, 1, 4) as limited_timings ,
+               arrayDifference(limited_timings) as timings_diff ,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
+               concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
+        FROM
+          (SELECT person_id ,
+                  path_time_tuple.1 as path_basic ,
+                  path_time_tuple.2 as time ,
+                  session_index ,
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
+           FROM
+             (SELECT person_id,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
+                     groupArray(path_item) as paths
+              FROM
+                (SELECT e.timestamp AS timestamp,
+                        e.person_id AS person_id,
+                        if(e.event = '$screen', "mat_$screen_name", if(e.event = '$pageview', if(length("mat_$current_url") > 1, replaceRegexpAll("mat_$current_url", '/$', ''), "mat_$current_url"), e.event)) AS path_item_ungrouped,
+                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                        if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
+                 FROM events e
+                 WHERE team_id = 2
+                   AND (event = '$pageview'
+                        OR event = '$screen'
+                        OR NOT event LIKE '$%')
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-02-01 23:59:59')
+                   AND (has(['finance'], "mat_gp0_industry"))
+                 ORDER BY e.person_id,
+                          e.timestamp)
+              GROUP BY person_id) ARRAY
+           JOIN session_paths AS path_time_tuple,
+                arrayEnumerate(session_paths) AS session_index) ARRAY
+        JOIN limited_path_timings AS joined_path_tuple,
+             arrayEnumerate(limited_path_timings) AS event_in_session_index))
+  WHERE source_event IS NOT NULL
+  GROUP BY source_event,
+           target_event
+  ORDER BY event_count DESC,
+           source_event,
+           target_event
+  LIMIT 50
+  '
+---
+# name: TestClickhousePaths.test_path_groups_filtering_person_on_events_materialized.1
+  '
+  
+  SELECT last_path_key as source_event,
+         path_key as target_event,
+         COUNT(*) AS event_count,
+         avg(conversion_time) AS average_conversion_time
+  FROM
+    (SELECT person_id,
+            path,
+            conversion_time,
+            event_in_session_index,
+            concat(toString(event_in_session_index), '_', path) as path_key,
+            if(event_in_session_index > 1, concat(toString(event_in_session_index-1), '_', prev_path), null) AS last_path_key,
+            path_dropoff_key
+     FROM
+       (SELECT person_id ,
+               joined_path_tuple.1 as path ,
+               joined_path_tuple.2 as conversion_time ,
+               joined_path_tuple.3 as prev_path ,
+               event_in_session_index ,
+               session_index ,
+               arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0 ,
+               arrayMap((x, y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping ,
+               arrayFilter((x, y) -> y, time, mapping) as timings ,
+               arrayFilter((x, y)->y, path_basic, mapping) as compact_path ,
+               indexOf(compact_path, NULL) as target_index ,
+               if(target_index > 0, arraySlice(compact_path, target_index), compact_path) as filtered_path ,
+               if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
+               arraySlice(filtered_path, 1, 4) as limited_path ,
+               arraySlice(filtered_timings, 1, 4) as limited_timings ,
+               arrayDifference(limited_timings) as timings_diff ,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
+               concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
+        FROM
+          (SELECT person_id ,
+                  path_time_tuple.1 as path_basic ,
+                  path_time_tuple.2 as time ,
+                  session_index ,
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
+           FROM
+             (SELECT person_id,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
+                     groupArray(path_item) as paths
+              FROM
+                (SELECT e.timestamp AS timestamp,
+                        e.person_id AS person_id,
+                        if(e.event = '$screen', "mat_$screen_name", if(e.event = '$pageview', if(length("mat_$current_url") > 1, replaceRegexpAll("mat_$current_url", '/$', ''), "mat_$current_url"), e.event)) AS path_item_ungrouped,
+                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                        if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
+                 FROM events e
+                 WHERE team_id = 2
+                   AND (event = '$pageview'
+                        OR event = '$screen'
+                        OR NOT event LIKE '$%')
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-02-01 23:59:59')
+                   AND (has(['technology'], "mat_gp0_industry"))
+                 ORDER BY e.person_id,
+                          e.timestamp)
+              GROUP BY person_id) ARRAY
+           JOIN session_paths AS path_time_tuple,
+                arrayEnumerate(session_paths) AS session_index) ARRAY
+        JOIN limited_path_timings AS joined_path_tuple,
+             arrayEnumerate(limited_path_timings) AS event_in_session_index))
+  WHERE source_event IS NOT NULL
+  GROUP BY source_event,
+           target_event
+  ORDER BY event_count DESC,
+           source_event,
+           target_event
+  LIMIT 50
+  '
+---
+# name: TestClickhousePaths.test_path_groups_filtering_person_on_events_materialized.2
+  '
+  
+  SELECT last_path_key as source_event,
+         path_key as target_event,
+         COUNT(*) AS event_count,
+         avg(conversion_time) AS average_conversion_time
+  FROM
+    (SELECT person_id,
+            path,
+            conversion_time,
+            event_in_session_index,
+            concat(toString(event_in_session_index), '_', path) as path_key,
+            if(event_in_session_index > 1, concat(toString(event_in_session_index-1), '_', prev_path), null) AS last_path_key,
+            path_dropoff_key
+     FROM
+       (SELECT person_id ,
+               joined_path_tuple.1 as path ,
+               joined_path_tuple.2 as conversion_time ,
+               joined_path_tuple.3 as prev_path ,
+               event_in_session_index ,
+               session_index ,
+               arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0 ,
+               arrayMap((x, y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping ,
+               arrayFilter((x, y) -> y, time, mapping) as timings ,
+               arrayFilter((x, y)->y, path_basic, mapping) as compact_path ,
+               indexOf(compact_path, NULL) as target_index ,
+               if(target_index > 0, arraySlice(compact_path, target_index), compact_path) as filtered_path ,
+               if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
+               arraySlice(filtered_path, 1, 4) as limited_path ,
+               arraySlice(filtered_timings, 1, 4) as limited_timings ,
+               arrayDifference(limited_timings) as timings_diff ,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
+               concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
+        FROM
+          (SELECT person_id ,
+                  path_time_tuple.1 as path_basic ,
+                  path_time_tuple.2 as time ,
+                  session_index ,
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
+           FROM
+             (SELECT person_id,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
+                     groupArray(path_item) as paths
+              FROM
+                (SELECT e.timestamp AS timestamp,
+                        e.person_id AS person_id,
+                        if(e.event = '$screen', "mat_$screen_name", if(e.event = '$pageview', if(length("mat_$current_url") > 1, replaceRegexpAll("mat_$current_url", '/$', ''), "mat_$current_url"), e.event)) AS path_item_ungrouped,
+                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                        if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
+                 FROM events e
+                 WHERE team_id = 2
+                   AND (event = '$pageview'
+                        OR event = '$screen'
+                        OR NOT event LIKE '$%')
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-02-01 23:59:59')
+                   AND (has(['technology'], "mat_gp1_industry"))
+                 ORDER BY e.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -1184,10 +1639,10 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+         groupUniqArray(100)((timestamp,
+                              uuid,
+                              $session_id,
+                              $window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1256,7 +1711,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id as person_id,
+                        pdi.person_id AS person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
                         e."$session_id" as $session_id,
@@ -1274,8 +1729,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND (event = '$pageview')
-                   AND timestamp >= '2012-01-01 00:00:00'
-                   AND timestamp <= '2012-01-02 23:59:59'
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-01-02 00:00:00')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1305,10 +1760,10 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+         groupUniqArray(100)((timestamp,
+                              uuid,
+                              $session_id,
+                              $window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1377,7 +1832,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id as person_id,
+                        pdi.person_id AS person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
                         e."$session_id" as $session_id,
@@ -1395,8 +1850,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND (event = '$pageview')
-                   AND timestamp >= '2012-01-01 00:00:00'
-                   AND timestamp <= '2012-01-02 23:59:59'
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-01-02 00:00:00')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1426,10 +1881,10 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+         groupUniqArray(100)((timestamp,
+                              uuid,
+                              $session_id,
+                              $window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1498,7 +1953,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id as person_id,
+                        pdi.person_id AS person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
                         e."$session_id" as $session_id,
@@ -1516,8 +1971,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND (event = '$pageview')
-                   AND timestamp >= '2012-01-01 00:00:00'
-                   AND timestamp <= '2012-01-02 23:59:59'
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-01-02 00:00:00')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1546,10 +2001,10 @@
   '
   
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+         groupUniqArray(100)((timestamp,
+                              uuid,
+                              $session_id,
+                              $window_id)) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -1625,7 +2080,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id as person_id,
+                        pdi.person_id AS person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
                         e."$session_id" as $session_id,
@@ -1643,8 +2098,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND (event = '$pageview')
-                   AND timestamp >= '2012-01-01 00:00:00'
-                   AND timestamp <= '2012-01-02 23:59:59'
+                   AND timestamp >= toDateTime('2012-01-01 00:00:00')
+                   AND timestamp <= toDateTime('2012-01-02 00:00:00')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY

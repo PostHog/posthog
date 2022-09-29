@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
 import { membershipLevelToName } from 'lib/utils/permissioning'
@@ -21,15 +21,20 @@ export function AccessLevelIndicator({ organization }: { organization: Organizat
     )
 }
 
-export function OtherOrganizationButton({ organization }: { organization: OrganizationBasicType }): JSX.Element {
+export function OtherOrganizationButton({
+    organization,
+    index,
+}: {
+    organization: OrganizationBasicType
+    index: number
+}): JSX.Element {
     const { updateCurrentOrganization } = useActions(userLogic)
 
     return (
         <LemonButton
             onClick={() => updateCurrentOrganization(organization.id)}
-            icon={<Lettermark name={organization.name} />}
-            className="SitePopover__organization"
-            type="stealth"
+            icon={<Lettermark index={index} name={organization.name} />}
+            status="stealth"
             title={`Switch to organization ${organization.name}`}
             fullWidth
         >
@@ -75,17 +80,20 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
     return (
         <div>
             <h5>Organizations</h5>
-            <LemonSpacer />
+            <LemonDivider />
             {currentOrganization && (
-                <LemonRow status="highlighted" fullWidth icon={<Lettermark name={currentOrganization.name} />}>
-                    <div className="SitePopover__main-info SitePopover__organization">
-                        <strong>{currentOrganization.name}</strong>
-                        <AccessLevelIndicator organization={currentOrganization} />
-                    </div>
-                </LemonRow>
+                <LemonButton
+                    icon={<Lettermark name={currentOrganization.name} />}
+                    status="stealth"
+                    title={`Switch to organization ${currentOrganization.name}`}
+                    fullWidth
+                >
+                    <strong>{currentOrganization.name}</strong>
+                    <AccessLevelIndicator organization={currentOrganization} />
+                </LemonButton>
             )}
-            {otherOrganizations.map((otherOrganization) => (
-                <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} />
+            {otherOrganizations.map((otherOrganization, i) => (
+                <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} index={i} />
             ))}
             {preflight?.can_create_org && <NewOrganizationButton />}
         </div>

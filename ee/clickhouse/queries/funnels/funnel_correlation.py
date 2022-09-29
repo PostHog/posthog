@@ -13,17 +13,18 @@ from typing import (
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.models.element import chain_to_elements
-from ee.clickhouse.models.event import ElementSerializer
-from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
-from ee.clickhouse.queries.funnels.utils import get_funnel_order_actor_class
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.sql.clickhouse import trim_quotes_expr
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.materialized_columns import get_materialized_columns
 from posthog.client import sync_execute
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models import Team
+from posthog.models.element.element import chain_to_elements
+from posthog.models.event.util import ElementSerializer
 from posthog.models.filters import Filter
+from posthog.models.property.util import get_property_string_expr
+from posthog.queries.funnels.utils import get_funnel_order_actor_class
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 
@@ -125,9 +126,7 @@ class FunnelCorrelation:
         }
         # NOTE: we always use the final matching event for the recording because this
         # is the the right event for both drop off and successful funnels
-        filter_data.update(
-            {"include_final_matching_events": self._filter.include_recordings,}
-        )
+        filter_data.update({"include_final_matching_events": self._filter.include_recordings})
         filter = Filter(data=filter_data)
 
         funnel_order_actor_class = get_funnel_order_actor_class(filter)
@@ -142,7 +141,45 @@ class FunnelCorrelation:
             # NOTE: we don't need these as we have all the information we need to
             # deduce if the person was successful or not
             include_preceding_timestamp=False,
+            include_properties=self.properties_to_include,
         )
+
+    @property
+    def properties_to_include(self) -> List[str]:
+        props_to_include = []
+        if (
+            self._team.actor_on_events_querying_enabled
+            and self._filter.correlation_type == FunnelCorrelationType.PROPERTIES
+        ):
+            # When dealing with properties, make sure funnel response comes with properties
+            # so we don't have to join on persons/groups to get these properties again
+            mat_event_cols = get_materialized_columns("events")
+
+            for property_name in cast(list, self._filter.correlation_property_names):
+                if self._filter.aggregation_group_type_index is not None:
+                    if "$all" == property_name:
+                        return [f"group{self._filter.aggregation_group_type_index}_properties"]
+
+                    possible_mat_col = mat_event_cols.get(
+                        (property_name, f"group{self._filter.aggregation_group_type_index}_properties")
+                    )
+                    if possible_mat_col is not None:
+                        props_to_include.append(possible_mat_col)
+                    else:
+                        props_to_include.append(f"group{self._filter.aggregation_group_type_index}_properties")
+
+                else:
+                    if "$all" == property_name:
+                        return [f"person_properties"]
+
+                    possible_mat_col = mat_event_cols.get((property_name, "person_properties"))
+
+                    if possible_mat_col is not None:
+                        props_to_include.append(possible_mat_col)
+                    else:
+                        props_to_include.append(f"person_properties")
+
+        return props_to_include
 
     def support_autocapture_elements(self) -> bool:
         if (
@@ -240,7 +277,7 @@ class FunnelCorrelation:
 
         if self.support_autocapture_elements():
             event_type_expression, _ = get_property_string_expr(
-                "events", self.AUTOCAPTURE_EVENT_TYPE, f"'{self.AUTOCAPTURE_EVENT_TYPE}'", "properties",
+                "events", self.AUTOCAPTURE_EVENT_TYPE, f"'{self.AUTOCAPTURE_EVENT_TYPE}'", "properties"
             )
             array_join_query = f"""
                 'elements_chain' as prop_key,
@@ -384,21 +421,26 @@ class FunnelCorrelation:
         return query, params
 
     def _get_aggregation_target_join_query(self) -> str:
-        aggregation_person_join = f"""
-            JOIN ({get_team_distinct_ids_query(self._team.pk)}) AS pdi
-                    ON pdi.distinct_id = events.distinct_id
 
-                -- NOTE: I would love to right join here, so we count get total
-                -- success/failure numbers in one pass, but this causes out of memory
-                -- error mentioning issues with right filling. I'm sure there's a way
-                -- to do it but lifes too short.
-                JOIN funnel_actors AS actors
-                    ON pdi.person_id = actors.actor_id
+        if self._team.actor_on_events_querying_enabled:
+            aggregation_person_join = f"""
+                JOIN funnel_actors as actors
+                    ON event.person_id = actors.actor_id
             """
 
-        # :KLUDGE: aggregation_target is called person_id in funnel people CTEs.
-        # Since supporting that properly involves updating everything that uses the CTE to rename person_id,
-        # keeping it as-is for now
+        else:
+            aggregation_person_join = f"""
+                JOIN ({get_team_distinct_ids_query(self._team.pk)}) AS pdi
+                        ON pdi.distinct_id = events.distinct_id
+
+                    -- NOTE: I would love to right join here, so we count get total
+                    -- success/failure numbers in one pass, but this causes out of memory
+                    -- error mentioning issues with right filling. I'm sure there's a way
+                    -- to do it but lifes too short.
+                    JOIN funnel_actors AS actors
+                        ON pdi.person_id = actors.actor_id
+                """
+
         aggregation_group_join = f"""
             JOIN funnel_actors AS actors
                 ON actors.actor_id = events.$group_{self._filter.aggregation_group_type_index}
@@ -446,6 +488,9 @@ class FunnelCorrelation:
         """
 
     def _get_aggregation_join_query(self):
+        if self._team.actor_on_events_querying_enabled:
+            return "", {}
+
         if self._filter.aggregation_group_type_index is None:
             person_query, person_query_params = PersonQuery(
                 self._filter, self._team.pk, EnterpriseColumnOptimizer(self._filter, self._team.pk)
@@ -463,12 +508,18 @@ class FunnelCorrelation:
 
     def _get_properties_prop_clause(self):
 
-        group_properties_field = f"groups_{self._filter.aggregation_group_type_index}.group_properties_{self._filter.aggregation_group_type_index}"
-        aggregation_properties_alias = (
-            PersonQuery.PERSON_PROPERTIES_ALIAS
-            if self._filter.aggregation_group_type_index is None
-            else group_properties_field
-        )
+        if self._team.actor_on_events_querying_enabled:
+            group_properties_field = f"group{self._filter.aggregation_group_type_index}_properties"
+            aggregation_properties_alias = (
+                "person_properties" if self._filter.aggregation_group_type_index is None else group_properties_field
+            )
+        else:
+            group_properties_field = f"groups_{self._filter.aggregation_group_type_index}.group_properties_{self._filter.aggregation_group_type_index}"
+            aggregation_properties_alias = (
+                PersonQuery.PERSON_PROPERTIES_ALIAS
+                if self._filter.aggregation_group_type_index is None
+                else group_properties_field
+            )
 
         if "$all" in cast(list, self._filter.correlation_property_names):
             map_expr = trim_quotes_expr(f"JSONExtractRaw({aggregation_properties_alias}, x)")
@@ -491,11 +542,21 @@ class FunnelCorrelation:
                 param_name = f"property_name_{index}"
                 if self._filter.aggregation_group_type_index is not None:
                     expression, _ = get_property_string_expr(
-                        "groups", property_name, f"%({param_name})s", group_properties_field
+                        "groups" if not self._team.actor_on_events_querying_enabled else "events",
+                        property_name,
+                        f"%({param_name})s",
+                        aggregation_properties_alias,
+                        materialised_table_column=aggregation_properties_alias,
                     )
                 else:
                     expression, _ = get_property_string_expr(
-                        "person", property_name, f"%({param_name})s", PersonQuery.PERSON_PROPERTIES_ALIAS,
+                        "person" if not self._team.actor_on_events_querying_enabled else "events",
+                        property_name,
+                        f"%({param_name})s",
+                        aggregation_properties_alias,
+                        materialised_table_column=aggregation_properties_alias
+                        if self._team.actor_on_events_querying_enabled
+                        else "properties",
                     )
                 person_property_params[param_name] = property_name
                 person_property_expressions.append(expression)
@@ -667,7 +728,7 @@ class FunnelCorrelation:
                         "id": event_name,
                         "type": "events",
                         "properties": [
-                            {"key": property_key, "value": [property_value], "type": "element", "operator": "exact",}
+                            {"key": property_key, "value": [property_value], "type": "element", "operator": "exact"}
                             for property_key, property_value in elements_as_action.items()
                             if property_value is not None
                         ],
@@ -696,11 +757,18 @@ class FunnelCorrelation:
         # persons endpoint, with the breakdown value set, and we assume that
         # event.event will be of the format "{property_name}::{property_value}"
         property_name, property_value = event_definition["event"].split("::")
+        prop_type = "group" if self._filter.aggregation_group_type_index else "person"
         params = self._filter.with_data(
             {
                 "funnel_correlation_person_converted": "true" if success else "false",
                 "funnel_correlation_property_values": [
-                    {"key": property_name, "value": property_value, "type": "person", "operator": "exact"}
+                    {
+                        "key": property_name,
+                        "value": property_value,
+                        "type": prop_type,
+                        "operator": "exact",
+                        "group_type_index": self._filter.aggregation_group_type_index,
+                    }
                 ],
             }
         ).to_params()
@@ -755,10 +823,12 @@ class FunnelCorrelation:
         )
 
     def get_funnel_actors_cte(self) -> Tuple[str, Dict[str, Any]]:
+        extra_fields = ["steps", "final_timestamp", "first_timestamp"]
 
-        return self._funnel_actors_generator.actor_query(
-            limit_actors=False, extra_fields=["steps", "final_timestamp", "first_timestamp"]
-        )
+        for prop in self.properties_to_include:
+            extra_fields.append(prop)
+
+        return self._funnel_actors_generator.actor_query(limit_actors=False, extra_fields=extra_fields)
 
     @staticmethod
     def are_results_insignificant(event_contingency_table: EventContingencyTable) -> bool:

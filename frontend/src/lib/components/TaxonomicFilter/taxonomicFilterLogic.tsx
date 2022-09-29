@@ -1,35 +1,56 @@
 import React from 'react'
-import { kea } from 'kea'
-import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
+import { BuiltLogic, kea } from 'kea'
+import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
+    ListStorage,
     SimpleOption,
-    TaxonomicFilterGroupType,
     TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
-    ListStorage,
 } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
-import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
+import {
+    ActionType,
+    CohortType,
+    EventDefinitionType,
+    DashboardType,
+    EventDefinition,
+    Experiment,
+    FeatureFlagType,
+    Group,
+    InsightModel,
+    PersonProperty,
+    PersonType,
+    PluginType,
+    PropertyDefinition,
+} from '~/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
-import { ActionStack, CohortIcon } from 'lib/components/icons'
+import { CohortIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
         if (!!keyMapping.event[eventDefinition.name]) {
-            return 'Verified Event'
+            return 'PostHog event'
         }
-        return `${eventDefinition.verified ? 'Verified' : 'Unverified'} Event`
+        return `${eventDefinition.verified ? 'Verified' : 'Unverified'} event`
     },
     getIcon: getEventDefinitionIcon,
 }
@@ -39,7 +60,7 @@ export const propertyTaxonomicGroupProps = (
 ): Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> => ({
     getPopupHeader: (propertyDefinition: PropertyDefinition): string => {
         if (verified || !!keyMapping.event[propertyDefinition.name]) {
-            return 'Verified Property'
+            return 'PostHog property'
         }
         return 'Property'
     },
@@ -47,7 +68,7 @@ export const propertyTaxonomicGroupProps = (
 })
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
-    path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
+    path: ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic'],
     props: {} as TaxonomicFilterLogicProps,
     key: (props) => `${props.taxonomicFilterLogicKey}`,
     connect: {
@@ -58,6 +79,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             ['groupTypes', 'aggregationLabel'],
             groupPropertiesModel,
             ['allGroupProperties'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     },
     actions: () => ({
@@ -116,157 +139,281 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
+        excludedProperties: [
+            () => [(_, props) => props.excludedProperties],
+            (excludedProperties) => excludedProperties ?? {},
+        ],
         taxonomicGroups: [
-            (selectors) => [selectors.currentTeamId, selectors.groupAnalyticsTaxonomicGroups, selectors.eventNames],
-            (teamId, groupAnalyticsTaxonomicGroups, eventNames): TaxonomicFilterGroup[] => [
-                {
-                    name: 'Events',
-                    searchPlaceholder: 'events',
-                    type: TaxonomicFilterGroupType.Events,
-                    endpoint: `api/projects/${teamId}/event_definitions`,
-                    getName: (eventDefinition: EventDefinition) => eventDefinition.name,
-                    getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
-                    ...eventTaxonomicGroupProps,
-                },
-                {
-                    name: 'Actions',
-                    searchPlaceholder: 'actions',
-                    type: TaxonomicFilterGroupType.Actions,
-                    logic: actionsModel,
-                    value: 'actions',
-                    getName: (action: ActionType) => action.name || '',
-                    getValue: (action: ActionType) => action.id,
-                    getPopupHeader: () => 'Action',
-                    getIcon: function _getIcon(): JSX.Element {
-                        return <ActionStack className="taxonomy-icon taxonomy-icon-muted" />
-                    },
-                },
-                {
-                    name: 'Autocapture elements',
-                    searchPlaceholder: 'autocapture elements',
-                    type: TaxonomicFilterGroupType.Elements,
-                    options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
-                        name: option,
-                    })) as SimpleOption[],
-                    getName: (option: SimpleOption) => option.name,
-                    getValue: (option: SimpleOption) => option.name,
-                    getPopupHeader: () => 'Autocapture Element',
-                },
-                {
-                    name: 'Event properties',
-                    searchPlaceholder: 'event properties',
-                    type: TaxonomicFilterGroupType.EventProperties,
-                    endpoint: combineUrl(
-                        `api/projects/${teamId}/property_definitions`,
-                        eventNames.length > 0 ? { event_names: eventNames } : {}
-                    ).url,
-                    scopedEndpoint:
-                        eventNames.length > 0
-                            ? combineUrl(`api/projects/${teamId}/property_definitions`, {
-                                  event_names: eventNames,
-                                  is_event_property: true,
-                              }).url
-                            : undefined,
-                    expandLabel: ({ count, expandedCount }) =>
-                        `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
-                            eventNames.length,
-                            'has',
-                            'have',
-                            false
-                        )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
-                    getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                    getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                    ...propertyTaxonomicGroupProps(),
-                },
-                {
-                    name: 'Numerical event properties',
-                    searchPlaceholder: 'numerical event properties',
-                    type: TaxonomicFilterGroupType.NumericalEventProperties,
-                    endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
-                        is_numerical: true,
-                        event_names: eventNames,
-                    }).url,
-                    getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                    getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                    ...propertyTaxonomicGroupProps(),
-                },
-                {
-                    name: 'Person properties',
-                    searchPlaceholder: 'person properties',
-                    type: TaxonomicFilterGroupType.PersonProperties,
-                    logic: personPropertiesModel,
-                    value: 'personProperties',
-                    getName: (personProperty: PersonProperty) => personProperty.name,
-                    getValue: (personProperty: PersonProperty) => personProperty.name,
-                    ...propertyTaxonomicGroupProps(true),
-                },
-                {
-                    name: 'Cohorts',
-                    searchPlaceholder: 'cohorts',
-                    type: TaxonomicFilterGroupType.Cohorts,
-                    logic: cohortsModel,
-                    value: 'cohorts',
-                    getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
-                    getValue: (cohort: CohortType) => cohort.id,
-                    getPopupHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
-                    getIcon: function _getIcon(): JSX.Element {
-                        return <CohortIcon className="taxonomy-icon taxonomy-icon-muted" />
-                    },
-                },
-                {
-                    name: 'Cohorts',
-                    searchPlaceholder: 'cohorts',
-                    type: TaxonomicFilterGroupType.CohortsWithAllUsers,
-                    logic: cohortsModel,
-                    value: 'cohortsWithAllUsers',
-                    getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
-                    getValue: (cohort: CohortType) => cohort.id,
-                    getPopupHeader: () => `All Users`,
-                    getIcon: function _getIcon(): JSX.Element {
-                        return <CohortIcon className="taxonomy-icon taxonomy-icon-muted" />
-                    },
-                },
-                {
-                    name: 'Pageview URLs',
-                    searchPlaceholder: 'pageview URLs',
-                    type: TaxonomicFilterGroupType.PageviewUrls,
-                    endpoint: `api/projects/${teamId}/events/values/?key=$current_url`,
-                    searchAlias: 'value',
-                    getName: (option: SimpleOption) => option.name,
-                    getValue: (option: SimpleOption) => option.name,
-                    getPopupHeader: () => `Pageview URL`,
-                },
-                {
-                    name: 'Screens',
-                    searchPlaceholder: 'screens',
-                    type: TaxonomicFilterGroupType.Screens,
-                    endpoint: `api/projects/${teamId}/events/values/?key=$screen_name`,
-                    searchAlias: 'value',
-                    getName: (option: SimpleOption) => option.name,
-                    getValue: (option: SimpleOption) => option.name,
-                    getPopupHeader: () => `Screen`,
-                },
-                {
-                    name: 'Custom Events',
-                    searchPlaceholder: 'custom events',
-                    type: TaxonomicFilterGroupType.CustomEvents,
-                    logic: eventDefinitionsModel,
-                    value: 'customEvents',
-                    getName: (eventDefinition: EventDefinition) => eventDefinition.name,
-                    getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
-                    ...eventTaxonomicGroupProps,
-                },
-                {
-                    name: 'Wildcards',
-                    searchPlaceholder: 'wildcards',
-                    type: TaxonomicFilterGroupType.Wildcards,
-                    // Populated via optionsFromProp
-                    getName: (option: SimpleOption) => option.name,
-                    getValue: (option: SimpleOption) => option.name,
-                    getPopupHeader: () => `Wildcard`,
-                },
-                ...groupAnalyticsTaxonomicGroups,
+            (selectors) => [
+                selectors.currentTeamId,
+                selectors.groupAnalyticsTaxonomicGroups,
+                selectors.groupAnalyticsTaxonomicGroupNames,
+                selectors.eventNames,
+                selectors.excludedProperties,
             ],
+            (
+                teamId,
+                groupAnalyticsTaxonomicGroups,
+                groupAnalyticsTaxonomicGroupNames,
+                eventNames,
+                excludedProperties
+            ): TaxonomicFilterGroup[] => {
+                return [
+                    {
+                        name: 'Events',
+                        searchPlaceholder: 'events',
+                        type: TaxonomicFilterGroupType.Events,
+                        endpoint: combineUrl(`api/projects/${teamId}/event_definitions`, {
+                            event_type: EventDefinitionType.Event,
+                        }).url,
+                        getName: (eventDefinition: EventDefinition) => eventDefinition.name,
+                        getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
+                        ...eventTaxonomicGroupProps,
+                    },
+                    {
+                        name: 'Actions',
+                        searchPlaceholder: 'actions',
+                        type: TaxonomicFilterGroupType.Actions,
+                        logic: actionsModel,
+                        value: 'actions',
+                        getName: (action: ActionType) => action.name || '',
+                        getValue: (action: ActionType) => action.id,
+                        getPopupHeader: () => 'Action',
+                        getIcon: getEventDefinitionIcon,
+                    },
+                    {
+                        name: 'Autocapture elements',
+                        searchPlaceholder: 'autocapture elements',
+                        type: TaxonomicFilterGroupType.Elements,
+                        options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
+                            name: option,
+                        })) as SimpleOption[],
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopupHeader: () => 'Autocapture Element',
+                    },
+                    {
+                        name: 'Event properties',
+                        searchPlaceholder: 'event properties',
+                        type: TaxonomicFilterGroupType.EventProperties,
+                        endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                            is_feature_flag: false,
+                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
+                        }).url,
+                        scopedEndpoint:
+                            eventNames.length > 0
+                                ? combineUrl(`api/projects/${teamId}/property_definitions`, {
+                                      event_names: eventNames,
+                                      is_feature_flag: false,
+                                      is_event_property: true,
+                                  }).url
+                                : undefined,
+                        expandLabel: ({ count, expandedCount }) =>
+                            `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
+                                eventNames.length,
+                                'has',
+                                'have',
+                                false
+                            )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
+                        getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                        getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                        excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventProperties],
+                        ...propertyTaxonomicGroupProps(),
+                    },
+                    {
+                        name: 'Feature flags',
+                        searchPlaceholder: 'feature flags',
+                        type: TaxonomicFilterGroupType.EventFeatureFlags,
+                        endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                            is_feature_flag: true,
+                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
+                        }).url,
+                        scopedEndpoint:
+                            eventNames.length > 0
+                                ? combineUrl(`api/projects/${teamId}/property_definitions`, {
+                                      event_names: eventNames,
+                                      is_feature_flag: true,
+                                      is_event_property: true,
+                                  }).url
+                                : undefined,
+                        expandLabel: ({ count, expandedCount }) =>
+                            `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
+                                eventNames.length,
+                                'has',
+                                'have',
+                                false
+                            )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
+                        getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                        getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                        excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventFeatureFlags],
+                        ...propertyTaxonomicGroupProps(),
+                    },
+                    {
+                        name: 'Numerical event properties',
+                        searchPlaceholder: 'numerical event properties',
+                        type: TaxonomicFilterGroupType.NumericalEventProperties,
+                        endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                            is_numerical: true,
+                            event_names: eventNames,
+                        }).url,
+                        getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                        getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                        ...propertyTaxonomicGroupProps(),
+                    },
+                    {
+                        name: 'Person properties',
+                        searchPlaceholder: 'person properties',
+                        type: TaxonomicFilterGroupType.PersonProperties,
+                        logic: personPropertiesModel,
+                        value: 'personProperties',
+                        getName: (personProperty: PersonProperty) => personProperty.name,
+                        getValue: (personProperty: PersonProperty) => personProperty.name,
+                        ...propertyTaxonomicGroupProps(true),
+                    },
+                    {
+                        name: 'Cohorts',
+                        searchPlaceholder: 'cohorts',
+                        type: TaxonomicFilterGroupType.Cohorts,
+                        logic: cohortsModel,
+                        value: 'cohorts',
+                        getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
+                        getValue: (cohort: CohortType) => cohort.id,
+                        getPopupHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
+                        getIcon: function _getIcon(): JSX.Element {
+                            return <CohortIcon className="taxonomy-icon taxonomy-icon-muted" />
+                        },
+                    },
+                    {
+                        name: 'Cohorts',
+                        searchPlaceholder: 'cohorts',
+                        type: TaxonomicFilterGroupType.CohortsWithAllUsers,
+                        logic: cohortsModel,
+                        value: 'cohortsWithAllUsers',
+                        getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
+                        getValue: (cohort: CohortType) => cohort.id,
+                        getPopupHeader: () => `All Users`,
+                        getIcon: function _getIcon(): JSX.Element {
+                            return <CohortIcon className="taxonomy-icon taxonomy-icon-muted" />
+                        },
+                    },
+                    {
+                        name: 'Pageview URLs',
+                        searchPlaceholder: 'pageview URLs',
+                        type: TaxonomicFilterGroupType.PageviewUrls,
+                        endpoint: `api/projects/${teamId}/events/values/?key=$current_url`,
+                        searchAlias: 'value',
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopupHeader: () => `Pageview URL`,
+                    },
+                    {
+                        name: 'Screens',
+                        searchPlaceholder: 'screens',
+                        type: TaxonomicFilterGroupType.Screens,
+                        endpoint: `api/projects/${teamId}/events/values/?key=$screen_name`,
+                        searchAlias: 'value',
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopupHeader: () => `Screen`,
+                    },
+                    {
+                        name: 'Custom Events',
+                        searchPlaceholder: 'custom events',
+                        type: TaxonomicFilterGroupType.CustomEvents,
+                        endpoint: combineUrl(`api/projects/${teamId}/event_definitions`, {
+                            event_type: EventDefinitionType.EventCustom,
+                        }).url,
+                        getName: (eventDefinition: EventDefinition) => eventDefinition.name,
+                        getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
+                        ...eventTaxonomicGroupProps,
+                    },
+                    {
+                        name: 'Wildcards',
+                        searchPlaceholder: 'wildcards',
+                        type: TaxonomicFilterGroupType.Wildcards,
+                        // Populated via optionsFromProp
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopupHeader: () => `Wildcard`,
+                    },
+                    {
+                        name: 'Persons',
+                        searchPlaceholder: 'persons',
+                        type: TaxonomicFilterGroupType.Persons,
+                        endpoint: `api/projects/${teamId}/persons/`,
+                        getName: (person: PersonType) => person.name || 'Anon user?',
+                        getValue: (person: PersonType) => person.distinct_ids[0],
+                        getPopupHeader: () => `Person`,
+                    },
+                    {
+                        name: 'Insights',
+                        searchPlaceholder: 'insights',
+                        type: TaxonomicFilterGroupType.Insights,
+                        endpoint: combineUrl(`api/projects/${teamId}/insights/`, {
+                            saved: true,
+                        }).url,
+                        getName: (insight: InsightModel) => insight.name,
+                        getValue: (insight: InsightModel) => insight.short_id,
+                        getPopupHeader: () => `Insights`,
+                    },
+                    {
+                        name: 'Feature Flags',
+                        searchPlaceholder: 'feature flags',
+                        type: TaxonomicFilterGroupType.FeatureFlags,
+                        logic: featureFlagsLogic,
+                        value: 'featureFlags',
+                        getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
+                        getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
+                        getPopupHeader: () => `Feature Flags`,
+                    },
+                    {
+                        name: 'Experiments',
+                        searchPlaceholder: 'experiments',
+                        type: TaxonomicFilterGroupType.Experiments,
+                        logic: experimentsLogic,
+                        value: 'experiments',
+                        getName: (experiment: Experiment) => experiment.name,
+                        getValue: (experiment: Experiment) => experiment.id,
+                        getPopupHeader: () => `Experiments`,
+                    },
+                    {
+                        name: 'Plugins',
+                        searchPlaceholder: 'plugins',
+                        type: TaxonomicFilterGroupType.Plugins,
+                        logic: pluginsLogic,
+                        value: 'allPossiblePlugins',
+                        getName: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
+                        getValue: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
+                        getPopupHeader: () => `Plugins`,
+                    },
+                    {
+                        name: 'Dashboards',
+                        searchPlaceholder: 'dashboards',
+                        type: TaxonomicFilterGroupType.Dashboards,
+                        logic: dashboardsModel,
+                        value: 'nameSortedDashboards',
+                        getName: (dashboard: DashboardType) => dashboard.name,
+                        getValue: (dashboard: DashboardType) => dashboard.id,
+                        getPopupHeader: () => `Dashboards`,
+                    },
+                    {
+                        name: 'Sessions',
+                        searchPlaceholder: 'sessions',
+                        type: TaxonomicFilterGroupType.Sessions,
+                        options: [
+                            {
+                                name: 'Session duration',
+                                value: '$session_duration',
+                            },
+                        ],
+                        getName: (option) => option.name,
+                        getValue: (option) => option.value,
+                        getPopupHeader: () => 'Session',
+                    },
+                    ...groupAnalyticsTaxonomicGroups,
+                    ...groupAnalyticsTaxonomicGroupNames,
+                ]
+            },
         ],
         activeTaxonomicGroup: [
             (s) => [s.activeTab, s.taxonomicGroups],
@@ -277,13 +424,30 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
                 groupTypes || taxonomicGroups.map((g) => g.type),
         ],
+        groupAnalyticsTaxonomicGroupNames: [
+            (selectors) => [selectors.groupTypes, selectors.currentTeamId, selectors.aggregationLabel],
+            (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
+                groupTypes.map((type) => ({
+                    name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).plural)}`,
+                    searchPlaceholder: `${aggregationLabel(type.group_type_index).plural}`,
+                    type: `${TaxonomicFilterGroupType.GroupNamesPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
+                    endpoint: combineUrl(`api/projects/${teamId}/groups/`, {
+                        group_type_index: type.group_type_index,
+                    }).url,
+                    searchAlias: 'group_key',
+                    getPopupHeader: () => `Group Names`,
+                    getName: (group: Group) => groupDisplayId(group.group_key, group.group_properties),
+                    getValue: (group: Group) => group.group_key,
+                    groupTypeIndex: type.group_type_index,
+                })),
+        ],
         groupAnalyticsTaxonomicGroups: [
             (selectors) => [selectors.groupTypes, selectors.currentTeamId, selectors.aggregationLabel],
             (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
                 groupTypes.map((type) => ({
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
                     searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
-                    type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as TaxonomicFilterGroupType,
+                    type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
                     logic: groupPropertiesModel,
                     value: `groupProperties_${type.group_type_index}`,
                     valuesEndpoint: (key) =>
@@ -291,7 +455,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                             key,
                             group_type_index: type.group_type_index,
                         })}`,
-                    getName: () => capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular),
+                    getName: (group) => group.name,
                     getValue: (group) => group.name,
                     getPopupHeader: () => `Property`,
                     getIcon: getPropertyDefinitionIcon,
@@ -300,7 +464,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         ],
         infiniteListLogics: [
             (s) => [s.taxonomicGroupTypes, (_, props) => props],
-            (taxonomicGroupTypes, props): Record<string, ReturnType<typeof infiniteListLogic.build>> =>
+            (taxonomicGroupTypes, props): Record<string, BuiltLogic<infiniteListLogicType>> =>
                 Object.fromEntries(
                     taxonomicGroupTypes.map((groupType) => [
                         groupType,
@@ -334,7 +498,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (allTaxonomicGroups, searchGroupTypes) => {
                 if (searchGroupTypes.length > 1) {
                     searchGroupTypes = searchGroupTypes.filter(
-                        (type) => !type.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
+                        (type) =>
+                            !type.startsWith(TaxonomicFilterGroupType.GroupsPrefix) &&
+                            !type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
                     )
                 }
                 const names = searchGroupTypes.map((type) => {
@@ -433,6 +599,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             // Open the next tab if no results on an active tab.
             if (groupType === values.activeTab && !results.count && !results.expandedCount) {
                 actions.tabRight()
+            }
+
+            // Update app-wide cached property metadata
+            if (
+                results.count > 0 &&
+                (groupType === TaxonomicFilterGroupType.EventProperties ||
+                    groupType === TaxonomicFilterGroupType.NumericalEventProperties)
+            ) {
+                updatePropertyDefinitions(results.results as PropertyDefinition[])
             }
         },
     }),

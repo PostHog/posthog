@@ -1,4 +1,4 @@
-@import '~/vars';
+@import '../../../styles/mixins';
 
 .resizable-table-scroll-container {
     max-width: 100%;
@@ -71,11 +71,11 @@
         transition: 0.2s border-color ease;
 
         &:hover {
-            border-color: $blue_300;
+            border-color: var(--blue-light);
         }
 
         &[data-drag-active='true'] {
-            border-color: $primary;
+            border-color: var(--primary);
         }
     }
 }

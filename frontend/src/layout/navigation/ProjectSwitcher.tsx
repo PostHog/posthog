@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
-import './ProjectSwitcher.scss'
 import { router } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import React from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -22,7 +21,7 @@ export function ProjectSwitcherOverlay(): JSX.Element {
     return (
         <div className="project-switcher-container">
             <h5>Projects</h5>
-            <LemonSpacer />
+            <LemonDivider />
             <CurrentProjectButton />
             {currentOrganization?.teams &&
                 currentOrganization.teams
@@ -61,21 +60,22 @@ function CurrentProjectButton(): JSX.Element | null {
     const { hideProjectSwitcher } = useActions(navigationLogic)
 
     return currentTeam ? (
-        <LemonRow
-            status="highlighted"
-            sideIcon={
-                <LemonButton
-                    onClick={() => {
-                        hideProjectSwitcher()
-                        push(urls.projectSettings())
-                    }}
-                    icon={<IconSettings style={{ color: 'var(--muted-alt)' }} />}
-                />
-            }
+        <LemonButtonWithSideAction
+            active
+            sideAction={{
+                icon: <IconSettings className="text-muted-alt" />,
+                tooltip: `Go to ${currentTeam.name} settings`,
+                onClick: () => {
+                    hideProjectSwitcher()
+                    push(urls.projectSettings())
+                },
+            }}
+            title={`Switch to project ${currentTeam.name}`}
+            status="stealth"
             fullWidth
         >
-            <strong style={{ paddingRight: 8 }}>{currentTeam.name}</strong>
-        </LemonRow>
+            {currentTeam.name}
+        </LemonButtonWithSideAction>
     ) : null
 }
 
@@ -90,7 +90,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                 updateCurrentTeam(team.id, '/')
             }}
             sideAction={{
-                icon: <IconSettings style={{ color: 'var(--muted-alt)' }} />,
+                icon: <IconSettings className="text-muted-alt" />,
                 tooltip: `Go to ${team.name} settings`,
                 onClick: () => {
                     hideProjectSwitcher()
@@ -98,11 +98,11 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                 },
             }}
             title={`Switch to project ${team.name}`}
-            type="stealth"
+            status="stealth"
             fullWidth
             disabled={!team.effective_membership_level}
         >
-            <span style={{ paddingRight: 8 }}>{team.name}</span>
+            {team.name}
         </LemonButtonWithSideAction>
     )
 }

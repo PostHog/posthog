@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { UserType } from '~/types'
-import { staffUsersLogicType } from './staffUsersLogicType'
+import type { staffUsersLogicType } from './staffUsersLogicType'
 
 export const staffUsersLogic = kea<staffUsersLogicType>({
     path: ['scenes', 'instance', 'SystemStatus', 'staffUsersLogic'],

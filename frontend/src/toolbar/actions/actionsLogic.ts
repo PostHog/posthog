@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { actionsLogicType } from './actionsLogicType'
+import type { actionsLogicType } from './actionsLogicType'
 import { ActionType } from '~/types'
 import Fuse from 'fuse.js'
 import { toolbarFetch } from '~/toolbar/utils'
@@ -22,7 +22,7 @@ export const actionsLogic = kea<actionsLogicType>({
         allActions: [
             [] as ActionType[],
             {
-                // eslint-disable-next-line
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 getActions: async (_ = null, breakpoint: () => void) => {
                     const response = await toolbarFetch('/api/projects/@current/actions/')
                     const results = await response.json()

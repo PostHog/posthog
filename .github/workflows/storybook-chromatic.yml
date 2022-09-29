@@ -5,7 +5,7 @@ on: pull_request
 jobs:
     storybook-chromatic:
         runs-on: ubuntu-latest
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
         steps:
             - uses: actions/checkout@v2
               with:

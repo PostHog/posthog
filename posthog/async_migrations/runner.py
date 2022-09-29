@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 
+import structlog
 from semantic_version.base import SimpleSpec
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
@@ -13,10 +14,12 @@ from posthog.async_migrations.utils import (
     execute_op,
     mark_async_migration_as_running,
     process_error,
+    send_analytics_to_posthog,
     trigger_migration,
     update_async_migration,
 )
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.utils import UUIDT
 from posthog.version_requirement import ServiceVersionRequirement
 
@@ -24,6 +27,8 @@ from posthog.version_requirement import ServiceVersionRequirement
 Important to prevent us taking up too many celery workers and also to enable running migrations sequentially
 """
 MAX_CONCURRENT_ASYNC_MIGRATIONS = 1
+
+logger = structlog.get_logger(__name__)
 
 
 def start_async_migration(
@@ -42,23 +47,42 @@ def start_async_migration(
     6. The migration's healthcheck passes
     7. The migration's dependency has been completed
     """
+    send_analytics_to_posthog("Async migration start", {"name": migration_name})
 
     migration_instance = AsyncMigration.objects.get(name=migration_name)
-    over_concurrent_migrations_limit = len(get_all_running_async_migrations()) >= MAX_CONCURRENT_ASYNC_MIGRATIONS
-    posthog_version_valid = ignore_posthog_version or is_posthog_version_compatible(
-        migration_instance.posthog_min_version, migration_instance.posthog_max_version
-    )
+    over_concurrent_migrations_limit = get_all_running_async_migrations().count() >= MAX_CONCURRENT_ASYNC_MIGRATIONS
 
     if (
         not migration_instance
         or over_concurrent_migrations_limit
-        or not posthog_version_valid
-        or migration_instance.status == MigrationStatus.Running
+        or migration_instance.status not in [MigrationStatus.Starting, MigrationStatus.NotStarted]
     ):
+        logger.error(f"Initial check failed for async migration {migration_name}")
+        return False
+
+    if not (
+        ignore_posthog_version
+        or is_posthog_version_compatible(migration_instance.posthog_min_version, migration_instance.posthog_max_version)
+    ):
+        process_error(
+            migration_instance,
+            f"Migration is not available on this PostHog version",
+            status=MigrationStatus.FailedAtStartup,
+            rollback=False,
+        )
         return False
 
     if migration_definition is None:
-        migration_definition = get_async_migration_definition(migration_name)
+        try:
+            migration_definition = get_async_migration_definition(migration_name)
+        except LookupError:
+            process_error(
+                migration_instance,
+                f"Migration definition not available",
+                status=MigrationStatus.FailedAtStartup,
+                rollback=False,
+            )
+            return False
 
     if not migration_definition.is_required():
         complete_migration(migration_instance, email=False)
@@ -90,7 +114,10 @@ def start_async_migration(
         )
         return False
 
-    mark_async_migration_as_running(migration_instance)
+    if not mark_async_migration_as_running(migration_instance):
+        # we don't want to touch the migration, i.e. don't process_error
+        logger.error(f"Migration state has unexpectedly changed for async migration {migration_name}")
+        return False
 
     return run_async_migration_operations(migration_name, migration_instance)
 
@@ -125,6 +152,11 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
 
     migration_definition = get_async_migration_definition(migration_name)
     if migration_instance.current_operation_index > len(migration_definition.operations) - 1:
+        logger.info(
+            "Marking async migration as complete",
+            migration=migration_name,
+            current_operation_index=migration_instance.current_operation_index,
+        )
         complete_migration(migration_instance)
         return (False, True)
 
@@ -132,6 +164,11 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
     current_query_id = str(UUIDT())
 
     try:
+        logger.info(
+            "Running async migration operation",
+            migration=migration_name,
+            current_operation_index=migration_instance.current_operation_index,
+        )
         op = migration_definition.operations[migration_instance.current_operation_index]
 
         execute_op(op, current_query_id)
@@ -143,6 +180,12 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
 
     except Exception as e:
         error = f"Exception was thrown while running operation {migration_instance.current_operation_index} : {str(e)}"
+        logger.error(
+            "Error running async migration operation",
+            migration=migration_name,
+            current_operation_index=migration_instance.current_operation_index,
+            error=e,
+        )
         process_error(migration_instance, error, alert=True)
 
     if error:
@@ -168,7 +211,7 @@ def update_migration_progress(migration_instance: AsyncMigration):
 
     migration_instance.refresh_from_db()
     try:
-        progress = get_async_migration_definition(migration_instance.name).progress(migration_instance)  # type: ignore
+        progress = get_async_migration_definition(migration_instance.name).progress(migration_instance)
         update_async_migration(migration_instance=migration_instance, progress=progress)
     except:
         pass
@@ -199,11 +242,15 @@ def attempt_migration_rollback(migration_instance: AsyncMigration):
 
             return
 
-    update_async_migration(migration_instance=migration_instance, status=MigrationStatus.RolledBack, progress=0)
+    update_async_migration(
+        migration_instance=migration_instance, status=MigrationStatus.RolledBack, progress=0, current_operation_index=0
+    )
 
 
 def is_posthog_version_compatible(posthog_min_version, posthog_max_version):
-    return POSTHOG_VERSION in SimpleSpec(f">={posthog_min_version},<={posthog_max_version}")
+    return get_instance_setting("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION") or POSTHOG_VERSION in SimpleSpec(
+        f">={posthog_min_version},<={posthog_max_version}"
+    )
 
 
 def run_next_migration(candidate: str):

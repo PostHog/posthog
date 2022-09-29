@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, dateFilterToText, Loading } from 'lib/utils'
+import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import {
@@ -17,6 +17,7 @@ import {
     ChartDisplayType,
     ChartParams,
     DashboardType,
+    ExporterFormat,
     FilterType,
     InsightColor,
     InsightLogicProps,
@@ -26,11 +27,10 @@ import {
 import { Splotch, SplotchColor } from '../icons/Splotch'
 import { LemonButton, LemonButtonWithPopup } from '../LemonButton'
 import { More } from '../LemonButton/More'
-import { LemonSpacer } from '../LemonRow'
+import { LemonDivider } from '../LemonDivider'
 import { Link } from '../Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from './handles'
-import { LastModified } from './LastModified'
 import './InsightCard.scss'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconSubtitles, IconSubtitlesOff } from '../icons'
@@ -40,7 +40,7 @@ import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
-import { DashboardInsightsTable } from 'scenes/insights/InsightsTable/InsightsTable'
+import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
@@ -49,9 +49,15 @@ import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { WorldMap } from 'scenes/insights/views/WorldMap'
+import { AlertMessage } from '../AlertMessage'
+import { UserActivityIndicator } from '../UserActivityIndicator/UserActivityIndicator'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { BoldNumber } from 'scenes/insights/views/BoldNumber'
+import { SpinnerOverlay } from '../Spinner/Spinner'
 
 // TODO: Add support for Retention to InsightDetails
-const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
+export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer'
 
@@ -98,6 +104,14 @@ const displayMap: Record<
         className: 'paths-viz',
         element: Paths,
     },
+    WorldMap: {
+        className: 'world-map',
+        element: WorldMap,
+    },
+    BoldNumber: {
+        className: 'bold-number',
+        element: BoldNumber,
+    },
 }
 
 function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
@@ -115,6 +129,8 @@ function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
     insight: InsightModel
+    /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
+    dashboardId?: DashboardType['id']
     /** Whether the insight is loading. */
     loading?: boolean
     /** Whether an error occurred on the server. */
@@ -124,15 +140,20 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Whether loading timed out. */
     timedOut?: boolean
     showResizeHandles?: boolean
+    canResizeWidth?: boolean
+    /** Whether the editing controls should be enabled or not. */
+    showEditingControls?: boolean
+    /** Whether the  controls for showing details should be enabled or not. */
+    showDetailsControls?: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
     updateColor?: (newColor: InsightModel['color']) => void
     removeFromDashboard?: () => void
     deleteWithUndo?: () => void
     refresh?: () => void
-    rename: () => void
-    duplicate: () => void
-    moveToDashboard?: (dashboardId: DashboardType['id']) => void
+    rename?: () => void
+    duplicate?: () => void
+    moveToDashboard?: (dashboard: DashboardType) => void
 }
 
 interface InsightMetaProps
@@ -146,6 +167,8 @@ interface InsightMetaProps
         | 'rename'
         | 'duplicate'
         | 'moveToDashboard'
+        | 'showEditingControls'
+        | 'showDetailsControls'
     > {
     /**
      * Optional callback to update height of the primary InsightMeta div. Allow for coordinating InsightViz height
@@ -168,15 +191,19 @@ function InsightMeta({
     setPrimaryHeight,
     areDetailsShown,
     setAreDetailsShown,
+    showEditingControls = true,
+    showDetailsControls = true,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, description, tags, color, filters, dashboard } = insight
-
+    const { short_id, name, description, tags, color, filters, dashboards } = insight
+    const { exporterResourceParams, insightProps } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboard)
+    const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
+        (d: DashboardType) => !dashboards?.includes(d.id)
+    )
 
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -191,20 +218,20 @@ function InsightMeta({
     const showDetailsButtonLabel = !!primaryWidth && primaryWidth > 480
 
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+    const foldedHeight = `calc(${primaryHeight}px + 2rem /* margins */ + 1px /* border */)`
+    const unfoldedHeight = `calc(${primaryHeight}px + ${
+        detailsHeight || 0
+    }px + 3.5rem /* margins */ + 3px /* border and spacer */)`
     const transitionStyles = primaryHeight
         ? {
               entering: {
-                  height: `calc(${primaryHeight}px + ${
-                      detailsHeight || 0
-                  }px + 3.5rem /* margins */ + 2px /* border and spacer */)`,
+                  height: unfoldedHeight,
               },
               entered: {
-                  height: `calc(${primaryHeight}px + ${
-                      detailsHeight || 0
-                  }px + 3.5rem /* margins */ + 2px /* border and spacer */)`,
+                  height: unfoldedHeight,
               },
-              exiting: { height: `calc(${primaryHeight}px + 2rem /* margins */ + 1px /* border */)` },
-              exited: { height: `calc(${primaryHeight}px + 2rem /* margins */ + 1px /* border */)` },
+              exiting: { height: foldedHeight },
+              exited: { height: foldedHeight },
           }
         : {}
 
@@ -231,143 +258,169 @@ function InsightMeta({
                                     • {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
                                 </h5>
                                 <div className="InsightMeta__controls">
-                                    {areDetailsSupported && setAreDetailsShown && (
+                                    {areDetailsSupported && showDetailsControls && setAreDetailsShown && (
                                         <LemonButton
                                             icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
                                             onClick={() => setAreDetailsShown((state) => !state)}
                                             type="tertiary"
-                                            compact={showDetailsButtonLabel}
+                                            status="primary-alt"
+                                            size={showDetailsButtonLabel ? 'small' : undefined}
                                         >
                                             {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                         </LemonButton>
                                     )}
-                                    <More
-                                        overlay={
-                                            <>
-                                                <LemonButton type="stealth" to={urls.insightView(short_id)} fullWidth>
-                                                    View
-                                                </LemonButton>
-                                                {refresh && (
+                                    {showEditingControls && (
+                                        <More
+                                            overlay={
+                                                <>
                                                     <LemonButton
-                                                        type="stealth"
-                                                        onClick={() => {
-                                                            refresh()
-                                                            reportDashboardItemRefreshed(insight)
-                                                        }}
+                                                        status="stealth"
+                                                        to={urls.insightView(short_id)}
                                                         fullWidth
                                                     >
-                                                        Refresh
+                                                        View
                                                     </LemonButton>
-                                                )}
-                                                {editable && updateColor && (
-                                                    <LemonButtonWithPopup
-                                                        type="stealth"
-                                                        popup={{
-                                                            overlay: Object.values(InsightColor).map(
-                                                                (availableColor) => (
+                                                    {refresh && (
+                                                        <LemonButton
+                                                            status="stealth"
+                                                            onClick={() => {
+                                                                refresh()
+                                                                reportDashboardItemRefreshed(insight)
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            Refresh
+                                                        </LemonButton>
+                                                    )}
+                                                    {editable && updateColor && (
+                                                        <LemonButtonWithPopup
+                                                            status="stealth"
+                                                            popup={{
+                                                                overlay: Object.values(InsightColor).map(
+                                                                    (availableColor) => (
+                                                                        <LemonButton
+                                                                            key={availableColor}
+                                                                            active={
+                                                                                availableColor ===
+                                                                                (color || InsightColor.White)
+                                                                            }
+                                                                            status="stealth"
+                                                                            onClick={() => updateColor(availableColor)}
+                                                                            icon={
+                                                                                availableColor !==
+                                                                                InsightColor.White ? (
+                                                                                    <Splotch
+                                                                                        color={
+                                                                                            availableColor as string as SplotchColor
+                                                                                        }
+                                                                                    />
+                                                                                ) : null
+                                                                            }
+                                                                            fullWidth
+                                                                        >
+                                                                            {availableColor !== InsightColor.White
+                                                                                ? capitalizeFirstLetter(availableColor)
+                                                                                : 'No color'}
+                                                                        </LemonButton>
+                                                                    )
+                                                                ),
+                                                                placement: 'right-start',
+                                                                fallbackPlacements: ['left-start'],
+                                                                actionable: true,
+                                                                closeParentPopupOnClickInside: true,
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            Set color
+                                                        </LemonButtonWithPopup>
+                                                    )}
+                                                    {editable && moveToDashboard && otherDashboards.length > 0 && (
+                                                        <LemonButtonWithPopup
+                                                            status="stealth"
+                                                            popup={{
+                                                                overlay: otherDashboards.map((otherDashboard) => (
                                                                     <LemonButton
-                                                                        key={availableColor}
-                                                                        type={
-                                                                            availableColor ===
-                                                                            (color || InsightColor.White)
-                                                                                ? 'highlighted'
-                                                                                : 'stealth'
-                                                                        }
-                                                                        onClick={() => updateColor(availableColor)}
-                                                                        icon={
-                                                                            availableColor !== InsightColor.White ? (
-                                                                                <Splotch
-                                                                                    color={
-                                                                                        availableColor as string as SplotchColor
-                                                                                    }
-                                                                                />
-                                                                            ) : null
-                                                                        }
+                                                                        key={otherDashboard.id}
+                                                                        status="stealth"
+                                                                        onClick={() => {
+                                                                            moveToDashboard(otherDashboard)
+                                                                        }}
                                                                         fullWidth
                                                                     >
-                                                                        {availableColor !== InsightColor.White
-                                                                            ? capitalizeFirstLetter(availableColor)
-                                                                            : 'No color'}
+                                                                        {otherDashboard.name || <i>Untitled</i>}
                                                                     </LemonButton>
-                                                                )
-                                                            ),
-                                                            placement: 'right-start',
-                                                            fallbackPlacements: ['left-start'],
-                                                            actionable: true,
-                                                        }}
-                                                        fullWidth
-                                                    >
-                                                        Set color
-                                                    </LemonButtonWithPopup>
-                                                )}
-                                                {editable && moveToDashboard && otherDashboards.length > 0 && (
-                                                    <LemonButtonWithPopup
-                                                        type="stealth"
-                                                        popup={{
-                                                            overlay: otherDashboards.map((otherDashboard) => (
+                                                                )),
+                                                                placement: 'right-start',
+                                                                fallbackPlacements: ['left-start'],
+                                                                actionable: true,
+                                                                closeParentPopupOnClickInside: true,
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            Move to
+                                                        </LemonButtonWithPopup>
+                                                    )}
+                                                    <LemonDivider />
+                                                    {editable && (
+                                                        <LemonButton
+                                                            status="stealth"
+                                                            to={urls.insightEdit(short_id)}
+                                                            fullWidth
+                                                        >
+                                                            Edit
+                                                        </LemonButton>
+                                                    )}
+                                                    {editable && (
+                                                        <LemonButton status="stealth" onClick={rename} fullWidth>
+                                                            Rename
+                                                        </LemonButton>
+                                                    )}
+                                                    <LemonButton status="stealth" onClick={duplicate} fullWidth>
+                                                        Duplicate
+                                                    </LemonButton>
+                                                    <LemonDivider />
+                                                    {exporterResourceParams ? (
+                                                        <ExportButton
+                                                            fullWidth
+                                                            items={[
+                                                                {
+                                                                    export_format: ExporterFormat.PNG,
+                                                                    insight: insight.id,
+                                                                    dashboard: insightProps.dashboardId,
+                                                                },
+                                                                {
+                                                                    export_format: ExporterFormat.CSV,
+                                                                    export_context: exporterResourceParams,
+                                                                },
+                                                            ]}
+                                                        />
+                                                    ) : null}
+                                                    {editable && (
+                                                        <>
+                                                            <LemonDivider />
+                                                            {removeFromDashboard ? (
                                                                 <LemonButton
-                                                                    key={otherDashboard.id}
-                                                                    type="stealth"
-                                                                    onClick={() => moveToDashboard(otherDashboard.id)}
+                                                                    status="danger"
+                                                                    onClick={removeFromDashboard}
                                                                     fullWidth
                                                                 >
-                                                                    {otherDashboard.name || <i>Untitled</i>}
+                                                                    Remove from dashboard
                                                                 </LemonButton>
-                                                            )),
-                                                            placement: 'right-start',
-                                                            fallbackPlacements: ['left-start'],
-                                                            actionable: true,
-                                                        }}
-                                                        fullWidth
-                                                    >
-                                                        Move to
-                                                    </LemonButtonWithPopup>
-                                                )}
-                                                <LemonSpacer />
-                                                {editable && (
-                                                    <LemonButton
-                                                        type="stealth"
-                                                        to={urls.insightEdit(short_id)}
-                                                        fullWidth
-                                                    >
-                                                        Edit
-                                                    </LemonButton>
-                                                )}
-                                                {editable && (
-                                                    <LemonButton type="stealth" onClick={rename} fullWidth>
-                                                        Rename
-                                                    </LemonButton>
-                                                )}
-                                                <LemonButton type="stealth" onClick={duplicate} fullWidth>
-                                                    Duplicate
-                                                </LemonButton>
-                                                {editable && (
-                                                    <>
-                                                        <LemonSpacer />
-                                                        {removeFromDashboard ? (
-                                                            <LemonButton
-                                                                type="stealth"
-                                                                status="danger"
-                                                                onClick={removeFromDashboard}
-                                                                fullWidth
-                                                            >
-                                                                Remove from dashboard
-                                                            </LemonButton>
-                                                        ) : (
-                                                            <LemonButton
-                                                                type="stealth"
-                                                                status="danger"
-                                                                onClick={deleteWithUndo}
-                                                                fullWidth
-                                                            >
-                                                                Delete insight
-                                                            </LemonButton>
-                                                        )}
-                                                    </>
-                                                )}
-                                            </>
-                                        }
-                                    />
+                                                            ) : (
+                                                                <LemonButton
+                                                                    status="danger"
+                                                                    onClick={deleteWithUndo}
+                                                                    fullWidth
+                                                                >
+                                                                    Delete insight
+                                                                </LemonButton>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </>
+                                            }
+                                        />
+                                    )}
                                 </div>
                             </div>
                             <Link to={urls.insightView(short_id)}>
@@ -386,10 +439,10 @@ function InsightMeta({
                             </Link>
                             <div className="InsightMeta__description">{description || <i>No description</i>}</div>
                             {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
-                            <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
+                            <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
                         </div>
                     </div>
-                    <LemonSpacer />
+                    <LemonDivider />
                     <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
                         <InsightDetails insight={insight} ref={detailsRef} />
                     </Transition>
@@ -399,14 +452,19 @@ function InsightMeta({
     )
 }
 
-interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
+function VizComponentFallback(): JSX.Element {
+    return <AlertMessage type="warning">Unknown insight display type</AlertMessage>
+}
+
+export interface InsightVizProps
+    extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     tooFewFunnelSteps?: boolean
     invalidFunnelExclusion?: boolean
     empty?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
-function InsightViz({
+export function InsightViz({
     insight,
     loading,
     setAreDetailsShown,
@@ -418,7 +476,20 @@ function InsightViz({
     invalidFunnelExclusion,
 }: InsightVizProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
-    const VizComponent = displayMap[displayedType].element
+    const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
+
+    useEffect(() => {
+        // If displaying a BoldNumber Trends insight, we need to fire the window resize event
+        // Without this, the value is only autosized before `metaPrimaryHeight` is determined, so it's wrong
+        // With this, autosizing runs again after `metaPrimaryHeight` is ready
+        if (
+            // `display` should be ignored in non-Trends insight
+            (!!insight.filters.insight || insight.filters.insight === InsightType.TRENDS) &&
+            insight.filters.display === ChartDisplayType.BoldNumber
+        ) {
+            window.dispatchEvent(new Event('resize'))
+        }
+    }, [style?.height])
 
     return (
         <div
@@ -432,7 +503,7 @@ function InsightViz({
                     : undefined
             }
         >
-            {loading && !timedOut && <Loading />}
+            {loading && !timedOut && <SpinnerOverlay />}
             {tooFewFunnelSteps ? (
                 <FunnelSingleStepState actionable={false} />
             ) : invalidFunnelExclusion ? (
@@ -453,11 +524,15 @@ function InsightViz({
 function InsightCardInternal(
     {
         insight,
+        dashboardId,
         loading,
         apiErrored,
         timedOut,
         highlighted,
         showResizeHandles,
+        canResizeWidth,
+        showEditingControls,
+        showDetailsControls,
         updateColor,
         removeFromDashboard,
         deleteWithUndo,
@@ -473,6 +548,7 @@ function InsightCardInternal(
 ): JSX.Element {
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
+        dashboardId: dashboardId,
         cachedInsight: insight,
         doNotLoad: true,
     }
@@ -526,6 +602,8 @@ function InsightCardInternal(
                     setPrimaryHeight={setMetaPrimaryHeight}
                     areDetailsShown={areDetailsShown}
                     setAreDetailsShown={setAreDetailsShown}
+                    showEditingControls={showEditingControls}
+                    showDetailsControls={showDetailsControls}
                 />
                 <InsightViz
                     insight={insight}
@@ -545,9 +623,9 @@ function InsightCardInternal(
             </BindLogic>
             {showResizeHandles && (
                 <>
-                    <ResizeHandle1D orientation="vertical" />
+                    {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
                     <ResizeHandle1D orientation="horizontal" />
-                    <ResizeHandle2D />
+                    {canResizeWidth ? <ResizeHandle2D /> : null}
                 </>
             )}
             {children /* Extras, such as resize handles */}

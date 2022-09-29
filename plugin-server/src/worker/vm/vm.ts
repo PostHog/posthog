@@ -8,7 +8,6 @@ import { createConsole } from './extensions/console'
 import { createGeoIp } from './extensions/geoip'
 import { createGoogle } from './extensions/google'
 import { createJobs } from './extensions/jobs'
-import { createMetrics, setupMetrics } from './extensions/metrics'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
 import { createUtils } from './extensions/utilities'
@@ -16,14 +15,17 @@ import { imports } from './imports'
 import { transformCode } from './transforms'
 import { upgradeExportEvents } from './upgrades/export-events'
 import { addHistoricalEventsExportCapability } from './upgrades/historical-export/export-historical-events'
+import { addHistoricalEventsExportCapabilityV2 } from './upgrades/historical-export/export-historical-events-v2'
 
-export class TimeoutError extends Error {
+export class TimeoutError extends RetryError {
     name = 'TimeoutError'
     caller?: string = undefined
+    pluginConfig?: PluginConfig = undefined
 
-    constructor(message: string, caller?: string) {
+    constructor(message: string, caller?: string, pluginConfig?: PluginConfig) {
         super(message)
         this.caller = caller
+        this.pluginConfig = pluginConfig
     }
 }
 
@@ -80,8 +82,8 @@ export function createPluginConfigVM(
                 setTimeout(() => {
                     const message = `Script execution timed out after promise waited for ${timeout} second${
                         timeout === 1 ? '' : 's'
-                    }`
-                    reject(new TimeoutError(message, `${name}`))
+                    } (${pluginConfig.plugin?.name}, name: ${name}, pluginConfigId: ${pluginConfig.id})`
+                    reject(new TimeoutError(message, `${name}`, pluginConfig))
                 }, timeout * 1000)
             ),
         ])
@@ -97,7 +99,6 @@ export function createPluginConfigVM(
             storage: createStorage(hub, pluginConfig),
             geoip: createGeoIp(hub),
             jobs: createJobs(hub, pluginConfig),
-            metrics: createMetrics(hub, pluginConfig),
             utils: createUtils(hub, pluginConfig.id),
         },
         '__pluginHostMeta'
@@ -181,17 +182,14 @@ export function createPluginConfigVM(
                 teardownPlugin: __asyncFunctionGuard(__bindMeta('teardownPlugin'), 'teardownPlugin'),
                 exportEvents: __asyncFunctionGuard(__bindMeta('exportEvents'), 'exportEvents'),
                 onEvent: __asyncFunctionGuard(__bindMeta('onEvent'), 'onEvent'),
-                onAction: __asyncFunctionGuard(__bindMeta('onAction'), 'onAction'),
                 onSnapshot: __asyncFunctionGuard(__bindMeta('onSnapshot'), 'onSnapshot'),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent'), 'processEvent'),
-                handleAlert: __asyncFunctionGuard(__bindMeta('handleAlert'), 'handleAlert'),
             };
 
             const __tasks = {
                 schedule: {},
                 job: {},
             };
-            const __metrics = {}
 
             for (const exportDestination of exportDestinations.reverse()) {
                 // gather the runEveryX commands and export in __tasks
@@ -216,33 +214,28 @@ export function createPluginConfigVM(
                     }
                 }
 
-                if (typeof exportDestination['metrics'] === 'object') {
-                    for (const [key, value] of Object.entries(exportDestination['metrics'])) {
-                        if (typeof value === 'string') {
-                            __metrics[key] = value.toLowerCase()
-                        }
-                    }
-                }
 
             }
 
-            ${responseVar} = { methods: __methods, tasks: __tasks, meta: __pluginMeta, metrics: __metrics, }
+            ${responseVar} = { methods: __methods, tasks: __tasks, meta: __pluginMeta, }
         })
     `)(asyncGuard)
 
     const vmResponse = vm.run(responseVar)
-    const { methods, tasks, metrics } = vmResponse
+    const { methods, tasks } = vmResponse
     const exportEventsExists = !!methods.exportEvents
 
     if (exportEventsExists) {
         upgradeExportEvents(hub, pluginConfig, vmResponse)
         statsdTiming('vm_setup_sync_section')
-        addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+
+        if (hub.HISTORICAL_EXPORTS_ENABLED) {
+            addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+            addHistoricalEventsExportCapabilityV2(hub, pluginConfig, vmResponse)
+        }
     } else {
         statsdTiming('vm_setup_sync_section')
     }
-
-    setupMetrics(hub, pluginConfig, metrics, exportEventsExists)
 
     statsdTiming('vm_setup_full')
 

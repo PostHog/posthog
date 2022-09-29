@@ -2,8 +2,9 @@ import hashlib
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
+import structlog
 from dateutil import parser
 from django.conf import settings
 from django.http import JsonResponse
@@ -14,15 +15,24 @@ from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
-from ee.kafka_client.client import KafkaProducer
-from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
-from ee.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
-from posthog.api.utils import EventIngestionContext, get_data, get_event_ingestion_context, get_token
+from posthog.api.utils import (
+    EventIngestionContext,
+    get_data,
+    get_event_ingestion_context,
+    get_token,
+    safe_clickhouse_string,
+)
 from posthog.exceptions import generate_exception_response
-from posthog.helpers.session_recording import preprocess_session_recording_events
-from posthog.models.feature_flag import get_overridden_feature_flags
+from posthog.helpers.session_recording import preprocess_session_recording_events_for_clickhouse
+from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
+from posthog.logging.timing import timed
+from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
+from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
+
+logger = structlog.get_logger(__name__)
 
 
 def parse_kafka_event_data(
@@ -37,9 +47,9 @@ def parse_kafka_event_data(
 ) -> Dict:
     return {
         "uuid": str(event_uuid),
-        "distinct_id": distinct_id,
-        "ip": ip,
-        "site_url": site_url,
+        "distinct_id": safe_clickhouse_string(distinct_id),
+        "ip": safe_clickhouse_string(ip) if ip else ip,
+        "site_url": safe_clickhouse_string(site_url),
         "data": json.dumps(data),
         "team_id": team_id,
         "now": now.isoformat(),
@@ -72,11 +82,11 @@ def log_event_to_dead_letter_queue(
     data = event.copy()
 
     data["error_timestamp"] = datetime.now().isoformat()
-    data["error_location"] = error_location
-    data["error"] = error_message
+    data["error_location"] = safe_clickhouse_string(error_location)
+    data["error"] = safe_clickhouse_string(error_message)
     data["elements_chain"] = ""
     data["id"] = str(UUIDT())
-    data["event"] = event_name
+    data["event"] = safe_clickhouse_string(event_name)
     data["raw_payload"] = json.dumps(raw_payload)
     data["now"] = datetime.fromisoformat(data["now"]).replace(tzinfo=None).isoformat() if data["now"] else None
     data["tags"] = ["django_server"]
@@ -103,23 +113,36 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
     return datetime.fromtimestamp(timestamp_number, timezone.utc)
 
 
-def _get_sent_at(data, request) -> Optional[datetime]:
-    if request.GET.get("_"):  # posthog-js
-        sent_at = request.GET["_"]
-    elif isinstance(data, dict) and data.get("sent_at"):  # posthog-android, posthog-ios
-        sent_at = data["sent_at"]
-    elif request.POST.get("sent_at"):  # when urlencoded body and not JSON (in some test)
-        sent_at = request.POST["sent_at"]
-    else:
-        return None
+def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
+    try:
+        if request.GET.get("_"):  # posthog-js
+            sent_at = request.GET["_"]
+        elif isinstance(data, dict) and data.get("sent_at"):  # posthog-android, posthog-ios
+            sent_at = data["sent_at"]
+        elif request.POST.get("sent_at"):  # when urlencoded body and not JSON (in some test)
+            sent_at = request.POST["sent_at"]
+        else:
+            return None, None
 
-    if re.match(r"^[0-9]+$", sent_at):
-        return _datetime_from_seconds_or_millis(sent_at)
+        if re.match(r"^\d+(?:\.\d+)?$", sent_at):
+            return _datetime_from_seconds_or_millis(sent_at), None
 
-    return parser.isoparse(sent_at)
+        return parser.isoparse(sent_at), None
+    except Exception as error:
+        statsd.incr("capture_endpoint_invalid_sent_at")
+        logger.exception(f"Invalid sent_at value", error=error)
+        return (
+            None,
+            cors_response(
+                request,
+                generate_exception_response(
+                    "capture", f"Malformed request data, invalid sent at: {error}", code="invalid_payload"
+                ),
+            ),
+        )
 
 
-def _get_distinct_id(data: Dict[str, Any]) -> str:
+def get_distinct_id(data: Dict[str, Any]) -> str:
     raw_value: Any = ""
     try:
         raw_value = data["$distinct_id"]
@@ -127,9 +150,16 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
         try:
             raw_value = data["properties"]["distinct_id"]
         except KeyError:
-            raw_value = data["distinct_id"]
+            try:
+                raw_value = data["distinct_id"]
+            except KeyError:
+                statsd.incr("invalid_event", tags={"error": "missing_distinct_id"})
+                raise ValueError('All events must have the event field "distinct_id"!')
+        except TypeError:
+            raise ValueError(f'Properties must be a JSON object, received {type(data["properties"]).__name__}!')
     if not raw_value:
-        raise ValueError()
+        statsd.incr("invalid_event", tags={"error": "invalid_distinct_id"})
+        raise ValueError('Event field "distinct_id" should not be blank!')
     return str(raw_value)[0:200]
 
 
@@ -138,15 +168,19 @@ def _ensure_web_feature_flags_in_properties(
 ):
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
     if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
-        flags = get_overridden_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
+        flags, _ = get_active_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
         event["properties"]["$active_feature_flags"] = list(flags.keys())
         for k, v in flags.items():
             event["properties"][f"$feature/{k}"] = v
 
 
 @csrf_exempt
+@timed("posthog_cloud_event_endpoint")
 def get_event(request):
-    timer = statsd.timer("posthog_cloud_event_endpoint").start()
+    # handle cors request
+    if request.method == "OPTIONS":
+        return cors_response(request, JsonResponse({"status": 1}))
+
     now = timezone.now()
 
     data, error_response = get_data(request)
@@ -154,7 +188,10 @@ def get_event(request):
     if error_response:
         return error_response
 
-    sent_at = _get_sent_at(data, request)
+    sent_at, error_response = _get_sent_at(data, request)
+
+    if error_response:
+        return error_response
 
     token = get_token(data, request)
 
@@ -192,7 +229,7 @@ def get_event(request):
         events = [data]
 
     try:
-        events = preprocess_session_recording_events(events)
+        events = preprocess_session_recording_events_for_clickhouse(events)
     except ValueError as e:
         return cors_response(
             request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
@@ -201,23 +238,15 @@ def get_event(request):
     site_url = request.build_absolute_uri("/")[:-1]
 
     ip = None if not ingestion_context or ingestion_context.anonymize_ips else get_ip_address(request)
-    for event in events:
-        event_uuid = UUIDT()
-        distinct_id = get_distinct_id(event)
-        if not distinct_id:
-            continue
 
-        payload_uuid = event.get("uuid", None)
-        if payload_uuid:
-            if UUIDT.is_valid_uuid(payload_uuid):
-                event_uuid = UUIDT(uuid_str=payload_uuid)
-            else:
-                statsd.incr("invalid_event_uuid")
+    try:
+        processed_events = list(validate_events(events, ingestion_context))
+    except ValueError as e:
+        return cors_response(
+            request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
+        )
 
-        event = parse_event(event, distinct_id, ingestion_context)
-        if not event:
-            continue
-
+    for event, event_uuid, distinct_id in processed_events:
         if send_events_to_dead_letter_queue:
             kafka_event = parse_kafka_event_data(
                 distinct_id=distinct_id,
@@ -242,11 +271,8 @@ def get_event(request):
         try:
             capture_internal(event, distinct_id, ip, site_url, now, sent_at, ingestion_context.team_id, event_uuid)  # type: ignore
         except Exception as e:
-            timer.stop()
             capture_exception(e, {"data": data})
-            statsd.incr(
-                "posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture",},
-            )
+            statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
             return cors_response(
                 request,
                 generate_exception_response(
@@ -258,11 +284,27 @@ def get_event(request):
                 ),
             )
 
-    timer.stop()
-    statsd.incr(
-        "posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
-    )
+    statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))
+
+
+def validate_events(events, ingestion_context):
+    for event in events:
+        event_uuid = UUIDT()
+        distinct_id = get_distinct_id(event)
+        payload_uuid = event.get("uuid", None)
+        if payload_uuid:
+            if UUIDT.is_valid_uuid(payload_uuid):
+                event_uuid = UUIDT(uuid_str=payload_uuid)
+            else:
+                statsd.incr("invalid_event_uuid")
+                raise ValueError('Event field "uuid" is not a valid UUID!')
+
+        event = parse_event(event, distinct_id, ingestion_context)
+        if not event:
+            continue
+
+        yield event, event_uuid, distinct_id
 
 
 def parse_event(event, distinct_id, ingestion_context):
@@ -281,19 +323,6 @@ def parse_event(event, distinct_id, ingestion_context):
         _ensure_web_feature_flags_in_properties(event, ingestion_context, distinct_id)
 
     return event
-
-
-def get_distinct_id(event):
-    try:
-        distinct_id = _get_distinct_id(event)
-    except KeyError:
-        statsd.incr("invalid_event", tags={"error": "missing_distinct_id"})
-        return
-    except ValueError:
-        statsd.incr("invalid_event", tags={"error": "invalid_distinct_id"})
-        return
-
-    return distinct_id
 
 
 def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=UUIDT()) -> None:

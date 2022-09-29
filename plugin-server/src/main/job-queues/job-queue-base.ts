@@ -1,16 +1,18 @@
-import { EnqueuedJob, JobQueue, OnJobCallback, PluginsServerConfig } from '../../types'
+import { TaskList } from 'graphile-worker'
+
+import { EnqueuedJob, JobQueue } from '../../types'
 
 export class JobQueueBase implements JobQueue {
     started: boolean
     paused: boolean
-    onJob: OnJobCallback | null
+    jobHandlers: TaskList
     timeout: NodeJS.Timeout | null
     intervalSeconds: number
 
     constructor() {
         this.started = false
         this.paused = false
-        this.onJob = null
+        this.jobHandlers = {}
         this.timeout = null
         this.intervalSeconds = 10
     }
@@ -21,9 +23,9 @@ export class JobQueueBase implements JobQueue {
         throw new Error('connectProducer() not implemented for job queue!')
     }
 
-    enqueue(retry: EnqueuedJob): void
-    // eslint-disable-next-line @typescript-eslint/require-await
-    async enqueue(retry: EnqueuedJob): Promise<void> {
+    enqueue(jobName: string, job: EnqueuedJob): void
+    // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+    async enqueue(jobName: string, job: EnqueuedJob): Promise<void> {
         throw new Error('enqueue() not implemented for job queue!')
     }
 
@@ -33,10 +35,9 @@ export class JobQueueBase implements JobQueue {
         throw new Error('disconnectProducer() not implemented for job queue!')
     }
 
-    startConsumer(onJob: OnJobCallback): void
-    // eslint-disable-next-line @typescript-eslint/require-await
-    async startConsumer(onJob: OnJobCallback): Promise<void> {
-        this.onJob = onJob
+    startConsumer(jobHandlers: TaskList): void
+    async startConsumer(jobHandlers: TaskList): Promise<void> {
+        this.jobHandlers = jobHandlers
         if (!this.started) {
             this.started = true
             await this.syncState()
@@ -44,14 +45,12 @@ export class JobQueueBase implements JobQueue {
     }
 
     stopConsumer(): void
-    // eslint-disable-next-line @typescript-eslint/require-await
     async stopConsumer(): Promise<void> {
         this.started = false
         await this.syncState()
     }
 
     pauseConsumer(): void
-    // eslint-disable-next-line @typescript-eslint/require-await
     async pauseConsumer(): Promise<void> {
         this.paused = true
         await this.syncState()
@@ -62,7 +61,6 @@ export class JobQueueBase implements JobQueue {
     }
 
     resumeConsumer(): void
-    // eslint-disable-next-line @typescript-eslint/require-await
     async resumeConsumer(): Promise<void> {
         if (this.paused) {
             this.paused = false
@@ -80,7 +78,6 @@ export class JobQueueBase implements JobQueue {
             if (this.timeout) {
                 clearTimeout(this.timeout)
             }
-            // eslint-disable-next-line @typescript-eslint/await-thenable
             const hadSomething = await this.readState()
             this.timeout = setTimeout(() => this.syncState(), hadSomething ? 0 : this.intervalSeconds * 1000)
         } else {

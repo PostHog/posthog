@@ -1,5 +1,4 @@
 import dataclasses
-import urllib.parse
 from datetime import datetime
 from typing import Any, Dict, List
 from uuid import uuid4
@@ -12,7 +11,7 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import EventDefinition, Organization, Team
+from posthog.models import Action, EventDefinition, Organization, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
@@ -23,12 +22,12 @@ class TestEventDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
     EXPECTED_EVENT_DEFINITIONS: List[Dict[str, Any]] = [
-        {"name": "installed_app", "volume_30_day": 1, "query_usage_30_day": 0},
-        {"name": "rated_app", "volume_30_day": 2, "query_usage_30_day": 0},
-        {"name": "purchase", "volume_30_day": 3, "query_usage_30_day": 0},
-        {"name": "entered_free_trial", "volume_30_day": 7, "query_usage_30_day": 0},
-        {"name": "watched_movie", "volume_30_day": 8, "query_usage_30_day": 0},
-        {"name": "$pageview", "volume_30_day": 9, "query_usage_30_day": 0},
+        {"name": "installed_app", "volume_30_day": 1, "query_usage_30_day": None},
+        {"name": "rated_app", "volume_30_day": 2, "query_usage_30_day": None},
+        {"name": "purchase", "volume_30_day": 3, "query_usage_30_day": None},
+        {"name": "entered_free_trial", "volume_30_day": 7, "query_usage_30_day": None},
+        {"name": "watched_movie", "volume_30_day": 8, "query_usage_30_day": None},
+        {"name": "$pageview", "volume_30_day": 9, "query_usage_30_day": None},
     ]
 
     @classmethod
@@ -67,7 +66,7 @@ class TestEventDefinitionAPI(APIBaseTest):
             self.assertEqual(response_item["volume_30_day"], item["volume_30_day"], item)
             self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"], item)
             self.assertEqual(
-                response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day, item,
+                response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day, item
             )
 
             self.assertAlmostEqual(
@@ -99,7 +98,7 @@ class TestEventDefinitionAPI(APIBaseTest):
 
             self.assertEqual(response.json()["count"], 306)
             self.assertEqual(
-                len(response.json()["results"]), 100 if i < 2 else 6,
+                len(response.json()["results"]), 100 if i < 2 else 6
             )  # Each page has 100 except the last one
             self.assertEqual(response.json()["results"][0]["name"], f"z_event_{event_checkpoints[i]}")
 
@@ -152,101 +151,24 @@ class TestEventDefinitionAPI(APIBaseTest):
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["watched_movie"])
 
-    def test_order_ids_first_filter(self):
+    def test_event_type_event(self):
+        action = Action.objects.create(team=self.demo_team, name="action1_app")
 
-        # rated_app, installed_app
-        ids = (
-            EventDefinition.objects.filter(name__in=["installed_app", "rated_app"])
-            .values_list("id", flat=True)
-            .order_by("-name")
-        )
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
-
-        order_ids_first_str = f'["{str(ids[0])}"]'
-        response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"order_ids_first": order_ids_first_str})}'
-        )
+        response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=event")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
-        self.assertEqual(response.json()["results"][0]["id"], str(ids[0]))  # Test that included id is first item
-        self.assertEqual(response.json()["results"][0]["name"], "rated_app")
+        self.assertNotEqual(response.json()["results"][0]["name"], action.name)
 
-        response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"order_ids_first": []})}'
-        )
+    def test_event_type_event_custom(self):
+        response = self.client.get("/api/projects/@current/event_definitions/?event_type=event_custom")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
+        self.assertEqual(response.json()["count"], 5)
 
-    def test_excluded_ids_filter(self):
-
-        # rated_app, installed_app
-        ids = (
-            EventDefinition.objects.filter(name__in=["installed_app", "rated_app"])
-            .values_list("id", flat=True)
-            .order_by("-name")
-        )
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
-
-        excluded_ids_str = f'["{str(ids[0])}"]'
-        response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": excluded_ids_str})}'
-        )
+    def test_event_type_event_posthog(self):
+        response = self.client.get("/api/projects/@current/event_definitions/?event_type=event_posthog")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(ids[1]))
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-
-        response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": []})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
-
-    def test_order_ids_first_overrides_excluded_ids_filter(self):
-
-        # rated_app, installed_app
-        ids = (
-            EventDefinition.objects.filter(name__in=["installed_app", "rated_app"])
-            .values_list("id", flat=True)
-            .order_by("-name")
-        )
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
-
-        ids_str = f'["{str(ids[0])}"]'
-        response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": ids_str, "order_ids_first": ids_str})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
-        self.assertEqual(response.json()["results"][0]["id"], str(ids[0]))
-        self.assertEqual(response.json()["results"][0]["name"], "rated_app")
-
-        response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": [], "order_ids_first": []})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
+        self.assertEqual(response.json()["results"][0]["name"], "$pageview")
 
 
 @dataclasses.dataclass
@@ -269,7 +191,7 @@ def capture_event(event: EventData):
     with real world, and could provide the abstraction over if we are using
     clickhouse or postgres as the primary backend
     """
-    from ee.clickhouse.models.event import create_event
+    from posthog.models.event.util import create_event
 
     team = Team.objects.get(id=event.team_id)
     create_event(

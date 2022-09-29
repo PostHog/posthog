@@ -1,23 +1,12 @@
 import dataclasses
 from typing import List
-from uuid import uuid4
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action.util import filter_event, format_action_filter
 from posthog.models.action_step import ActionStep
-from posthog.models.person import Person
-from posthog.test.base import BaseTest
-from posthog.test.test_event_model import filter_by_actions_factory
-
-
-def _create_event(**kwargs) -> str:
-    pk = uuid4()
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
-    return str(pk)
+from posthog.models.test.test_event_model import filter_by_actions_factory
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
 @dataclasses.dataclass
@@ -39,11 +28,6 @@ def _get_events_for_action(action: Action) -> List[MockEvent]:
     """
     events = sync_execute(query, {"team_id": action.team_id, **params})
     return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]
-
-
-def _create_person(**kwargs) -> Person:
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
 
 
 EVENT_UUID_QUERY = "SELECT uuid FROM events WHERE {} AND team_id = %(team_id)s"
@@ -80,7 +64,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         action1 = Action.objects.create(team=self.team, name="action1")
         step1 = ActionStep.objects.create(
-            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT,
+            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT
         )
         query, params = filter_event(step1)
 
@@ -112,7 +96,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         )
 
         action1 = Action.objects.create(team=self.team, name="action1")
-        step1 = ActionStep.objects.create(event="$autocapture", action=action1, url="https://posthog.com/feedback/123",)
+        step1 = ActionStep.objects.create(event="$autocapture", action=action1, url="https://posthog.com/feedback/123")
         query, params = filter_event(step1)
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
@@ -144,7 +128,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         action1 = Action.objects.create(team=self.team, name="action1")
         step1 = ActionStep.objects.create(
-            event="$autocapture", action=action1, url="/123", url_matching=ActionStep.REGEX,
+            event="$autocapture", action=action1, url="/123", url_matching=ActionStep.REGEX
         )
         query, params = filter_event(step1)
 
@@ -154,17 +138,15 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
     def test_double(self):
         # Tests a regression where the second step properties would override those of the first step, causing issues
-        _create_event(
-            event="insight viewed", team=self.team, distinct_id="whatever", properties={"filters_count": 2},
-        )
+        _create_event(event="insight viewed", team=self.team, distinct_id="whatever", properties={"filters_count": 2})
 
         action1 = Action.objects.create(team=self.team, name="action1")
-        step1 = ActionStep.objects.create(
+        ActionStep.objects.create(
             event="insight viewed",
             action=action1,
             properties=[{"key": "insight", "type": "event", "value": ["RETENTION"], "operator": "exact"}],
         )
-        step2 = ActionStep.objects.create(
+        ActionStep.objects.create(
             event="insight viewed",
             action=action1,
             properties=[{"key": "filters_count", "type": "event", "value": "1", "operator": "gt"}],

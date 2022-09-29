@@ -1,17 +1,18 @@
 /*
 Scene to enter a new password from a received reset link
 */
-import { Col, Row, Form, Button, Skeleton } from 'antd'
 import React from 'react'
-import { WelcomeLogo } from './WelcomeLogo'
-import './PasswordReset.scss'
-import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
-import { PasswordInput } from './PasswordInput'
-import { ExclamationCircleFilled, StopOutlined } from '@ant-design/icons'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { passwordResetLogic } from './passwordResetLogic'
-import { router } from 'kea-router'
 import { SceneExport } from 'scenes/sceneTypes'
+import { Field } from 'lib/forms/Field'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import PasswordStrength from 'lib/components/PasswordStrength'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Form } from 'kea-forms'
+import { AlertMessage } from 'lib/components/AlertMessage'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { IconErrorOutline } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: PasswordResetComplete,
@@ -22,96 +23,90 @@ export function PasswordResetComplete(): JSX.Element {
     const { validatedResetToken, validatedResetTokenLoading } = useValues(passwordResetLogic)
     const invalidLink = !validatedResetTokenLoading && !validatedResetToken?.success
     return (
-        <div className="bridge-page password-reset-complete">
-            <Row>
-                <Col span={24} className="auth-main-content">
-                    <WelcomeLogo view="login" />
-                    <div className="inner">
-                        {invalidLink && (
-                            <div className="text-center">
-                                <StopOutlined style={{ color: 'var(--muted)', fontSize: '4em' }} />
-                            </div>
-                        )}
-                        <h2 className="subtitle" style={{ justifyContent: 'center' }}>
-                            {invalidLink ? 'Unable to reset' : 'Set a new password'}
-                        </h2>
-                        {validatedResetTokenLoading ? (
-                            <Skeleton paragraph={{ rows: 2 }} />
-                        ) : !validatedResetToken?.token ? (
-                            <ResetInvalid />
-                        ) : (
-                            <NewPasswordForm />
-                        )}
-                    </div>
-                </Col>
-            </Row>
-        </div>
+        <BridgePage view="password-reset-complete">
+            {invalidLink && (
+                <div className="text-center mb-2">
+                    <IconErrorOutline className="text-muted text-4xl" />
+                </div>
+            )}
+            <h2>{invalidLink ? 'Unable to reset' : 'Set a new password'}</h2>
+            {validatedResetTokenLoading ? (
+                <Spinner />
+            ) : !validatedResetToken?.token ? (
+                <ResetInvalid />
+            ) : (
+                <NewPasswordForm />
+            )}
+        </BridgePage>
     )
 }
 
 function NewPasswordForm(): JSX.Element {
-    const [form] = Form.useForm()
-    const { updatePassword } = useActions(passwordResetLogic)
-    const { newPasswordResponse, newPasswordResponseLoading } = useValues(passwordResetLogic)
+    const { passwordReset, isPasswordResetSubmitting, passwordResetManualErrors } = useValues(passwordResetLogic)
 
     return (
         <>
-            <div className="text-center mb">Please enter a new password for your account.</div>
-            {!newPasswordResponseLoading && newPasswordResponse?.errorCode && (
-                <InlineMessage style={{ marginBottom: 16 }} type="danger">
-                    {newPasswordResponse.errorDetail ||
+            <div className="text-center mb-4">Please enter a new password for your account.</div>
+            {!isPasswordResetSubmitting && passwordResetManualErrors.generic && (
+                <AlertMessage type="error">
+                    {passwordResetManualErrors.generic?.detail ||
                         'Could not complete your password reset request. Please try again.'}
-                </InlineMessage>
+                </AlertMessage>
             )}
-            <Form
-                layout="vertical"
-                form={form}
-                onFinish={(values) => updatePassword(values)}
-                requiredMark={false}
-                noValidate
-            >
-                <PasswordInput
-                    disabled={newPasswordResponseLoading}
-                    showStrengthIndicator
-                    validateMinLength
-                    help={
-                        <span style={{ display: 'flex', alignItems: 'center' }}>
-                            <ExclamationCircleFilled style={{ marginRight: 4 }} />
-                            Passwords must be at least 8 characters
-                        </span>
+            <Form logic={passwordResetLogic} formKey={'passwordReset'} className="space-y-4" enableFormOnSubmit>
+                <Field
+                    name="password"
+                    label={
+                        <div className="flex flex-1 items-center justify-between">
+                            <span>Password</span>
+                            <span className="w-20">
+                                <PasswordStrength password={passwordReset.password} />
+                            </span>
+                        </div>
                     }
-                />
-                <PasswordInput
-                    disabled={newPasswordResponseLoading}
-                    validationDisabled
-                    label="Confirm new password"
-                    name="passwordConfirm"
-                />
-                <Form.Item>
-                    <Button
-                        className="btn-bridge"
-                        htmlType="submit"
-                        data-attr="password-reset-complete"
-                        loading={newPasswordResponseLoading}
-                        block
-                    >
-                        Change my password
-                    </Button>
-                </Form.Item>
+                >
+                    <LemonInput
+                        autoComplete="new-password"
+                        type="password"
+                        className="ph-ignore-input"
+                        placeholder="••••••••••"
+                        data-attr="password"
+                    />
+                </Field>
+
+                <Field name="passwordConfirm" label="Confirm Password">
+                    <LemonInput
+                        autoComplete="new-password"
+                        type="password"
+                        className="ph-ignore-input"
+                        placeholder="••••••••••"
+                        data-attr="password-confirm"
+                    />
+                </Field>
+
+                <LemonButton
+                    fullWidth
+                    type="primary"
+                    center
+                    htmlType="submit"
+                    data-attr="password-reset-complete"
+                    loading={isPasswordResetSubmitting}
+                >
+                    Change my password
+                </LemonButton>
             </Form>
         </>
     )
 }
 
 function ResetInvalid(): JSX.Element {
-    const { push } = useActions(router)
     return (
         <div className="text-center">
             The provided link is <b>invalid or has expired</b>. Please request a new link.
-            <div className="mt">
-                <Button className="btn-bridge" data-attr="back-to-login" block onClick={() => push('/reset')}>
+            <div className="mt-4">
+                <LemonButton fullWidth type="primary" center data-attr="back-to-login" to={'/reset'}>
                     Request new link
-                </Button>
+                </LemonButton>
             </div>
         </div>
     )

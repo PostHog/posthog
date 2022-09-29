@@ -1,13 +1,13 @@
 import dataclasses
-from typing import Any, Union
+from datetime import datetime
+from typing import Any, Optional, Union
 
+from dateutil import parser
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from ee.clickhouse.queries.session_recordings.clickhouse_session_recording import ClickhouseSessionRecording
-from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Filter, PersonDistinctId
@@ -15,6 +15,9 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.session_recordings.session_recording import SessionRecording
+from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
+from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
@@ -34,6 +37,7 @@ class SessionRecordingSerializer(serializers.Serializer):
     start_time = serializers.DateTimeField()
     end_time = serializers.DateTimeField()
     distinct_id = serializers.CharField()
+    matching_events = serializers.ListField(required=False)
 
     def to_representation(self, instance):
         return {
@@ -43,23 +47,33 @@ class SessionRecordingSerializer(serializers.Serializer):
             "start_time": instance["start_time"],
             "end_time": instance["end_time"],
             "distinct_id": instance["distinct_id"],
+            "matching_events": instance["matching_events"],
         }
 
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
 
     def _get_session_recording_list(self, filter):
-        return ClickhouseSessionRecordingList(filter=filter, team=self.team).run()
+        return SessionRecordingList(filter=filter, team=self.team).run()
 
-    def _get_session_recording_snapshots(self, request, session_recording_id, limit, offset):
-        return ClickhouseSessionRecording(
-            request=request, team=self.team, session_recording_id=session_recording_id
+    def _get_session_recording_snapshots(
+        self, request, session_recording_id, limit, offset, recording_start_time: Optional[datetime]
+    ):
+        return SessionRecording(
+            request=request,
+            team=self.team,
+            session_recording_id=session_recording_id,
+            recording_start_time=recording_start_time,
         ).get_snapshots(limit, offset)
 
-    def _get_session_recording_meta_data(self, request, session_recording_id):
-        return ClickhouseSessionRecording(
-            request=request, team=self.team, session_recording_id=session_recording_id
+    def _get_session_recording_meta_data(self, request, session_recording_id, recording_start_time: Optional[datetime]):
+        return SessionRecording(
+            request=request,
+            team=self.team,
+            session_recording_id=session_recording_id,
+            recording_start_time=recording_start_time,
         ).get_metadata()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -83,7 +97,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
 
         session_recordings = list(
-            map(lambda x: {**x, "viewed": x["session_id"] in viewed_session_recordings,}, session_recordings,)
+            map(lambda x: {**x, "viewed": x["session_id"] in viewed_session_recordings}, session_recordings)
         )
 
         session_recording_serializer = SessionRecordingSerializer(data=session_recordings, many=True)
@@ -107,8 +121,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     # Returns meta data about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording_id = kwargs["pk"]
+        recording_start_time_string = request.GET.get("recording_start_time")
+        recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
-        session_recording_meta_data = self._get_session_recording_meta_data(request, session_recording_id)
+        session_recording_meta_data = self._get_session_recording_meta_data(
+            request, session_recording_id, recording_start_time
+        )
         if not session_recording_meta_data:
             raise exceptions.NotFound("Session not found")
 
@@ -158,9 +176,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         filter = Filter(request=request)
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
         offset = filter.offset if filter.offset else 0
+        recording_start_time_string = request.GET.get("recording_start_time")
+        recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
         session_recording_snapshot_data = self._get_session_recording_snapshots(
-            request, session_recording_id, limit, offset
+            request, session_recording_id, limit, offset, recording_start_time
         )
 
         if session_recording_snapshot_data.snapshot_data_by_window_id == {}:

@@ -1,23 +1,22 @@
 import clsx from 'clsx'
 import React from 'react'
+import { IconSpinner } from '../icons'
 import './Spinner.scss'
 
 export interface SpinnerProps {
-    size?: 'sm' | 'md' | 'lg'
-    type?: 'primary' | 'inverse'
-    style?: React.CSSProperties
+    monocolor?: boolean
+    className?: string
 }
 
-export function Spinner({ size = 'md', type = 'primary', style }: SpinnerProps): JSX.Element {
+/** Smoothly animated spinner for loading states. It does not indicate progress, only that something's happening. */
+export function Spinner({ monocolor, className }: SpinnerProps): JSX.Element {
+    return <IconSpinner monocolor={monocolor} className={clsx('Spinner', className)} />
+}
+
+export function SpinnerOverlay(props: SpinnerProps): JSX.Element {
     return (
-        <svg
-            className={clsx('spinner', size, type)}
-            style={style}
-            viewBox="0 0 48 48"
-            xmlns="http://www.w3.org/2000/svg"
-        >
-            <circle className="base" cx="24" cy="24" r="20" />
-            <circle className="overlay" cx="24" cy="24" r="20" />
-        </svg>
+        <div className="SpinnerOverlay">
+            <Spinner className="text-4xl" {...props} />
+        </div>
     )
 }

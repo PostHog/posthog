@@ -22,7 +22,7 @@ class TestAccessMiddleware(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertIn(b"IP is not allowed", response.content)
 
-            response = self.client.get("/batch/", REMOTE_ADDR="10.0.0.1",)
+            response = self.client.get("/batch/", REMOTE_ADDR="10.0.0.1")
 
             self.assertEqual(
                 response.status_code, status.HTTP_400_BAD_REQUEST
@@ -65,90 +65,28 @@ class TestAccessMiddleware(APIBaseTest):
             self.assertIn(b"IP is not allowed", response.content)
 
     def test_trusted_proxies(self):
-        with self.settings(
-            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True,
-        ):
+        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
-                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",)
+                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1")
                 self.assertNotIn(b"IP is not allowed", response.content)
 
     def test_attempt_spoofing(self):
-        with self.settings(
-            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True,
-        ):
+        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
-                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.2",)
+                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.2")
                 self.assertIn(b"IP is not allowed", response.content)
 
     def test_trust_all_proxies(self):
-        with self.settings(
-            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True,
-        ):
+        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True):
             with self.settings(TRUST_ALL_PROXIES=True):
-                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",)
+                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1")
                 self.assertNotIn(b"IP is not allowed", response.content)
-
-
-class TestToolbarCookieMiddleware(APIBaseTest):
-    CONFIG_AUTO_LOGIN = False
-
-    def test_logged_out_client(self):
-        response = self.client.get("/")
-        self.assertEqual(0, len(response.cookies))
-
-    def test_logged_in_client(self):
-        with self.settings(TOOLBAR_COOKIE_NAME="phtoolbar", TOOLBAR_COOKIE_SECURE=False):
-            self.client.force_login(self.user)
-
-            response = self.client.get("/")
-            toolbar_cookie = response.cookies[settings.TOOLBAR_COOKIE_NAME]
-
-            self.assertEqual(toolbar_cookie.key, settings.TOOLBAR_COOKIE_NAME)
-            self.assertEqual(toolbar_cookie.value, "yes")
-            self.assertEqual(toolbar_cookie["path"], "/")
-            self.assertEqual(toolbar_cookie["samesite"], "None")
-            self.assertEqual(toolbar_cookie["httponly"], True)
-            self.assertEqual(toolbar_cookie["domain"], "")
-            self.assertEqual(toolbar_cookie["comment"], "")
-            self.assertEqual(toolbar_cookie["secure"], "")
-            self.assertEqual(toolbar_cookie["max-age"], 31536000)
-
-    def test_logged_in_client_secure(self):
-        with self.settings(TOOLBAR_COOKIE_NAME="phtoolbar", TOOLBAR_COOKIE_SECURE=True):
-            self.client.force_login(self.user)
-
-            response = self.client.get("/")
-            toolbar_cookie = response.cookies[settings.TOOLBAR_COOKIE_NAME]
-
-            self.assertEqual(toolbar_cookie.key, "phtoolbar")
-            self.assertEqual(toolbar_cookie.value, "yes")
-            self.assertEqual(toolbar_cookie["path"], "/")
-            self.assertEqual(toolbar_cookie["samesite"], "None")
-            self.assertEqual(toolbar_cookie["httponly"], True)
-            self.assertEqual(toolbar_cookie["domain"], "")
-            self.assertEqual(toolbar_cookie["comment"], "")
-            self.assertEqual(toolbar_cookie["secure"], True)
-            self.assertEqual(toolbar_cookie["max-age"], 31536000)
-
-    def test_logout(self):
-        with self.settings(TOOLBAR_COOKIE_NAME="phtoolbar"):
-            self.client.force_login(self.user)
-
-            response = self.client.get("/")
-            self.assertEqual(response.cookies[settings.TOOLBAR_COOKIE_NAME].key, "phtoolbar")
-            self.assertEqual(response.cookies[settings.TOOLBAR_COOKIE_NAME].value, "yes")
-            self.assertEqual(response.cookies[settings.TOOLBAR_COOKIE_NAME]["max-age"], 31536000)
-
-            response = self.client.get("/logout")
-            self.assertEqual(response.cookies[settings.TOOLBAR_COOKIE_NAME].key, "phtoolbar")
-            self.assertEqual(response.cookies[settings.TOOLBAR_COOKIE_NAME].value, "")
-            self.assertEqual(response.cookies[settings.TOOLBAR_COOKIE_NAME]["max-age"], 0)
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
     # On Cloud there's an additional multi_tenancy_organizationbilling query
-    BASE_APP_NUM_QUERIES = 45 if not settings.MULTI_TENANCY else 46
+    BASE_APP_NUM_QUERIES = 39 if not settings.MULTI_TENANCY else 40
 
     second_team: Team
 

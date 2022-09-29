@@ -1,13 +1,5 @@
-@import '~/vars';
-
-$inter_items_padding: 0.3rem;
-
 .insights-label {
     max-width: 100%;
-
-    .property-key-info {
-        display: inline;
-    }
 
     .label {
         display: flex;
@@ -20,7 +12,7 @@ $inter_items_padding: 0.3rem;
     }
 
     .value {
-        margin-left: $inter_items_padding;
+        margin-left: 0.3rem;
         font-size: 1.176em;
         font-weight: bold;
         padding-right: 4px;
@@ -28,10 +20,10 @@ $inter_items_padding: 0.3rem;
 
     .ant-tag {
         margin-right: 0;
-        margin-left: $inter_items_padding;
-        background-color: $border_light;
+        margin-left: 0.3rem;
+        background-color: var(--border-light);
         border: 0;
-        color: $primary_alt;
+        color: var(--primary-alt);
     }
 
     .graph-series-glyph {

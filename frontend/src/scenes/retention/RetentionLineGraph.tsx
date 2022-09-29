@@ -1,12 +1,11 @@
 import React, { useState } from 'react'
 import { retentionTableLogic } from './retentionTableLogic'
-import { LineGraph } from '../insights/LineGraph/LineGraph'
+import { LineGraph } from '../insights/views/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { GraphType, GraphDataset } from '~/types'
 import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/retention/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import './RetentionLineGraph.scss'
 import { RetentionModal } from './RetentionModal'
 import { roundToDecimal } from 'lib/utils'
 
@@ -15,7 +14,7 @@ interface RetentionLineGraphProps {
 }
 
 export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphProps): JSX.Element | null {
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
     const {
         results: _results,
@@ -45,18 +44,17 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
                 datasets={trendSeries as GraphDataset[]}
                 labels={(trendSeries[0] && trendSeries[0].labels) || []}
                 isInProgress={incompletenessOffsetFromEnd < 0}
-                insightNumericId={insight.id}
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={false}
                 labelGroupType={filters.aggregation_group_type_index ?? 'people'}
-                percentage={true}
+                aggregationAxisFormat="percentage"
                 tooltip={{
                     rowCutoff: 11, // 11 time units is hardcoded into retention insights
                     renderSeries: function _renderCohortPrefix(value) {
                         return (
                             <>
                                 {value}
-                                <span className="ml-025">Cohort</span>
+                                <span className="ml-1">Cohort</span>
                             </>
                         )
                     },

@@ -1,6 +1,6 @@
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (ClickhouseInsightsViewSet) */ WITH step_runs AS
+  /* user_id:0 request:_snapshot_ */ WITH step_runs AS
     (SELECT *
      FROM
        (SELECT aggregation_target,
@@ -17,10 +17,10 @@
                                   step_2_conversion_time
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY
-                        AND latest_1 < latest_2
-                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 < latest_1
+                        AND latest_1 <= latest_2
+                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
                                                                          AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
@@ -70,7 +70,8 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target
+                                    pdi.person_id as aggregation_target,
+                                    pdi.person_id as person_id
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
@@ -81,8 +82,8 @@
                                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
-                               AND timestamp >= '2021-06-07 00:00:00'
-                               AND timestamp <= '2021-06-13 23:59:59' ) events
+                               AND timestamp >= toDateTime('2021-06-07 00:00:00')
+                               AND timestamp <= toDateTime('2021-06-13 23:59:59') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -91,7 +92,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE step_1_average_conversion_time_inner >= 0 ),
-                                                                                                                   histogram_params AS
+                                          histogram_params AS
     (SELECT floor(min(step_1_average_conversion_time_inner)) AS from_seconds,
             ceil(max(step_1_average_conversion_time_inner)) AS to_seconds,
             round(avg(step_1_average_conversion_time_inner), 2) AS average_conversion_time,
@@ -132,7 +133,7 @@
 ---
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins_strict
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (ClickhouseInsightsViewSet) */ WITH step_runs AS
+  /* user_id:0 request:_snapshot_ */ WITH step_runs AS
     (SELECT *
      FROM
        (SELECT aggregation_target,
@@ -149,10 +150,10 @@
                                   step_2_conversion_time
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY
-                        AND latest_1 < latest_2
-                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 < latest_1
+                        AND latest_1 <= latest_2
+                        AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
                                                                          AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
@@ -183,7 +184,8 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -193,15 +195,15 @@
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
-                         AND timestamp >= '2021-06-07 00:00:00'
-                         AND timestamp <= '2021-06-13 23:59:59' ) events
+                         AND timestamp >= toDateTime('2021-06-07 00:00:00')
+                         AND timestamp <= toDateTime('2021-06-13 23:59:59') ) events
                     WHERE (1=1) ))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max_steps)
      WHERE step_1_average_conversion_time_inner >= 0 ),
-                                                                                                                   histogram_params AS
+                                          histogram_params AS
     (SELECT floor(min(step_1_average_conversion_time_inner)) AS from_seconds,
             ceil(max(step_1_average_conversion_time_inner)) AS to_seconds,
             round(avg(step_1_average_conversion_time_inner), 2) AS average_conversion_time,
@@ -242,7 +244,7 @@
 ---
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins_unordered
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (ClickhouseInsightsViewSet) */ WITH step_runs AS
+  /* user_id:0 request:_snapshot_ */ WITH step_runs AS
     (SELECT *
      FROM
        (SELECT aggregation_target,
@@ -291,7 +293,8 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -302,8 +305,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
-                         AND timestamp >= '2021-06-07 00:00:00'
-                         AND timestamp <= '2021-06-13 23:59:59' ) events
+                         AND timestamp >= toDateTime('2021-06-07 00:00:00')
+                         AND timestamp <= toDateTime('2021-06-13 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) ))
@@ -341,7 +344,8 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -352,8 +356,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
-                         AND timestamp >= '2021-06-07 00:00:00'
-                         AND timestamp <= '2021-06-13 23:59:59' ) events
+                         AND timestamp >= toDateTime('2021-06-07 00:00:00')
+                         AND timestamp <= toDateTime('2021-06-13 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) ))
@@ -391,7 +395,8 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -402,8 +407,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
-                         AND timestamp >= '2021-06-07 00:00:00'
-                         AND timestamp <= '2021-06-13 23:59:59' ) events
+                         AND timestamp >= toDateTime('2021-06-07 00:00:00')
+                         AND timestamp <= toDateTime('2021-06-13 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) ))
@@ -412,7 +417,7 @@
                  steps
         HAVING steps = max_steps)
      WHERE step_1_average_conversion_time_inner >= 0 ),
-                                                                                                                   histogram_params AS
+                                          histogram_params AS
     (SELECT floor(min(step_1_average_conversion_time_inner)) AS from_seconds,
             ceil(max(step_1_average_conversion_time_inner)) AS to_seconds,
             round(avg(step_1_average_conversion_time_inner), 2) AS average_conversion_time,

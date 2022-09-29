@@ -2,11 +2,10 @@ import { kea } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import api from 'lib/api'
 import { insightLogic } from '../insights/insightLogic'
-import { InsightLogicProps, FilterType, InsightType, TrendResult } from '~/types'
-import { trendsLogicType } from './trendsLogicType'
+import { InsightLogicProps, FilterType, InsightType, TrendResult, ActionFilter, ChartDisplayType } from '~/types'
+import type { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { personsModalLogic } from './personsModalLogic'
 import { groupsModel } from '~/models/groupsModel'
 
 export const trendsLogic = kea<trendsLogicType>({
@@ -21,12 +20,7 @@ export const trendsLogic = kea<trendsLogicType>({
             groupsModel,
             ['aggregationLabel'],
         ],
-        actions: [
-            insightLogic(props),
-            ['loadResultsSuccess', 'toggleVisibility', 'setHiddenById'],
-            personsModalLogic,
-            ['loadPeople', 'loadPeopleFromUrl'],
-        ],
+        actions: [insightLogic(props), ['loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
     }),
 
     actions: () => ({
@@ -35,7 +29,7 @@ export const trendsLogic = kea<trendsLogicType>({
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
-        setTargetAction: (action: Record<string, any>) => ({ action }),
+        setTargetAction: (action: ActionFilter) => ({ action }),
     }),
 
     reducers: () => ({
@@ -51,9 +45,9 @@ export const trendsLogic = kea<trendsLogicType>({
             },
         ],
         targetAction: [
-            {} as Record<string, any>,
+            {} as ActionFilter,
             {
-                setTargetAction: (_, { action }) => action,
+                setTargetAction: (_, { action }) => action ?? {},
             },
         ],
         breakdownValuesLoading: [
@@ -90,20 +84,10 @@ export const trendsLogic = kea<trendsLogicType>({
                 if (filters.insight === InsightType.LIFECYCLE) {
                     results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
                 }
+                if (filters.display === ChartDisplayType.ActionsBarValue) {
+                    results.sort((a, b) => b.aggregated_value - a.aggregated_value)
+                }
                 return results.map((result, index) => ({ ...result, id: index }))
-            },
-        ],
-        showModalActions: [
-            (s) => [s.filters],
-            (filters): boolean => {
-                const isNotAggregatingByGroup = (entity: Record<string, any>): boolean =>
-                    entity.math_group_type_index == undefined
-
-                return (
-                    (filters.events || []).every(isNotAggregatingByGroup) &&
-                    (filters.actions || []).every(isNotAggregatingByGroup) &&
-                    filters.breakdown_type !== 'group'
-                )
             },
         ],
         aggregationTargetLabel: [
@@ -149,12 +133,6 @@ export const trendsLogic = kea<trendsLogicType>({
     },
 
     listeners: ({ actions, values, props }) => ({
-        loadPeople: ({ peopleParams: { action } }) => {
-            actions.setTargetAction(action)
-        },
-        loadPeopleFromUrl: ({ action }) => {
-            actions.setTargetAction(action)
-        },
         setFilters: async ({ filters, mergeFilters }) => {
             insightLogic(props).actions.setFilters(mergeFilters ? { ...values.filters, ...filters } : filters)
         },

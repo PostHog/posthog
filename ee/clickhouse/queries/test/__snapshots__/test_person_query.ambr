@@ -6,7 +6,9 @@
               
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0  
+              HAVING max(is_deleted) = 0
+                 
+              
               
           
   '
@@ -16,10 +18,17 @@
   
               SELECT id
               FROM person
-              
               WHERE team_id = %(team_id)s
+              AND id IN (
+                  SELECT id FROM person
+                  
+                  WHERE team_id = %(team_id)s
+                  AND (   person."pmat_email" ILIKE %(v_0)s)
+              )
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s) 
+              HAVING max(is_deleted) = 0
+              AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_grouped_filters__0)s)   
+              
               
           
   '
@@ -27,12 +36,19 @@
 # name: test_person_query_with_and_and_or_property_groups
   '
   
-              SELECT id, argMax(properties, _timestamp) as person_props
+              SELECT id, argMax(properties, version) as person_props
               FROM person
-              
               WHERE team_id = %(team_id)s
+              AND id IN (
+                  SELECT id FROM person
+                  
+                  WHERE team_id = %(team_id)s
+                  AND ((   person."pmat_email" ILIKE %(v_0_0)s   OR replaceRegexpAll(JSONExtractRaw(person.properties, %(k_0_1)s), '^"|"$', '') ILIKE %(v_0_1)s))
+              )
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND ((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_0_1)s), '^"|"$', '') ILIKE %(vpersonquery_global_0_1)s)) 
+              HAVING max(is_deleted) = 0
+              AND ((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_grouped_filters__0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_grouped_filters__0_1)s), '^"|"$', '') ILIKE %(vpersonquery_grouped_filters__0_1)s))   
+              
               
           
   '
@@ -42,10 +58,17 @@
   
               SELECT id
               FROM person
-              
               WHERE team_id = %(team_id)s
+              AND id IN (
+                  SELECT id FROM person
+                  
+                  WHERE team_id = %(team_id)s
+                  AND (   person."pmat_email" ILIKE %(v_0)s   AND has(%(v_1)s, replaceRegexpAll(JSONExtractRaw(person.properties, %(k_1)s), '^"|"$', ''))   AND has(%(v_2)s, replaceRegexpAll(JSONExtractRaw(person.properties, %(k_2)s), '^"|"$', '')))
+              )
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s  AND has(%(vpersonquery_global_1)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_1)s), '^"|"$', ''))  AND has(%(vpersonquery_global_2)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_2)s), '^"|"$', ''))) 
+              HAVING max(is_deleted) = 0
+              AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_grouped_filters__0)s  AND has(%(vpersonquery_grouped_filters__1)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_grouped_filters__1)s), '^"|"$', ''))  AND has(%(vpersonquery_grouped_filters__2)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_grouped_filters__2)s), '^"|"$', '')))   
+              
               
           
   '
@@ -53,12 +76,14 @@
 # name: test_person_query_with_entity_filters
   '
   
-              SELECT id, argMax(pmat_email, _timestamp) as pmat_email
+              SELECT id, argMax(pmat_email, version) as pmat_email
               FROM person
               
               WHERE team_id = %(team_id)s
               GROUP BY id
-              HAVING max(is_deleted) = 0  
+              HAVING max(is_deleted) = 0
+                 
+              
               
           
   '
@@ -68,10 +93,17 @@
   
               SELECT id
               FROM person
-              
               WHERE team_id = %(team_id)s
+              AND id IN (
+                  SELECT id FROM person
+                  
+                  WHERE team_id = %(team_id)s
+                  AND (   person."pmat_email" ILIKE %(v_0)s)
+              )
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s) 
+              HAVING max(is_deleted) = 0
+              AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_grouped_filters__0)s)   
+              
               
           
   '
@@ -79,12 +111,19 @@
 # name: test_person_query_with_entity_filters_and_property_group_filters
   '
   
-              SELECT id, argMax(pmat_email, _timestamp) as pmat_email , argMax(properties, _timestamp) as person_props
+              SELECT id, argMax(pmat_email, version) as pmat_email , argMax(properties, version) as person_props
               FROM person
-              
               WHERE team_id = %(team_id)s
+              AND id IN (
+                  SELECT id FROM person
+                  
+                  WHERE team_id = %(team_id)s
+                  AND ((   person."pmat_email" ILIKE %(v_0_0)s   OR replaceRegexpAll(JSONExtractRaw(person.properties, %(k_0_1)s), '^"|"$', '') ILIKE %(v_0_1)s))
+              )
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND ((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_0_1)s), '^"|"$', '') ILIKE %(vpersonquery_global_0_1)s)) 
+              HAVING max(is_deleted) = 0
+              AND ((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_grouped_filters__0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_grouped_filters__0_1)s), '^"|"$', '') ILIKE %(vpersonquery_grouped_filters__0_1)s))   
+              
               
           
   '
@@ -92,12 +131,19 @@
 # name: test_person_query_with_entity_filters_and_property_group_filters.1
   '
   
-              SELECT id, argMax(properties, _timestamp) as person_props
+              SELECT id, argMax(properties, version) as person_props
               FROM person
-              
               WHERE team_id = %(team_id)s
+              AND id IN (
+                  SELECT id FROM person
+                  
+                  WHERE team_id = %(team_id)s
+                  AND (((   person."pmat_email" ILIKE %(v_0_0_0)s   OR replaceRegexpAll(JSONExtractRaw(person.properties, %(k_0_0_1)s), '^"|"$', '') ILIKE %(v_0_0_1)s))AND (   person."pmat_email" ILIKE %(v_1_0)s   OR replaceRegexpAll(JSONExtractRaw(person.properties, %(k_1_1)s), '^"|"$', '') ILIKE %(v_1_1)s))
+              )
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND (((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0_0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_0_0_1)s), '^"|"$', '') ILIKE %(vpersonquery_global_0_0_1)s))AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_1_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_global_1_1)s), '^"|"$', '') ILIKE %(vpersonquery_global_1_1)s)) 
+              HAVING max(is_deleted) = 0
+              AND (((  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_grouped_filters__0_0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_grouped_filters__0_0_1)s), '^"|"$', '') ILIKE %(vpersonquery_grouped_filters__0_0_1)s))AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_grouped_filters__1_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), %(kpersonquery_grouped_filters__1_1)s), '^"|"$', '') ILIKE %(vpersonquery_grouped_filters__1_1)s))   
+              
               
           
   '
@@ -105,12 +151,19 @@
 # name: test_person_query_with_extra_fields
   '
   
-              SELECT id, argMax(pmat_email, _timestamp) as pmat_email , argMax(properties, _timestamp) as person_props
+              SELECT id, argMax(pmat_email, version) as pmat_email , argMax(properties, version) as person_props
               FROM person
-              
               WHERE team_id = %(team_id)s
+              AND id IN (
+                  SELECT id FROM person
+                  
+                  WHERE team_id = %(team_id)s
+                  AND (   person."pmat_email" ILIKE %(v_0)s)
+              )
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s) 
+              HAVING max(is_deleted) = 0
+              AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_grouped_filters__0)s)   
+              
               
           
   '
@@ -118,12 +171,19 @@
 # name: test_person_query_with_extra_requested_fields
   '
   
-              SELECT id, argMax(properties, _timestamp) as person_props
+              SELECT id, argMax(properties, version) as person_props
               FROM person
-              
               WHERE team_id = %(team_id)s
+              AND id IN (
+                  SELECT id FROM person
+                  
+                  WHERE team_id = %(team_id)s
+                  AND (   person."pmat_email" ILIKE %(v_0)s)
+              )
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s) 
+              HAVING max(is_deleted) = 0
+              AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_grouped_filters__0)s)   
+              
               
           
   '
@@ -131,12 +191,19 @@
 # name: test_person_query_with_extra_requested_fields.1
   '
   
-              SELECT id, argMax(pmat_email, _timestamp) as pmat_email
+              SELECT id, argMax(pmat_email, version) as pmat_email
               FROM person
-              
               WHERE team_id = %(team_id)s
+              AND id IN (
+                  SELECT id FROM person
+                  
+                  WHERE team_id = %(team_id)s
+                  AND (   person."pmat_email" ILIKE %(v_0)s)
+              )
               GROUP BY id
-              HAVING max(is_deleted) = 0 AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_0)s) 
+              HAVING max(is_deleted) = 0
+              AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_grouped_filters__0)s)   
+              
               
           
   '

@@ -19,6 +19,8 @@ export interface TaxonomicFilterProps {
     width?: number
     popoverEnabled?: boolean
     selectFirstItem?: boolean
+    /** use to filter results in a group by name, currently only working for EventProperties */
+    excludedProperties?: { [key in TaxonomicFilterGroupType]?: string[] }
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
@@ -46,6 +48,7 @@ export interface TaxonomicFilterGroup {
     getIcon?: (instance: any) => JSX.Element
     groupTypeIndex?: number
     getFullDetailUrl?: (instance: any) => string
+    excludedProperties?: string[]
 }
 
 export enum TaxonomicFilterGroupType {
@@ -55,6 +58,7 @@ export enum TaxonomicFilterGroupType {
     Elements = 'elements',
     Events = 'events',
     EventProperties = 'event_properties',
+    EventFeatureFlags = 'event_feature_flags',
     NumericalEventProperties = 'numerical_event_properties',
     PersonProperties = 'person_properties',
     PageviewUrls = 'pageview_urls',
@@ -62,6 +66,15 @@ export enum TaxonomicFilterGroupType {
     CustomEvents = 'custom_events',
     Wildcards = 'wildcard',
     GroupsPrefix = 'groups',
+    // Types for searching
+    Persons = 'persons',
+    FeatureFlags = 'feature_flags',
+    Insights = 'insights',
+    Experiments = 'experiments',
+    Plugins = 'plugins',
+    Dashboards = 'dashboards',
+    GroupNamesPrefix = 'name_groups',
+    Sessions = 'sessions',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

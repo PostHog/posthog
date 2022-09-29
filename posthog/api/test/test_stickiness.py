@@ -19,7 +19,7 @@ def get_stickiness(client: Client, team: Team, request: Dict[str, Any]):
 
 def get_stickiness_ok(client: Client, team: Team, request: Dict[str, Any]):
     response = get_stickiness(client=client, team=team, request=encode_get_request_params(data=request))
-    assert response.status_code == 200
+    assert response.status_code == 200, response.content
     return response.json()
 
 
@@ -318,6 +318,44 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][6], "7 days")
             self.assertEqual(response[0]["data"][6], 0)
 
+        def test_stickiness_entity_person_filter(self):
+            self._create_multiple_people()
+
+            with freeze_time("2020-01-08T13:01:01Z"):
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
+                        "shown_as": "Stickiness",
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-08",
+                        "events": [
+                            {
+                                "id": "watched movie",
+                                "properties": [
+                                    {
+                                        "key": "name",
+                                        "value": ["person1"],
+                                        "operator": "exact",
+                                        "type": "person",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                )
+                response = stickiness_response["result"]
+
+            self.assertEqual(response[0]["count"], 1)
+            self.assertEqual(response[0]["labels"][0], "1 day")
+            self.assertEqual(response[0]["data"][0], 1)
+            self.assertEqual(response[0]["labels"][1], "2 days")
+            self.assertEqual(response[0]["data"][1], 0)
+            self.assertEqual(response[0]["labels"][2], "3 days")
+            self.assertEqual(response[0]["data"][2], 0)
+            self.assertEqual(response[0]["labels"][6], "7 days")
+            self.assertEqual(response[0]["data"][6], 0)
+
         def test_stickiness_action(self):
             self._create_multiple_people()
             watched_movie = action_factory(team=self.team, name="watch movie action", event_name="watched movie")
@@ -360,7 +398,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             people = stickiness_response["results"][0]["people"]
 
             all_people_ids = [str(person["id"]) for person in people]
-            self.assertListEqual(sorted(all_people_ids), sorted([str(person1.pk), str(person4.pk)]))
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person1.uuid), str(person4.uuid)]))
 
         def test_stickiness_people_with_entity_filter(self):
             person1, _, _, _ = self._create_multiple_people()
@@ -386,14 +424,12 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             people = stickiness_response["results"][0]["people"]
 
             self.assertEqual(len(people), 1)
-            self.assertEqual(str(people[0]["id"]), str(person1.id))
+            self.assertEqual(str(people[0]["id"]), str(person1.uuid))
 
         def test_stickiness_people_paginated(self):
             for i in range(150):
                 person_name = f"person{i}"
-                person = person_factory(
-                    team_id=self.team.id, distinct_ids=[person_name], properties={"name": person_name}
-                )
+                person_factory(team_id=self.team.id, distinct_ids=[person_name], properties={"name": person_name})
                 event_factory(
                     team=self.team,
                     event="watched movie",
@@ -443,12 +479,13 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             response = stickiness_response["result"]
             self.assertEqual(response[0]["data"], [2, 1, 1, 0, 0, 0, 0, 0])
             self.assertEqual(response[1]["data"], [3, 0, 0, 0, 0, 0, 0, 0])
+
             self.assertEqual(response[0]["compare_label"], "current")
             self.assertEqual(response[1]["compare_label"], "previous")
 
         def test_filter_test_accounts(self):
             self._create_multiple_people()
-            p1 = person_factory(team_id=self.team.id, distinct_ids=["ph"], properties={"email": "test@posthog.com"})
+            person_factory(team_id=self.team.id, distinct_ids=["ph"], properties={"email": "test@posthog.com"})
             event_factory(
                 team=self.team,
                 event="watched movie",

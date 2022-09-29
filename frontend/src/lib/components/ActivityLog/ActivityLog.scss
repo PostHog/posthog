@@ -1,13 +1,46 @@
-@import '~/vars.scss';
-
 .activity-log {
+    .empty {
+        text-align: center;
+
+        h1 {
+            font-weight: 700;
+            line-height: 26px;
+            margin-top: 5rem;
+            margin-bottom: 0;
+        }
+
+        div {
+            line-height: 24px;
+        }
+    }
+
+    .summary-card {
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        padding: 1rem;
+
+        .taxonomic-breakdown-filter.tag-pill {
+            font-size: 0.8125rem;
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            background: none;
+            vertical-align: unset;
+        }
+
+        section:not(:last-child) {
+            margin-bottom: 0.5rem;
+        }
+    }
+
     .activity-log-row {
         display: flex;
-        margin-top: $default_spacing;
+        margin-top: 1rem;
         line-height: 24px;
+        max-width: 50rem;
 
         &:first-of-type {
-            margin-top: $default_spacing / 2;
+            margin-top: 0.5rem;
         }
 
         .profile-picture {
@@ -16,22 +49,15 @@
 
         .details {
             flex-grow: 1;
-            margin-left: $default_spacing / 2;
-
-            .property-filters {
-                display: inline;
-                margin-left: $default_spacing / 4;
-            }
+            margin-left: 0.5rem;
 
             .highlighted-activity {
-                background-color: $yellow_50;
-            }
-
-            .sentence-list {
+                background-color: var(--yellow-lightest);
                 display: inline;
 
-                div {
-                    display: inline;
+                & > .person-header {
+                    display: inline-block;
+                    min-width: 5.5rem;
                 }
             }
         }
@@ -40,5 +66,9 @@
         border-width: 0;
         border-radius: 0;
         border-top-width: 1px;
+    }
+
+    .page-caption {
+        max-width: 50rem;
     }
 }

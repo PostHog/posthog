@@ -9,16 +9,15 @@ from posthog.async_migrations.runner import (
     run_async_migration_next_op,
     start_async_migration,
 )
-from posthog.async_migrations.test.util import create_async_migration
+from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
 from posthog.async_migrations.utils import update_async_migration
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.utils import UUIDT
-from posthog.test.base import BaseTest
 
 
-class TestRunner(BaseTest):
+class TestRunner(AsyncMigrationBaseTest):
     def setUp(self):
-        self.migration = Migration()
+        self.migration = Migration("TEST_MIGRATION")
         self.TEST_MIGRATION_DESCRIPTION = self.migration.description
         create_async_migration(name="test_migration", description=self.TEST_MIGRATION_DESCRIPTION)
         return super().setUp()
@@ -170,3 +169,14 @@ class TestRunner(BaseTest):
         self.assertEqual(sm.status, MigrationStatus.RolledBack)
         self.assertEqual(sm.progress, 0)
         self.assertEqual(self.migration.sec.side_effect_rollback_count, 2)  # checking we ran current index rollback too
+
+    @pytest.mark.ee
+    def test_fail_at_startup_with_no_definition(self):
+        sm = AsyncMigration.objects.get(name="test_migration")
+        sm.name = "no_such_definition"
+        sm.save()
+
+        migration_successful = start_async_migration("no_such_definition")
+        self.assertFalse(migration_successful)
+        sm.refresh_from_db()
+        self.assertEqual(sm.status, MigrationStatus.FailedAtStartup)

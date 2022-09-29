@@ -12,13 +12,14 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { combineUrl, router } from 'kea-router'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import { urls } from 'scenes/urls'
+import { EventDefinitionType } from '~/types'
 
 describe('eventDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof eventDefinitionsTableLogic.build>
     const startingUrl = `api/projects/${MOCK_TEAM_ID}/event_definitions${
         combineUrl('', {
             limit: EVENT_DEFINITIONS_PER_PAGE,
-            order_ids_first: [],
+            event_type: EventDefinitionType.Event,
         }).search
     }`
 
@@ -26,20 +27,6 @@ describe('eventDefinitionsTableLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': (req) => {
-                    if (req.url.searchParams.get('order_ids_first')?.includes('uuid-5-foobar')) {
-                        return [
-                            200,
-                            {
-                                results: [
-                                    mockEventDefinitions.find(({ id }) => id === 'uuid-5-foobar'),
-                                    ...mockEventDefinitions.filter(({ id }) => id !== 'uuid-5-foobar'),
-                                ],
-                                count: 50,
-                                previous: null,
-                                next: null,
-                            },
-                        ]
-                    }
                     if (req.url.searchParams.get('limit') === '50' && !req.url.searchParams.get('offset')) {
                         return [
                             200,
@@ -52,6 +39,7 @@ describe('eventDefinitionsTableLogic', () => {
                                         ...req.url.searchParams,
                                         limit: 50,
                                         offset: 50,
+                                        event_type: EventDefinitionType.Event,
                                     }).search
                                 }`,
                             },
@@ -68,6 +56,7 @@ describe('eventDefinitionsTableLogic', () => {
                                         ...req.url.searchParams,
                                         limit: 50,
                                         offset: undefined,
+                                        event_type: EventDefinitionType.Event,
                                     }).search
                                 }`,
                                 next: null,
@@ -133,7 +122,6 @@ describe('eventDefinitionsTableLogic', () => {
             },
         })
         initKeaTests()
-        organizationLogic.mount()
         await expectLogic(organizationLogic)
             .toFinishAllListeners()
             .toDispatchActions(['loadCurrentOrganizationSuccess'])
@@ -161,7 +149,7 @@ describe('eventDefinitionsTableLogic', () => {
                         count: 50,
                         results: mockEventDefinitions.slice(0, 50),
                         previous: null,
-                        next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50`,
+                        next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`,
                     }),
                     apiCache: partial({
                         [startingUrl]: partial({
@@ -181,42 +169,6 @@ describe('eventDefinitionsTableLogic', () => {
             expect(api.get).toBeCalledTimes(1)
         })
 
-        it('load event definitions on navigate and open specific definition', async () => {
-            const startingDefinitionUrl = `api/projects/${MOCK_TEAM_ID}/event_definitions${
-                combineUrl('', {
-                    limit: EVENT_DEFINITIONS_PER_PAGE,
-                    order_ids_first: ['uuid-5-foobar'],
-                }).search
-            }`
-
-            const url = urls.eventDefinition('uuid-5-foobar')
-            router.actions.push(url)
-            await expectLogic(logic)
-                .toDispatchActionsInAnyOrder([
-                    router.actionCreators.push(url),
-                    'loadEventDefinitions',
-                    'loadEventDefinitionsSuccess',
-                    'setOpenedDefinition',
-                ])
-                .toMatchValues({
-                    eventDefinitions: partial({
-                        count: 50,
-                        results: [
-                            mockEventDefinitions.find(({ id }) => id === 'uuid-5-foobar'),
-                            ...mockEventDefinitions.filter(({ id }) => id !== 'uuid-5-foobar'),
-                        ],
-                    }),
-                    apiCache: partial({
-                        [startingDefinitionUrl]: partial({
-                            count: 50,
-                        }),
-                    }),
-                })
-
-            expect(api.get).toBeCalledTimes(1)
-            expect(api.get).toBeCalledWith(startingDefinitionUrl)
-        })
-
         it('pagination forwards and backwards', async () => {
             const url = urls.eventDefinitions()
             router.actions.push(url)
@@ -229,20 +181,22 @@ describe('eventDefinitionsTableLogic', () => {
                 .toMatchValues({
                     eventDefinitions: partial({
                         count: 50,
-                        next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50`,
+                        next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`,
                     }),
                 })
             expect(api.get).toBeCalledTimes(1)
             // Forwards
             await expectLogic(logic, () => {
-                logic.actions.loadEventDefinitions(`api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50`)
+                logic.actions.loadEventDefinitions(
+                    `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`
+                )
             })
                 .toDispatchActions(['loadEventDefinitions', 'loadEventDefinitionsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
                     eventDefinitions: partial({
                         count: 6,
-                        previous: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50`,
+                        previous: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event`,
                         next: null,
                     }),
                 })
@@ -255,7 +209,7 @@ describe('eventDefinitionsTableLogic', () => {
                 .toMatchValues({
                     eventDefinitions: partial({
                         count: 50,
-                        next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50`,
+                        next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`,
                     }),
                 })
             expect(api.get).toBeCalledTimes(2)
@@ -270,6 +224,7 @@ describe('eventDefinitionsTableLogic', () => {
                 event_names: ['event1'],
                 excluded_properties: keyMappingKeys,
                 is_event_property: true,
+                is_feature_flag: false,
             }).search
         }`
         const url = urls.eventDefinitions()

@@ -1,4 +1,4 @@
-export const MMDB_ENDPOINT = 'https://mmdb.posthog.net/'
+export const MMDB_ENDPOINT = 'https://mmdbcdn.posthog.net/'
 export const MMDB_ATTACHMENT_KEY = '@posthog/mmdb'
 export const MMDB_STALE_AGE_DAYS = 45
 export const MMDB_STATUS_REDIS_KEY = '@posthog-plugin-server/mmdb-status'

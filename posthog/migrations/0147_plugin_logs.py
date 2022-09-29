@@ -27,7 +27,12 @@ class Migration(migrations.Migration):
                 (
                     "source",
                     models.CharField(
-                        choices=[("SYSTEM", "system"), ("PLUGIN", "plugin"), ("CONSOLE", "console"),], max_length=20,
+                        choices=[
+                            ("SYSTEM", "system"),
+                            ("PLUGIN", "plugin"),
+                            ("CONSOLE", "console"),
+                        ],
+                        max_length=20,
                     ),
                 ),
                 (

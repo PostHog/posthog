@@ -1,10 +1,11 @@
 import React, { useState } from 'react'
-import { Modal, Button, Card, Row, Col } from 'antd'
-import { SearchOutlined, PlusOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
-import { IconEdit } from 'lib/components/icons'
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { IconEdit, IconMagnifier } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
+import { LemonModal } from '@posthog/lemon-ui'
 
 export function NewActionButton(): JSX.Element {
     const [visible, setVisible] = useState(false)
@@ -12,64 +13,69 @@ export function NewActionButton(): JSX.Element {
 
     return (
         <>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setVisible(true)} data-attr="create-action">
-                New Action
-            </Button>
-            <Modal
-                visible={visible}
-                style={{ cursor: 'pointer' }}
-                onCancel={() => {
+            <LemonButton type="primary" onClick={() => setVisible(true)} data-attr="create-action">
+                New action
+            </LemonButton>
+            <LemonModal
+                isOpen={visible}
+                onClose={() => {
                     setVisible(false)
                     setAppUrlsVisible(false)
                 }}
-                title="Create new action"
-                footer={[
-                    appUrlsVisible && (
-                        <Button key="back-button" onClick={() => setAppUrlsVisible(false)}>
-                            Back
-                        </Button>
-                    ),
-                    <Button
-                        key="cancel-button"
-                        onClick={() => {
-                            setVisible(false)
-                            setAppUrlsVisible(false)
-                        }}
-                    >
-                        Cancel
-                    </Button>,
-                ]}
+                title={`Create new action`}
+                footer={
+                    <>
+                        {appUrlsVisible && (
+                            <LemonButton key="back-button" type="secondary" onClick={() => setAppUrlsVisible(false)}>
+                                Back
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            key="cancel-button"
+                            type="secondary"
+                            onClick={() => {
+                                setVisible(false)
+                                setAppUrlsVisible(false)
+                            }}
+                        >
+                            Cancel
+                        </LemonButton>
+                    </>
+                }
             >
-                {!appUrlsVisible && (
-                    <Row gutter={2} justify="space-between">
-                        <Col xs={11}>
-                            <Card
-                                title="Inspect element on your site"
-                                onClick={() => setAppUrlsVisible(true)}
-                                size="small"
-                            >
-                                <div style={{ textAlign: 'center', fontSize: 40 }}>
-                                    <SearchOutlined />
-                                </div>
-                            </Card>
-                        </Col>
-                        <Col xs={11}>
-                            <Card
-                                title="From event or pageview"
-                                onClick={() => {
-                                    router.actions.push(urls.createAction())
-                                }}
-                                size="small"
-                            >
-                                <div style={{ textAlign: 'center', fontSize: 40 }} data-attr="new-action-pageview">
-                                    <IconEdit />
-                                </div>
-                            </Card>
-                        </Col>
-                    </Row>
+                {!appUrlsVisible ? (
+                    <div className="space-y-2">
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconMagnifier />}
+                            onClick={() => setAppUrlsVisible(true)}
+                            size="large"
+                            fullWidth
+                            center
+                            data-attr="new-action-inspect"
+                        >
+                            Inspect element on your site
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconEdit />}
+                            onClick={() => {
+                                router.actions.push(urls.createAction())
+                            }}
+                            size="large"
+                            fullWidth
+                            center
+                            data-attr="new-action-pageview"
+                        >
+                            From event or pageview
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <div style={{ maxWidth: '40rem' }}>
+                        <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
+                    </div>
                 )}
-                {appUrlsVisible && <AuthorizedUrlsTable />}
-            </Modal>
+            </LemonModal>
         </>
     )
 }

@@ -1,4 +1,6 @@
-{% extends "email/base_transactional.html" %} {% load posthog_assets %} {% load posthog_filters %} {% block section %}
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}{{ invitee.first_name }} accepted their PostHog invitation{% endblock %}
+{% block section %}
 <!-- prettier-ignore -->
 <p>
     {{ invitee.first_name }} (<a href="mailto:{{ invitee.email }}">{{ invitee.email }}</a>) just joined you at {{ organization.name }}.
@@ -8,8 +10,8 @@
 </div>
 <div class="mt">
     <p>
-        If the button above does not work, paste the following link into your browser:<br />
+        If the button above doesn't work, paste this link into your browser:<br />
         <a href="{% absolute_uri %}">{% absolute_uri %}</a>
     </p>
 </div>
-{% endblock %}{% block heading %}{{ invitee.first_name }} accepted their PostHog invitation{% endblock %}
+{% endblock %}

@@ -1,10 +1,14 @@
+import pytest
+
 from posthog.test.base import TestMigrations
+
+pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class DeletedPrimaryDashboardTestCase(TestMigrations):
 
-    migrate_from = "0221_add_activity_log_model"  # type: ignore
-    migrate_to = "0222_fix_deleted_primary_dashboards"  # type: ignore
+    migrate_from = "0221_add_activity_log_model"
+    migrate_to = "0222_fix_deleted_primary_dashboards"
     assert_snapshots = True
 
     def setUpBeforeMigration(self, apps):
@@ -80,3 +84,4 @@ class DeletedPrimaryDashboardTestCase(TestMigrations):
         Dashboard = self.apps.get_model("posthog", "Dashboard")  # type: ignore
         Dashboard.objects.all().delete()
         Team.objects.all().delete()
+        super().tearDown()

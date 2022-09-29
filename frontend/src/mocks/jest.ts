@@ -6,6 +6,8 @@ import { useAvailableFeatures } from '~/mocks/features'
 export const mswServer = setupServer(...handlers)
 export const useMocks = (mocks: Mocks): void => mswServer.use(...mocksToHandlers(mocks))
 
+window.confirm = jest.fn()
+
 beforeAll(() => {
     useAvailableFeatures([])
     mswServer.listen()

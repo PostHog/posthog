@@ -1,4 +1,4 @@
-import { Action, Team } from '../../types'
+import { Action, PluginServerCapabilities, Team } from '../../types'
 import { DB } from '../../utils/db/db'
 import { status } from '../../utils/status'
 
@@ -9,10 +9,12 @@ export class ActionManager {
     private ready: boolean
     private db: DB
     private actionCache: ActionCache
+    private capabilities: PluginServerCapabilities
 
-    constructor(db: DB) {
+    constructor(db: DB, capabilities: PluginServerCapabilities) {
         this.ready = false
         this.db = db
+        this.capabilities = capabilities
         this.actionCache = {}
     }
 
@@ -29,11 +31,17 @@ export class ActionManager {
     }
 
     public async reloadAllActions(): Promise<void> {
-        this.actionCache = await this.db.fetchAllActionsGroupedByTeam()
-        status.info('🍿', 'Fetched all actions from DB anew')
+        if (this.capabilities.processAsyncHandlers) {
+            this.actionCache = await this.db.fetchAllActionsGroupedByTeam()
+            status.info('🍿', 'Fetched all actions from DB anew')
+        }
     }
 
     public async reloadAction(teamId: Team['id'], actionId: Action['id']): Promise<void> {
+        if (!this.capabilities.processAsyncHandlers) {
+            return
+        }
+
         const refetchedAction = await this.db.fetchAction(actionId)
 
         let wasCachedAlready = true
@@ -53,20 +61,15 @@ export class ActionManager {
             )
             this.actionCache[teamId][actionId] = refetchedAction
         } else if (wasCachedAlready) {
-            status.info(
-                '🍿',
-                `Tried to fetch action ID ${actionId} (team ID ${teamId}) from DB, but it wasn't found in DB, so deleted from cache instead`
-            )
             delete this.actionCache[teamId][actionId]
-        } else {
-            status.info(
-                '🍿',
-                `Tried to fetch action ID ${actionId} (team ID ${teamId}) from DB, but it wasn't found in DB or cache, so did nothing instead`
-            )
         }
     }
 
     public dropAction(teamId: Team['id'], actionId: Action['id']): void {
+        if (!this.capabilities.processAsyncHandlers) {
+            return
+        }
+
         const wasCachedAlready = !!this.actionCache?.[teamId]?.[actionId]
 
         if (wasCachedAlready) {

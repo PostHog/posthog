@@ -1,17 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { DeleteOutlined } from '@ant-design/icons'
-import { Button, Input, Modal } from 'antd'
 import { organizationLogic } from 'scenes/organizationLogic'
-import Paragraph from 'antd/lib/typography/Paragraph'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
 import React, { Dispatch, SetStateAction, useState } from 'react'
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { IconDelete } from 'lib/components/icons'
 
 export function DeleteOrganizationModal({
-    isVisible,
-    setIsVisible,
+    isOpen,
+    setIsOpen,
 }: {
-    isVisible: boolean
-    setIsVisible: Dispatch<SetStateAction<boolean>>
+    isOpen: boolean
+    setIsOpen: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
     const { currentOrganization, organizationBeingDeleted } = useValues(organizationLogic)
     const { deleteOrganization } = useActions(organizationLogic)
@@ -20,23 +19,27 @@ export function DeleteOrganizationModal({
     const isDeletionInProgress = !!currentOrganization && organizationBeingDeleted?.id === currentOrganization.id
 
     return (
-        <Modal
+        <LemonModal
             title="Delete the entire organization?"
-            okText={`Delete ${currentOrganization ? currentOrganization.name : 'the current organization'}`}
-            onOk={currentOrganization ? () => deleteOrganization(currentOrganization) : undefined}
-            okType="primary"
-            okButtonProps={{
-                // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
-                'data-attr': 'delete-organization-ok',
-                loading: isDeletionInProgress,
-                disabled: !isDeletionConfirmed,
-                className: 'btn-danger',
-            }}
-            onCancel={() => setIsVisible(false)}
-            cancelButtonProps={{
-                disabled: isDeletionInProgress,
-            }}
-            visible={isVisible}
+            onClose={() => setIsOpen(false)}
+            footer={
+                <>
+                    <LemonButton disabled={isDeletionInProgress} type="secondary" onClick={() => setIsOpen(false)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        disabled={!isDeletionConfirmed}
+                        loading={isDeletionInProgress}
+                        data-attr="delete-organization-ok"
+                        status="danger"
+                        onClick={currentOrganization ? () => deleteOrganization(currentOrganization) : undefined}
+                    >{`Delete ${
+                        currentOrganization ? currentOrganization.name : 'the current organization'
+                    }`}</LemonButton>
+                </>
+            }
+            isOpen={isOpen}
         >
             <p>
                 Organization deletion <b>cannot be undone</b>. You will lose all data, <b>including all events</b>,
@@ -47,16 +50,15 @@ export function DeleteOrganizationModal({
                 <strong>{currentOrganization ? currentOrganization.name : "this organization's name"}</strong> to
                 confirm.
             </p>
-            <Input
+            <LemonInput
                 type="text"
-                onChange={(e) => {
+                onChange={(value) => {
                     if (currentOrganization) {
-                        const { value } = e.target
                         setIsDeletionConfirmed(value.toLowerCase() === currentOrganization.name.toLowerCase())
                     }
                 }}
             />
-        </Modal>
+        </LemonModal>
     )
 }
 
@@ -67,29 +69,27 @@ export function DangerZone({ isRestricted }: RestrictedComponentProps): JSX.Elem
 
     return (
         <>
-            <div style={{ color: 'var(--danger)' }}>
-                <h2 style={{ color: 'var(--danger)' }} className="subtitle">
-                    Danger Zone
-                </h2>
-                <div className="mt">
+            <div className="text-danger">
+                <h2 className="text-danger subtitle">Danger Zone</h2>
+                <div className="mt-4">
                     {!isRestricted && (
-                        <Paragraph type="danger">
+                        <p className="text-danger">
                             This is <b>irreversible</b>. Please be certain.
-                        </Paragraph>
+                        </p>
                     )}
-                    <Button
-                        type="primary"
+                    <LemonButton
+                        status="danger"
+                        type="secondary"
                         onClick={() => setIsModalVisible(true)}
-                        className="mr-05 btn-danger"
-                        data-attr="delete-project-button"
-                        icon={<DeleteOutlined />}
+                        data-attr="delete-organization-button"
+                        icon={<IconDelete />}
                         disabled={isRestricted}
                     >
                         Delete {currentOrganization?.name || 'the current organization'}
-                    </Button>
+                    </LemonButton>
                 </div>
             </div>
-            <DeleteOrganizationModal isVisible={isModalVisible} setIsVisible={setIsModalVisible} />
+            <DeleteOrganizationModal isOpen={isModalVisible} setIsOpen={setIsModalVisible} />
         </>
     )
 }

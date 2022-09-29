@@ -1,5 +1,4 @@
 import json
-import uuid
 from datetime import datetime
 from unittest.mock import patch
 from urllib.parse import unquote, urlencode
@@ -11,23 +10,18 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Action, ActionStep, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
-
-
-def _create_event(**kwargs):
-    event_uuid = uuid.uuid4()
-    kwargs.update({"event_uuid": event_uuid})
-    create_event(**kwargs)
-    return str(event_uuid)
-
-
-def _create_person(**kwargs):
-    return Person.objects.create(**kwargs)
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+    test_with_materialized_columns,
+)
+from posthog.test.test_journeys import journeys_for
 
 
 class TestEvents(ClickhouseTestMixin, APIBaseTest):
@@ -50,6 +44,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         _create_event(event="$pageview", team=self.team, distinct_id="some-random-uid", properties={"$ip": "8.8.8.8"})
         _create_event(event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
+        flush_persons_and_events()
 
         expected_queries = (
             8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
@@ -66,15 +61,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["results"][0]["elements"][1]["order"], 1)
 
     def test_filter_events_by_event_name(self):
-        _create_person(
-            properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
-        )
-        _create_event(
-            event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
-        )
-        _create_event(
-            event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
-        )
+        _create_person(properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"])
+        _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
+        _create_event(event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
+        flush_persons_and_events()
 
         expected_queries = (
             8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
@@ -85,17 +75,16 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["results"][0]["event"], "event_name")
 
     def test_filter_events_by_properties(self):
-        _create_person(
-            properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
-        )
-        _create_event(
-            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"},
-        )
+        _create_person(properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"])
+        _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"})
         event2_uuid = _create_event(
-            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"}
         )
+        flush_persons_and_events()
 
-        expected_queries = 14  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id, couple of constance inserts
+        expected_queries = (
+            10  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
+        )
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -114,20 +103,14 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_filter_events_by_precalculated_cohort(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-02T12:00:00Z",
-        )
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-02T12:00:00Z")
 
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key": "value"})
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-02T12:00:00Z",
-        )
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key": "value"})
+        _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-02T12:00:00Z")
 
-        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-02T12:00:00Z",
-        )
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
+        _create_event(team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-02T12:00:00Z")
 
         cohort1 = Cohort.objects.create(
             team=self.team,
@@ -148,7 +131,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
     def test_filter_by_person(self):
         person = _create_person(
-            properties={"email": "tim@posthog.com"}, distinct_ids=["2", "some-random-uid"], team=self.team,
+            properties={"email": "tim@posthog.com"},
+            distinct_ids=["2", "some-random-uid"],
+            team=self.team,
+            immediate=True,
         )
 
         _create_event(event="random event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
@@ -156,10 +142,14 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             event="random event", team=self.team, distinct_id="some-random-uid", properties={"$ip": "8.8.8.8"}
         )
         _create_event(event="random event", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
+        flush_persons_and_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id={person.pk}").json()
         self.assertEqual(len(response["results"]), 2)
         self.assertEqual(response["results"][0]["elements"], [])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id={person.uuid}").json()
+        self.assertEqual(len(response["results"]), 2)
 
     def test_filter_by_nonexisting_person(self):
         response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id=5555555555")
@@ -212,7 +202,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
             _create_event(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": 565})
             _create_event(
-                distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item1", "item2"]},
+                distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item1", "item2"]}
             )
             _create_event(
                 distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item3"]}
@@ -251,9 +241,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
     def test_before_and_after(self):
         user = self._create_user("tim")
         self.client.force_login(user)
-        _create_person(
-            properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
-        )
+        _create_person(properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"])
 
         with freeze_time("2020-01-10"):
             event1_uuid = _create_event(team=self.team, event="sign up", distinct_id="2")
@@ -351,12 +339,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("before=", unquote(response["next"]))
             self.assertIn(f"after={after}", unquote(response["next"]))
 
-            params = {
-                "distinct_id": "1",
-                "after": after,
-                "before": before,
-                "limit": 10,
-            }
+            params = {"distinct_id": "1", "after": after, "before": before, "limit": 10}
             params_string = urlencode(params)
 
             response = self.client.get(f"/api/projects/{self.team.id}/events/?{params_string}").json()
@@ -384,7 +367,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             self.assertIsNone(page3["next"])
 
     def test_ascending_order_timestamp(self):
-        for idx in range(10):
+        for idx in range(20):
             _create_event(
                 team=self.team,
                 event="some event",
@@ -393,15 +376,16 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?distinct_id=1&orderBy={json.dumps(['timestamp'])}"
+            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&orderBy={json.dumps(['timestamp'])}"
         ).json()
         self.assertEqual(len(response["results"]), 10)
         self.assertLess(
             parser.parse(response["results"][0]["timestamp"]), parser.parse(response["results"][-1]["timestamp"])
         )
+        assert "after=" in response["next"]
 
     def test_default_descending_order_timestamp(self):
-        for idx in range(10):
+        for idx in range(20):
             _create_event(
                 team=self.team,
                 event="some event",
@@ -409,11 +393,30 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
             )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10").json()
         self.assertEqual(len(response["results"]), 10)
         self.assertGreater(
             parser.parse(response["results"][0]["timestamp"]), parser.parse(response["results"][-1]["timestamp"])
         )
+        assert "before=" in response["next"]
+
+    def test_specified_descending_order_timestamp(self):
+        for idx in range(20):
+            _create_event(
+                team=self.team,
+                event="some event",
+                distinct_id="1",
+                timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&orderBy={json.dumps(['-timestamp'])}"
+        ).json()
+        self.assertEqual(len(response["results"]), 10)
+        self.assertGreater(
+            parser.parse(response["results"][0]["timestamp"]), parser.parse(response["results"][-1]["timestamp"])
+        )
+        assert "before=" in response["next"]
 
     def test_action_no_steps(self):
         action = Action.objects.create(team=self.team)
@@ -439,64 +442,29 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         self.assertEqual(len(response["results"]), 1)
 
-    @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
-    def test_events_csv_export_with_param_limit(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            for _ in range(12):
-                _create_event(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
-            response = self.client.get(f"/api/projects/{self.team.id}/events.csv?limit=5")
-        self.assertEqual(
-            len(response.content.splitlines()), 6, "CSV export should return up to limit=5 events (+ headers row)",
-        )
-
-    @patch("posthog.api.event.EventViewSet.CSV_EXPORT_DEFAULT_LIMIT", 10)
-    def test_events_csv_export_default_limit(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            for _ in range(12):
-                _create_event(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
-            response = self.client.get(f"/api/projects/{self.team.id}/events.csv")
-        self.assertEqual(
-            len(response.content.splitlines()),
-            11,
-            "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
-        )
-
-    @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
-    def test_events_csv_export_maximum_limit(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            for _ in range(12):
-                _create_event(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
-            response = self.client.get(f"/api/projects/{self.team.id}/events.csv")
-        self.assertEqual(
-            len(response.content.splitlines()),
-            11,
-            "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
-        )
-
-    @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
-    def test_events_csv_export_over_maximum_limit(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            for _ in range(12):
-                _create_event(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
-            response = self.client.get(f"/api/projects/{self.team.id}/events.csv?limit=100")
-        self.assertEqual(
-            len(response.content.splitlines()),
-            11,
-            "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
-        )
-
     def test_get_event_by_id(self):
+        _create_person(
+            properties={"email": "someone@posthog.com"}, team=self.team, distinct_ids=["1"], is_identified=True
+        )
         event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}",)
+        response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["event"], "event")
+        response_json = response.json()
+        self.assertEqual(response_json["event"], "event")
+        self.assertIsNone(response_json["person"])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/123456",)
+        with_person_response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}?include_person=true")
+        self.assertEqual(with_person_response.status_code, status.HTTP_200_OK)
+        with_person_response_json = with_person_response.json()
+        self.assertEqual(with_person_response_json["event"], "event")
+        self.assertIsNotNone(with_person_response_json["person"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/123456")
         # EE will inform the user the ID passed is not a valid UUID
         self.assertIn(response.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/im_a_string_not_an_integer",)
+        response = self.client.get(f"/api/projects/{self.team.id}/events/im_a_string_not_an_integer")
         self.assertIn(response.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST])
 
     def test_limit(self):
@@ -560,18 +528,39 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/events?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
-    @patch("posthog.api.event.sync_execute")
-    def test_optimize_query(self, patch_sync_execute):
+    @patch("posthog.models.event.query_event_list.query_with_columns")
+    def test_optimize_query(self, patch_query_with_columns):
         #  For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
-        patch_sync_execute.return_value = [("event", "d", "{}", timezone.now(), "d", "d", "d")]
+        patch_query_with_columns.return_value = [
+            {
+                "uuid": "event",
+                "event": "d",
+                "properties": "{}",
+                "timestamp": timezone.now(),
+                "team_id": "d",
+                "distinct_id": "d",
+                "elements_chain": "d",
+            }
+        ]
         response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(patch_sync_execute.call_count, 2)
+        self.assertEqual(patch_query_with_columns.call_count, 2)
 
-        patch_sync_execute.return_value = [("event", "d", "{}", timezone.now(), "d", "d", "d") for _ in range(0, 100)]
+        patch_query_with_columns.return_value = [
+            {
+                "uuid": "event",
+                "event": "d",
+                "properties": "{}",
+                "timestamp": timezone.now(),
+                "team_id": "d",
+                "distinct_id": "d",
+                "elements_chain": "d",
+            }
+            for _ in range(0, 100)
+        ]
         response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
-        self.assertEqual(patch_sync_execute.call_count, 3)
+        self.assertEqual(patch_query_with_columns.call_count, 3)
 
     def test_filter_events_by_being_after_properties_with_date_type(self):
         journeys_for(

@@ -1,0 +1,94 @@
+.LemonBadge {
+    --lemon-counter-size: 1.25rem;
+    --lemon-counter-font-size: 0.75rem;
+    --scale-small: 0.8;
+    --scale-large: 1.2;
+    --position-offset: 0.5rem;
+
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--white);
+    background: var(--primary);
+    border: 2px solid var(--bg-light);
+    width: var(--lemon-counter-size);
+    height: var(--lemon-counter-size);
+    font-size: var(--lemon-counter-font-size);
+    line-height: var(--lemon-counter-size);
+    padding: 0;
+    border-radius: 100%;
+    box-sizing: content-box;
+    user-select: none;
+    pointer-events: none;
+    position: absolute;
+    font-weight: 700;
+    z-index: 1; // Make sure it is at least in front of non-absolute items
+
+    &.LemonBadge--position-none {
+        position: relative;
+    }
+
+    &.LemonBadge--position-top-left {
+        top: calc(var(--position-offset) * -1);
+        left: calc(var(--position-offset) * -1);
+    }
+
+    &.LemonBadge--position-top-right {
+        top: calc(var(--position-offset) * -1);
+        right: calc(var(--position-offset) * -1);
+    }
+
+    &.LemonBadge--position-bottom-left {
+        bottom: calc(var(--position-offset) * -1);
+        left: calc(var(--position-offset) * -1);
+    }
+
+    &.LemonBadge--position-bottom-right {
+        bottom: calc(var(--position-offset) * -1);
+        right: calc(var(--position-offset) * -1);
+    }
+
+    &.LemonBadge--small {
+        width: calc(var(--lemon-counter-size) * var(--scale-small));
+        height: calc(var(--lemon-counter-size) * var(--scale-small));
+        font-size: calc(var(--lemon-counter-font-size) * var(--scale-small));
+        line-height: calc(var(--lemon-counter-size) * var(--scale-small));
+    }
+
+    &.LemonBadge--large {
+        width: calc(var(--lemon-counter-size) * var(--scale-large));
+        height: calc(var(--lemon-counter-size) * var(--scale-large));
+        font-size: calc(var(--lemon-counter-font-size) * var(--scale-large));
+        line-height: calc(var(--lemon-counter-size) * var(--scale-large));
+    }
+
+    &.LemonBadge--large {
+        width: calc(var(--lemon-counter-size) * var(--scale-large));
+        height: calc(var(--lemon-counter-size) * var(--scale-large));
+        font-size: calc(var(--lemon-counter-font-size) * var(--scale-large));
+        line-height: calc(var(--lemon-counter-size) * var(--scale-large));
+    }
+
+    &.LemonBadge--enter {
+        transform: scale(0.5);
+        opacity: 0;
+    }
+
+    &.LemonBadge--enter-active {
+        transform: scale(1);
+        opacity: 1;
+        transition: all 200ms ease-out;
+    }
+
+    &.LemonBadge--exit {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    &.LemonBadge--exit-active {
+        transform: scale(0.5);
+        opacity: 0;
+        transition: all 200ms ease-in;
+    }
+}

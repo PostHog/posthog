@@ -10,7 +10,7 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/person/properties': [
+                '/api/projects/:team_id/persons/properties': [
                     { name: 'Property A', count: 10 },
                     { name: 'Property B', count: 20 },
                     { name: 'Property C', count: 30 },
@@ -51,5 +51,7 @@ export function PersonPropertySelect_(): JSX.Element {
         '$initial_geoip_subdivision_name',
     ])
 
-    return <PersonPropertySelect selectedProperties={selectedProperties} onChange={setSelectProperties} />
+    return (
+        <PersonPropertySelect selectedProperties={selectedProperties} onChange={setSelectProperties} addText={'Add'} />
+    )
 }

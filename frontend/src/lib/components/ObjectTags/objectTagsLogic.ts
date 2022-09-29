@@ -1,6 +1,7 @@
-import { kea } from 'kea'
-import { objectTagsLogicType } from './objectTagsLogicType'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import type { objectTagsLogicType } from './objectTagsLogicType'
 import { lemonToast } from '../lemonToast'
+import equal from 'fast-deep-equal'
 
 export interface ObjectTagsLogicProps {
     id: number
@@ -13,18 +14,18 @@ function cleanTag(tag?: string): string {
     return (tag ?? '').trim().toLowerCase()
 }
 
-export const objectTagsLogic = kea<objectTagsLogicType<ObjectTagsLogicProps>>({
-    path: (key) => ['lib', 'components', 'ObjectTags', 'objectTagsLogic', key],
-    props: {} as ObjectTagsLogicProps,
-    key: (props) => props.id,
-    actions: {
+export const objectTagsLogic = kea<objectTagsLogicType>([
+    path(['lib', 'components', 'ObjectTags', 'objectTagsLogic']),
+    props({} as ObjectTagsLogicProps),
+    key((props) => props.id),
+    actions({
         setTags: (tags: string[]) => ({ tags }),
         setAddingNewTag: (addingNewTag: boolean) => ({ addingNewTag }),
         setNewTag: (newTag: string) => ({ newTag }),
         handleDelete: (tag: string) => ({ tag }),
         handleAdd: true,
-    },
-    reducers: ({ props }) => ({
+    }),
+    reducers(({ props }) => ({
         tags: [
             props.tags,
             {
@@ -51,11 +52,11 @@ export const objectTagsLogic = kea<objectTagsLogicType<ObjectTagsLogicProps>>({
                 handleDelete: (state, { tag }) => [...state, tag],
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         cleanedNewTag: [(s) => [s.newTag], (newTag) => cleanTag(newTag)],
-    },
-    listeners: ({ values, props, actions }) => ({
+    }),
+    listeners(({ values, props, actions }) => ({
         handleDelete: async ({ tag }) => {
             const newTags = values.tags.filter((_t) => _t !== tag)
             props.onChange?.(tag, newTags)
@@ -74,5 +75,10 @@ export const objectTagsLogic = kea<objectTagsLogicType<ObjectTagsLogicProps>>({
             // Update local state so that frontend is not blocked by server requests
             actions.setTags(newTags)
         },
+    })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!equal(props.tags, oldProps.tags)) {
+            actions.setTags(props.tags)
+        }
     }),
-})
+])

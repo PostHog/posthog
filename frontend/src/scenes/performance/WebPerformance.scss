@@ -1,15 +1,44 @@
-@import '~/vars';
-
 .performance-popup {
-    max-width: 300px;
+    max-width: 400px;
 }
 
-.performance-waterfall {
+.performance-timings-table {
+    margin: auto;
+
+    th,
+    td {
+        text-align: center;
+        vertical-align: middle;
+    }
+
+    td.key {
+        text-align: left;
+    }
+}
+
+.web-performance {
     line-height: 32px;
     padding-right: 3em;
 
+    .control-row {
+        padding-bottom: 1rem;
+        padding-top: 1rem;
+        min-height: 4rem;
+        border-top: solid 1px var(--border);
+    }
+
     tr.current-event {
-        background-color: $mark_color;
+        background-color: var(--mark-color);
+    }
+
+    .chart-title {
+        display: flex;
+        width: 100%;
+        padding-top: 1rem;
+
+        .person-header {
+            flex-grow: 1;
+        }
     }
 
     .waterfall-chart {
@@ -20,9 +49,10 @@
             display: flex;
             justify-content: center;
             align-content: center;
+            cursor: pointer;
 
             .color-block {
-                width: 64px;
+                width: 32px;
                 height: 16px;
                 line-height: 32px;
                 display: inline-block;

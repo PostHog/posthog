@@ -8,8 +8,8 @@ from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
-from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.client import sync_execute
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -47,12 +47,7 @@ class GroupCursorPagination(CursorPagination):
 class GroupSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = Group
-        fields = [
-            "group_type_index",
-            "group_key",
-            "group_properties",
-            "created_at",
-        ]
+        fields = ["group_type_index", "group_key", "group_properties", "created_at"]
 
 
 class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -62,7 +57,14 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self):
-        return super().get_queryset().filter(group_type_index=self.request.GET["group_type_index"])
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                group_type_index=self.request.GET["group_type_index"],
+                group_key__icontains=self.request.GET.get("group_key", ""),
+            )
+        )
 
     @action(methods=["GET"], detail=False)
     def find(self, request: request.Request, **kw) -> response.Response:

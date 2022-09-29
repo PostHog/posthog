@@ -1,5 +1,5 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/minimal'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { captureException } from '@sentry/node'
 
 import { Hub, PluginConfig, PluginError } from '../../types'
 import { setError } from './sql'
@@ -8,7 +8,7 @@ export async function processError(
     server: Hub,
     pluginConfig: PluginConfig | null,
     error: Error | string,
-    event?: PluginEvent | null
+    event?: PluginEvent | ProcessedPluginEvent | null
 ): Promise<void> {
     if (!pluginConfig) {
         captureException(new Error('Tried to process error for nonexistent plugin config!'))
@@ -24,7 +24,7 @@ export async function processError(
                   message: error.message,
                   time: new Date().toISOString(),
                   name: error.name,
-                  stack: error.stack,
+                  stack: cleanErrorStackTrace(error.stack),
                   event: event,
               }
 
@@ -33,7 +33,21 @@ export async function processError(
 
 export async function clearError(server: Hub, pluginConfig: PluginConfig): Promise<void> {
     // running this may causes weird deadlocks with piscina and vms, so avoiding if possible
-    if (pluginConfig.error) {
+    if (pluginConfig.has_error) {
         await setError(server, null, pluginConfig)
+    }
+}
+
+function cleanErrorStackTrace(stack: string | undefined): string | undefined {
+    if (!stack) {
+        return stack
+    }
+
+    const lines = stack.split('\n')
+    const firstInternalLine = lines.findIndex((line) => line.includes('at __inBindMeta'))
+    if (firstInternalLine !== -1) {
+        return lines.slice(0, firstInternalLine).join('\n')
+    } else {
+        return stack
     }
 }

@@ -1,56 +1,65 @@
-import { Col, Row, Skeleton, Card, SkeletonProps } from 'antd'
-import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import React from 'react'
-import { PlusOutlined } from '@ant-design/icons'
 import { dashboardLogic } from './dashboardLogic'
 import { useValues } from 'kea'
-import clsx from 'clsx'
-import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
+import { LemonButton } from 'lib/components/LemonButton'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { IconPlus } from 'lib/components/icons'
+import './EmptyDashboardComponent.scss'
 
-function SkeletonCardOne({ active }: Pick<SkeletonProps, 'active'>): JSX.Element {
+function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
-        <Card className="hide-lte-lg">
-            <Row>
-                <Col span={12}>
-                    <Skeleton paragraph={{ rows: 1 }} active={active} />
-                    <div className="mt">
-                        <div className="mt">
-                            <Skeleton.Button active={active} />
-                            <Skeleton.Button active={active} style={{ marginLeft: 4, width: 140 }} />
-                        </div>
-                        <div className="mt">
-                            <Skeleton.Button active={active} />
-                            <Skeleton.Button active={active} style={{ marginLeft: 4, width: 140 }} />
-                        </div>
-                        <div className="mt">
-                            <Skeleton.Button active={active} />
-                            <Skeleton.Button active={active} style={{ marginLeft: 4, width: 140 }} />
-                        </div>
-                    </div>
-                </Col>
-                <Col span={12}>
-                    <div className="skeleton-actions">
-                        <Skeleton.Avatar active={active} shape="circle" size="small" />
-                        <Skeleton.Avatar active={active} shape="circle" size="small" />
-                    </div>
-                    <Skeleton.Avatar active={active} shape="circle" size="large" className="pie-chart" />
-                </Col>
-            </Row>
-        </Card>
+        <div className="border rounded p-10 h-full space-y-4 flex-1 flex flex-col justify-between">
+            <div className="space-y-4">
+                <LemonSkeleton className="w-1/3 h-4" active={active} />
+                <LemonSkeleton className="w-1/2 h-4" active={active} />
+            </div>
+            {children}
+        </div>
     )
 }
 
-function SkeletonBarsRaw(): JSX.Element {
+function SkeletonCardOne({ active }: { active: boolean }): JSX.Element {
     return (
-        <div className="bar-chart ant-skeleton-content">
+        <SkeletonCard active={active}>
+            <div className="flex justify-center flex-1 items-end gap-10">
+                {[100, 66, 33].map((height) => (
+                    <div
+                        key={height}
+                        className="border border-border-light rounded-2xl overflow-hidden flex flex-col justify-end"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: '15%', height: '80%' }}
+                    >
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        <div style={{ height: `${height}%` }}>
+                            <LemonSkeleton active={active} className="h-full w-full" />
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </SkeletonCard>
+    )
+}
+
+function SkeletonBarsRaw({ active }: { active: boolean }): JSX.Element {
+    return (
+        <div className="flex items-end gap-1 flex-1">
             {Array(8)
                 .fill(0)
                 .map((_, index) => {
-                    const max = 200
-                    const min = 40
-                    const height = Math.floor(Math.random() * (max - min + 1)) + min
-                    return <div className="bar-el ant-skeleton-title" key={index} style={{ height: height }} />
+                    const height = Math.random() * 60 + 10
+                    return (
+                        <div
+                            key={index}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                height: `${height}%`,
+                                width: '12.5%',
+                            }}
+                        >
+                            <LemonSkeleton active={active} className="h-full w-full" />
+                        </div>
+                    )
                 })}
         </div>
     )
@@ -58,22 +67,11 @@ function SkeletonBarsRaw(): JSX.Element {
 /** This component looks different on each render due to Math.random() calls within, so it's memoized to avoid that. */
 const SkeletonBars = React.memo(SkeletonBarsRaw)
 
-function SkeletonCardTwo({ active }: Pick<SkeletonProps, 'active'>): JSX.Element {
+function SkeletonCardTwo({ active }: { active: boolean }): JSX.Element {
     return (
-        <Card className={clsx('ant-skeleton', active && 'ant-skeleton-active')}>
-            <Row>
-                <Col span={12}>
-                    <Skeleton active={active} paragraph={{ rows: 1 }} />
-                </Col>
-                <Col span={12}>
-                    <div className="skeleton-actions">
-                        <Skeleton.Avatar active={active} shape="circle" size="small" />
-                        <Skeleton.Avatar active={active} shape="circle" size="small" />
-                    </div>
-                </Col>
-            </Row>
-            <SkeletonBars />
-        </Card>
+        <SkeletonCard active={active}>
+            <SkeletonBars active={active} />
+        </SkeletonCard>
     )
 }
 
@@ -81,38 +79,39 @@ export function EmptyDashboardComponent({ loading }: { loading: boolean }): JSX.
     const { dashboard } = useValues(dashboardLogic)
 
     return (
-        <div className="empty-state">
+        <div className="EmptyDashboard">
             {!loading && (
-                <div className="cta">
-                    <Card className="card-elevated">
+                <div className="EmptyDashboard__cta">
+                    <div className="border rounded p-6 shadow bg-white">
                         <h3 className="l3">Dashboard empty</h3>
                         <p>This dashboard sure would look better with some graphs!</p>
-                        <div className="mt text-center">
-                            <Link to={urls.insightNew(undefined, dashboard?.id)}>
-                                <HotkeyButton data-attr="dashboard-add-graph-header" icon={<PlusOutlined />} hotkey="n">
-                                    Add Insight
-                                </HotkeyButton>
-                            </Link>
+                        <div className="mt-4 text-center">
+                            <LemonButton
+                                data-attr="dashboard-add-graph-header"
+                                to={urls.insightNew(undefined, dashboard?.id)}
+                                type="primary"
+                                icon={<IconPlus />}
+                                center
+                                fullWidth
+                            >
+                                Add insight
+                            </LemonButton>
                         </div>
-                    </Card>
+                    </div>
                 </div>
             )}
-            <Row gutter={16}>
-                <Col span={24} lg={12}>
+            {/*  eslint-disable-next-line react/forbid-dom-props */}
+            <div className="flex items-center gap-2" style={{ height: '30rem' }}>
+                <SkeletonCardOne active={loading} />
+                <SkeletonCardTwo active={loading} />
+            </div>
+            <div className="EmptyDashboard__fade">
+                {/*  eslint-disable-next-line react/forbid-dom-props */}
+                <div className="flex items-center gap-2" style={{ height: '30rem' }}>
                     <SkeletonCardOne active={loading} />
-                </Col>
-                <Col span={24} lg={12}>
                     <SkeletonCardTwo active={loading} />
-                </Col>
-            </Row>
-            <Row gutter={16} className="fade-out-graphs">
-                <Col span={24} lg={12}>
-                    <SkeletonCardOne active={loading} />
-                </Col>
-                <Col span={24} lg={12}>
-                    <SkeletonCardTwo active={loading} />
-                </Col>
-            </Row>
+                </div>
+            </div>
         </div>
     )
 }

@@ -11,7 +11,7 @@ describe('ActionManager', () => {
     beforeEach(async () => {
         ;[hub, closeServer] = await createHub()
         await resetTestDatabase()
-        actionManager = new ActionManager(hub.db)
+        actionManager = new ActionManager(hub.db, { processAsyncHandlers: true })
         await actionManager.prepare()
     })
 
@@ -131,5 +131,19 @@ describe('ActionManager', () => {
         const droppedAction = actionManager.getTeamActions(TEAM_ID)
 
         expect(Object.values(droppedAction!).length).toEqual(0)
+    })
+
+    it('does nothing when no `processAsyncHandlers` capabilities', async () => {
+        jest.spyOn(hub.db, 'fetchAllActionsGroupedByTeam')
+        jest.spyOn(hub.db, 'fetchAction')
+
+        const manager = new ActionManager(hub.db, { processAsyncHandlers: false })
+
+        await manager.prepare()
+        await manager.reloadAllActions()
+        await manager.reloadAction(TEAM_ID, ACTION_ID)
+
+        expect(hub.db.fetchAllActionsGroupedByTeam).not.toHaveBeenCalled()
+        expect(hub.db.fetchAction).not.toHaveBeenCalled()
     })
 })

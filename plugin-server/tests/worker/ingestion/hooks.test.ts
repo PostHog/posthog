@@ -1,6 +1,8 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
+import * as fetch from 'node-fetch'
 
-import { Action, Person } from '../../../src/types'
+import { Action, Person, PreIngestionEvent } from '../../../src/types'
+import { UUIDT } from '../../../src/utils/utils'
 import {
     determineWebhookType,
     getActionDetails,
@@ -8,8 +10,10 @@ import {
     getTokens,
     getUserDetails,
     getValueOfToken,
+    HookCommander,
     WebhookType,
 } from '../../../src/worker/ingestion/hooks'
+import { Hook } from './../../../src/types'
 
 describe('hooks', () => {
     describe('determineWebhookType', () => {
@@ -33,7 +37,7 @@ describe('hooks', () => {
     })
 
     describe('getUserDetails', () => {
-        const event = { distinct_id: 2 } as unknown as PluginEvent
+        const event = { distinctId: 'WALL-E' } as unknown as PreIngestionEvent
         const person = { properties: { email: 'test@posthog.com' } } as unknown as Person
 
         test('Slack', () => {
@@ -45,7 +49,7 @@ describe('hooks', () => {
             )
 
             expect(userDetails).toBe('test@posthog.com')
-            expect(userDetailsMarkdown).toBe('<http://localhost:8000/person/2|test@posthog.com>')
+            expect(userDetailsMarkdown).toBe('<http://localhost:8000/person/WALL-E|test@posthog.com>')
         })
 
         test('Teams', () => {
@@ -57,7 +61,7 @@ describe('hooks', () => {
             )
 
             expect(userDetails).toBe('test@posthog.com')
-            expect(userDetailsMarkdown).toBe('[test@posthog.com](http://localhost:8000/person/2)')
+            expect(userDetailsMarkdown).toBe('[test@posthog.com](http://localhost:8000/person/WALL-E)')
         })
     })
 
@@ -100,10 +104,58 @@ describe('hooks', () => {
 
     describe('getValueOfToken', () => {
         const action = { id: 1, name: 'action1' } as Action
-        const event = { distinct_id: 2, properties: { $browser: 'Chrome' } } as unknown as PluginEvent
-        const person = {} as Person
+        const event = { distinctId: 'WALL-E', properties: { $browser: 'Chrome' } } as unknown as PreIngestionEvent
+        const person = { properties: { enjoys_broccoli_on_pizza: false } } as unknown as Person
 
-        test('user name', () => {
+        test('person with just distinct ID', () => {
+            const tokenUserName = ['person']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                person,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('WALL-E')
+            expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
+        })
+
+        test('person with email', () => {
+            const tokenUserName = ['person']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                { ...person, properties: { ...person.properties, email: 'wall-e@buynlarge.com' } },
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserName
+            )
+
+            expect(text).toBe('wall-e@buynlarge.com')
+            expect(markdown).toBe('[wall-e@buynlarge.com](http://localhost:8000/person/WALL-E)')
+        })
+
+        test('person prop', () => {
+            const tokenUserPropString = ['person', 'properties', 'enjoys_broccoli_on_pizza']
+
+            const [text, markdown] = getValueOfToken(
+                action,
+                event,
+                person,
+                'http://localhost:8000',
+                WebhookType.Teams,
+                tokenUserPropString
+            )
+
+            expect(text).toBe('false')
+            expect(markdown).toBe('false')
+        })
+
+        test('user name (alias for person name)', () => {
             const tokenUserName = ['user', 'name']
 
             const [text, markdown] = getValueOfToken(
@@ -115,11 +167,11 @@ describe('hooks', () => {
                 tokenUserName
             )
 
-            expect(text).toBe('2')
-            expect(markdown).toBe('[2](http://localhost:8000/person/2)')
+            expect(text).toBe('WALL-E')
+            expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
         })
 
-        test('user prop', () => {
+        test('user prop (actually event prop)', () => {
             const tokenUserPropString = ['user', 'browser']
 
             const [text, markdown] = getValueOfToken(
@@ -154,9 +206,9 @@ describe('hooks', () => {
 
     describe('getFormattedMessage', () => {
         const event = {
-            distinct_id: 2,
+            distinctId: 2,
             properties: { $browser: 'Chrome', page_title: 'Pricing' },
-        } as unknown as PluginEvent
+        } as unknown as PreIngestionEvent
         const person = {} as Person
 
         test('custom format', () => {
@@ -210,6 +262,130 @@ describe('hooks', () => {
             )
             expect(text).toBe('2 did thing from browser undefined')
             expect(markdown).toBe('<https://localhost:8000/person/2|2> did thing from browser undefined')
+        })
+    })
+
+    describe('postRestHook', () => {
+        let hookCommander: HookCommander
+        let hook: Hook
+
+        beforeEach(() => {
+            hookCommander = new HookCommander({} as any, {} as any, {} as any)
+            hook = {
+                id: 'id',
+                team_id: 2,
+                user_id: 1,
+                resource_id: 1,
+                event: 'foo',
+                target: 'foo.bar',
+                created: new Date().toISOString(),
+                updated: new Date().toISOString(),
+            }
+        })
+
+        test('person = undefined', async () => {
+            await hookCommander.postRestHook(hook, { event: 'foo' } as any, undefined)
+
+            expect(fetch).toHaveBeenCalledWith('foo.bar', {
+                body: JSON.stringify(
+                    {
+                        hook: {
+                            id: 'id',
+                            event: 'foo',
+                            target: 'foo.bar',
+                        },
+                        data: {
+                            event: 'foo',
+                            person: {}, // person becomes empty object if undefined
+                        },
+                    },
+                    undefined,
+                    4
+                ),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            })
+        })
+
+        test('person instanceof IngestionPersonData', async () => {
+            const now = new Date().toISOString()
+            const uuid = new UUIDT().toString()
+            const person = {
+                uuid: uuid,
+                properties: { foo: 'bar' },
+                team_id: 1,
+                id: 1,
+                created_at: DateTime.fromISO(now).toUTC(),
+            }
+            await hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
+            expect(fetch).toHaveBeenCalledWith('foo.bar', {
+                body: JSON.stringify(
+                    {
+                        hook: {
+                            id: 'id',
+                            event: 'foo',
+                            target: 'foo.bar',
+                        },
+                        data: {
+                            event: 'foo',
+                            person: {
+                                uuid: uuid,
+                                properties: { foo: 'bar' },
+                                team_id: 1,
+                                id: 1,
+                                created_at: now,
+                            },
+                        },
+                    },
+                    undefined,
+                    4
+                ),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            })
+        })
+
+        test('person instanceof Person', async () => {
+            const now = DateTime.now()
+            const uuid = new UUIDT().toString()
+            const person = {
+                uuid: uuid,
+                properties: { foo: 'bar' },
+                team_id: 1,
+                id: 1,
+                created_at: now,
+                is_user_id: 1,
+                is_identified: false,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                version: 15,
+            }
+            await hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
+            expect(fetch).toHaveBeenCalledWith('foo.bar', {
+                body: JSON.stringify(
+                    {
+                        hook: {
+                            id: 'id',
+                            event: 'foo',
+                            target: 'foo.bar',
+                        },
+                        data: {
+                            event: 'foo',
+                            person: {
+                                uuid: uuid,
+                                properties: { foo: 'bar' },
+                                team_id: 1,
+                                id: 1,
+                                created_at: now.toISO(),
+                            },
+                        },
+                    },
+                    undefined,
+                    4
+                ),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            })
         })
     })
 })

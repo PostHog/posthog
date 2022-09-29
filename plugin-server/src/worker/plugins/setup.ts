@@ -1,15 +1,6 @@
 import { PluginAttachment } from '@posthog/plugin-scaffold'
 
-import {
-    Hub,
-    Plugin,
-    PluginConfig,
-    PluginConfigId,
-    PluginId,
-    PluginTaskType,
-    StatelessVmMap,
-    TeamId,
-} from '../../types'
+import { Hub, Plugin, PluginConfig, PluginConfigId, PluginId, StatelessVmMap, TeamId } from '../../types'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { LazyPluginVM } from '../vm/lazy'
@@ -20,6 +11,8 @@ export async function setupPlugins(server: Hub): Promise<void> {
     const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(server)
     const pluginVMLoadPromises: Array<Promise<any>> = []
     const statelessVms = {} as StatelessVmMap
+
+    const timer = new Date()
 
     for (const [id, pluginConfig] of pluginConfigs) {
         const plugin = plugins.get(pluginConfig.plugin_id)
@@ -49,6 +42,7 @@ export async function setupPlugins(server: Hub): Promise<void> {
     }
 
     await Promise.all(pluginVMLoadPromises)
+    server.statsd?.timing('setup_plugins.success', timer)
 
     server.plugins = plugins
     server.pluginConfigs = pluginConfigs
@@ -61,17 +55,18 @@ export async function setupPlugins(server: Hub): Promise<void> {
     await loadSchedule(server)
 }
 
-async function loadPluginsFromDB(
-    server: Hub
-): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
-    const pluginRows = await getPluginRows(server)
+async function loadPluginsFromDB(hub: Hub): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
+    const startTimer = new Date()
+    const pluginRows = await getPluginRows(hub)
     const plugins = new Map<PluginId, Plugin>()
 
     for (const row of pluginRows) {
         plugins.set(row.id, row)
     }
+    hub.statsd?.timing('load_plugins.plugins', startTimer)
 
-    const pluginAttachmentRows = await getPluginAttachmentRows(server)
+    const pluginAttachmentTimer = new Date()
+    const pluginAttachmentRows = await getPluginAttachmentRows(hub)
     const attachmentsPerConfig = new Map<TeamId, Record<string, PluginAttachment>>()
     for (const row of pluginAttachmentRows) {
         let attachments = attachmentsPerConfig.get(row.plugin_config_id!)
@@ -85,8 +80,10 @@ async function loadPluginsFromDB(
             contents: row.contents,
         }
     }
+    hub.statsd?.timing('load_plugins.plugin_attachments', pluginAttachmentTimer)
 
-    const pluginConfigRows = await getPluginConfigRows(server)
+    const pluginConfigTimer = new Date()
+    const pluginConfigRows = await getPluginConfigRows(hub)
 
     const pluginConfigs = new Map<PluginConfigId, PluginConfig>()
     const pluginConfigsPerTeam = new Map<TeamId, PluginConfig[]>()
@@ -116,11 +113,15 @@ async function loadPluginsFromDB(
         }
         teamConfigs.push(pluginConfig)
     }
+    hub.statsd?.timing('load_plugins.plugin_configs', pluginConfigTimer)
+
+    hub.statsd?.timing('load_plugins.total', startTimer)
 
     return { plugins, pluginConfigs, pluginConfigsPerTeam }
 }
 
 export async function loadSchedule(server: Hub): Promise<void> {
+    const timer = new Date()
     server.pluginSchedule = null
 
     // gather runEvery* tasks into a schedule
@@ -129,7 +130,7 @@ export async function loadSchedule(server: Hub): Promise<void> {
     let count = 0
 
     for (const [id, pluginConfig] of server.pluginConfigs) {
-        const tasks = (await pluginConfig.vm?.getTasks(PluginTaskType.Schedule)) ?? {}
+        const tasks = (await pluginConfig.vm?.getScheduledTasks()) ?? {}
         for (const [taskName, task] of Object.entries(tasks)) {
             if (task && taskName in pluginSchedule) {
                 pluginSchedule[taskName].push(id)
@@ -143,4 +144,5 @@ export async function loadSchedule(server: Hub): Promise<void> {
     }
 
     server.pluginSchedule = pluginSchedule
+    server.statsd?.timing('load_schedule.success', timer)
 }

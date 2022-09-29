@@ -7,21 +7,21 @@ import hashlib
 import json
 import os
 import re
-import shutil
+import secrets
+import string
 import subprocess
-import sys
 import time
 import uuid
+import zlib
 from enum import Enum
-from itertools import count
 from typing import (
+    TYPE_CHECKING,
     Any,
     Dict,
     Generator,
     List,
     Mapping,
     Optional,
-    Sequence,
     Tuple,
     Union,
     cast,
@@ -29,22 +29,28 @@ from typing import (
 from urllib.parse import urljoin, urlparse
 
 import lzstring
+import posthoganalytics
 import pytz
+import structlog
+from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models.query import QuerySet
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
+from sentry_sdk.api import capture_exception
 
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -54,6 +60,11 @@ DATERANGE_MAP = {
     "month": datetime.timedelta(days=31),
 }
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+
+DEFAULT_DATE_FROM_DAYS = 7
+
+
+logger = structlog.get_logger(__name__)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
@@ -66,12 +77,33 @@ def format_label_date(date: datetime.datetime, interval: str) -> str:
     return date.strftime(labels_format)
 
 
+class PotentialSecurityProblemException(Exception):
+    """
+    When providing an absolutely-formatted URL
+    we will not provide one that has an unexpected hostname
+    because an attacker might use that to redirect traffic somewhere *bad*
+    """
+
+    pass
+
+
 def absolute_uri(url: Optional[str] = None) -> str:
     """
     Returns an absolutely-formatted URL based on the `SITE_URL` config.
+
+    If the provided URL is already absolutely formatted
+    it does not allow anything except the hostname of the SITE_URL config
     """
     if not url:
         return settings.SITE_URL
+
+    provided_url = urlparse(url)
+    if provided_url.hostname and provided_url.scheme:
+        site_url = urlparse(settings.SITE_URL)
+        provided_url = provided_url
+        if site_url.hostname != provided_url.hostname:
+            raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
+
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
@@ -85,11 +117,15 @@ def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.
         at = timezone.now()
 
     period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(timezone.now().weekday() + 1), datetime.time.max, tzinfo=pytz.UTC,
+        at - datetime.timedelta(timezone.now().weekday() + 1),
+        datetime.time.max,
+        tzinfo=pytz.UTC,
     )  # very end of the previous Sunday
 
     period_start: datetime.datetime = datetime.datetime.combine(
-        period_end - datetime.timedelta(6), datetime.time.min, tzinfo=pytz.UTC,
+        period_end - datetime.timedelta(6),
+        datetime.time.min,
+        tzinfo=pytz.UTC,
     )  # very start of the previous Monday
 
     return (period_start, period_end)
@@ -105,11 +141,15 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
         at = timezone.now()
 
     period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(days=1), datetime.time.max, tzinfo=pytz.UTC,
+        at - datetime.timedelta(days=1),
+        datetime.time.max,
+        tzinfo=pytz.UTC,
     )  # very end of the previous day
 
     period_start: datetime.datetime = datetime.datetime.combine(
-        period_end, datetime.time.min, tzinfo=pytz.UTC,
+        period_end,
+        datetime.time.min,
+        tzinfo=pytz.UTC,
     )  # very start of the previous day
 
     return (period_start, period_end)
@@ -149,6 +189,9 @@ def relative_date_parse(input: str) -> datetime.datetime:
             date -= relativedelta(day=1)
         if match.group("position") == "End":
             date -= relativedelta(day=31)
+    elif match.group("type") == "q":
+        if match.group("number"):
+            date -= relativedelta(weeks=13 * int(match.group("number")))
     elif match.group("type") == "y":
         if match.group("number"):
             date -= relativedelta(years=int(match.group("number")))
@@ -165,7 +208,7 @@ def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dic
         if filters["date_from"] == "all":
             date_from = None
     else:
-        date_from = datetime.datetime.today() - relativedelta(days=7)
+        date_from = datetime.datetime.today() - relativedelta(days=DEFAULT_DATE_FROM_DAYS)
         date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
     date_to = None
@@ -211,6 +254,16 @@ def get_git_commit() -> Optional[str]:
         return None
 
 
+def get_js_url(request: HttpRequest) -> str:
+    """
+    As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
+    it is necessary to set the JS_URL host based on the calling origin
+    """
+    if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
+        return f"http://{request.get_host().split(':')[0]}:8234"
+    return settings.JS_URL
+
+
 def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
     from loginas.utils import is_impersonated_session
 
@@ -241,12 +294,16 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
-    context["js_url"] = settings.JS_URL
+    context["js_url"] = get_js_url(request)
 
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
     }
+
+    posthog_bootstrap: Dict[str, Any] = {}
+    posthog_distinct_id: Optional[str] = None
+    is_identified_id: bool = False
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
@@ -266,12 +323,28 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         if request.user.pk:
             user_serialized = UserSerializer(request.user, context={"request": request}, many=False)
             posthog_app_context["current_user"] = user_serialized.data
+            posthog_distinct_id = user_serialized.data.get("distinct_id")
+            is_identified_id = True
             team = cast(User, request.user).team
             if team:
                 team_serialized = TeamSerializer(team, context={"request": request}, many=False)
                 posthog_app_context["current_team"] = team_serialized.data
+                posthog_app_context["frontend_apps"] = get_frontend_apps(team.pk)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
+
+    if not posthog_distinct_id:
+        posthog_distinct_id = str(uuid.uuid4())
+
+    feature_flags = posthoganalytics.get_all_flags(posthog_distinct_id, only_evaluate_locally=True)
+    posthog_bootstrap["distinctID"] = posthog_distinct_id
+    posthog_bootstrap["featureFlags"] = feature_flags
+    posthog_bootstrap["isIdentifiedID"] = is_identified_id
+
+    # This allows immediate flag availability on the frontend, atleast for flags
+    # that don't depend on any person properties. To get these flags, add person properties to the
+    # `get_all_flags` call above.
+    context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
     html = template.render(context, request=request)
     return HttpResponse(html)
@@ -305,6 +378,36 @@ def get_default_event_name():
     return "$pageview"
 
 
+def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
+    from posthog.models import Plugin, PluginSourceFile
+
+    plugin_configs = (
+        Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
+        .filter(pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED, pluginsourcefile__filename="frontend.tsx")
+        .values("pluginconfig__id", "pluginconfig__config", "config_schema", "id", "plugin_type", "name")
+        .all()
+    )
+
+    frontend_apps = {}
+    for p in plugin_configs:
+        config = p["pluginconfig__config"] or {}
+        config_schema = p["config_schema"] or {}
+        secret_fields = set([field["key"] for field in config_schema if "secret" in field and field["secret"]])
+        for key in secret_fields:
+            if key in config:
+                config[key] = "** SECRET FIELD **"
+        frontend_apps[p["pluginconfig__id"]] = {
+            "pluginConfigId": p["pluginconfig__id"],
+            "pluginId": p["id"],
+            "pluginType": p["plugin_type"],
+            "name": p["name"],
+            "url": f"/app/{p['pluginconfig__id']}/",
+            "config": config,
+        }
+
+    return frontend_apps
+
+
 def json_uuid_convert(o):
     if isinstance(o, uuid.UUID):
         return str(o)
@@ -320,28 +423,6 @@ def friendly_time(seconds: float):
     ).strip()
 
 
-def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]:
-    append: Dict[str, Any] = {}
-    append["data"] = []
-    append["labels"] = []
-    append["days"] = []
-
-    days_format = "%Y-%m-%d"
-
-    if interval == "hour":
-        days_format += " %H:%M:%S"
-
-    for item in dates_filled:
-        date = item[0]
-        value = item[1]
-        append["days"].append(date.strftime(days_format))
-        append["labels"].append(format_label_date(date, interval))
-        append["data"].append(value)
-    if math == "sum":
-        append["count"] = sum(append["data"])
-    return append
-
-
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
     x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
@@ -349,6 +430,11 @@ def get_ip_address(request: HttpRequest) -> str:
         ip = x_forwarded_for.split(",")[0]
     else:
         ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
+
+    # Strip port from ip address as Azure gateway handles x-forwarded-for incorrectly
+    if ip and len(ip.split(":")) == 2:
+        ip = ip.split(":")[0]
+
     return ip
 
 
@@ -368,7 +454,8 @@ def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str
 
 
 def get_compare_period_dates(
-    date_from: datetime.datetime, date_to: datetime.datetime,
+    date_from: datetime.datetime,
+    date_to: datetime.datetime,
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     new_date_to = date_from
     diff = date_to - date_from
@@ -383,7 +470,15 @@ def cors_response(request, response):
     response["Access-Control-Allow-Origin"] = f"{url.scheme}://{url.netloc}"
     response["Access-Control-Allow-Credentials"] = "true"
     response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response["Access-Control-Allow-Headers"] = "X-Requested-With"
+
+    # Handle headers that sentry randomly sends for every request.
+    #  Would cause a CORS failure otherwise.
+    allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
+    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id"]]
+
+    response["Access-Control-Allow-Headers"] = "X-Requested-With,Content-Type" + (
+        "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
+    )
     return response
 
 
@@ -412,32 +507,9 @@ def base64_decode(data):
     return data.decode("utf8", "surrogatepass").encode("utf-16", "surrogatepass")
 
 
-# Used by non-DRF endpoins from capture.py and decide.py (/decide, /batch, /capture, etc)
-def load_data_from_request(request):
-    data = None
-    if request.method == "POST":
-        if request.content_type in ["", "text/plain", "application/json"]:
-            data = request.body
-        else:
-            data = request.POST.get("data")
-    else:
-        data = request.GET.get("data")
-
+def decompress(data: Any, compression: str):
     if not data:
         return None
-
-    # add the data in sentry's scope in case there's an exception
-    with configure_scope() as scope:
-        scope.set_context("data", data)
-        scope.set_tag("origin", request.META.get("REMOTE_HOST", "unknown"))
-        scope.set_tag("referer", request.META.get("HTTP_REFERER", "unknown"))
-        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
-        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
-
-    compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
-    )
-    compression = compression.lower()
 
     if compression == "gzip" or compression == "gzip-js":
         if data == b"undefined":
@@ -447,7 +519,7 @@ def load_data_from_request(request):
 
         try:
             data = gzip.decompress(data)
-        except (EOFError, OSError) as error:
+        except (EOFError, OSError, zlib.error) as error:
             raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":
@@ -477,10 +549,43 @@ def load_data_from_request(request):
         # but we just want it to return None
         data = json.loads(data, parse_constant=lambda x: None)
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
-        raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+        if compression == "":
+            try:
+                return decompress(data, "gzip")
+            except Exception as inner:
+                # re-trying with compression set didn't succeed, throw original error
+                raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
+        else:
+            raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
+
+
+# Used by non-DRF endpoints from capture.py and decide.py (/decide, /batch, /capture, etc)
+def load_data_from_request(request):
+    if request.method == "POST":
+        if request.content_type in ["", "text/plain", "application/json"]:
+            data = request.body
+        else:
+            data = request.POST.get("data")
+    else:
+        data = request.GET.get("data")
+
+    # add the data in sentry's scope in case there's an exception
+    with configure_scope() as scope:
+        if isinstance(data, dict):
+            scope.set_context("data", data)
+        scope.set_tag("origin", request.headers.get("origin", request.headers.get("remote_host", "unknown")))
+        scope.set_tag("referer", request.headers.get("referer", "unknown"))
+        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
+        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
+
+    compression = (
+        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+    ).lower()
+
+    return decompress(data, compression)
 
 
 class SingletonDecorator:
@@ -583,23 +688,24 @@ def get_plugin_server_job_queues() -> Optional[List[str]]:
     return None
 
 
+def is_object_storage_available() -> bool:
+    from posthog.storage import object_storage
+
+    try:
+        if settings.OBJECT_STORAGE_ENABLED:
+            return object_storage.health_check()
+        else:
+            return False
+    except BaseException:
+        return False
+
+
 def get_redis_info() -> Mapping[str, Any]:
     return get_client().info()
 
 
 def get_redis_queue_depth() -> int:
     return get_client().llen("celery")
-
-
-def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]:
-    raw, params = qs.query.sql_with_params()
-    arg_count = 0
-    counter = count(arg_count)
-    new_string = re.sub(r"%s", lambda _: f"%({prepend}_arg_{str(next(counter))})s", raw)
-    named_params = {}
-    for idx, param in enumerate(params):
-        named_params.update({f"{prepend}_arg_{idx}": param})
-    return new_string, named_params
 
 
 def get_instance_realm() -> str:
@@ -616,7 +722,16 @@ def get_instance_realm() -> str:
         return "hosted-clickhouse"
 
 
-def get_can_create_org() -> bool:
+def get_instance_region() -> Optional[str]:
+    """
+    Returns the region for the current instance. `US` or 'EU'.
+    """
+    if settings.MULTI_TENANCY:
+        return settings.REGION
+    return None
+
+
+def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:
     """Returns whether a new organization can be created in the current instance.
 
     Organizations can be created only in the following cases:
@@ -628,10 +743,10 @@ def get_can_create_org() -> bool:
     from posthog.models.organization import Organization
 
     if (
-        settings.MULTI_TENANCY
-        or settings.DEMO
+        settings.MULTI_TENANCY  # There's no limit of organizations on Cloud
+        or (settings.DEMO and user.is_anonymous)  # Demo users can have a single demo org, but not more
         or settings.E2E_TESTING
-        or not Organization.objects.filter(for_internal_metrics=False).exists()
+        or not Organization.objects.filter(for_internal_metrics=False).exists()  # Definitely can create an org if zero
     ):
         return True
 
@@ -645,25 +760,25 @@ def get_can_create_org() -> bool:
             if license is not None and AvailableFeature.ZAPIER in license.available_features:
                 return True
             else:
-                print_warning(["You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!"])
+                logger.warning("You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!")
 
     return False
 
 
-def get_available_sso_providers() -> Dict[str, bool]:
+def get_instance_available_sso_providers() -> Dict[str, bool]:
     """
-    Returns a dictionary containing final determination whether certain SSO providers are available.
+    Returns a dictionary containing final determination to which SSO providers are available.
+    SAML is not included in this method as it can only be configured domain-based and not instance-based (see `OrganizationDomain` for details)
     Validates configuration settings and license validity (if applicable).
     """
     output: Dict[str, bool] = {
         "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
         "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
         "google-oauth2": False,
-        "saml": False,
     }
 
     # Get license information
-    bypass_license: bool = settings.MULTI_TENANCY
+    bypass_license: bool = settings.MULTI_TENANCY or settings.DEMO
     license = None
     try:
         from ee.models.license import License
@@ -673,18 +788,14 @@ def get_available_sso_providers() -> Dict[str, bool]:
         license = License.objects.first_valid()
 
     if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
-        settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None,
+        settings,
+        "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
+        None,
     ):
         if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
             output["google-oauth2"] = True
         else:
-            print_warning(["You have Google login set up, but not the required license!"])
-
-    if getattr(settings, "SAML_CONFIGURED", None):
-        if bypass_license or (license is not None and AvailableFeature.SAML in license.available_features):
-            output["saml"] = True
-        else:
-            print_warning(["You have SAML set up, but not the required license!"])
+            logger.warning("You have Google login set up, but not the required license!")
 
     return output
 
@@ -816,6 +927,7 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 def should_refresh(request: Request) -> bool:
     query_param = request.query_params.get("refresh")
     data_value = request.data.get("refresh")
+
     return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
 
 
@@ -826,13 +938,6 @@ def str_to_bool(value: Any) -> bool:
     if not value:
         return False
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
-
-
-def print_warning(warning_lines: Sequence[str]):
-    highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
-    print(
-        "\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr,
-    )
 
 
 def get_helm_info_env() -> dict:
@@ -849,23 +954,23 @@ def format_query_params_absolute_url(
     offset_alias: Optional[str] = "offset",
     limit_alias: Optional[str] = "limit",
 ) -> Optional[str]:
-    OFFSET_REGEX = re.compile(fr"([&?]{offset_alias}=)(\d+)")
-    LIMIT_REGEX = re.compile(fr"([&?]{limit_alias}=)(\d+)")
+    OFFSET_REGEX = re.compile(rf"([&?]{offset_alias}=)(\d+)")
+    LIMIT_REGEX = re.compile(rf"([&?]{limit_alias}=)(\d+)")
 
-    url_to_format = request.get_raw_uri()
+    url_to_format = request.build_absolute_uri()
 
     if not url_to_format:
         return None
 
     if offset:
         if OFFSET_REGEX.search(url_to_format):
-            url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
+            url_to_format = OFFSET_REGEX.sub(rf"\g<1>{offset}", url_to_format)
         else:
             url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{offset_alias}={offset}"
 
     if limit:
         if LIMIT_REGEX.search(url_to_format):
-            url_to_format = LIMIT_REGEX.sub(fr"\g<1>{limit}", url_to_format)
+            url_to_format = LIMIT_REGEX.sub(rf"\g<1>{limit}", url_to_format)
         else:
             url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{limit_alias}={limit}"
 
@@ -892,10 +997,64 @@ class DataclassJSONEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def encode_value_as_param(value: Union[str, list, dict]) -> str:
+def encode_value_as_param(value: Union[str, list, dict, datetime.datetime]) -> str:
     if isinstance(value, (list, dict, tuple)):
         return json.dumps(value, cls=DataclassJSONEncoder)
     elif isinstance(value, Enum):
         return value.value
+    elif isinstance(value, datetime.datetime):
+        return value.isoformat()
     else:
         return value
+
+
+def is_json(val):
+    if isinstance(val, int):
+        return False
+
+    try:
+        int(val)
+        return False
+    except:
+        pass
+    try:
+        json.loads(val)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
+def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:
+    if not timestamp:
+        timestamp = timezone.now()
+
+    # clickhouse specific formatting
+    if isinstance(timestamp, str):
+        timestamp = parser.isoparse(timestamp)
+    else:
+        timestamp = timestamp.astimezone(pytz.utc)
+
+    return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
+    if schedule is None or schedule == "":
+        return None
+
+    try:
+        minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
+        return crontab(
+            minute=minute,
+            hour=hour,
+            day_of_month=day_of_month,
+            month_of_year=month_of_year,
+            day_of_week=day_of_week,
+        )
+    except Exception as err:
+        capture_exception(err)
+        return None
+
+
+def generate_short_id():
+    """Generate securely random 8 characters long alphanumeric ID."""
+    return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))

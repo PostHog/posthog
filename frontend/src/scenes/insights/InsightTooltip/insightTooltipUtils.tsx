@@ -1,8 +1,10 @@
 import { dayjs } from 'lib/dayjs'
 import React from 'react'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
-import { Space, Tag, Typography } from 'antd'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { formatBreakdownLabel } from '../utils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
@@ -15,7 +17,7 @@ export interface SeriesDatum {
     dotted?: boolean
     color?: string
     count: number
-    filter: FilterType
+    filter?: FilterType
 }
 
 // Describes the row-by-row data for insight tooltips in the situation where series
@@ -34,7 +36,7 @@ export interface TooltipConfig {
     rowCutoff?: number
     colCutoff?: number
     renderSeries?: (value: React.ReactNode, seriesDatum: SeriesDatum, idx: number) => React.ReactNode
-    renderCount?: (value: number, seriesDatum: SeriesDatum | InvertedSeriesDatum, idx: number) => React.ReactNode
+    renderCount?: (value: number) => React.ReactNode
     showHeader?: boolean
     hideColorCol?: boolean
 }
@@ -45,6 +47,7 @@ export interface InsightTooltipProps extends TooltipConfig {
     seriesData?: SeriesDatum[]
     forceEntitiesAsColumns?: boolean
     groupTypeLabel?: string
+    timezone?: string | null
 }
 
 export const COL_CUTOFF = 4
@@ -65,7 +68,14 @@ export function getTooltipTitle(
     return null
 }
 
-export function getFormattedDate(dayInput?: string | number, interval?: IntervalType): string {
+export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
+    hour: 'DD MMM YYYY HH:00',
+    day: 'DD MMM YYYY',
+    week: 'DD MMM YYYY',
+    month: 'MMMM YYYY',
+}
+
+export function getFormattedDate(dayInput?: string | number, interval: IntervalType = 'day'): string {
     // Number of days
     if (Number.isInteger(dayInput)) {
         return pluralize(dayInput as number, 'day')
@@ -73,34 +83,41 @@ export function getFormattedDate(dayInput?: string | number, interval?: Interval
     const day = dayjs(dayInput)
     // Dayjs formatted day
     if (dayInput !== undefined && day.isValid()) {
-        const formatString = `DD MMM YYYY${interval === 'hour' ? ' HH:00' : ''}`
-        return day.format(formatString)
+        return day.format(INTERVAL_UNIT_TO_DAYJS_FORMAT[interval])
     }
     return String(dayInput)
 }
 
 export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum[] {
+    // NOTE: Assuming these logics are mounted elsewhere, and we're not interested in tracking changes.
+    const cohorts = cohortsModel.findMounted()?.values?.cohorts
+    const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
     const flattenedData: Record<string, InvertedSeriesDatum> = {}
     seriesData.forEach((s) => {
         let datumTitle
         const pillValues = []
         if (s.breakdown_value !== undefined) {
-            pillValues.push(String(s.breakdown_value || 'None'))
+            pillValues.push(
+                formatBreakdownLabel(
+                    cohorts,
+                    formatPropertyValueForDisplay,
+                    s.breakdown_value,
+                    s.filter?.breakdown,
+                    s.filter?.breakdown_type,
+                    s.filter?.breakdown_histogram_bin_count !== undefined
+                )
+            )
         }
         if (s.compare_label) {
             pillValues.push(capitalizeFirstLetter(String(s.compare_label)))
         }
         if (pillValues.length > 0) {
             datumTitle = (
-                <Space direction={'horizontal'} wrap={true} align="center">
+                <>
                     {pillValues.map((pill) => (
-                        <Tag className="tag-pill" key={pill} closable={false}>
-                            <Typography.Text ellipsis={{ tooltip: pill }} style={{ maxWidth: 150 }}>
-                                {midEllipsis(pill, 30)}
-                            </Typography.Text>
-                        </Tag>
+                        <span key={pill}>{midEllipsis(pill, 60)}</span>
                     ))}
-                </Space>
+                </>
             )
         } else {
             // Technically should never reach this point because series data should have at least breakdown or compare values

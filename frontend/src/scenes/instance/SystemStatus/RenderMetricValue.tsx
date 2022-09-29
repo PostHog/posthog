@@ -1,29 +1,28 @@
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import React from 'react'
-import { InstanceSetting } from '~/types'
-import { MetricRow } from './systemStatusLogic'
+import { InstanceSetting, SystemStatusRow } from '~/types'
 import { IconLock } from 'lib/components/icons'
 
 const TIMESTAMP_VALUES = new Set(['last_event_ingested_timestamp'])
 
-type BaseValueInterface = Pick<MetricRow, 'key' | 'value'> & Partial<Pick<InstanceSetting, 'value_type'>>
-export interface MetricValueInterface extends BaseValueInterface {
+export interface MetricValue {
+    key: SystemStatusRow['key']
+    value?: SystemStatusRow['value']
+    value_type?: InstanceSetting['value_type']
     emptyNullLabel?: string
     isSecret?: boolean
 }
 
-export function RenderMetricValue({
-    key,
-    value,
-    value_type,
-    emptyNullLabel,
-    isSecret,
-}: MetricValueInterface): JSX.Element | string {
+export function RenderMetricValue(
+    _: any,
+    { key, value, value_type, emptyNullLabel, isSecret }: MetricValue
+): JSX.Element | string {
     if (value && isSecret) {
         return (
             <LemonTag
-                style={{ color: 'var(--text-muted)', backgroundColor: '#fee5b3' }}
+                style={{ color: 'var(--muted)', backgroundColor: '#fee5b3' }}
+                className="uppercase"
                 icon={isSecret ? <IconLock style={{ color: 'var(--warning)' }} /> : undefined}
             >
                 Secret
@@ -31,7 +30,7 @@ export function RenderMetricValue({
         )
     }
 
-    if (TIMESTAMP_VALUES.has(key) && typeof value === 'string') {
+    if (key && TIMESTAMP_VALUES.has(key) && typeof value === 'string') {
         if (new Date(value).getTime() === new Date('1970-01-01T00:00:00').getTime()) {
             return 'Never'
         }
@@ -43,7 +42,11 @@ export function RenderMetricValue({
     }
 
     if (value === null || value === undefined || value === '') {
-        return <LemonTag style={{ color: 'var(--text-muted)' }}>{emptyNullLabel ?? 'Unknown'}</LemonTag>
+        return (
+            <LemonTag className="uppercase" style={{ color: 'var(--muted)' }}>
+                {emptyNullLabel ?? 'Unknown'}
+            </LemonTag>
+        )
     }
 
     if (value_type === 'int' || typeof value === 'number') {

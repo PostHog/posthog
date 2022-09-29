@@ -4,7 +4,7 @@ import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { Breadcrumb, Group } from '~/types'
-import { groupLogicType } from './groupLogicType'
+import type { groupLogicType } from './groupLogicType'
 import { urls } from 'scenes/urls'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
@@ -45,6 +45,10 @@ export const groupLogic = kea<groupLogicType>({
         groupTypeName: [
             (s) => [s.aggregationLabel, s.groupTypeIndex],
             (aggregationLabel, index): string => aggregationLabel(index).singular,
+        ],
+        groupType: [
+            (s) => [s.groupTypes, s.groupTypeIndex],
+            (groupTypes, index): string => groupTypes[index].group_type,
         ],
         breadcrumbs: [
             (s) => [s.groupTypeName, s.groupTypeIndex, s.groupKey, s.groupData],

@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { commandPaletteLogicType } from './commandPaletteLogicType'
+import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
@@ -112,21 +112,12 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
     return resultsWithCommand
 }
 
-export const commandPaletteLogic = kea<
-    commandPaletteLogicType<
-        Command,
-        CommandFlow,
-        CommandRegistrations,
-        CommandResult,
-        CommandResultDisplayable,
-        RegExpCommandPairs
-    >
->({
+export const commandPaletteLogic = kea<commandPaletteLogicType>({
     path: ['lib', 'components', 'CommandPalette', 'commandPaletteLogic'],
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
-        logic: [preflightLogic], // used in afterMount, which does not auto-connect
+        logic: [preflightLogic, dashboardsModel],
     },
     actions: {
         hidePalette: true,
@@ -200,7 +191,7 @@ export const commandPaletteLogic = kea<
                     return { ...commands, [command.key]: command }
                 },
                 deregisterCommand: (commands, { commandKey }) => {
-                    const { [commandKey]: _, ...cleanedCommands } = commands // eslint-disable-line
+                    const { [commandKey]: _discard, ...cleanedCommands } = commands
                     return cleanedCommands
                 },
             },
@@ -228,9 +219,7 @@ export const commandPaletteLogic = kea<
                 }
             }
             // Capture command execution, without useless data
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { icon, index, ...cleanedResult }: Record<string, any> = result
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { resolver, ...cleanedCommand } = cleanedResult.source
             cleanedResult.source = cleanedCommand
             cleanedResult.isMobile = isMobile()
@@ -246,7 +235,7 @@ export const commandPaletteLogic = kea<
         setInput: async ({ input }, breakpoint) => {
             await breakpoint(300)
             if (input.length > 8) {
-                const response = await api.get('api/person/?key_identifier=' + encodeURIComponent(input))
+                const response = await api.persons.list({ search: input })
                 const person = response.results[0]
                 if (person) {
                     actions.registerCommand({
@@ -537,7 +526,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Plugins',
                         synonyms: ['integrations'],
                         executor: () => {
-                            push(urls.plugins())
+                            push(urls.projectApps())
                         },
                     },
                     {

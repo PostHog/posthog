@@ -26,11 +26,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(Team.objects.count(), 2)
         response_data = response.json()
         self.assertDictContainsSubset(
-            {
-                "name": "Test",
-                "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            },
+            {"name": "Test", "access_control": False, "effective_membership_level": OrganizationMembership.Level.ADMIN},
             response_data,
         )
         self.assertEqual(self.organization.teams.count(), 2)
@@ -81,7 +77,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     def test_delete_open_team_as_org_member_but_project_admin_forbidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
         )
         response = self.client.delete(f"/api/projects/{self.team.id}")
@@ -93,7 +89,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
         )
         response = self.client.delete(f"/api/projects/{self.team.id}")
@@ -172,7 +168,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
         )
 
@@ -205,7 +201,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     def test_enable_access_control_as_org_member_and_project_admin_forbidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
         )
 
@@ -234,7 +230,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
         )
 
@@ -326,7 +322,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
         )
 
@@ -348,7 +344,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
         )
 
@@ -383,7 +379,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     def test_list_teams_restricted_ones_hidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        other_team = Team.objects.create(organization=self.organization, name="Other", access_control=True)
+        Team.objects.create(organization=self.organization, name="Other", access_control=True)
 
         # The other team should not be returned as it's restricted for the logged-in user
         with self.assertNumQueries(9):

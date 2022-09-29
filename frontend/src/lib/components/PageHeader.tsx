@@ -1,10 +1,11 @@
 import { Row } from 'antd'
 import clsx from 'clsx'
 import React from 'react'
-import { LemonSpacer } from './LemonRow'
+import { LemonDivider } from './LemonDivider'
 
 interface PageHeaderProps {
     title: string | JSX.Element
+    description?: string | JSX.Element
     caption?: string | JSX.Element | null | false
     buttons?: JSX.Element | false
     style?: React.CSSProperties
@@ -12,10 +13,21 @@ interface PageHeaderProps {
     delimited?: boolean
 }
 
-export function PageHeader({ title, caption, buttons, style, tabbedPage, delimited }: PageHeaderProps): JSX.Element {
+export function PageHeader({
+    title,
+    caption,
+    description,
+    buttons,
+    style,
+    tabbedPage,
+    delimited,
+}: PageHeaderProps): JSX.Element {
     const row = (
-        <div className="page-title-row" style={{ justifyContent: buttons ? 'space-between' : 'start', ...style }}>
-            <h1 className="page-title">{title}</h1>
+        <div className="page-title-row flex justify-between" style={style}>
+            <div>
+                <h1 className="page-title">{title}</h1>
+                <span className="page-description">{description}</span>
+            </div>
             <div className="page-buttons">{buttons}</div>
         </div>
     )
@@ -23,7 +35,7 @@ export function PageHeader({ title, caption, buttons, style, tabbedPage, delimit
         <>
             {row}
             <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>
-            {delimited && <LemonSpacer large />}
+            {delimited && <LemonDivider className="my-4" />}
         </>
     ) : (
         row
@@ -37,7 +49,7 @@ interface SubtitleProps {
 
 export function Subtitle({ subtitle, buttons }: SubtitleProps): JSX.Element {
     return (
-        <Row className="subtitle-row" justify={buttons ? 'space-between' : 'start'} align="middle">
+        <Row className="mt-8" justify={buttons ? 'space-between' : 'start'} align="middle">
             <h2 className="subtitle">{subtitle}</h2>
             {buttons}
         </Row>

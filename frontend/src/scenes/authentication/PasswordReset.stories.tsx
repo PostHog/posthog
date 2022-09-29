@@ -9,7 +9,7 @@ import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
 // some metadata and optional parameters
 export default {
     title: 'Scenes-Other/Password Reset',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
 } as Meta
 
 // export more stories with different state
@@ -60,7 +60,8 @@ export const Success = (): JSX.Element => {
         },
     })
     useEffect(() => {
-        passwordResetLogic.actions.reset({ email: 'test@posthog.com' })
+        passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'test@posthog.com' })
+        passwordResetLogic.actions.submitRequestPasswordResetSuccess({ email: 'test@posthog.com' })
     }, [])
     return <PasswordReset />
 }

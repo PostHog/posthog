@@ -1,11 +1,14 @@
 from typing import Optional, TypedDict
 
+import structlog
 from django.conf import settings
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
+
+logger = structlog.get_logger(__name__)
 
 
 class RequestParsingError(Exception):
@@ -44,6 +47,7 @@ def exception_reporting(exception: Exception, context: ExceptionContext) -> None
     Used through drf-exceptions-hog
     """
     if not isinstance(exception, APIException):
+        logger.exception(exception, path=context["request"].path)
         capture_exception(exception)
 
 
@@ -62,4 +66,4 @@ def generate_exception_response(
     from posthog.internal_metrics import incr
 
     incr(f"posthog_cloud_raw_endpoint_exception", tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr})
-    return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code,)
+    return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)

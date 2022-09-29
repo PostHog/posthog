@@ -10,14 +10,16 @@ from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.organization import OrganizationMembership
+from posthog.models.signals import mute_selected_signals
+from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     extract_organization,
 )
-from posthog.tasks.delete_clickhouse_data import delete_clickhouse_data
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -95,7 +97,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
-            organization=organization, user=self.context["request"].user,
+            organization=organization,
+            user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
 
@@ -123,6 +126,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
             description="", tagged_items__isnull=True
         ).count()
+
         return output
 
 
@@ -164,5 +168,11 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
         team_ids = [team.pk for team in organization.teams.all()]
-        delete_clickhouse_data.delay(team_ids=team_ids)
-        return super().perform_destroy(organization)
+        for team_id in team_ids:
+            AsyncDeletion.objects.create(
+                deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=user
+            )
+
+        delete_bulky_postgres_data(team_ids=team_ids)
+        with mute_selected_signals():
+            super().perform_destroy(organization)

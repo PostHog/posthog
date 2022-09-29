@@ -19,10 +19,10 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
         {
             title: (
                 <LemonButton
-                    icon={asyncMigrationErrorsLoading[asyncMigration.id] ? <Spinner size="sm" /> : <IconRefresh />}
+                    icon={asyncMigrationErrorsLoading[asyncMigration.id] ? <Spinner /> : <IconRefresh />}
                     onClick={() => loadAsyncMigrationErrors(asyncMigration.id)}
                     type="secondary"
-                    compact
+                    size="small"
                 >
                     Refresh errors
                 </LemonButton>

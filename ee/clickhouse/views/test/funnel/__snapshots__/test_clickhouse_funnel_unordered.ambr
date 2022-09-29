@@ -1,6 +1,6 @@
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -45,17 +45,10 @@
                            e."$group_0" as aggregation_target,
                            e."$group_0" as "$group_0"
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59'
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                      AND timestamp <= toDateTime('2020-01-14 23:59:59')
                       AND (NOT has([''], "$group_0")) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
@@ -89,17 +82,10 @@
                            e."$group_0" as aggregation_target,
                            e."$group_0" as "$group_0"
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59'
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                      AND timestamp <= toDateTime('2020-01-14 23:59:59')
                       AND (NOT has([''], "$group_0")) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
@@ -111,7 +97,7 @@
 ---
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups.1
   '
-  /* request:api_person_funnel_?$ (LegacyPersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -153,17 +139,10 @@
                            e."$group_0" as aggregation_target,
                            e."$group_0" as "$group_0"
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59'
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                      AND timestamp <= toDateTime('2020-01-14 23:59:59')
                       AND ((NOT has([''], "$group_0"))
                            AND (NOT has([''], "$group_0"))) ) events
                  WHERE (step_0 = 1
@@ -198,17 +177,10 @@
                            e."$group_0" as aggregation_target,
                            e."$group_0" as "$group_0"
                     FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-14 23:59:59'
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                      AND timestamp <= toDateTime('2020-01-14 23:59:59')
                       AND ((NOT has([''], "$group_0"))
                            AND (NOT has([''], "$group_0"))) ) events
                  WHERE (step_0 = 1

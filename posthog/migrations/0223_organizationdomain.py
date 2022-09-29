@@ -12,9 +12,11 @@ def migrate_domain_whitelist(apps, schema_editor):
     Organization = apps.get_model("posthog", "Organization")
     OrganizationDomain = apps.get_model("posthog", "OrganizationDomain")
 
-    for org in Organization.objects.exclude(domain_whitelist=[]):
-        for domain in org.domain_whitelist:
-            OrganizationDomain.objects.create(domain=domain, verified_at=timezone.now(), jit_provisioning_enabled=True)
+    for organization in Organization.objects.exclude(domain_whitelist=[]):
+        for domain in organization.domain_whitelist:
+            OrganizationDomain.objects.create(
+                organization=organization, domain=domain, verified_at=timezone.now(), jit_provisioning_enabled=True
+            )
 
 
 class Migration(migrations.Migration):

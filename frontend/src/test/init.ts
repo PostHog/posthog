@@ -2,19 +2,21 @@ import { initKea } from '~/initKea'
 import { testUtilsPlugin } from 'kea-test-utils'
 import { createMemoryHistory } from 'history'
 import posthog from 'posthog-js'
-import { AppContext } from '~/types'
+import { AppContext, TeamType } from '~/types'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { dayjs } from 'lib/dayjs'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 process.on('unhandledRejection', (err) => {
     console.warn(err)
 })
 
-export function initKeaTests(): void {
+export function initKeaTests(mountCommonLogic = true, teamForWindowContext: TeamType = MOCK_DEFAULT_TEAM): void {
     dayjs.tz.setDefault('UTC')
     window.POSTHOG_APP_CONTEXT = {
-        current_team: MOCK_DEFAULT_TEAM,
         ...window.POSTHOG_APP_CONTEXT,
+        current_team: teamForWindowContext,
     } as unknown as AppContext
     posthog.init('no token', {
         test: true,
@@ -31,4 +33,8 @@ export function initKeaTests(): void {
     ;(history as any).pushState = history.push
     ;(history as any).replaceState = history.replace
     initKea({ beforePlugins: [testUtilsPlugin], routerLocation: history.location, routerHistory: history })
+    if (mountCommonLogic) {
+        teamLogic.mount()
+        organizationLogic.mount()
+    }
 }

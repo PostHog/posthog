@@ -1,33 +1,41 @@
 import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import {
-    EventType,
-    FilterType,
     ActionFilter,
-    IntervalType,
-    dateMappingOption,
-    GroupActorType,
-    ActorType,
     ActionType,
-    PropertyFilterValue,
-    PropertyType,
-    PropertyGroupFilter,
-    FilterLogicalOperator,
+    ActorType,
+    AnyCohortCriteriaType,
     AnyPropertyFilter,
-    PropertyFilter,
+    BehavioralCohortType,
+    BehavioralEventType,
+    CohortCriteriaGroupFilter,
     CohortType,
+    DateMappingOption,
+    EventType,
+    FilterLogicalOperator,
+    FilterType,
+    GroupActorType,
+    IntervalType,
+    PropertyFilter,
+    PropertyFilterValue,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+    PropertyType,
+    TimeUnitType,
 } from '~/types'
+import * as Sentry from '@sentry/react'
+import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
-import { Spinner } from './components/Spinner/Spinner'
 import { getAppContext } from './utils/getAppContext'
 import { isValidPropertyFilter } from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
 import { lemonToast } from './components/lemonToast'
-import equal from 'fast-deep-equal'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -148,77 +156,48 @@ export function fromParams(): Record<string, any> {
     return fromParamsGivenUrl(window.location.search)
 }
 
-export function percentage(division: number): string {
-    return division
-        ? division.toLocaleString(undefined, {
-              style: 'percent',
-              maximumFractionDigits: 2,
-          })
-        : ''
+/** Return percentage from number, e.g. 0.234 is 23.4%. */
+export function percentage(
+    division: number,
+    maximumFractionDigits: number = 2,
+    fixedPrecision: boolean = false
+): string {
+    return division.toLocaleString('en-US', {
+        style: 'percent',
+        maximumFractionDigits,
+        minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
+    })
 }
 
-export function Loading(props: Record<string, any>): JSX.Element {
-    return (
-        <div className="loading-overlay" style={props.style}>
-            <Spinner size="lg" />
-        </div>
-    )
-}
-
-export function TableRowLoading({
-    colSpan = 1,
-    asOverlay = false,
-}: {
-    colSpan: number
-    asOverlay: boolean
-}): JSX.Element {
-    return (
-        <tr className={asOverlay ? 'loading-overlay over-table' : ''}>
-            <td colSpan={colSpan} style={{ padding: 50, textAlign: 'center' }}>
-                <Spinner />
-            </td>
-        </tr>
-    )
-}
-
-export function SceneLoading(): JSX.Element {
-    return (
-        <div style={{ textAlign: 'center', marginTop: '20vh' }}>
-            <Spinner size="lg" />
-        </div>
-    )
-}
-
-export function deleteWithUndo({
+export async function deleteWithUndo<T extends Record<string, any>>({
     undo = false,
     ...props
 }: {
     undo?: boolean
     endpoint: string
-    object: Record<string, any>
-    callback?: () => void
-}): void {
-    api.update(`api/${props.endpoint}/${props.object.id}`, {
+    object: T
+    callback?: (undo: boolean, object: T) => void
+}): Promise<void> {
+    await api.update(`api/${props.endpoint}/${props.object.id}`, {
         ...props.object,
         deleted: !undo,
-    }).then(() => {
-        props.callback?.()
-        lemonToast[undo ? 'success' : 'info'](
-            <>
-                <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
-                {undo ? 'restored' : 'deleted'}
-            </>,
-            {
-                toastId: `delete-item-${props.object.id}-${undo}`,
-                button: undo
-                    ? undefined
-                    : {
-                          label: 'Undo',
-                          action: () => deleteWithUndo({ undo: true, ...props }),
-                      },
-            }
-        )
     })
+    props.callback?.(undo, props.object)
+    lemonToast[undo ? 'success' : 'info'](
+        <>
+            <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
+            {undo ? 'restored' : 'deleted'}
+        </>,
+        {
+            toastId: `delete-item-${props.object.id}-${undo}`,
+            button: undo
+                ? undefined
+                : {
+                      label: 'Undo',
+                      action: () => deleteWithUndo({ undo: true, ...props }),
+                  },
+        }
+    )
 }
 
 export function DeleteWithUndo(
@@ -290,7 +269,7 @@ export const genericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
-    lt: '< lower than',
+    lt: '< less than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -312,7 +291,7 @@ export const numericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
-    lt: '< lower than',
+    lt: '< less than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -332,12 +311,24 @@ export const booleanOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export const durationOperatorMap: Record<string, string> = {
+    gt: '> greater than',
+    lt: '< less than',
+}
+
+export const selectorOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
     ...numericOperatorMap,
     ...genericOperatorMap,
     ...booleanOperatorMap,
+    ...durationOperatorMap,
+    ...selectorOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -347,6 +338,8 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     String: stringOperatorMap,
     Numeric: numericOperatorMap,
     Boolean: booleanOperatorMap,
+    Duration: durationOperatorMap,
+    Selector: selectorOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -357,21 +350,34 @@ export function chooseOperatorMap(propertyType: PropertyType | undefined): Recor
     return choice
 }
 
-export function isOperatorMulti(operator: string): boolean {
-    return ['exact', 'is_not'].includes(operator)
+export function isOperatorMulti(operator: PropertyOperator): boolean {
+    return [PropertyOperator.Exact, PropertyOperator.IsNot].includes(operator)
 }
 
-export function isOperatorFlag(operator: string): boolean {
+export function isOperatorFlag(operator: PropertyOperator): boolean {
     // these filter operators can only be just set, no additional parameter
-    return ['is_set', 'is_not_set'].includes(operator)
+    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(operator)
 }
 
-export function isOperatorRegex(operator: string): boolean {
-    return ['regex', 'not_regex'].includes(operator)
+export function isOperatorRegex(operator: PropertyOperator): boolean {
+    return [PropertyOperator.Regex, PropertyOperator.NotRegex].includes(operator)
 }
 
-export function isOperatorDate(operator: string): boolean {
-    return ['is_date_before', 'is_date_after', 'is_date_exact'].includes(operator)
+export function isOperatorRange(operator: PropertyOperator): boolean {
+    return [
+        PropertyOperator.GreaterThan,
+        PropertyOperator.GreaterThanOrEqual,
+        PropertyOperator.LessThan,
+        PropertyOperator.LessThanOrEqual,
+        PropertyOperator.Between,
+        PropertyOperator.NotBetween,
+    ].includes(operator)
+}
+
+export function isOperatorDate(operator: PropertyOperator): boolean {
+    return [PropertyOperator.IsDateBefore, PropertyOperator.IsDateAfter, PropertyOperator.IsDateExact].includes(
+        operator
+    )
 }
 
 export function formatPropertyLabel(
@@ -457,12 +463,6 @@ export function clearDOMTextSelection(): void {
     }
 }
 
-export const posthogEvents = ['$autocapture', '$pageview', '$identify', '$pageleave']
-
-export function isAndroidOrIOS(): boolean {
-    return typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent)
-}
-
 export function slugify(text: string): string {
     return text
         .toString() // Cast to string
@@ -474,9 +474,9 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-// Number to number with commas (e.g. 1234 -> 1,234)
-export function humanFriendlyNumber(d: number): string {
-    return d.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+/** Format number with space as the thousands separator. */
+export function humanFriendlyNumber(d: number, precision: number = 2): string {
+    return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
@@ -502,7 +502,7 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
     } else {
         units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
     }
-    return units.slice(0, maxUnits).join(' ')
+    return units.slice(0, maxUnits).join(' ')
 }
 
 export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
@@ -512,8 +512,8 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null,
-    withSeconds: boolean = false,
-    formatString: string = 'MMMM DD, YYYY h:mm'
+    formatDate = 'MMMM DD, YYYY',
+    formatTime = 'h:mm:ss A'
 ): string {
     if (!date) {
         return 'Never'
@@ -524,15 +524,13 @@ export function humanFriendlyDetailedTime(
     if (parsedDate.isSame(dayjs(), 'm')) {
         return 'Just now'
     }
+    let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = '[Today] h:mm'
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = '[Yesterday] h:mm'
-    }
-    if (withSeconds) {
-        formatString += ':ss A'
+        formatString = `[Yesterday] ${formatTime}`
     } else {
-        formatString += ' A'
+        formatString = `${formatDate} ${formatTime}`
     }
     return parsedDate.format(formatString)
 }
@@ -589,12 +587,32 @@ export function stripHTTP(url: string): string {
     return url
 }
 
+export function isDomain(url: string): boolean {
+    try {
+        const parsedUrl = new URL(url)
+        if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
+            return true
+        }
+    } catch {
+        return false
+    }
+    return false
+}
+
 export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    // Regex by elmervc
-    const regexp = new RegExp('^([a-zA-Z]+)://(-.)?(([^s/?.#-]+|([^s/?.#-]-[^s/?.#-])).?)+(/[^s]*)?', 'iu')
+    // Regex by regextester.com/115236
+    const regexp = /^(?:http(s)?:\/\/)([\w*.-])+(?:[\w*\.-]+)+([\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.])+$/
+    return !!input.trim().match(regexp)
+}
+
+export function isExternalLink(input: any): boolean {
+    if (!input || typeof input !== 'string') {
+        return false
+    }
+    const regexp = /^(https?:|mailto:)/
     return !!input.trim().match(regexp)
 }
 
@@ -606,6 +624,10 @@ export function isEmail(string: string): boolean {
     const regexp =
         /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
+}
+
+export function truncate(str: string, maxLength: number): string {
+    return str.length > maxLength ? str.slice(0, maxLength - 1) + '...' : str
 }
 
 export function eventToDescription(
@@ -690,128 +712,230 @@ export function determineDifferenceType(
     }
 }
 
-const DATE_FORMAT = 'D MMM YYYY'
+const DATE_FORMAT = 'MMMM D, YYYY'
+const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 
-export const dateMapping: Record<string, dateMappingOption> = {
-    Custom: { values: [] },
-    Today: {
-        values: ['dStart'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.startOf('d').format(format),
-    },
-    Yesterday: {
-        values: ['-1d', '-1d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.subtract(1, 'd').format(format),
-    },
-    'Last 24 hours': {
-        values: ['-24h'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(24, 'h').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'Last 48 hours': {
-        values: ['-48h'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(48, 'h').format(format)} - ${date.endOf('d').format(format)}`,
-        inactive: true,
-    },
-    'Last 3 days': {
-        values: ['-3d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(3, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'Last 7 days': {
-        values: ['-7d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(7, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'Last 14 days': {
-        values: ['-14d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(14, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'Last 30 days': {
-        values: ['-30d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(30, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'Last 90 days': {
-        values: ['-90d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(90, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'Last 180 days': {
-        values: ['-180d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(180, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'This month': {
-        values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(1, 'm').format(format)} - ${date.endOf('d').format(format)}`,
-        inactive: true,
-    },
-    'Previous month': {
-        values: ['-1mStart', '-1mEnd'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(1, 'm').startOf('M').format(format)} - ${date.subtract(1, 'm').endOf('M').format(format)}`,
-        inactive: true,
-    },
-    'Year to date': {
-        values: ['yStart'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.startOf('y').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'All time': { values: ['all'] },
+export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
+    return date.format(format ?? DATE_FORMAT)
 }
+
+export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, format?: string): string => {
+    let formatFrom = format ?? DATE_FORMAT
+    const formatTo = format ?? DATE_FORMAT
+    if ((!format || format === DATE_FORMAT) && dateFrom.year() === dateTo.year()) {
+        formatFrom = DATE_FORMAT_WITHOUT_YEAR
+    }
+    return `${dateFrom.format(formatFrom)} - ${dateTo.format(formatTo)}`
+}
+
+export const dateMapping: DateMappingOption[] = [
+    { key: 'Custom', values: [] },
+    {
+        key: 'Today',
+        values: ['dStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => date.startOf('d').format(DATE_FORMAT),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Yesterday',
+        values: ['-1d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'd').format(DATE_FORMAT),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Last 24 hours',
+        values: ['-24h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Last 48 hours',
+        values: ['-48h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(48, 'h'), date.endOf('d')),
+        inactive: true,
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Last 7 days',
+        values: ['-7d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(7, 'd'), date.endOf('d')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Last 14 days',
+        values: ['-14d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(14, 'd'), date.endOf('d')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Last 30 days',
+        values: ['-30d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(30, 'd'), date.endOf('d')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Last 90 days',
+        values: ['-90d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(90, 'd'), date.endOf('d')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Last 180 days',
+        values: ['-180d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(180, 'd'), date.endOf('d')),
+        defaultInterval: 'month',
+    },
+    {
+        key: 'This month',
+        values: ['mStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('m'), date.endOf('d')),
+        inactive: true,
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Previous month',
+        values: ['-1mStart', '-1mEnd'],
+        getFormattedDate: (date: dayjs.Dayjs): string =>
+            formatDateRange(date.subtract(1, 'm').startOf('M'), date.subtract(1, 'm').endOf('M')),
+        inactive: true,
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Year to date',
+        values: ['yStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('y'), date.endOf('d')),
+        defaultInterval: 'month',
+    },
+    {
+        key: 'All time',
+        values: ['all'],
+        defaultInterval: 'month',
+    },
+]
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
 export function getFormattedLastWeekDate(lastDay: dayjs.Dayjs = dayjs()): string {
-    return `${lastDay.subtract(7, 'week').format(DATE_FORMAT)} - ${lastDay.endOf('d').format(DATE_FORMAT)}`
+    return formatDateRange(lastDay.subtract(7, 'week'), lastDay.endOf('d'))
+}
+
+const dateOptionsMap = {
+    y: 'year',
+    q: 'quarter',
+    m: 'month',
+    w: 'week',
+    d: 'day',
 }
 
 export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
     dateTo: string | dayjs.Dayjs | null | undefined,
     defaultValue: string,
-    dateOptions: Record<string, dateMappingOption> = dateMapping,
+    dateOptions: DateMappingOption[] = dateMapping,
     isDateFormatted: boolean = false,
     dateFormat: string = DATE_FORMAT
 ): string {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
-        return `${dateFrom.format(dateFormat)} - ${dateTo.format(dateFormat)}`
+        return formatDateRange(dateFrom, dateTo, dateFormat)
     }
     dateFrom = (dateFrom || undefined) as string | undefined
     dateTo = (dateTo || undefined) as string | undefined
 
     if (isDate.test(dateFrom || '') && isDate.test(dateTo || '')) {
         return isDateFormatted
-            ? `${dayjs(dateFrom, 'YYYY-MM-DD').format(dateFormat)} - ${dayjs(dateTo, 'YYYY-MM-DD').format(dateFormat)}`
+            ? formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
             : `${dateFrom} - ${dateTo}`
     }
 
     // From date to today
     if (isDate.test(dateFrom || '') && !isDate.test(dateTo || '')) {
         const days = dayjs().diff(dayjs(dateFrom), 'days')
-        const formattedDateFrom = dayjs(dateFrom).format(dateFormat)
-        const formattedToday = dayjs().format(dateFormat)
         if (days > 366) {
-            return isDateFormatted ? `${dateFrom} - Today` : `${formattedDateFrom} - ${formattedToday}}`
+            return isDateFormatted ? `${dateFrom} - Today` : formatDateRange(dayjs(dateFrom), dayjs())
         } else if (days > 0) {
-            return isDateFormatted ? `${formattedDateFrom} - ${formattedToday}` : `Last ${days} days`
+            return isDateFormatted ? formatDateRange(dayjs(dateFrom), dayjs()) : `Last ${days} days`
         } else if (days === 0) {
-            return isDateFormatted ? formattedToday : `Today`
+            return isDateFormatted ? dayjs(dateFrom).format(dateFormat) : `Today`
         } else {
-            return isDateFormatted ? `${formattedDateFrom} - ` : `Starting from ${dateFrom}`
+            return isDateFormatted ? `${dayjs(dateFrom).format(dateFormat)} - ` : `Starting from ${dateFrom}`
         }
     }
 
-    let name = defaultValue
-    Object.entries(dateOptions).map(([key, { values, getFormattedDate }]) => {
+    for (const { key, values, getFormattedDate } of dateOptions) {
         if (values[0] === dateFrom && values[1] === dateTo && key !== 'Custom') {
-            name = isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat) : key
+            return isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat) : key
         }
-    })[0]
-    return name
+    }
+
+    if (dateFrom) {
+        const dateOption = dateOptionsMap[dateFrom.slice(-1)]
+        const counter = parseInt(dateFrom.slice(1, -1))
+        if (dateOption && counter) {
+            let date = null
+            switch (dateOption) {
+                case 'quarter':
+                    date = dayjs().subtract(counter * 3, 'M')
+                    break
+                case 'months':
+                    date = dayjs().subtract(counter, 'M')
+                    break
+                case 'weeks':
+                    date = dayjs().subtract(counter * 7, 'd')
+                    break
+                default:
+                    date = dayjs().subtract(counter, 'd')
+                    break
+            }
+            if (isDateFormatted) {
+                return formatDateRange(date, dayjs().endOf('d'))
+            } else {
+                return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
+            }
+        }
+    }
+
+    return defaultValue
+}
+
+/** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
+export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
+    if (isDate.test(date || '')) {
+        return dayjs(date)
+    }
+    const parseDate = /^([\-\+]?)([0-9]*)([dmwqy])(|Start|End)$/
+    const matches = (date || '').match(parseDate)
+    let response: null | dayjs.Dayjs = null
+    if (matches) {
+        const [, sign, rawAmount, rawUnit, clip] = matches
+        const amount = rawAmount ? parseInt(sign + rawAmount) : 0
+        const unit = dateOptionsMap[rawUnit] || 'day'
+
+        switch (unit) {
+            case 'year':
+                response = dayjs().add(amount, 'year')
+                break
+            case 'quarter':
+                response = dayjs().add(amount * 3, 'month')
+                break
+            case 'month':
+                response = dayjs().add(amount, 'month')
+                break
+            case 'week':
+                response = dayjs().add(amount * 7, 'day')
+                break
+            default:
+                response = dayjs().add(amount, 'day')
+                break
+        }
+
+        if (clip === 'Start') {
+            return response.startOf(unit)
+        } else if (clip === 'End') {
+            return response.endOf(unit)
+        }
+        return response.startOf('day')
+    }
+    return response
 }
 
 export function copyToClipboard(value: string, description: string = 'text'): boolean {
@@ -973,16 +1097,16 @@ export function colorForString(s: string): string {
     return tagColors[hashCodeForString(s) % tagColors.length]
 }
 
+/** Truncates a string (`input`) in the middle. `maxLength` represents the desired maximum length of the output. */
 export function midEllipsis(input: string, maxLength: number): string {
-    /* Truncates a string (`input`) in the middle. `maxLength` represents the desired maximum length of the output string
-     excluding the ... */
     if (input.length <= maxLength) {
         return input
     }
 
     const middle = Math.ceil(input.length / 2)
-    const excess = Math.ceil((input.length - maxLength) / 2)
-    return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
+    const excessLeft = Math.ceil((input.length - maxLength) / 2)
+    const excessRight = Math.ceil((input.length - maxLength + 1) / 2)
+    return `${input.slice(0, middle - excessLeft)}…${input.slice(middle + excessRight)}`
 }
 
 export const disableHourFor: Record<string, boolean> = {
@@ -1017,18 +1141,12 @@ export function autocorrectInterval(filters: Partial<FilterType>): IntervalType 
     }
 }
 
-export function pluralize(
-    count: number,
-    singular: string,
-    plural?: string,
-    includeNumber: boolean = true,
-    formatNumber: boolean = false
-): string {
+export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
     if (!plural) {
         plural = singular + 's'
     }
     const form = count === 1 ? singular : plural
-    return includeNumber ? `${formatNumber ? count.toLocaleString() : count} ${form}` : form
+    return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
 /** Return a number in a compact format, with a SI suffix if applicable.
@@ -1076,15 +1194,22 @@ export function endWithPunctation(text?: string | null): string {
     return trimmedText
 }
 
-export function shortTimeZone(timeZone?: string, atDate?: Date): string {
-    /**
-     * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
-     * @param timeZone E.g. 'America/New_York'
-     * @param atDate
-     */
+/**
+ * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
+ * @param timeZone E.g. 'America/New_York'
+ * @param atDate
+ */
+export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     const date = atDate ? new Date(atDate) : new Date()
-    const localeTimeString = date.toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
-    return localeTimeString.split(' ')[2]
+    try {
+        const localeTimeString = date
+            .toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone: timeZone || undefined })
+            .replace('GMT', 'UTC')
+        return localeTimeString.split(' ')[2]
+    } catch (e) {
+        Sentry.captureException(e)
+        return null
+    }
 }
 
 export function humanTzOffset(timezone?: string): string {
@@ -1105,15 +1230,6 @@ export function resolveWebhookService(webhookUrl: string): string {
         }
     }
     return 'your webhook service'
-}
-
-export function maybeAddCommasToInteger(value: any): any {
-    const isNumber = !isNaN(value)
-    if (!isNumber) {
-        return value
-    }
-    const internationalNumberFormat = new Intl.NumberFormat('en-US')
-    return internationalNumberFormat.format(value)
 }
 
 function hexToRGB(hex: string): { r: number; g: number; b: number } {
@@ -1196,21 +1312,21 @@ export function sum(input: number[]): number {
     return input.reduce((a, b) => a + b, 0)
 }
 
-export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
+export function validateJson(value: string): boolean {
     try {
         JSON.parse(value)
-        return Promise.resolve()
+        return true
     } catch (error) {
-        return Promise.reject('Not valid JSON!')
+        return false
     }
+}
+
+export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
+    return validateJson(value) ? Promise.resolve() : Promise.reject('Not valid JSON!')
 }
 
 export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
-}
-
-export function setPageTitle(title: string): void {
-    document.title = title ? `${title} • PostHog` : 'PostHog'
 }
 
 export function isMultiSeriesFormula(formula?: string): boolean {
@@ -1248,10 +1364,6 @@ export function isGroupType(actor: ActorType): actor is GroupActorType {
     return actor.type === 'group'
 }
 
-export function mapRange(value: number, x1: number, y1: number, x2: number, y2: number): number {
-    return Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
-}
-
 export function getEventNamesForAction(actionId: string | number, allActions: ActionType[]): string[] {
     const id = parseInt(String(actionId))
     return allActions
@@ -1260,44 +1372,17 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 }
 
 export function isPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | AnyPropertyFilter
+    properties: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter[] | undefined | AnyPropertyFilter
 ): properties is PropertyGroupFilter {
-    if (properties) {
-        return (
-            (properties as PropertyGroupFilter).type !== undefined &&
-            (properties as PropertyGroupFilter).values !== undefined
-        )
-    }
-    return false
-}
-
-export function convertPropertiesToPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[]
-): PropertyGroupFilter {
-    if (isPropertyGroup(properties)) {
-        return properties
-    }
-    if (properties.length > 0) {
-        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
-    }
-    return { type: FilterLogicalOperator.And, values: [] }
-}
-
-export function convertPropertyGroupToProperties(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
-): PropertyFilter[] | undefined {
-    if (isPropertyGroup(properties)) {
-        return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
-    }
-    if (properties) {
-        return properties.filter(isValidPropertyFilter)
-    }
-    return properties
+    return (
+        (properties as PropertyGroupFilter)?.type !== undefined &&
+        (properties as PropertyGroupFilter)?.values !== undefined
+    )
 }
 
 export function flattenPropertyGroup(
     flattenedProperties: AnyPropertyFilter[],
-    propertyGroup: PropertyGroupFilter | AnyPropertyFilter
+    propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
 ): AnyPropertyFilter[] {
     const obj: AnyPropertyFilter = {}
     Object.keys(propertyGroup).forEach(function (k) {
@@ -1312,4 +1397,110 @@ export function flattenPropertyGroup(
     return flattenedProperties
 }
 
+export function convertPropertiesToPropertyGroup(
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+): PropertyGroupFilter {
+    if (isPropertyGroup(properties)) {
+        return properties
+    }
+    if (properties && properties.length > 0) {
+        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
+    }
+    return { type: FilterLogicalOperator.And, values: [] }
+}
+
+export function convertPropertyGroupToProperties(
+    properties?: PropertyGroupFilter | AnyPropertyFilter[]
+): PropertyFilter[] | undefined {
+    if (isPropertyGroup(properties)) {
+        return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
+    }
+    if (properties) {
+        return properties.filter(isValidPropertyFilter)
+    }
+    return properties
+}
+
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
+
+/** Sorting function for Array.prototype.sort that works for numbers and strings automatically. */
+export const autoSorter = (a: any, b: any): number => {
+    return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))
+}
+
+// https://stackoverflow.com/questions/175739/how-can-i-check-if-a-string-is-a-valid-number
+export function isNumeric(x: any): boolean {
+    if (typeof x === 'number') {
+        return true
+    }
+    if (typeof x != 'string') {
+        return false
+    }
+    return !isNaN(Number(x)) && !isNaN(parseFloat(x))
+}
+
+export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
+    if (timeUnit === TimeUnitType.Year) {
+        return timeValue * 365
+    }
+    if (timeUnit === TimeUnitType.Month) {
+        return timeValue * 30
+    }
+    if (timeUnit === TimeUnitType.Week) {
+        return timeValue * 7
+    }
+    return timeValue
+}
+
+export function range(startOrEnd: number, end?: number): number[] {
+    let length = startOrEnd
+    let start = 0
+    if (typeof end == 'number') {
+        start = startOrEnd
+        length = end - start
+    }
+    return Array.from({ length }, (_, i) => i + start)
+}
+
+export function processCohort(cohort: CohortType): CohortType {
+    return {
+        ...cohort,
+        ...{
+            /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
+            filters: {
+                properties: {
+                    ...cohort.filters.properties,
+                    values: (cohort.filters.properties?.values?.map((group) =>
+                        'values' in group
+                            ? {
+                                  ...group,
+                                  values: (group.values as AnyCohortCriteriaType[]).map((c) =>
+                                      c.type &&
+                                      [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
+                                      !('value_property' in c)
+                                          ? {
+                                                ...c,
+                                                value_property: c.value,
+                                                value:
+                                                    c.type === BehavioralFilterKey.Cohort
+                                                        ? BehavioralCohortType.InCohort
+                                                        : BehavioralEventType.HaveProperty,
+                                            }
+                                          : c
+                                  ),
+                              }
+                            : group
+                    ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                },
+            },
+        },
+    }
+}
+
+export function interleave(arr: any[], delimiter: any): any[] {
+    return arr.flatMap((item, index, _arr) =>
+        _arr.length - 1 !== index // check for the last item
+            ? [item, delimiter]
+            : item
+    )
+}

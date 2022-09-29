@@ -1,19 +1,10 @@
 import React from 'react'
-import { Table, Button, Dropdown, Menu, Tooltip, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from './teamMembersLogic'
-import {
-    DownOutlined,
-    CrownFilled,
-    UpOutlined,
-    CloseCircleOutlined,
-    LogoutOutlined,
-    ExclamationCircleOutlined,
-} from '@ant-design/icons'
+import { CloseCircleOutlined, LogoutOutlined, CrownFilled } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { TeamType, UserType, FusedTeamMemberType } from '~/types'
-import { ColumnsType } from 'antd/lib/table'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,9 +12,13 @@ import {
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,
     teamMembershipLevelIntegers,
-} from '../../../lib/utils/permissioning'
+} from 'lib/utils/permissioning'
 import { AddMembersModalWithButton } from './AddMembersModal'
-import { RestrictedArea, RestrictionScope } from '../../../lib/components/RestrictedArea'
+import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
+import { LemonButton, LemonSelect, LemonSelectOption, LemonTable } from '@posthog/lemon-ui'
+import { LemonTableColumns } from 'lib/components/LemonTable'
+import { Tooltip } from 'lib/components/Tooltip'
+import { LemonDialog } from 'lib/components/LemonDialog'
 
 function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -36,63 +31,50 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
         return null
     }
 
-    function generateHandleClick(listLevel: TeamMembershipLevel): (event: React.MouseEvent) => void {
-        return function handleClick(event: React.MouseEvent) {
-            event.preventDefault()
-            changeUserAccessLevel(member.user, listLevel)
-        }
-    }
-
     const isImplicit = member.organization_level >= OrganizationMembershipLevel.Admin
     const levelName = membershipLevelToName.get(member.level) ?? `unknown (${member.level})`
-
-    const levelButton = (
-        <Button
-            data-attr="change-membership-level"
-            icon={member.level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}
-            // Org admins have implicit access anyway, so it doesn't make sense to edit them
-            disabled={isImplicit}
-        >
-            {levelName}
-        </Button>
-    )
 
     const allowedLevels = teamMembershipLevelIntegers.filter(
         (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
     )
+
+    const possibleOptions = member.explicit_team_level
+        ? allowedLevels.concat([member.explicit_team_level])
+        : allowedLevels
+
     const disallowedReason = isImplicit
         ? `This user is a member of the project implicitly due to being an organization ${levelName}.`
         : getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
 
-    return disallowedReason ? (
-        <Tooltip title={disallowedReason}>{levelButton}</Tooltip>
+    const levelButton = disallowedReason ? (
+        <div className="border rounded px-3 py-2 flex inline-flex items-center">
+            {member.level === OrganizationMembershipLevel.Owner && <CrownFilled className={'mr-2'} />}
+            {levelName}
+        </div>
     ) : (
-        <Dropdown
-            overlay={
-                <Menu>
-                    {allowedLevels.map((listLevel) => (
-                        <Menu.Item key={`${member.user.uuid}-level-${listLevel}`}>
-                            <a href="#" onClick={generateHandleClick(listLevel)} data-test-level={listLevel}>
-                                {listLevel > member.level ? (
-                                    <>
-                                        <UpOutlined style={{ marginRight: '0.5rem' }} />
-                                        Upgrade to project {membershipLevelToName.get(listLevel)}
-                                    </>
-                                ) : (
-                                    <>
-                                        <DownOutlined style={{ marginRight: '0.5rem' }} />
-                                        Downgrade to project {membershipLevelToName.get(listLevel)}
-                                    </>
-                                )}
-                            </a>
-                        </Menu.Item>
-                    ))}
-                </Menu>
-            }
-        >
-            {levelButton}
-        </Dropdown>
+        <LemonSelect
+            dropdownMatchSelectWidth={false}
+            onChange={(listLevel) => {
+                if (listLevel !== null) {
+                    changeUserAccessLevel(member.user, listLevel)
+                }
+            }}
+            options={possibleOptions.map(
+                (listLevel) =>
+                    ({
+                        value: listLevel,
+                        disabled: listLevel === member.explicit_team_level,
+                        label:
+                            listLevel > member.level
+                                ? membershipLevelToName.get(listLevel)
+                                : membershipLevelToName.get(listLevel),
+                    } as LemonSelectOption<TeamMembershipLevel>)
+            )}
+            value={member.explicit_team_level}
+        />
     )
+
+    return disallowedReason ? <Tooltip title={disallowedReason}>{levelButton}</Tooltip> : levelButton
 }
 
 function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
@@ -105,17 +87,19 @@ function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
     }
 
     function handleClick(): void {
-        Modal.confirm({
+        LemonDialog.open({
             title: `${
                 member.user.uuid == user?.uuid
                     ? 'Leave'
                     : `Remove ${member.user.first_name} (${member.user.email}) from`
             } project ${currentTeam?.name}?`,
-            icon: <ExclamationCircleOutlined />,
-            okText: member.user.uuid == user?.uuid ? 'Leave' : 'Remove',
-            okType: 'danger',
-            onOk() {
-                removeMember({ member })
+            secondaryButton: {
+                children: 'Cancel',
+            },
+            primaryButton: {
+                status: 'danger',
+                children: member.user.uuid == user?.uuid ? 'Leave' : 'Remove',
+                onClick: () => removeMember({ member }),
             },
         })
     }
@@ -129,13 +113,13 @@ function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
         member.organization_level < MINIMUM_IMPLICIT_ACCESS_LEVEL
 
     return allowDeletion ? (
-        <a className="text-danger" onClick={handleClick} data-attr="delete-team-membership">
+        <LemonButton status="danger" onClick={handleClick} data-attr="delete-team-membership">
             {member.user.uuid !== user.uuid ? (
                 <CloseCircleOutlined title="Remove from project" />
             ) : (
                 <LogoutOutlined title="Leave project" />
             )}
-        </a>
+        </LemonButton>
     ) : null
 }
 
@@ -147,7 +131,7 @@ export interface MembersProps {
 export function TeamMembers({ user }: MembersProps): JSX.Element {
     const { allMembers, allMembersLoading } = useValues(teamMembersLogic)
 
-    const columns: ColumnsType<FusedTeamMemberType> = [
+    const columns: LemonTableColumns<FusedTeamMemberType> = [
         {
             key: 'user_profile_picture',
             render: function ProfilePictureRender(_, member) {
@@ -175,15 +159,13 @@ export function TeamMembers({ user }: MembersProps): JSX.Element {
                 return LevelComponent(member)
             },
             sorter: (a, b) => a.level - b.level,
-            defaultSortOrder: 'descend',
         },
         {
             title: 'Joined At',
             dataIndex: 'joined_at',
             key: 'joined_at',
-            render: (joinedAt: string) => humanFriendlyDetailedTime(joinedAt),
+            render: (_, member) => humanFriendlyDetailedTime(member.joined_at),
             sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
-            defaultSortOrder: 'ascend',
         },
         {
             key: 'actions',
@@ -193,9 +175,10 @@ export function TeamMembers({ user }: MembersProps): JSX.Element {
             },
         },
     ]
+
     return (
         <>
-            <h2 className="subtitle" id="members-with-project-access" style={{ justifyContent: 'space-between' }}>
+            <h2 className="subtitle flex justify-between items-center" id="members-with-project-access">
                 Members with Project Access
                 <RestrictedArea
                     Component={AddMembersModalWithButton}
@@ -203,12 +186,10 @@ export function TeamMembers({ user }: MembersProps): JSX.Element {
                     scope={RestrictionScope.Project}
                 />
             </h2>
-            <Table
-                dataSource={allMembers}
+
+            <LemonTable
                 columns={columns}
-                rowKey="id"
-                pagination={false}
-                style={{ marginTop: '1rem' }}
+                dataSource={allMembers}
                 loading={allMembersLoading}
                 data-attr="team-members-table"
             />

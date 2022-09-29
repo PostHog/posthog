@@ -1,7 +1,5 @@
 from posthog.settings.utils import get_from_env, str_to_bool
 
-CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
-
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 
 # Warning: Dynamically updating these settings should only be done through the API.
@@ -28,6 +26,11 @@ CONSTANCE_CONFIG = {
         "Whether unique users should be counted by distinct IDs. Speeds up queries at the cost of accuracy.",
         str,
     ),
+    "PERSON_ON_EVENTS_ENABLED": (
+        get_from_env("PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
+        "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
+        bool,
+    ),
     "AUTO_START_ASYNC_MIGRATIONS": (
         get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool),
         "Whether the earliest unapplied async migration should be triggered automatically on server startup.",
@@ -47,6 +50,21 @@ CONSTANCE_CONFIG = {
         get_from_env("ASYNC_MIGRATIONS_AUTO_CONTINUE", True, type_cast=str_to_bool),
         "Whether to resume the migration, when celery worker crashed.",
         bool,
+    ),
+    "ASYNC_MIGRATIONS_BLOCK_UPGRADE": (
+        get_from_env("ASYNC_MIGRATIONS_BLOCK_UPGRADE", True, type_cast=str_to_bool),
+        "(Advanced) Whether having an async migration running, errored or required should prevent upgrades.",
+        bool,
+    ),
+    "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION": (
+        get_from_env("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION", False, type_cast=str_to_bool),
+        "(Advanced) Whether to ignore async migrations posthog version restrictions",
+        bool,
+    ),
+    "STRICT_CACHING_TEAMS": (
+        get_from_env("STRICT_CACHING_TEAMS", ""),
+        "Whether to always try to find cached data for historical intervals on trends",
+        str,
     ),
     "EMAIL_ENABLED": (
         get_from_env("EMAIL_ENABLED", True, type_cast=str_to_bool),
@@ -100,6 +118,32 @@ CONSTANCE_CONFIG = {
         "Used to disable emails from async migrations service",
         bool,
     ),
+    "INGESTION_SITE_URL": (None, "Used in ingestion pipeline to determine sites url", str),
+    "SLACK_APP_CLIENT_ID": (
+        get_from_env("SLACK_APP_CLIENT_ID", default=""),
+        "Used to enable the 'Add to Slack' button across all projects",
+        str,
+    ),
+    "SLACK_APP_CLIENT_SECRET": (
+        get_from_env("SLACK_APP_CLIENT_SECRET", default=""),
+        "Used to enable the 'Add to Slack' button across all projects",
+        str,
+    ),
+    "SLACK_APP_SIGNING_SECRET": (
+        get_from_env("SLACK_APP_SIGNING_SECRET", default=""),
+        "Used to validate Slack events for example when unfurling links",
+        str,
+    ),
+    "PARALLEL_DASHBOARD_ITEM_CACHE": (
+        get_from_env("PARALLEL_DASHBOARD_ITEM_CACHE", default=5),
+        "user to determine how many insight cache updates to run at a time",
+        int,
+    ),
+    "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS": (
+        get_from_env("ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS", default=False),
+        "Used to enable the running of experimental async migrations",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -109,6 +153,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",
+    "ASYNC_MIGRATIONS_BLOCK_UPGRADE",
+    "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION",
     "EMAIL_ENABLED",
     "EMAIL_HOST",
     "EMAIL_PORT",
@@ -119,10 +165,15 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
+    "PERSON_ON_EVENTS_ENABLED",
+    "STRICT_CACHING_TEAMS",
+    "SLACK_APP_CLIENT_ID",
+    "SLACK_APP_CLIENT_SECRET",
+    "SLACK_APP_SIGNING_SECRET",
+    "PARALLEL_DASHBOARD_ITEM_CACHE",
+    "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
 # On the frontend UI will clearly show which configuration elements are secret and whether they have a set value or not.
-SECRET_SETTINGS = [
-    "EMAIL_HOST_PASSWORD",
-]
+SECRET_SETTINGS = ["EMAIL_HOST_PASSWORD", "SLACK_APP_CLIENT_SECRET", "SLACK_APP_SIGNING_SECRET"]

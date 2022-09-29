@@ -1,4 +1,5 @@
 from typing import Dict, List
+from uuid import uuid4
 
 from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
@@ -36,7 +37,7 @@ class DataGenerator:
             for person, distinct_id in zip(self.people, self.distinct_ids)
         ]
         PersonDistinctId.objects.bulk_create(pids)
-        from ee.clickhouse.models.person import create_person, create_person_distinct_id
+        from posthog.models.person.util import create_person, create_person_distinct_id
 
         for person in self.people:
             create_person(
@@ -44,6 +45,7 @@ class DataGenerator:
                 team_id=person.team.pk,
                 properties=person.properties,
                 is_identified=person.is_identified,
+                version=0,
             )
         for pid in pids:
             create_person_distinct_id(pid.team.pk, pid.distinct_id, str(pid.person.uuid))  # use dummy number for id
@@ -64,10 +66,13 @@ class DataGenerator:
         pass
 
     def bulk_import_events(self):
-        from ee.clickhouse.demo import bulk_create_events, bulk_create_session_recording_events
+        from posthog.models.event.util import create_event
+        from posthog.models.session_recording_event.util import create_session_recording_event
 
-        bulk_create_events(self.events, team=self.team)
-        bulk_create_session_recording_events(self.snapshots, team_id=self.team.pk)
+        for event_data in self.events:
+            create_event(**event_data, team=self.team, event_uuid=uuid4())
+        for data in self.snapshots:
+            create_session_recording_event(**data, team_id=self.team.pk, uuid=uuid4())
 
     def add_if_not_contained(self, array, value):
         if value not in array:

@@ -1,22 +1,21 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { IconTrendUp, IconOpenInNew, IconErrorOutline } from 'lib/components/icons'
+import { IconErrorOutline, IconOpenInNew, IconPlus, IconTrendUp } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { SavedInsightsTabs } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import clsx from 'clsx'
-import { LemonButton } from 'lib/components/LemonButton'
-import { deleteWithUndo } from 'lib/utils'
-import { teamLogic } from 'scenes/teamLogic'
 import './EmptyStates.scss'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
+import { Animation } from 'lib/components/Animation/Animation'
+import { AnimationType } from 'lib/animations/animations'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export function InsightEmptyState(): JSX.Element {
     return (
@@ -32,53 +31,14 @@ export function InsightEmptyState(): JSX.Element {
     )
 }
 
-export function InsightDeprecatedState({
-    itemId,
-    itemName,
-    deleteCallback,
-}: {
-    itemId: number
-    itemName: string
-    deleteCallback?: () => void
-}): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
-    return (
-        <div className="insight-empty-state">
-            <div className="empty-state-inner">
-                <div className="illustration-main">
-                    <WarningOutlined />
-                </div>
-                <h2>This insight no longer exists.</h2>
-                <p className="text-center">This type of insight no longer exists in PostHog.</p>
-                <div>
-                    <LemonButton
-                        type="highlighted"
-                        style={{ margin: '0 auto' }}
-                        onClick={() =>
-                            deleteWithUndo({
-                                object: {
-                                    id: itemId,
-                                    name: itemName,
-                                },
-                                endpoint: `projects/${currentTeamId}/insights`,
-                                callback: deleteCallback,
-                            })
-                        }
-                    >
-                        Remove from dashboard
-                    </LemonButton>
-                </div>
-            </div>
-        </div>
-    )
-}
-
 export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                <div className="illustration-main">{isLoading ? <Spinner size="lg" /> : <IconErrorOutline />}</div>
+                <div className="illustration-main" style={{ height: 'auto' }}>
+                    {isLoading ? <Animation type={AnimationType.SportsHog} /> : <IconErrorOutline />}
+                </div>
                 <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
                 {isLoading ? (
                     <>
@@ -144,7 +104,7 @@ export function InsightErrorState({ excludeDetail, title }: InsightErrorStatePro
                 </div>
                 <h2>{title || 'There was an error completing this query'}</h2>
                 {!excludeDetail && (
-                    <div className="mt">
+                    <div className="mt-4">
                         We apologize for this unexpected situation. There are a few things you can do:
                         <ol>
                             <li>
@@ -211,26 +171,25 @@ export function FunnelSingleStepState({ actionable = true }: { actionable?: bool
                         ' Once you have two steps defined, additional changes will recalculate automatically.'}
                 </p>
                 {actionable && (
-                    <div className="mt text-center">
-                        <Button
+                    <div className="mt-4 flex justify-center">
+                        <LemonButton
                             size="large"
+                            type="secondary"
                             onClick={() => addFilter()}
                             data-attr="add-action-event-button-empty-state"
-                            icon={<PlusCircleOutlined />}
-                            className="add-action-event-button"
+                            icon={<IconPlus />}
                         >
                             Add funnel step
-                        </Button>
+                        </LemonButton>
                     </div>
                 )}
-                <div className="mt">
+                <div className="mt-4">
                     <a
                         data-attr="funnels-single-step-help"
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
                         rel="noopener"
-                        className="flex-center"
-                        style={{ justifyContent: 'center' }}
+                        className="flex items-center justify-center"
                     >
                         Learn more about funnels in PostHog docs
                         <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
@@ -253,7 +212,7 @@ export function FunnelInvalidExclusionState(): JSX.Element {
                     You're excluding events or actions that are part of the funnel steps. Try changing your funnel step
                     filters, or removing the overlapping exclusion event.
                 </p>
-                <div className="mt">
+                <div className="mt-4">
                     <a
                         data-attr="insight-funnels-emptystate-help"
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
@@ -293,7 +252,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
 
     // show the search string that was used to make the results, not what it currently is
     const searchString = insights.filters?.search || null
-    const { title, description } = SAVED_INSIGHTS_COPY[tab]
+    const { title, description } = SAVED_INSIGHTS_COPY[tab] ?? {}
 
     return (
         <div className="saved-insight-empty-state">

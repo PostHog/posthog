@@ -1,6 +1,6 @@
 import api from 'lib/api'
 import { kea } from 'kea'
-import { systemStatusLogicType } from './systemStatusLogicType'
+import type { systemStatusLogicType } from './systemStatusLogicType'
 import { userLogic } from 'scenes/userLogic'
 import {
     SystemStatus,
@@ -17,19 +17,15 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
 import { lemonToast } from 'lib/components/lemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export enum ConfigMode {
     View = 'view',
     Edit = 'edit',
     Saving = 'saving',
 }
-export interface MetricRow {
-    metric: string
-    key: string
-    value?: boolean | string | number | null
-}
 
-export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users'
+export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users' | 'kafka_inspector'
 
 /**
  * We whitelist the specific instance settings that can be edited via the /instance/status page.
@@ -48,9 +44,15 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_DEFAULT_FROM',
     'EMAIL_REPLY_TO',
     'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
+    'PERSON_ON_EVENTS_ENABLED',
+    'STRICT_CACHING_TEAMS',
+    'SLACK_APP_CLIENT_ID',
+    'SLACK_APP_CLIENT_SECRET',
+    'SLACK_APP_SIGNING_SECRET',
+    'PARALLEL_DASHBOARD_ITEM_CACHE',
 ]
 
-export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceStatusTabName>>({
+export const systemStatusLogic = kea<systemStatusLogicType>({
     path: ['scenes', 'instance', 'SystemStatus', 'systemStatusLogic'],
     actions: {
         setTab: (tab: InstanceStatusTabName) => ({ tab }),
@@ -144,7 +146,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
         ],
         instanceConfigMode: [
             // Determines whether the Instance Configuration table on "Configuration" tab is on edit or view mode
-            ConfigMode.View,
+            ConfigMode.View as ConfigMode,
             {
                 setInstanceConfigMode: (_, { mode }) => mode,
             },
@@ -218,6 +220,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
                     await api.update(`api/instance_settings/${key}`, {
                         value,
                     })
+                    eventUsageLogic.actions.reportInstanceSettingChange(key, value)
                     actions.increaseUpdatedInstanceConfigCount()
                 } catch {
                     lemonToast.error('There was an error updating instance settings – please try again')
@@ -247,7 +250,8 @@ export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceS
 
     urlToAction: ({ actions, values }) => ({
         '/instance(/:tab)': ({ tab }: { tab?: InstanceStatusTabName }) => {
-            const currentTab = tab && ['metrics', 'settings', 'staff_users'].includes(tab) ? tab : 'overview'
+            const currentTab =
+                tab && ['metrics', 'settings', 'staff_users', 'kafka_inspector'].includes(tab) ? tab : 'overview'
             if (currentTab !== values.tab) {
                 actions.setTab(currentTab)
             }

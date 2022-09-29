@@ -22,7 +22,7 @@ const EXAMPLE_TRENDS: InsightModel = {
     },
     filters_hash: 'cache_10242f26e25fd30ec2c9721e4f90a018',
     deleted: false,
-    dashboard: 1,
+    dashboards: [1],
     layouts: {
         sm: {
             h: 5,
@@ -88,7 +88,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-07',
                         date_to: '2021-12-07',
                     },
-                    url: 'api/projects/997/actions/people/?date_from=2021-12-07&date_to=2021-12-07&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/persons/trends/?date_from=2021-12-07&date_to=2021-12-07&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -98,7 +98,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-08',
                         date_to: '2021-12-08',
                     },
-                    url: 'api/projects/997/actions/people/?date_from=2021-12-08&date_to=2021-12-08&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/persons/trends/?date_from=2021-12-08&date_to=2021-12-08&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -108,7 +108,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-09',
                         date_to: '2021-12-09',
                     },
-                    url: 'api/projects/997/actions/people/?date_from=2021-12-09&date_to=2021-12-09&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/persons/trends/?date_from=2021-12-09&date_to=2021-12-09&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -118,7 +118,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-10',
                         date_to: '2021-12-10',
                     },
-                    url: 'api/projects/997/actions/people/?date_from=2021-12-10&date_to=2021-12-10&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/persons/trends/?date_from=2021-12-10&date_to=2021-12-10&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -128,7 +128,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-11',
                         date_to: '2021-12-11',
                     },
-                    url: 'api/projects/997/actions/people/?date_from=2021-12-11&date_to=2021-12-11&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/persons/trends/?date_from=2021-12-11&date_to=2021-12-11&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -138,7 +138,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-12',
                         date_to: '2021-12-12',
                     },
-                    url: 'api/projects/997/actions/people/?date_from=2021-12-12&date_to=2021-12-12&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/persons/trends/?date_from=2021-12-12&date_to=2021-12-12&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -148,7 +148,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-13',
                         date_to: '2021-12-13',
                     },
-                    url: 'api/projects/997/actions/people/?date_from=2021-12-13&date_to=2021-12-13&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/persons/trends/?date_from=2021-12-13&date_to=2021-12-13&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
                 {
                     filter: {
@@ -158,7 +158,7 @@ const EXAMPLE_TRENDS: InsightModel = {
                         date_from: '2021-12-14',
                         date_to: '2021-12-14',
                     },
-                    url: 'api/projects/997/actions/people/?date_from=2021-12-14&date_to=2021-12-14&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
+                    url: 'api/projects/997/persons/trends/?date_from=2021-12-14&date_to=2021-12-14&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22dau%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&entity_math=dau',
                 },
             ],
             filter: {
@@ -233,7 +233,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
     filters_hash: 'cache_efe341a46f090f397007fe97d8faf263',
     order: 1,
     deleted: false,
-    dashboard: 6,
+    dashboards: [6],
     layouts: {},
     color: null,
     last_refresh: null,
@@ -375,6 +375,14 @@ export const InsightCard: Story = (args) => {
             />
             <InsightCardComponent
                 insight={{ ...EXAMPLE_FUNNEL, name: 'What a plentiful funnel' }}
+                rename={() => {}}
+                duplicate={() => {}}
+            />
+            <InsightCardComponent
+                insight={{
+                    ...EXAMPLE_TRENDS,
+                    filters: { ...EXAMPLE_TRENDS.filters, display: 'totally_wrong_display_type' as ChartDisplayType },
+                }}
                 rename={() => {}}
                 duplicate={() => {}}
             />

@@ -1,7 +1,6 @@
 import { Meta } from '@storybook/react'
 import eventsResponse from './__mocks__/eventsResponse.json'
 
-import { PerfBlock } from 'scenes/performance/WebPerformance'
 import React, { useEffect } from 'react'
 import { Row } from 'antd'
 import { MinimalPerformanceResourceTiming } from 'scenes/performance/webPerformanceLogic'
@@ -9,10 +8,11 @@ import { mswDecorator } from '~/mocks/browser'
 import { router } from 'kea-router'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
+import { PerfBlock } from 'scenes/performance/WebPerformanceWaterfallChart'
 
 export default {
     title: 'Scenes-App/Web Performance',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
     decorators: [
         mswDecorator({
             get: {

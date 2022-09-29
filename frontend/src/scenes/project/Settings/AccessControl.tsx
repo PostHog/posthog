@@ -1,5 +1,4 @@
 import React from 'react'
-import { Switch } from 'antd'
 import { AvailableFeature } from '~/types'
 import { organizationLogic } from '../../organizationLogic'
 import { useActions, useValues } from 'kea'
@@ -8,6 +7,7 @@ import { sceneLogic } from '../../sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { LockOutlined, UnlockOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -46,8 +46,7 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
                     </>
                 )}
             </p>
-            <Switch
-                id="access-control-switch"
+            <LemonSwitch
                 onChange={(checked) => {
                     guardAvailableFeature(
                         AvailableFeature.PROJECT_BASED_PERMISSIONING,
@@ -56,18 +55,17 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
                         () => updateCurrentTeam({ access_control: checked })
                     )
                 }}
-                checked={projectPermissioningEnabled}
-                loading={currentOrganizationLoading || currentTeamLoading}
-                disabled={isRestricted || !currentOrganization || !currentTeam}
+                checked={!!projectPermissioningEnabled}
+                disabled={
+                    isRestricted ||
+                    !currentOrganization ||
+                    !currentTeam ||
+                    currentOrganizationLoading ||
+                    currentTeamLoading
+                }
+                bordered
+                label="Make project private"
             />
-            <label
-                style={{
-                    marginLeft: '10px',
-                }}
-                htmlFor="access-control-switch"
-            >
-                Make project private
-            </label>
         </div>
     )
 }

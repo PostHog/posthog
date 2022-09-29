@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
-import { infiniteListLogicType } from './infiniteListLogicType'
+import type { infiniteListLogicType } from './infiniteListLogicType'
 import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
 import {
@@ -14,6 +14,7 @@ import {
     TaxonomicFilterGroup,
 } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 /*
  by default the pop-up starts open for the first item in the list
@@ -67,7 +68,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
     key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,
 
     connect: (props: InfiniteListLogicProps) => ({
-        values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType', 'taxonomicGroups']],
+        values: [
+            taxonomicFilterLogic(props),
+            ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
+            featureFlagsLogic,
+            ['featureFlags'],
+        ],
         actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
     }),
 
@@ -117,7 +123,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         await breakpoint(1)
                     }
 
-                    const { isExpanded, remoteEndpoint, scopedRemoteEndpoint, searchQuery } = values
+                    const { isExpanded, remoteEndpoint, scopedRemoteEndpoint, searchQuery, excludedProperties } = values
 
                     if (!remoteEndpoint) {
                         // should not have been here in the first place!
@@ -128,6 +134,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         [`${values.group?.searchAlias || 'search'}`]: searchQuery,
                         limit,
                         offset,
+                        excluded_properties: JSON.stringify(excludedProperties),
                     }
 
                     const [response, expandedCountResponse] = await Promise.all([
@@ -157,7 +164,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         ),
                         searchQuery: values.searchQuery,
                         queryChanged,
-                        count: response.count || 0,
+                        count:
+                            response.count ||
+                            (Array.isArray(response) ? response.length : 0) ||
+                            (response.results || []).length,
                         expandedCount: expandedCountResponse?.count,
                     }
                 },
@@ -228,6 +238,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                 taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
+        excludedProperties: [(s) => [s.group], (group) => group?.excludedProperties],
         scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],
         isExpandable: [
             (s) => [s.remoteEndpoint, s.scopedRemoteEndpoint, s.remoteItems],

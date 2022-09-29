@@ -1,70 +1,60 @@
 #!/usr/bin/env node
 import * as path from 'path'
+import { fileURLToPath } from 'url'
 import {
-    __dirname,
     copyPublicFolder,
     isDev,
-    startServer,
+    startDevServer,
     createHashlessEntrypoints,
     buildInParallel,
     copyIndexHtml,
 } from './utils.mjs'
 
-export function writeIndexHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml('src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
-    copyIndexHtml('src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
-}
+export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-export function writeSharedDashboardHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard', chunks, entrypoints)
-}
-
-let server
-if (isDev) {
-    console.log(`👀 Starting dev server`)
-    server = startServer()
-} else {
-    console.log(`🛳 Starting production build`)
-}
-let buildsInProgress = 0
-
-copyPublicFolder()
+startDevServer(__dirname)
+copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
 writeIndexHtml()
-writeSharedDashboardHtml()
+writeExporterHtml()
 
-buildInParallel(
+const common = {
+    absWorkingDir: __dirname,
+    bundle: true,
+}
+
+await buildInParallel(
     [
         {
             name: 'PostHog App',
+            globalName: 'posthogApp',
             entryPoints: ['src/index.tsx'],
-            bundle: true,
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
+            ...common,
         },
         {
-            name: 'Shared Dashboard',
-            entryPoints: ['src/scenes/dashboard/SharedDashboard.tsx'],
-            bundle: true,
+            name: 'Exporter',
+            globalName: 'posthogExporter',
+            entryPoints: ['src/exporter/index.tsx'],
             format: 'iife',
-            outfile: path.resolve(__dirname, 'dist', 'shared_dashboard.js'),
+            outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
+            ...common,
         },
         {
             name: 'Toolbar',
+            globalName: 'posthogToolbar',
             entryPoints: ['src/toolbar/index.tsx'],
-            bundle: true,
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
+            // make sure we don't link to a global window.define
+            banner: { js: 'var posthogToolbar = (function () { var define = undefined;' },
+            footer: { js: 'return posthogToolbar })();' },
+            ...common,
         },
     ],
     {
-        onBuildStart: () => {
-            if (buildsInProgress === 0) {
-                server?.pauseServer()
-            }
-            buildsInProgress++
-        },
-        onBuildComplete(config, buildResponse) {
+        async onBuildComplete(config, buildResponse) {
             const { chunks, entrypoints } = buildResponse
 
             if (config.name === 'PostHog App') {
@@ -77,16 +67,20 @@ buildInParallel(
                 writeIndexHtml(chunks, entrypoints)
             }
 
-            if (config.name === 'Shared Dashboard') {
-                writeSharedDashboardHtml(chunks, entrypoints)
+            if (config.name === 'Exporter') {
+                writeExporterHtml(chunks, entrypoints)
             }
 
-            createHashlessEntrypoints(entrypoints)
-
-            buildsInProgress--
-            if (buildsInProgress === 0) {
-                server?.resumeServer()
-            }
+            createHashlessEntrypoints(__dirname, entrypoints)
         },
     }
 )
+
+export function writeIndexHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
+    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
+}
+
+export function writeExporterHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+}

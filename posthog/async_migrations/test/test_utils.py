@@ -4,9 +4,10 @@ from unittest.mock import patch
 import pytest
 
 from posthog.async_migrations.definition import AsyncMigrationOperationSQL
-from posthog.async_migrations.test.util import create_async_migration
+from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
 from posthog.async_migrations.utils import (
     complete_migration,
+    execute_on_each_shard,
     execute_op,
     force_stop_migration,
     process_error,
@@ -14,21 +15,20 @@ from posthog.async_migrations.utils import (
 )
 from posthog.constants import AnalyticsDBMS
 from posthog.models.async_migration import AsyncMigrationError, MigrationStatus
-from posthog.test.base import BaseTest
 
 DEFAULT_CH_OP = AsyncMigrationOperationSQL(sql="SELECT 1", rollback=None, timeout_seconds=10)
 
 DEFAULT_POSTGRES_OP = AsyncMigrationOperationSQL(database=AnalyticsDBMS.POSTGRES, sql="SELECT 1", rollback=None)
 
 
-class TestUtils(BaseTest):
+class TestUtils(AsyncMigrationBaseTest):
     @pytest.mark.ee
     @patch("posthog.client.sync_execute")
     def test_execute_op_clickhouse(self, mock_sync_execute):
         execute_op(DEFAULT_CH_OP, "some_id")
 
         # correctly routes to ch
-        mock_sync_execute.assert_called_once_with("/* some_id */ SELECT 1", settings={"max_execution_time": 10})
+        mock_sync_execute.assert_called_once_with("SELECT 1", None, settings={"max_execution_time": 10})
 
     @patch("django.db.connection.cursor")
     def test_execute_op_postgres(self, mock_cursor):
@@ -71,7 +71,6 @@ class TestUtils(BaseTest):
         self.assertEqual(errors[0].description, "Force stopped by user")
 
     def test_complete_migration(self):
-
         sm = create_async_migration()
         complete_migration(sm)
 
@@ -83,3 +82,8 @@ class TestUtils(BaseTest):
         self.assertEqual(sm.progress, 100)
         errors = AsyncMigrationError.objects.filter(async_migration=sm)
         self.assertEqual(errors.count(), 0)
+
+    def test_execute_on_each_shard(self):
+        execute_on_each_shard("SELECT 1")
+        with self.assertRaises(Exception):
+            execute_on_each_shard("SELECT fail")

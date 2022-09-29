@@ -10,10 +10,14 @@ export enum Scene {
     Dashboard = 'Dashboard',
     Insight = 'Insight',
     Cohorts = 'Cohorts',
+    Cohort = 'Cohort',
     Events = 'Events',
     DataManagement = 'DataManagement',
     EventDefinitions = 'EventDefinitionsTable',
+    EventDefinition = 'EventDefinition',
     EventPropertyDefinitions = 'EventPropertyDefinitionsTable',
+    EventPropertyDefinition = 'EventPropertyDefinition',
+    IngestionWarnings = 'IngestionWarnings',
     SessionRecordings = 'SessionsRecordings',
     Person = 'Person',
     Persons = 'Persons',
@@ -38,10 +42,13 @@ export enum Scene {
     Annotations = 'Annotations',
     Billing = 'Billing',
     BillingSubscribed = 'BillingSubscribed',
+    BillingLocked = 'BillingLocked',
     Plugins = 'Plugins',
+    FrontendAppScene = 'FrontendAppScene',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
     WebPerformance = 'WebPerformance',
+    IntegrationsRedirect = 'IntegrationsRedirect',
     // Authentication, onboarding & initialization routes
     Login = 'Login',
     Signup = 'Signup',
@@ -50,6 +57,8 @@ export enum Scene {
     PasswordResetComplete = 'PasswordResetComplete',
     PreflightCheck = 'PreflightCheck',
     Ingestion = 'IngestionWizard',
+    OrganizationCreationConfirm = 'OrganizationCreationConfirm',
+    Unsubscribe = 'Unsubscribe',
 }
 
 export type SceneProps = Record<string, any>
@@ -91,8 +100,8 @@ export interface SceneConfig {
     allowUnauthenticated?: boolean
     /** Hides most navigation UI, like the sidebar and breadcrumbs. */
     plain?: boolean
-    /** Hides demo project warnings (DemoWarning.tsx) */
-    hideDemoWarnings?: boolean
+    /** Hides project notice (ProjectNotice.tsx). */
+    hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */
     personal?: boolean
     /** Instance management (used e.g. by breadcrumbs) */

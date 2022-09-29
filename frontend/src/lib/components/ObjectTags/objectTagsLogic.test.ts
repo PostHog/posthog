@@ -42,7 +42,7 @@ describe('objectTagsLogic', () => {
                     addingNewTag: false,
                     newTag: '',
                 })
-            // @ts-ignore
+            // @ts-expect-error
             const mockedOnChange = props.onChange?.mock as any
             expect(mockedOnChange.calls.length).toBe(1)
             expect(mockedOnChange.calls[0][0]).toBe('nightly')
@@ -58,7 +58,7 @@ describe('objectTagsLogic', () => {
                 .toMatchValues({
                     tags: ['a', 'b', 'c'],
                 })
-            // @ts-ignore
+            // @ts-expect-error
             expect(props.onChange?.mock.calls.length).toBe(0)
         })
         it('handle deleting a tag', async () => {
@@ -69,7 +69,7 @@ describe('objectTagsLogic', () => {
                 .toMatchValues({
                     tags: ['b', 'c'],
                 })
-            // @ts-ignore
+            // @ts-expect-error
             const mockedOnChange = props.onChange?.mock as any
             expect(mockedOnChange.calls.length).toBe(1)
             expect(mockedOnChange.calls[0][0]).toBe('a')

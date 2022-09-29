@@ -1,4 +1,4 @@
-@import '~/vars';
+@import '../../../styles/mixins';
 
 .SideBar__layout {
     position: relative;
@@ -8,20 +8,21 @@
 }
 
 .SideBar__slider {
-    z-index: $z_lemon_sidebar;
+    z-index: var(--z-lemon-sidebar);
     transition: 200ms ease margin, 200ms ease transform;
     position: absolute;
     flex-shrink: 0;
     height: 100%;
     width: 15.5rem;
-    background: var(--bg-side);
+    background: var(--side);
     border-right: 1px solid var(--border);
+
     .SideBar--hidden & {
         // As an optimization we use transform instead of margin on mobile,
         // because the sidebar does not affect the rest of the layout on mobile
         transform: translateX(-15.5rem);
     }
-    @media screen and (min-width: $lg) {
+    @include screen($lg) {
         height: initial;
         position: relative;
         .SideBar--hidden & {
@@ -31,18 +32,18 @@
 }
 
 .SideBar__overlay {
-    z-index: $z_mobile_nav_overlay;
+    z-index: var(--z-mobile-nav-overlay);
     transition: 200ms ease opacity;
     opacity: 1;
     position: absolute;
     height: 100%;
     width: 100%;
-    background: var(--text-muted);
+    background: var(--muted);
     .SideBar--hidden & {
         opacity: 0;
         pointer-events: none;
     }
-    @media screen and (min-width: $lg) {
+    @include screen($lg) {
         display: none;
     }
 }
@@ -53,25 +54,32 @@
     width: 100%;
     max-height: calc(100vh - 3.5rem);
     overflow: auto;
-    padding: 0.5rem;
-    > div {
-        margin: 0.5rem 0;
+    padding: 1rem 0.5rem;
+
+    > ul {
+        li {
+            margin-top: 1px;
+        }
     }
 }
 
 .SideBar__heading {
     margin-left: 0.5rem;
-    color: var(--text-muted);
+    color: var(--muted);
     line-height: 1.5rem;
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    margin-top: 1rem;
+    &:first-of-type {
+        margin-top: 0;
+    }
 }
 
 .ProjectSwitcher__label {
     padding: 0 0.5rem;
-    color: var(--text-muted);
+    color: var(--muted);
     line-height: 1.5rem;
     font-size: 0.75rem;
     font-weight: 600;
@@ -79,7 +87,12 @@
     letter-spacing: 0.5px;
 }
 
-.SideBar__pinned-dashboards {
+.SideBar__side-actions {
     max-height: calc(100vh - 20rem);
     max-width: calc(100vw - 14rem);
+
+    .LaunchToolbarButton {
+        padding-left: 0.5em;
+        padding-right: 0.5em;
+    }
 }

@@ -2,31 +2,34 @@ from typing import Any, Callable, List, Optional, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.contrib import admin
 from django.http import HttpRequest, HttpResponse
 from django.urls import URLPattern, include, path, re_path
 from django.views.decorators import csrf
 from django.views.decorators.csrf import csrf_exempt
+from django_prometheus.exports import ExportToDjangoView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 from posthog.api import (
     api_not_found,
     authentication,
     capture,
-    dashboard,
     decide,
     organizations_router,
     project_dashboards_router,
     projects_router,
     router,
+    sharing,
     signup,
+    unsubscribe,
     user,
 )
-from posthog.api.decide import hostname_in_app_urls
-from posthog.demo import demo
+from posthog.api.decide import hostname_in_allowed_url_list
+from posthog.demo import demo_route
 from posthog.models import User
 
 from .utils import render_template
-from .views import health, login_required, preflight_check, robots_txt, security_txt, sso_login, stats
+from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
 
 ee_urlpatterns: List[Any] = []
 try:
@@ -46,6 +49,13 @@ except ImportError:
 else:
     extend_api_router_cloud(router, organizations_router=organizations_router, projects_router=projects_router)
 
+# The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
+admin_urlpatterns = (
+    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
+    if settings.MULTI_TENANCY or settings.DEMO
+    else []
+)
+
 
 @csrf.ensure_csrf_cookie
 def home(request, *args, **kwargs):
@@ -62,7 +72,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
 
-    if not current_team or not hostname_in_app_urls(current_team, redirect_url.hostname):
+    if not current_team or not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname):
         return HttpResponse(f"Can only redirect to a permitted domain.", status=400)
 
     if referer_url.hostname != redirect_url.hostname:
@@ -86,7 +96,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
     # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
-    return re_path(fr"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
+    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
 
 
 urlpatterns = [
@@ -103,7 +113,10 @@ urlpatterns = [
     opt_slash_path("_preflight", preflight_check),
     # ee
     *ee_urlpatterns,
+    # admin
+    *admin_urlpatterns,
     # api
+    path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
@@ -116,8 +129,12 @@ urlpatterns = [
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
-    path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
-    re_path(r"^demo.*", login_required(demo)),
+    path("shared_dashboard/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
+    path("shared/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
+    path("embedded/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
+    path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
+    path("exporter/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
+    re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     opt_slash_path("decide", decide.get_decide),
     opt_slash_path("e", capture.get_event),
@@ -130,20 +147,26 @@ urlpatterns = [
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
     path("logout", authentication.logout, name="login"),
-    path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
     path(
-        "login/<str:backend>/", sso_login, name="social_begin"
+        "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
 ]
+
+if settings.DEBUG:
+    # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
+    # that in production we expose these metrics on a separate port, to ensure
+    # external clients cannot see them. See the gunicorn setup for details on
+    # what we do.
+    urlpatterns.append(path("_metrics", ExportToDjangoView))
 
 if settings.TEST:
 
     # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
-        from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
         from posthog.client import sync_execute
+        from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
 
         sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
         return HttpResponse()
@@ -158,7 +181,9 @@ frontend_unauthenticated_routes = [
     r"signup\/[A-Za-z0-9\-]*",
     "reset",
     "organization/billing/subscribed",
+    "organization/confirm-creation",
     "login",
+    "unsubscribe",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

@@ -7,6 +7,12 @@ title: Sprint 1.n.0 m/2 - Jan 1 to Jan 12
 
 # Global Sprint Planning
 
+## 3 things that might take us down
+
+1.
+2.
+3.
+
 ## Retro: Status of Outcomes from Previous Sprint
 
 1.
@@ -22,6 +28,11 @@ title: Sprint 1.n.0 m/2 - Jan 1 to Jan 12
 3.
 4.
 5.
+
+## Support hero this sprint
+<!-- https://posthog.pagerduty.com/schedules#PPLGE4G -->
+Week 1: 
+Week 2:
 
 ## Plan: Proposed Goals for Next Sprint 
 
@@ -57,6 +68,10 @@ Team ___
 <!-- Each item should have a single owner. Owner can only be an engineer. -->
 
 ### High priority
+
+-
+
+### Bugs
 
 -
 

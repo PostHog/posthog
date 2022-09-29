@@ -7,19 +7,14 @@ trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=1
 
-ARCH=$(uname -m)
-if [ "$ARCH" == "arm64" ]; then
-  DOCKER_COMPOSE_VARIANT='arm64'
-else
-  DOCKER_COMPOSE_VARIANT='dev'
-fi
-
 service_warning() {
-  echo -e "\033[0;31m$1 isn't ready. You can run the stack with:\ndocker compose -f docker-compose.${DOCKER_COMPOSE_VARIANT}.yml up kafka clickhouse db redis\nIf you have already ran that, just make sure that services are starting properly, and sit back.\nWaiting for $1 to start...\033[0m"
+  echo -e "\033[0;31m$1 isn't ready. You can run the stack with:\ndocker compose -f docker-compose.dev.yml up\nIf you have already ran that, just make sure that services are starting properly, and sit back.\nWaiting for $1 to start...\033[0m"
 }
 
 nc -z localhost 9092 || ( service_warning 'Kafka'; bin/check_kafka_clickhouse_up )
 curl -s 'http://localhost:8123/ping' || ( service_warning 'ClickHouse'; bin/check_kafka_clickhouse_up )
+
+[ ! -f ./share/GeoLite2-City.mmdb ] && ( curl -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb )
 
 ./bin/start-worker &
 ./bin/start-backend &

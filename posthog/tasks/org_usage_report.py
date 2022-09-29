@@ -7,13 +7,13 @@ import structlog
 from django.db.models.manager import BaseManager
 from sentry_sdk import capture_exception
 
-from ee.clickhouse.models.event import (
+from posthog.event_usage import report_org_usage, report_org_usage_failure
+from posthog.models import GroupTypeMapping, OrganizationMembership, Team, User
+from posthog.models.event.util import (
     get_agg_event_count_for_teams,
     get_agg_event_count_for_teams_and_period,
     get_agg_events_with_groups_count_for_teams_and_period,
 )
-from posthog.event_usage import report_org_usage, report_org_usage_failure
-from posthog.models import GroupTypeMapping, OrganizationMembership, Team, User
 from posthog.tasks.status_report import get_instance_licenses
 from posthog.utils import get_instance_realm, get_previous_day
 from posthog.version import VERSION
@@ -22,7 +22,7 @@ logger = structlog.get_logger(__name__)
 
 Period = TypedDict("Period", {"start_inclusive": str, "end_inclusive": str})
 
-OrgData = TypedDict("OrgData", {"teams": List[Union[str, int]], "user_count": int, "name": str, "created_at": str,},)
+OrgData = TypedDict("OrgData", {"teams": List[Union[str, int]], "user_count": int, "name": str, "created_at": str})
 
 OrgReportMetadata = TypedDict(
     "OrgReportMetadata",
@@ -113,7 +113,7 @@ def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
         try:
             month_start = period_start.replace(day=1)
             usage = get_org_usage(
-                team_ids=org["teams"], period_start=period_start, period_end=period_end, month_start=month_start,
+                team_ids=org["teams"], period_start=period_start, period_end=period_end, month_start=month_start
             )
             report: dict = {
                 **metadata,
@@ -137,7 +137,7 @@ def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
 
 
 def get_org_usage(
-    team_ids: List[Union[str, int]], period_start: datetime, period_end: datetime, month_start: datetime,
+    team_ids: List[Union[str, int]], period_start: datetime, period_end: datetime, month_start: datetime
 ) -> OrgUsageData:
     return {
         "event_count_lifetime": get_agg_event_count_for_teams(team_ids),
@@ -181,6 +181,6 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
         user = membership.user
     else:
         capture_exception(
-            Exception("No user found for org while generating report"), {"org": {"organization_id": organization_id}},
+            Exception("No user found for org while generating report"), {"org": {"organization_id": organization_id}}
         )
     return user

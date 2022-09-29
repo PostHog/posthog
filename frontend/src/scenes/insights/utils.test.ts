@@ -1,7 +1,14 @@
-import { CohortType, Entity, EntityFilter, FilterType, InsightType, PathType } from '~/types'
-import { extractObjectDiffKeys, getDisplayNameFromEntityFilter, summarizeInsightFilters } from 'scenes/insights/utils'
+import { CohortType, Entity, EntityFilter, FilterLogicalOperator, FilterType, InsightType, PathType } from '~/types'
+import {
+    extractObjectDiffKeys,
+    formatAggregationValue,
+    formatBreakdownLabel,
+    getDisplayNameFromEntityFilter,
+    summarizeInsightFilters,
+} from 'scenes/insights/utils'
 import { BASE_MATH_DEFINITIONS, MathDefinition, PROPERTY_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -117,6 +124,7 @@ describe('summarizeInsightFilters()', () => {
         1: {
             id: 1,
             name: 'Poles',
+            filters: { properties: { id: '1', type: FilterLogicalOperator.Or, values: [] } },
             groups: [],
         },
     }
@@ -483,5 +491,47 @@ describe('summarizeInsightFilters()', () => {
                 mathDefinitions
             )
         ).toEqual('User lifecycle based on Rageclick')
+    })
+})
+
+describe('formatAggregationValue', () => {
+    it('safely handles null', () => {
+        const fakeRenderCount = (x: number): string => String(x)
+        const noOpFormatProperty = jest.fn((_, y) => y)
+        const actual = formatAggregationValue('some name', null, fakeRenderCount, noOpFormatProperty)
+        expect(actual).toEqual('-')
+    })
+
+    it('uses render count when there is a value and property format is a no-op', () => {
+        const fakeRenderCount = (x: number): string => formatAggregationAxisValue('duration', x)
+        const noOpFormatProperty = jest.fn((_, y) => y)
+        const actual = formatAggregationValue('some name', 500, fakeRenderCount, noOpFormatProperty)
+        expect(actual).toEqual('8m 20s')
+    })
+
+    it('uses render count when there is a value and property format converts number to string', () => {
+        const fakeRenderCount = (x: number): string => formatAggregationAxisValue('duration', x)
+        const noOpFormatProperty = jest.fn((_, y) => String(y))
+        const actual = formatAggregationValue('some name', 500, fakeRenderCount, noOpFormatProperty)
+        expect(actual).toEqual('8m 20s')
+    })
+})
+
+describe('formatBreakdownLabel()', () => {
+    const identity = (x: any): any => x
+
+    const cohort = {
+        id: 5,
+        name: 'some cohort',
+    }
+
+    it('handles cohort breakdowns', () => {
+        expect(formatBreakdownLabel([cohort as any], identity, cohort.id, [cohort.id], 'cohort')).toEqual(cohort.name)
+        expect(formatBreakdownLabel([], identity, 3, [3], 'cohort')).toEqual('3')
+    })
+
+    it('handles cohort breakdowns with all users', () => {
+        expect(formatBreakdownLabel([], identity, 'all', ['all'], 'cohort')).toEqual('All Users')
+        expect(formatBreakdownLabel([], identity, 0, [0], 'cohort')).toEqual('All Users')
     })
 })

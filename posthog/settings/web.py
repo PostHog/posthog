@@ -6,7 +6,7 @@ from typing import List
 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.statsd import STATSD_HOST
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # django-axes settings to lockout after too many attempts
 
@@ -16,10 +16,7 @@ AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
 AXES_FAILURE_LIMIT = get_from_env("AXES_FAILURE_LIMIT", 30, type_cast=int)
 AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
-AXES_META_PRECEDENCE_ORDER = [
-    "HTTP_X_FORWARDED_FOR",
-    "REMOTE_ADDR",
-]
+AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 
 # Application definition
 
@@ -39,23 +36,23 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
-    "constance",
-    "constance.backends.database",
     "drf_spectacular",
 ]
 
-
 MIDDLEWARE = [
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    "posthog.gzip_middleware.ScopedGZipMiddleware",
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    "posthog.middleware.AllowIPMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
     "posthog.health.healthcheck_middleware",
+    "posthog.middleware.ShortCircuitMiddleware",
+    "posthog.middleware.AllowIPMiddleware",
+    "google.cloud.sqlcommenter.django.middleware.SqlCommenter",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "posthog.middleware.ToolbarCookieMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
@@ -66,6 +63,8 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
+    "posthog.middleware.CHQueries",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
 
 if STATSD_HOST is not None:
@@ -73,9 +72,13 @@ if STATSD_HOST is not None:
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
 # Append Enterprise Edition as an app if available
-INSTALLED_APPS.append("rest_hooks")
-INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
-MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
+try:
+    from ee.apps import EnterpriseConfig  # noqa: F401
+except ImportError:
+    pass
+else:
+    INSTALLED_APPS.append("rest_hooks")
+    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
 # Use django-extensions if it exists
 try:
@@ -101,16 +104,12 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-            ],
+            ]
         },
-    },
+    }
 ]
 
 WSGI_APPLICATION = "posthog.wsgi.application"
-
-# This is set as a cross-domain cookie with a random value.
-# Its existence is used by the toolbar to see that we are logged in.
-TOOLBAR_COOKIE_NAME = "phtoolbar"
 
 
 # Social Auth
@@ -140,12 +139,7 @@ SOCIAL_AUTH_PIPELINE = (
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
 SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
-SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
-    "invite_id",
-    "user_name",
-    "email_opt_in",
-    "organization_name",
-]
+SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ["invite_id", "user_name", "email_opt_in", "organization_name"]
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 SOCIAL_AUTH_GITHUB_KEY = os.getenv("SOCIAL_AUTH_GITHUB_KEY")
 SOCIAL_AUTH_GITHUB_SECRET = os.getenv("SOCIAL_AUTH_GITHUB_SECRET")
@@ -159,9 +153,7 @@ SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gi
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 
-AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
-]
+AUTH_PASSWORD_VALIDATORS = [{"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"}]
 
 PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 
@@ -184,9 +176,7 @@ USE_TZ = True
 
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, "frontend/dist"),
-]
+STATICFILES_DIRS = [os.path.join(BASE_DIR, "frontend/dist")]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "posthog.User"
@@ -214,22 +204,52 @@ REST_FRAMEWORK = {
 if DEBUG:
     REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")  # type: ignore
 
+RATE_LIMIT_ENABLED = get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
+
+if RATE_LIMIT_ENABLED or TEST:
+    # These rate limits are applied to all Django views.
+    # Note: Ingestion + decide endpoints do not use Django views, so no rate limits are applied
+    REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = [
+        "posthog.rate_limit.PassThroughBurstRateThrottle",
+        "posthog.rate_limit.PassThroughSustainedRateThrottle",
+    ]
+
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
     "POSTPROCESSING_HOOKS": ["posthog.api.documentation.custom_postprocessing_hook"],
 }
 
-EXCEPTIONS_HOG = {
-    "EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting",
-}
+EXCEPTIONS_HOG = {"EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting"}
 
 
 def add_recorder_js_headers(headers, path, url):
-    if url.endswith("/recorder.js"):
+    if url.endswith("/recorder.js") and not DEBUG:
         headers["Cache-Control"] = "max-age=31536000, public"
 
 
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 CSRF_COOKIE_NAME = "posthog_csrftoken"
+
+# see posthog.gzip_middleware.ScopedGZipMiddleware
+# for how adding paths here can add vulnerability to the "breach" attack
+GZIP_RESPONSE_ALLOW_LIST = get_list(
+    os.getenv(
+        "GZIP_RESPONSE_ALLOW_LIST",
+        ",".join(
+            [
+                "^/?api/projects/\\d+/session_recordings/.*/snapshots/?$",
+                "^/?api/plugin_config/\\d+/frontend/?$",
+                "^/?api/projects/@current/property_definitions/?$",
+                "^/?api/projects/\\d+/event_definitions/?$",
+                "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
+                "^/?api/projects/\\d+/insights/\\d+/?$",
+                "^/?api/projects/\\d+/dashboards/\\d+/?$",
+                "^/?api/projects/\\d+/actions/?$",
+                "^/?api/projects/\\d+/session_recordings/?$",
+                "^/?api/projects/\\d+/exports/\\d+/content/?$",
+            ]
+        ),
+    )
+)

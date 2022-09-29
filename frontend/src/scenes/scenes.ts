@@ -42,6 +42,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Cohorts',
     },
+    [Scene.Cohort]: {
+        projectBased: true,
+        name: 'Cohort',
+    },
     [Scene.Events]: {
         projectBased: true,
         name: 'Live Events',
@@ -58,7 +62,19 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
+    [Scene.EventDefinition]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
     [Scene.EventPropertyDefinitions]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
+    [Scene.EventPropertyDefinition]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
+    [Scene.IngestionWarnings]: {
         projectBased: true,
         name: 'Data Management',
     },
@@ -111,7 +127,11 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Plugins]: {
         projectBased: true,
-        name: 'Plugins',
+        name: 'Apps',
+    },
+    [Scene.FrontendAppScene]: {
+        projectBased: true,
+        name: 'App',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -123,8 +143,11 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.ProjectSettings]: {
         projectBased: true,
-        hideDemoWarnings: true,
+        hideProjectNotice: true,
         name: 'Project settings',
+    },
+    [Scene.IntegrationsRedirect]: {
+        name: 'Integrations Redirect',
     },
     [Scene.Ingestion]: {
         projectBased: true,
@@ -132,11 +155,15 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
-        name: 'Toolbar',
+        name: 'Launch Toolbar',
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
+    },
+    [Scene.OrganizationCreationConfirm]: {
+        name: 'Confirm organization creation',
+        onlyUnauthenticated: true,
     },
     [Scene.OrganizationSettings]: {
         organizationBased: true,
@@ -156,10 +183,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         onlyUnauthenticated: true,
     },
     [Scene.PasswordReset]: {
-        allowUnauthenticated: true,
+        onlyUnauthenticated: true,
     },
     [Scene.PasswordResetComplete]: {
-        allowUnauthenticated: true,
+        onlyUnauthenticated: true,
     },
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
@@ -185,11 +212,18 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     // Cloud-only routes
     [Scene.Billing]: {
-        hideDemoWarnings: true,
+        hideProjectNotice: true,
         organizationBased: true,
     },
     [Scene.BillingSubscribed]: {
         plain: true,
+        allowUnauthenticated: true,
+    },
+    [Scene.BillingLocked]: {
+        plain: true,
+        allowUnauthenticated: true,
+    },
+    [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
     },
 }
@@ -198,13 +232,14 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
     '/': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
-    '/plugins': urls.plugins(),
-    '/actions': urls.actions(),
+    '/plugins': urls.projectApps(),
+    '/project/plugins': urls.projectApps(),
+    '/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
     '/organization/members': urls.organizationSettings(),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/action/:id': ({ id }) => urls.action(id),
     '/action': urls.createAction(),
-    '/events/actions': urls.actions(),
+    '/events/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
     '/events/properties': urls.eventPropertyDefinitions(),
@@ -214,25 +249,33 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
 export const routes: Record<string, Scene> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
+    [urls.dashboardSharing(':id')]: Scene.Dashboard,
+    [urls.dashboardSubcriptions(':id')]: Scene.Dashboard,
+    [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
+    [urls.ingestionWarnings()]: Scene.IngestionWarnings,
     [urls.insightNew()]: Scene.Insight,
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightSubcriptions(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightSubcription(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
+    [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
-    [urls.actions()]: Scene.Actions,
+    [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,
-    [urls.eventDefinition(':id')]: Scene.EventDefinitions,
+    [urls.eventDefinition(':id')]: Scene.EventDefinition,
     [urls.eventPropertyDefinitions()]: Scene.EventPropertyDefinitions,
-    [urls.eventPropertyDefinition(':id')]: Scene.EventPropertyDefinitions,
+    [urls.eventPropertyDefinition(':id')]: Scene.EventPropertyDefinition,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
+    [urls.webPerformance() + '/*']: Scene.WebPerformance,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
-    [urls.cohort(':id')]: Scene.Cohorts,
+    [urls.cohort(':id')]: Scene.Cohort,
     [urls.cohorts()]: Scene.Cohorts,
     [urls.experiments()]: Scene.Experiments,
     [urls.experiment(':id')]: Scene.Experiment,
@@ -241,18 +284,24 @@ export const routes: Record<string, Scene> = {
     [urls.annotations()]: Scene.Annotations,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
-    [urls.plugins()]: Scene.Plugins,
+    [urls.projectApps()]: Scene.Plugins,
+    [urls.frontendApp(':id')]: Scene.FrontendAppScene,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.billingSubscribed()]: Scene.BillingSubscribed,
+    [urls.billingLocked()]: Scene.BillingLocked,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
+    [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
     [urls.instanceLicenses()]: Scene.Licenses,
     [urls.instanceStatus()]: Scene.SystemStatus,
     [urls.instanceSettings()]: Scene.SystemStatus,
     [urls.instanceStaffUsers()]: Scene.SystemStatus,
+    [urls.instanceKafkaInspector()]: Scene.SystemStatus,
     [urls.instanceMetrics()]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
+    [urls.asyncMigrationsFuture()]: Scene.AsyncMigrations,
+    [urls.asyncMigrationsSettings()]: Scene.AsyncMigrations,
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
@@ -265,4 +314,6 @@ export const routes: Record<string, Scene> = {
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
+    [urls.unsubscribe()]: Scene.Unsubscribe,
+    [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
 }

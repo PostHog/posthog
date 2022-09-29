@@ -1,9 +1,18 @@
+import { RetryError } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import { TaskList } from 'graphile-worker'
 
-import { EnqueuedJob, Hub, JobQueue, JobQueueType, OnJobCallback } from '../../types'
+import { EnqueuedJob, Hub, JobQueue, JobQueueType } from '../../types'
+import { instrument } from '../../utils/metrics'
+import { runRetriableFunction } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { logOrThrowJobQueueError } from '../../utils/utils'
 import { jobQueueMap } from './job-queues'
+
+export interface InstrumentationContext {
+    key: string
+    tag: string
+}
 
 export class JobQueueManager implements JobQueue {
     pluginsServer: Hub
@@ -39,7 +48,7 @@ export class JobQueueManager implements JobQueue {
                     logOrThrowJobQueueError(
                         this.pluginsServer,
                         error,
-                        `Can not start job queue producer "${jobQueueType}": ${error.message}`
+                        `Cannot start job queue producer "${jobQueueType}": ${error.message}`
                     )
                 }
             })
@@ -49,10 +58,40 @@ export class JobQueueManager implements JobQueue {
         }
     }
 
-    async enqueue(job: EnqueuedJob): Promise<void> {
+    async enqueue(jobName: string, job: EnqueuedJob, instrumentationContext?: InstrumentationContext): Promise<void> {
+        const jobType = 'type' in job ? job.type : 'buffer'
+        const jobPayload = 'payload' in job ? job.payload : job.eventPayload
+        await instrument(
+            this.pluginsServer.statsd,
+            {
+                metricName: 'job_queues_enqueue',
+                key: instrumentationContext?.key ?? '?',
+                tag: instrumentationContext?.tag ?? '?',
+                tags: { jobName, type: jobType },
+                data: { timestamp: job.timestamp, type: jobType, payload: jobPayload },
+            },
+            () =>
+                runRetriableFunction({
+                    hub: this.pluginsServer,
+                    metricName: 'job_queues_enqueue',
+                    metricTags: {
+                        jobName,
+                    },
+                    maxAttempts: 10,
+                    retryBaseMs: 6000,
+                    retryMultiplier: 2,
+                    tryFn: async () => this._enqueue(jobName, job),
+                    catchFn: () => status.error('🔴', 'Exhausted attempts to enqueue job.'),
+                    payload: job,
+                })
+        )
+    }
+
+    async _enqueue(jobName: string, job: EnqueuedJob): Promise<void> {
         for (const jobQueue of this.jobQueues) {
             try {
-                await jobQueue.enqueue(job)
+                await jobQueue.enqueue(jobName, job)
+                this.pluginsServer.statsd?.increment('enqueue_job.success', { jobName })
                 return
             } catch (error) {
                 // if one fails, take the next queue
@@ -65,15 +104,28 @@ export class JobQueueManager implements JobQueue {
                 })
             }
         }
-        throw new Error('No JobQueue available')
+
+        this.pluginsServer.statsd?.increment('enqueue_job.fail', { jobName })
+
+        const error = new RetryError('No JobQueue available')
+        Sentry.captureException(error, {
+            extra: {
+                jobName,
+                job: JSON.stringify(job),
+                queues: this.jobQueues.map((q) => q.toString()),
+            },
+        })
+
+        status.warn('⚠️', 'Failed to enqueue job.')
+        throw error
     }
 
     async disconnectProducer(): Promise<void> {
         await Promise.all(this.jobQueues.map((r) => r.disconnectProducer()))
     }
 
-    async startConsumer(onJob: OnJobCallback): Promise<void> {
-        await Promise.all(this.jobQueues.map((r) => r.startConsumer(onJob)))
+    async startConsumer(jobHandlers: TaskList): Promise<void> {
+        await Promise.all(this.jobQueues.map((r) => r.startConsumer(jobHandlers)))
     }
 
     async stopConsumer(): Promise<void> {

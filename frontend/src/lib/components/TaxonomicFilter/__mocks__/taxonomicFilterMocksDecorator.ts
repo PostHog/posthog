@@ -1,8 +1,10 @@
 import { mswDecorator } from '~/mocks/browser'
+import { mockActionDefinition } from '~/test/mocks'
 
 export const taxonomicFilterMocksDecorator = mswDecorator({
     get: {
-        '/api/person/properties': [
+        '/api/projects/@current/actions': [mockActionDefinition],
+        '/api/projects/:team_id/persons/properties': [
             { id: 1, name: 'location', count: 1 },
             { id: 2, name: 'role', count: 2 },
             { id: 3, name: 'height', count: 3 },

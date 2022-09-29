@@ -1,5 +1,33 @@
-.property-key-info-tooltip,
+.PropertyKeyInfo {
+    display: inline-flex !important; // NOTE: This is needed as antd horribly overrides this in places
+    white-space: nowrap;
+    gap: 0.25rem;
+    align-items: center;
+    vertical-align: middle;
+    overflow: hidden;
+    max-width: 100%;
+
+    .PropertyKeyInfo__text {
+        display: inline;
+
+        &.PropertyKeyInfo__text--elipsis {
+            text-overflow: ellipsis;
+            overflow: hidden;
+        }
+    }
+}
+
+.PropertyKeyInfoLogo {
+    display: inline-block;
+    height: 1rem;
+    width: 1rem;
+    background-image: url('../../../public/posthog-icon.svg');
+    background-size: cover;
+    flex-shrink: 0;
+}
+
+.PropertyKeyInfoTooltip,
 /* must join .ant-popover to override default width */
-.ant-popover.property-key-info-tooltip {
+.ant-popover.PropertyKeyInfoTooltip {
     max-width: 300px;
 }

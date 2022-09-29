@@ -1,5 +1,6 @@
 import React from 'react'
 import { EventType } from '../../types'
+import clsx from 'clsx'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
@@ -10,17 +11,19 @@ export function EventElements({ event }: { event: EventType }): JSX.Element {
     elements = elements.slice(Math.max(elements.length - 10, 1))
 
     return (
-        <div>
+        <div
+            className="p-4 m-2 rounded"
+            style={{
+                backgroundColor: 'rgb(39, 40, 34)', // consistent with okaidia syntax highlighter color
+            }}
+        >
             {elements.map((element, index) => (
                 <pre
-                    className="code"
+                    className={clsx(
+                        'p-0 m-0 rounded whitespace-pre-wrap break-all text-white text-sm',
+                        index === elements.length - 1 ? 'bg-primary-light' : 'bg-transparent'
+                    )}
                     key={index}
-                    style={{
-                        margin: 0,
-                        padding: 0,
-                        borderRadius: 0,
-                        backgroundColor: index === elements.length - 1 ? 'var(--primary)' : undefined,
-                    }}
                 >
                     {indent(index)}
                     &lt;{element.tag_name}

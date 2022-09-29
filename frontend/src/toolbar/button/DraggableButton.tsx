@@ -63,8 +63,8 @@ export function DraggableButton(): JSX.Element {
             </ButtonWindow>
 
             <ButtonWindow
-                name="actions"
-                label="Actions"
+                name={'actions'}
+                label={'Actions'}
                 visible={actionsWindowVisible}
                 close={hideActionsInfo}
                 position={actionsPosition}

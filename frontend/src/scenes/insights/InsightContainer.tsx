@@ -1,18 +1,14 @@
-import { Card, Col, Progress, Row } from 'antd'
-import { InsightDisplayConfig } from 'scenes/insights/InsightTabs/InsightDisplayConfig'
-import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
-import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
-import { FunnelVizType, InsightType, ItemMode } from '~/types'
+import { Card, Col, Row } from 'antd'
+import { InsightDisplayConfig } from 'scenes/insights/InsightDisplayConfig'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
-import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
-import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { InsightsTable } from 'scenes/insights/InsightsTable'
-import React, { useEffect, useRef, useState } from 'react'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable'
+import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,
@@ -21,16 +17,18 @@ import {
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
-import { Loading } from 'lib/utils'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
-import { FunnelCorrelation } from './FunnelCorrelation'
-import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
+import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { UserSQLInsight } from 'scenes/userSQL/UserSQL'
-import { LemonButton } from 'lib/components/LemonButton'
+import { Tooltip } from 'lib/components/Tooltip'
+import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
+import { Animation } from 'lib/components/Animation/Animation'
+import { AnimationType } from 'lib/animations/animations'
+import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
+import { FunnelInsight } from './views/Funnels/FunnelInsight'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -39,13 +37,17 @@ const VIEW_MAP = {
     [`${InsightType.FUNNELS}`]: <FunnelInsight />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
     [`${InsightType.PATHS}`]: <Paths />,
-    [`${InsightType.USER_SQL}`]: <UserSQLInsight />,
 }
 
 export function InsightContainer(
-    { disableHeader, disableTable }: { disableHeader?: boolean; disableTable?: boolean } = {
+    {
+        disableHeader,
+        disableTable,
+        disableCorrelationTable,
+    }: { disableHeader?: boolean; disableTable?: boolean; disableCorrelationTable?: boolean } = {
         disableHeader: false,
         disableTable: false,
+        disableCorrelationTable: false,
     }
 ): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -59,122 +61,20 @@ export function InsightContainer(
         filters,
         showTimeoutMessage,
         showErrorMessage,
-        percentResultsLoaded,
-        insight,
+        exporterResourceParams,
+        isUsingSessionAnalysis,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
     )
 
-    const [delayedPercentComplete, setDelayedPercentComplete] = useState(0)
-    const [showProgress, setShowProgress] = useState(false)
-    const showVideoTimeout = useRef(null)
-
-    const [showVideo, setShowVideo] = useState(false)
-    const [showResultsReady, setShowResultsReady] = useState(false)
-
-    useEffect(() => {
-        if (insight.status && insight.status?.complete) {
-            setDelayedPercentComplete(100)
-            setTimeout(() => {
-                setShowProgress(false)
-                setDelayedPercentComplete(0)
-            }, 500)
-        } else {
-            setShowProgress(true)
-            setDelayedPercentComplete(percentResultsLoaded)
-        }
-    }, [percentResultsLoaded, insight.status?.complete])
-
-    useEffect(() => {
-        if (
-            filters.insight === InsightType.USER_SQL &&
-            showProgress &&
-            !showVideoTimeout.current &&
-            percentResultsLoaded
-        ) {
-            showVideoTimeout.current = setTimeout(() => {
-                setShowVideo(true)
-            }, 3000)
-        }
-        if (!showProgress && showVideoTimeout.current) {
-            clearTimeout(showVideoTimeout.current)
-            showVideoTimeout.current = null
-            if (showVideo) {
-                setShowResultsReady(true)
-            } else {
-                setShowVideo(false)
-            }
-        }
-    }, [showProgress, percentResultsLoaded])
-
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (
-            activeView !== loadedView ||
-            ((insightLoading || (filters.insight === InsightType.USER_SQL && (showProgress || showVideo))) &&
-                !showTimeoutMessage)
-        ) {
+        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
             return (
-                <>
-                    {filters.insight === InsightType.USER_SQL ? (
-                        <>
-                            <Progress percent={delayedPercentComplete ?? 0} showInfo={false} />
-                            {showVideo && (
-                                <div style={{ textAlign: 'center', padding: 15 }}>
-                                    <h1 style={{ textAlign: 'center', paddingBottom: 15 }}>
-                                        You're stretching our database. Why not stretch your back while we're at it?
-                                    </h1>
-                                    <iframe
-                                        width="560"
-                                        height="315"
-                                        src="https://www.youtube.com/embed/Ezo-IsqfEVo?autoplay=1"
-                                        title="YouTube video player"
-                                        frameBorder="0"
-                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                        allowFullScreen
-                                    />
-                                    {showResultsReady && (
-                                        <div
-                                            style={{
-                                                width: '100%',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                            }}
-                                        >
-                                            <LemonButton
-                                                type="primary"
-                                                style={{ marginTop: 15, alignSelf: 'center' }}
-                                                onClick={() => {
-                                                    setShowResultsReady(false)
-                                                    setShowVideo(false)
-                                                }}
-                                            >
-                                                Results are ready
-                                            </LemonButton>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                            {insight.status && insight.status?.error && (
-                                <div style={{ padding: 30 }}>
-                                    <h1 style={{ marginBottom: 20 }}>Big ole error</h1>
-                                    <div>
-                                        <code style={{ color: 'red' }}>{insight.status.error_message}</code>
-                                    </div>
-                                </div>
-                            )}
-                        </>
-                    ) : (
-                        <Loading />
-                    )}
-                    {
-                        filters.display !== ACTIONS_TABLE && (
-                            <div className="trends-insights-container" />
-                        ) /* Tables don't need this padding, but graphs do for sizing */
-                    }
-                </>
+                <div className="text-center">
+                    <Animation type={AnimationType.LaptopHog} />
+                </div>
             )
         }
         // Insight specific empty states - note order is important here
@@ -185,7 +85,7 @@ export function InsightContainer(
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !insightLoading && insight.status?.complete) {
+            if (!isValidFunnel && !insightLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -207,42 +107,73 @@ export function InsightContainer(
             !showErrorMessage &&
             !showTimeoutMessage &&
             areFiltersValid &&
+            isValidFunnel &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
-            filters?.layout === FunnelLayout.horizontal &&
             !disableTable
         ) {
-            return <FunnelStepTable />
+            return (
+                <>
+                    <h2 className="my-4 mx-0">Detailed results</h2>
+                    <FunnelStepsTable />
+                </>
+            )
         }
+
+        // InsightsTable is loaded for all trend views (except below), plus the sessions view.
+        // Exclusions:
+        // 1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+        // 2. Bar value chart. Because this view displays data in completely different dimensions.
         if (
             (!filters.display ||
-                (filters?.display !== ACTIONS_TABLE && filters?.display !== ACTIONS_BAR_CHART_VALUE)) &&
+                (filters?.display !== ChartDisplayType.ActionsTable &&
+                    filters?.display !== ChartDisplayType.ActionsBarValue)) &&
             activeView === InsightType.TRENDS &&
             !disableTable
         ) {
-            /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
-    Exclusions:
-        1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
-        2. Bar value chart. Because this view displays data in completely different dimensions.
-    */
             return (
-                <BindLogic logic={trendsLogic} props={insightProps}>
-                    <InsightsTable
-                        isLegend
-                        showTotalCount
-                        filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
-                        canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
-                        canCheckUncheckSeries={!canEditInsight}
-                    />
-                </BindLogic>
+                <>
+                    {exporterResourceParams && (
+                        <div className="flex items-center justify-between my-4 mx-0">
+                            <h2>Detailed results</h2>
+                            <Tooltip title="Export this table in CSV format" placement="left">
+                                <ExportButton
+                                    type="secondary"
+                                    status="primary"
+                                    items={[
+                                        {
+                                            export_format: ExporterFormat.CSV,
+                                            export_context: exporterResourceParams,
+                                        },
+                                    ]}
+                                />
+                            </Tooltip>
+                        </div>
+                    )}
+                    <BindLogic logic={trendsLogic} props={insightProps}>
+                        <InsightsTable
+                            isLegend
+                            filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
+                            canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
+                            canCheckUncheckSeries={canEditInsight}
+                        />
+                    </BindLogic>
+                </>
             )
         }
 
         return null
     }
-    return activeView === InsightType.USER_SQL && insight.result?.length === 0 ? (
-        <></>
-    ) : (
+    return (
         <>
+            {isUsingSessionAnalysis ? (
+                <div className="mb-4">
+                    <AlertMessage type="info">
+                        When using sessions and session properties, events without session IDs will be excluded from the
+                        set of results.{' '}
+                        <a href="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</a>
+                    </AlertMessage>
+                </div>
+            ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
                 title={
@@ -252,7 +183,6 @@ export function InsightContainer(
                             insightMode={insightMode}
                             filters={filters}
                             disableTable={!!disableTable}
-                            disabled={!canEditInsight}
                         />
                     )
                 }
@@ -260,25 +190,6 @@ export function InsightContainer(
                 className="insights-graph-container"
             >
                 <div>
-                    {activeView !== InsightType.USER_SQL && (
-                        <Row
-                            className={clsx('insights-graph-header', {
-                                funnels: activeView === InsightType.FUNNELS,
-                            })}
-                            align="middle"
-                            justify="space-between"
-                        >
-                            {/*Don't add more than two columns in this row.*/}
-                            <Col>
-                                <ComputationTimeWithRefresh />
-                            </Col>
-                            <Col>
-                                {activeView === InsightType.FUNNELS ? <FunnelCanvasLabel /> : null}
-                                {activeView === InsightType.PATHS ? <PathCanvasLabel /> : null}
-                                <InsightLegendButton />
-                            </Col>
-                        </Row>
-                    )}
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
@@ -296,7 +207,7 @@ export function InsightContainer(
                 </div>
             </Card>
             {renderTable()}
-            {!disableTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
+            {!disableCorrelationTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
                 <FunnelCorrelation />
             )}
         </>

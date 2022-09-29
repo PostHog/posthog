@@ -1,4 +1,4 @@
-import { Button, Card, Col, Collapse, Form, Input, Progress, Row, Select, Skeleton, Tag, Tooltip } from 'antd'
+import { Card, Col, Collapse, Form, Input, Progress, Row, Select, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -6,12 +6,11 @@ import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React, { useState } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
     ChartDisplayType,
-    Experiment,
     FilterType,
     FunnelStep,
     FunnelVizType,
@@ -22,43 +21,38 @@ import {
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { IconDelete, IconJavascript } from 'lib/components/icons'
-import {
-    CaretDownOutlined,
-    ExclamationCircleFilled,
-    PlusOutlined,
-    InfoCircleOutlined,
-    CloseOutlined,
-} from '@ant-design/icons'
+import { IconDelete, IconJavascript, IconPlusMini } from 'lib/components/icons'
+import { CaretDownOutlined, ExclamationCircleFilled, InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
-import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { SecondaryMetrics } from './SecondaryMetrics'
-import { getChartColors } from 'lib/colors'
+import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { LemonButton } from 'lib/components/LemonButton'
 import { router } from 'kea-router'
-import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { LemonTextArea } from '@posthog/lemon-ui'
+import { NotFound } from 'lib/components/NotFound'
 
 export const scene: SceneExport = {
-    component: Experiment_,
+    component: Experiment,
     logic: experimentLogic,
     paramsToProps: ({ params: { id } }): ExperimentLogicProps => ({
         experimentId: id === 'new' ? 'new' : parseInt(id),
     }),
 }
 
-export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element {
+export function Experiment(): JSX.Element {
     const {
+        experimentId,
         newExperimentData,
         experimentData,
         experimentInsightId,
@@ -82,7 +76,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
         secondaryMetricResults,
         experimentDataLoading,
         secondaryMetricResultsLoading,
-    } = useValues(experimentLogic({ experimentId: id }))
+    } = useValues(experimentLogic)
     const {
         setNewExperimentData,
         createExperiment,
@@ -97,9 +91,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
         setSecondaryMetrics,
         setExperimentInsightType,
         archiveExperiment,
-    } = useActions(experimentLogic({ experimentId: id }))
-
-    const { featureFlags } = useValues(featureFlagLogic)
+    } = useActions(experimentLogic)
 
     const [form] = Form.useForm()
 
@@ -162,21 +154,33 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
         { background: '#8DA9E74D', color: '#35416B' },
     ]
 
+    if (experimentDataLoading) {
+        return <Skeleton active />
+    }
+
+    if (!experimentData && experimentId !== 'new') {
+        return <NotFound object="experiment" />
+    }
+
     return (
         <>
-            {id === 'new' || editingExistingExperiment ? (
+            {experimentId === 'new' || editingExistingExperiment ? (
                 <>
                     <Row
                         align="middle"
                         justify="space-between"
                         style={{ borderBottom: '1px solid var(--border)', marginBottom: '1rem', paddingBottom: 8 }}
                     >
-                        <PageHeader title={'New experiment'} />
+                        <PageHeader title={editingExistingExperiment ? 'Edit experiment' : 'New experiment'} />
                         <Row>
                             <LemonButton
                                 type="secondary"
-                                className="mr-05"
-                                onClick={() => router.actions.push(urls.experiments())}
+                                className="mr-2"
+                                onClick={
+                                    experimentData
+                                        ? () => router.actions.push(urls.experiment(experimentData.id))
+                                        : () => router.actions.push(urls.experiments())
+                                }
                             >
                                 Cancel
                             </LemonButton>
@@ -204,7 +208,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <Row>
                                     <Col span={12} style={{ paddingRight: 24 }}>
-                                        <Row className="full-width">
+                                        <Row className="w-full">
                                             <Form.Item
                                                 style={{ marginRight: 16 }}
                                                 label="Name"
@@ -246,7 +250,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                             }
                                             name="description"
                                         >
-                                            <Input.TextArea
+                                            <LemonTextArea
                                                 data-attr="experiment-description"
                                                 className="ph-ignore-input"
                                                 placeholder="Adding a helpful description can ensure others know what this experiment is about."
@@ -280,9 +284,9 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                     key={`${variant}-${idx}`}
                                                                     className={`feature-flag-variant ${
                                                                         idx === 0
-                                                                            ? 'border-top'
+                                                                            ? 'border-t'
                                                                             : idx >= 3
-                                                                            ? 'border-bottom'
+                                                                            ? 'border-b'
                                                                             : ''
                                                                     }`}
                                                                 >
@@ -336,8 +340,8 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                                                 placement="bottomLeft"
                                                                             >
                                                                                 <LemonButton
-                                                                                    type="primary-alt"
-                                                                                    compact
+                                                                                    status="primary-alt"
+                                                                                    size="small"
                                                                                     icon={<IconDelete />}
                                                                                     onClick={() =>
                                                                                         removeExperimentGroup(idx)
@@ -352,19 +356,14 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     )}
 
                                                     {newExperimentData.parameters.feature_flag_variants.length < 4 && (
-                                                        <div className="feature-flag-variant border-bottom">
-                                                            <Button
-                                                                style={{
-                                                                    color: 'var(--primary)',
-                                                                    border: 'none',
-                                                                    boxShadow: 'none',
-                                                                    paddingLeft: 0,
-                                                                }}
-                                                                icon={<PlusOutlined />}
+                                                        <div className="feature-flag-variant border-b">
+                                                            <LemonButton
                                                                 onClick={() => addExperimentGroup()}
+                                                                fullWidth
+                                                                icon={<IconPlusMini />}
                                                             >
                                                                 Add test variant
-                                                            </Button>
+                                                            </LemonButton>
                                                         </div>
                                                     )}
                                                 </Col>
@@ -372,7 +371,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                         )}
 
                                         <Row className="person-selection">
-                                            <div className="mb-05">
+                                            <div className="mb-2">
                                                 <strong>Select participants</strong>
                                             </div>
                                             <Col>
@@ -380,7 +379,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     Select the entities who will participate in this experiment. If no
                                                     filters are set, 100% of participants will be targeted.
                                                 </div>
-                                                <div className="mt mb-05">
+                                                <div className="mt-4 mb-2">
                                                     <strong>Participant type</strong>
                                                 </div>
                                                 <Select
@@ -426,37 +425,41 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                         </Select.Option>
                                                     ))}
                                                 </Select>
-                                                <div className="mt">
+                                                <div className="mt-4 mb-2">
                                                     <strong>Filters</strong>
                                                 </div>
-                                                <PropertyFilters
-                                                    pageKey={'experiment-participants-property'}
-                                                    propertyFilters={
-                                                        experimentInsightType === InsightType.FUNNELS
-                                                            ? convertPropertyGroupToProperties(
-                                                                  funnelsFilters.properties
-                                                              )
-                                                            : convertPropertyGroupToProperties(trendsFilters.properties)
-                                                    }
-                                                    onChange={(anyProperties) => {
-                                                        setNewExperimentData({
-                                                            filters: {
-                                                                properties: anyProperties as PropertyFilter[],
-                                                            },
-                                                        })
-                                                        setFilters({
-                                                            properties: anyProperties.filter(isValidPropertyFilter),
-                                                        })
-                                                    }}
-                                                    taxonomicGroupTypes={taxonomicGroupTypesForSelection}
-                                                />
+                                                <div className="mb-4">
+                                                    <PropertyFilters
+                                                        pageKey={'experiment-participants-property'}
+                                                        propertyFilters={
+                                                            experimentInsightType === InsightType.FUNNELS
+                                                                ? convertPropertyGroupToProperties(
+                                                                      funnelsFilters.properties
+                                                                  )
+                                                                : convertPropertyGroupToProperties(
+                                                                      trendsFilters.properties
+                                                                  )
+                                                        }
+                                                        onChange={(anyProperties) => {
+                                                            setNewExperimentData({
+                                                                filters: {
+                                                                    properties: anyProperties as PropertyFilter[],
+                                                                },
+                                                            })
+                                                            setFilters({
+                                                                properties: anyProperties.filter(isValidPropertyFilter),
+                                                            })
+                                                        }}
+                                                        taxonomicGroupTypes={taxonomicGroupTypesForSelection}
+                                                    />
+                                                </div>
                                             </Col>
                                         </Row>
                                     </Col>
 
                                     <Row className="metrics-selection">
                                         <Col span={12}>
-                                            <div className="mb-05">
+                                            <div className="mb-2" data-attr="experiment-goal-type">
                                                 <b>Goal type</b>
                                                 <div className="text-muted">
                                                     {experimentInsightType === InsightType.TRENDS
@@ -486,7 +489,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     </Col>
                                                 </Select.Option>
                                             </Select>
-                                            <div className="mb mt">
+                                            <div className="my-4">
                                                 <b>Experiment goal</b>
                                                 {experimentInsightType === InsightType.TRENDS && (
                                                     <div className="text-muted">
@@ -495,89 +498,76 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     </div>
                                                 )}
                                             </div>
-                                            <Row>
-                                                <Card
-                                                    className="action-filters-bordered"
-                                                    style={{ width: '100%', marginRight: 8 }}
-                                                    bodyStyle={{ padding: 0 }}
-                                                >
-                                                    {experimentInsightType === InsightType.FUNNELS && (
-                                                        <ActionFilter
-                                                            filters={funnelsFilters}
-                                                            setFilters={(payload) => {
-                                                                setNewExperimentData({ filters: payload })
-                                                                setFilters(payload)
-                                                            }}
-                                                            typeKey={`EditFunnel-action`}
-                                                            mathAvailability={MathAvailability.None}
-                                                            hideDeleteBtn={filterSteps.length === 1}
-                                                            buttonCopy="Add funnel step"
-                                                            buttonType="link"
-                                                            showSeriesIndicator={!isStepsEmpty}
-                                                            seriesIndicatorType="numeric"
-                                                            fullWidth
-                                                            sortable
-                                                            showNestedArrow={true}
-                                                            propertiesTaxonomicGroupTypes={[
-                                                                TaxonomicFilterGroupType.EventProperties,
-                                                                TaxonomicFilterGroupType.PersonProperties,
-                                                                TaxonomicFilterGroupType.Cohorts,
-                                                                TaxonomicFilterGroupType.Elements,
-                                                            ]}
-                                                            rowClassName="action-filters-bordered"
-                                                        />
-                                                    )}
-                                                    {experimentInsightType === InsightType.TRENDS && (
-                                                        <ActionFilter
-                                                            horizontalUI
-                                                            filters={trendsFilters}
-                                                            setFilters={(payload: Partial<FilterType>) => {
-                                                                setNewExperimentData({ filters: payload })
-                                                                setFilters(payload)
-                                                            }}
-                                                            typeKey={`experiment-trends`}
-                                                            buttonCopy="Add graph series"
-                                                            showSeriesIndicator
-                                                            entitiesLimit={1}
-                                                            propertiesTaxonomicGroupTypes={[
-                                                                TaxonomicFilterGroupType.EventProperties,
-                                                                TaxonomicFilterGroupType.PersonProperties,
-                                                                TaxonomicFilterGroupType.Cohorts,
-                                                                TaxonomicFilterGroupType.Elements,
-                                                            ]}
-                                                            customRowPrefix={
-                                                                trendsFilters.insight === InsightType.LIFECYCLE ? (
-                                                                    <>
-                                                                        Showing <b>Unique users</b> who did
-                                                                    </>
-                                                                ) : undefined
-                                                            }
-                                                        />
-                                                    )}
-                                                </Card>
-                                            </Row>
-                                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
-                                                <Col className="secondary-metrics">
-                                                    <div>
-                                                        <b>Secondary metrics</b>
-                                                        <span className="text-muted ml-05">(optional)</span>
-                                                    </div>
-                                                    <div className="text-muted" style={{ marginTop: 4 }}>
-                                                        Use secondary metrics to monitor metrics related to your
-                                                        experiment goal. You can add up to three secondary metrics.{' '}
-                                                    </div>
-                                                    <SecondaryMetrics
-                                                        onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
-                                                        initialMetrics={parsedSecondaryMetrics}
-                                                    />
-                                                </Col>
+                                            {experimentInsightType === InsightType.FUNNELS && (
+                                                <ActionFilter
+                                                    bordered
+                                                    filters={funnelsFilters}
+                                                    setFilters={(payload) => {
+                                                        setNewExperimentData({ filters: payload })
+                                                        setFilters(payload)
+                                                    }}
+                                                    typeKey={`EditFunnel-action`}
+                                                    mathAvailability={MathAvailability.None}
+                                                    hideDeleteBtn={filterSteps.length === 1}
+                                                    buttonCopy="Add funnel step"
+                                                    showSeriesIndicator={!isStepsEmpty}
+                                                    seriesIndicatorType="numeric"
+                                                    sortable
+                                                    showNestedArrow={true}
+                                                    propertiesTaxonomicGroupTypes={[
+                                                        TaxonomicFilterGroupType.EventProperties,
+                                                        TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.EventFeatureFlags,
+                                                        TaxonomicFilterGroupType.Cohorts,
+                                                        TaxonomicFilterGroupType.Elements,
+                                                    ]}
+                                                />
                                             )}
+                                            {experimentInsightType === InsightType.TRENDS && (
+                                                <ActionFilter
+                                                    bordered
+                                                    filters={trendsFilters}
+                                                    setFilters={(payload: Partial<FilterType>) => {
+                                                        setNewExperimentData({ filters: payload })
+                                                        setFilters(payload)
+                                                    }}
+                                                    typeKey={`experiment-trends`}
+                                                    buttonCopy="Add graph series"
+                                                    showSeriesIndicator
+                                                    entitiesLimit={1}
+                                                    hideDeleteBtn
+                                                    propertiesTaxonomicGroupTypes={[
+                                                        TaxonomicFilterGroupType.EventProperties,
+                                                        TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.EventFeatureFlags,
+                                                        TaxonomicFilterGroupType.Cohorts,
+                                                        TaxonomicFilterGroupType.Elements,
+                                                    ]}
+                                                />
+                                            )}
+                                            <Col className="secondary-metrics">
+                                                <div>
+                                                    <b>Secondary metrics</b>
+                                                    <span className="text-muted ml-2">(optional)</span>
+                                                </div>
+                                                <div className="text-muted" style={{ marginTop: 4 }}>
+                                                    Use secondary metrics to monitor metrics related to your experiment
+                                                    goal. You can add up to three secondary metrics.{' '}
+                                                </div>
+                                                <SecondaryMetrics
+                                                    onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                                    initialMetrics={parsedSecondaryMetrics}
+                                                />
+                                            </Col>
                                         </Col>
-                                        <Col span={12} className="pl">
-                                            <div className="card-secondary mb">Goal preview</div>
+                                        <Col span={12} className="pl-4">
+                                            <div className="card-secondary mb-4" data-attr="experiment-preview">
+                                                Goal preview
+                                            </div>
                                             <InsightContainer
                                                 disableHeader={experimentInsightType === InsightType.TRENDS}
                                                 disableTable={true}
+                                                disableCorrelationTable={true}
                                             />
                                         </Col>
                                     </Row>
@@ -601,10 +591,10 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                         </LemonButton>
                     </Form>
                 </>
-            ) : !experimentDataLoading && experimentData ? (
+            ) : experimentData ? (
                 <div className="view-experiment">
                     <Row className="draft-header">
-                        <Row justify="space-between" align="middle" className="full-width pb">
+                        <Row justify="space-between" align="middle" className="w-full pb-4">
                             <Col>
                                 <Row>
                                     <PageHeader
@@ -614,7 +604,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                             <>
                                                 <CopyToClipboardInline
                                                     explicitValue={experimentData.feature_flag_key}
-                                                    iconStyle={{ color: 'var(--text-muted-alt)' }}
+                                                    iconStyle={{ color: 'var(--muted-alt)' }}
                                                 >
                                                     <span className="text-muted">
                                                         {experimentData.feature_flag_key}
@@ -660,26 +650,30 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                 </span>
                             </Col>
                             {experimentData && !experimentData.start_date && (
-                                <div>
-                                    <Button className="mr-05" onClick={() => setEditExperiment(true)}>
+                                <div className="flex items-center">
+                                    <LemonButton
+                                        type="secondary"
+                                        className="mr-2"
+                                        onClick={() => setEditExperiment(true)}
+                                    >
                                         Edit
-                                    </Button>
-                                    <Button type="primary" onClick={() => launchExperiment()}>
+                                    </LemonButton>
+                                    <LemonButton type="primary" onClick={() => launchExperiment()}>
                                         Launch
-                                    </Button>
+                                    </LemonButton>
                                 </div>
                             )}
                             {experimentData && experimentData.start_date && !experimentData.end_date && (
-                                <Button className="stop-experiment" onClick={() => endExperiment()}>
-                                    Stop experiment
-                                </Button>
+                                <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                    Stop
+                                </LemonButton>
                             )}
                             {experimentData?.end_date &&
                                 dayjs().isSameOrAfter(dayjs(experimentData.end_date), 'day') &&
                                 !experimentData.archived && (
-                                    <Button className="archive-experiment" onClick={() => archiveExperiment()}>
-                                        <b>Archive experiment</b>
-                                    </Button>
+                                    <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
+                                        <b>Archive</b>
+                                    </LemonButton>
                                 )}
                         </Row>
                     </Row>
@@ -698,11 +692,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                     {experimentData.end_date ? (
                                         <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
                                     ) : (
-                                        <LemonButton
-                                            type="highlighted"
-                                            className="end-experiment-btn"
-                                            onClick={() => endExperiment()}
-                                        >
+                                        <LemonButton type="primary" onClick={() => endExperiment()}>
                                             End experiment
                                         </LemonButton>
                                     )}
@@ -749,7 +739,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                         )}
                     </Row>
                     <Row>
-                        <Collapse className="full-width" defaultActiveKey="experiment-details">
+                        <Collapse className="w-full" defaultActiveKey="experiment-details">
                             <Collapse.Panel header={<b>Experiment details</b>} key="experiment-details">
                                 <Row>
                                     <Col span={experimentData?.start_date ? 12 : 24}>
@@ -771,156 +761,121 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                     )}
                                     {(experimentResults || experimentData.secondary_metrics?.length > 0) && (
                                         <Col className="secondary-progress" span={experimentData?.start_date ? 12 : 24}>
-                                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] &&
-                                                !!experimentData?.secondary_metrics.length && (
-                                                    <Col className="border-bottom">
-                                                        <Row align="middle" justify="space-between" className="mb-05">
-                                                            <Col
-                                                                className="card-secondary"
-                                                                span={2 * secondaryColumnSpan}
-                                                            >
-                                                                Secondary metrics
-                                                            </Col>
-                                                            {experimentData?.parameters?.feature_flag_variants?.map(
-                                                                (variant, idx) => (
-                                                                    <Col
+                                            {!!experimentData?.secondary_metrics.length && (
+                                                <Col className="border-b">
+                                                    <Row align="middle" justify="space-between" className="mb-2">
+                                                        <Col className="card-secondary" span={2 * secondaryColumnSpan}>
+                                                            Secondary metrics
+                                                        </Col>
+                                                        {experimentData?.parameters?.feature_flag_variants?.map(
+                                                            (variant, idx) => (
+                                                                <Col
+                                                                    key={idx}
+                                                                    span={secondaryColumnSpan}
+                                                                    style={{
+                                                                        color: getSeriesColor(
+                                                                            getIndexForVariant(
+                                                                                variant.key,
+                                                                                experimentInsightType
+                                                                            )
+                                                                        ),
+                                                                    }}
+                                                                >
+                                                                    <span className="text-sm">
+                                                                        {capitalizeFirstLetter(variant.key)}
+                                                                    </span>
+                                                                </Col>
+                                                            )
+                                                        )}
+                                                    </Row>
+
+                                                    {experimentData.start_date ? (
+                                                        secondaryMetricResultsLoading ? (
+                                                            <Skeleton active paragraph={false} />
+                                                        ) : (
+                                                            <>
+                                                                {experimentData.secondary_metrics.map((metric, idx) => (
+                                                                    <Row
+                                                                        className="border-t"
                                                                         key={idx}
-                                                                        span={secondaryColumnSpan}
+                                                                        justify="space-between"
                                                                         style={{
-                                                                            color: `${
-                                                                                experimentInsightType ===
-                                                                                InsightType.FUNNELS
-                                                                                    ? getSeriesColor(
-                                                                                          getIndexForVariant(
-                                                                                              variant.key,
-                                                                                              InsightType.FUNNELS
-                                                                                          ) + 1
-                                                                                      ) // baseline takes 0th index
-                                                                                    : getChartColors('white')[
-                                                                                          getIndexForVariant(
-                                                                                              variant.key,
-                                                                                              InsightType.TRENDS
-                                                                                          )
-                                                                                      ]
-                                                                            }`,
+                                                                            paddingTop: 8,
+                                                                            paddingBottom: 8,
                                                                         }}
                                                                     >
-                                                                        <span className="text-default">
-                                                                            {capitalizeFirstLetter(variant.key)}
-                                                                        </span>
-                                                                    </Col>
-                                                                )
-                                                            )}
-                                                        </Row>
-
-                                                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] &&
-                                                            (experimentData.start_date ? (
-                                                                secondaryMetricResultsLoading ? (
-                                                                    <Skeleton active paragraph={false} />
-                                                                ) : (
-                                                                    <>
-                                                                        {experimentData.secondary_metrics.map(
-                                                                            (metric, idx) => (
-                                                                                <Row
-                                                                                    className="border-top"
-                                                                                    key={idx}
-                                                                                    justify="space-between"
-                                                                                    style={{
-                                                                                        paddingTop: 8,
-                                                                                        paddingBottom: 8,
-                                                                                    }}
+                                                                        <Col span={2 * secondaryColumnSpan}>
+                                                                            {capitalizeFirstLetter(metric.name)}
+                                                                        </Col>
+                                                                        {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                            (variant, index) => (
+                                                                                <Col
+                                                                                    key={index}
+                                                                                    span={secondaryColumnSpan}
                                                                                 >
-                                                                                    <Col span={2 * secondaryColumnSpan}>
-                                                                                        {capitalizeFirstLetter(
-                                                                                            metric.name
-                                                                                        )}
-                                                                                    </Col>
-                                                                                    {experimentData?.parameters?.feature_flag_variants?.map(
-                                                                                        (variant, index) => (
-                                                                                            <Col
-                                                                                                key={index}
-                                                                                                span={
-                                                                                                    secondaryColumnSpan
-                                                                                                }
-                                                                                            >
-                                                                                                {secondaryMetricResults?.[
-                                                                                                    idx
-                                                                                                ][variant.key] ? (
-                                                                                                    metric.filters
-                                                                                                        .insight ===
-                                                                                                    InsightType.FUNNELS ? (
-                                                                                                        <>
-                                                                                                            {(
-                                                                                                                secondaryMetricResults?.[
-                                                                                                                    idx
-                                                                                                                ][
-                                                                                                                    variant
-                                                                                                                        .key
-                                                                                                                ] * 100
-                                                                                                            ).toFixed(
-                                                                                                                1
-                                                                                                            )}
-                                                                                                            %
-                                                                                                        </>
-                                                                                                    ) : (
-                                                                                                        <>
-                                                                                                            {humanFriendlyNumber(
-                                                                                                                secondaryMetricResults?.[
-                                                                                                                    idx
-                                                                                                                ][
-                                                                                                                    variant
-                                                                                                                        .key
-                                                                                                                ]
-                                                                                                            )}
-                                                                                                        </>
-                                                                                                    )
-                                                                                                ) : (
-                                                                                                    <>--</>
+                                                                                    {secondaryMetricResults?.[idx][
+                                                                                        variant.key
+                                                                                    ] ? (
+                                                                                        metric.filters.insight ===
+                                                                                        InsightType.FUNNELS ? (
+                                                                                            <>
+                                                                                                {(
+                                                                                                    secondaryMetricResults?.[
+                                                                                                        idx
+                                                                                                    ][variant.key] * 100
+                                                                                                ).toFixed(1)}
+                                                                                                %
+                                                                                            </>
+                                                                                        ) : (
+                                                                                            <>
+                                                                                                {humanFriendlyNumber(
+                                                                                                    secondaryMetricResults?.[
+                                                                                                        idx
+                                                                                                    ][variant.key]
                                                                                                 )}
-                                                                                            </Col>
+                                                                                            </>
                                                                                         )
+                                                                                    ) : (
+                                                                                        <>--</>
                                                                                     )}
-                                                                                </Row>
+                                                                                </Col>
                                                                             )
                                                                         )}
-                                                                    </>
-                                                                )
-                                                            ) : (
-                                                                <>
-                                                                    {experimentData.secondary_metrics.map(
-                                                                        (metric, idx) => (
-                                                                            <Row
-                                                                                className="border-top"
-                                                                                key={idx}
-                                                                                justify="space-between"
-                                                                                style={{
-                                                                                    paddingTop: 8,
-                                                                                    paddingBottom: 8,
-                                                                                }}
-                                                                            >
-                                                                                <Col span={2 * secondaryColumnSpan}>
-                                                                                    {capitalizeFirstLetter(metric.name)}
-                                                                                </Col>
-                                                                                {experimentData?.parameters?.feature_flag_variants?.map(
-                                                                                    (_, index) => (
-                                                                                        <Col
-                                                                                            key={index}
-                                                                                            span={secondaryColumnSpan}
-                                                                                        >
-                                                                                            --
-                                                                                        </Col>
-                                                                                    )
-                                                                                )}
-                                                                            </Row>
+                                                                    </Row>
+                                                                ))}
+                                                            </>
+                                                        )
+                                                    ) : (
+                                                        <>
+                                                            {experimentData.secondary_metrics.map((metric, idx) => (
+                                                                <Row
+                                                                    className="border-t"
+                                                                    key={idx}
+                                                                    justify="space-between"
+                                                                    style={{
+                                                                        paddingTop: 8,
+                                                                        paddingBottom: 8,
+                                                                    }}
+                                                                >
+                                                                    <Col span={2 * secondaryColumnSpan}>
+                                                                        {capitalizeFirstLetter(metric.name)}
+                                                                    </Col>
+                                                                    {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                        (_, index) => (
+                                                                            <Col key={index} span={secondaryColumnSpan}>
+                                                                                --
+                                                                            </Col>
                                                                         )
                                                                     )}
-                                                                </>
+                                                                </Row>
                                                             ))}
-                                                    </Col>
-                                                )}
+                                                        </>
+                                                    )}
+                                                </Col>
+                                            )}
                                             {experimentResults && (
-                                                <Col className="mt">
-                                                    <div className="mb-05">
+                                                <Col className="mt-4">
+                                                    <div className="mb-2">
                                                         <b>Experiment progress</b>
                                                     </div>
                                                     <Progress
@@ -931,7 +886,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     />
                                                     {experimentInsightType === InsightType.TRENDS &&
                                                         experimentData.start_date && (
-                                                            <Row justify="space-between" className="mt-05">
+                                                            <Row justify="space-between" className="mt-2">
                                                                 {experimentData.end_date ? (
                                                                     <div>
                                                                         Ran for{' '}
@@ -967,7 +922,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                             </Row>
                                                         )}
                                                     {experimentInsightType === InsightType.FUNNELS && (
-                                                        <Row justify="space-between" className="mt-05">
+                                                        <Row justify="space-between" className="mt-2">
                                                             {experimentData.end_date ? (
                                                                 <div>
                                                                     Saw{' '}
@@ -1004,7 +959,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                             </Collapse.Panel>
                         </Collapse>
                         {!experimentData?.start_date && (
-                            <div className="mt full-width">
+                            <div className="mt-4 w-full">
                                 <ExperimentImplementationDetails experiment={experimentData} />
                             </div>
                         )}
@@ -1021,7 +976,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                     experimentResults.probability[b] - experimentResults.probability[a]
                                             )
                                             .map((variant, idx) => (
-                                                <Col key={idx} className="pr">
+                                                <Col key={idx} className="pr-4">
                                                     <div>
                                                         <b>{capitalizeFirstLetter(variant)}</b>
                                                     </div>
@@ -1061,16 +1016,9 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                                         )}
                                                         size="small"
                                                         showInfo={false}
-                                                        strokeColor={
-                                                            experimentInsightType === InsightType.FUNNELS
-                                                                ? getSeriesColor(
-                                                                      getIndexForVariant(variant, InsightType.FUNNELS) +
-                                                                          1
-                                                                  ) // baseline takes 0th index
-                                                                : getChartColors('white')[
-                                                                      getIndexForVariant(variant, InsightType.TRENDS)
-                                                                  ]
-                                                        }
+                                                        strokeColor={getSeriesColor(
+                                                            getIndexForVariant(variant, experimentInsightType)
+                                                        )}
                                                     />
                                                     <div>
                                                         Probability that this variant is the best:{' '}
@@ -1114,10 +1062,10 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                     doNotLoad: true,
                                 }}
                             >
-                                <div className="mt">
+                                <div className="mt-4">
                                     <InsightContainer
-                                        disableHeader={experimentInsightType === InsightType.TRENDS}
-                                        disableTable={experimentInsightType === InsightType.FUNNELS}
+                                        disableHeader={true}
+                                        disableCorrelationTable={experimentInsightType === InsightType.FUNNELS}
                                     />
                                 </div>
                             </BindLogic>
@@ -1128,7 +1076,7 @@ export function Experiment_({ id }: { id?: Experiment['id'] } = {}): JSX.Element
                                         {!experimentResultsLoading && (
                                             <div className="text-center">
                                                 <b>There are no results for this experiment yet.</b>
-                                                <div className="text-default">
+                                                <div className="text-sm ">
                                                     Double check your feature flag implementation if you're still not
                                                     seeing results.
                                                 </div>

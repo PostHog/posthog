@@ -11,7 +11,7 @@ export function PluginField({
     fieldConfig,
 }: {
     value?: any
-    onChange?: (value: any) => void
+    onChange: (value: any) => void
     fieldConfig: PluginConfigSchema
 }): JSX.Element {
     const [editingSecret, setEditingSecret] = useState(false)
@@ -25,7 +25,7 @@ export function PluginField({
             <Button
                 icon={<EditOutlined />}
                 onClick={() => {
-                    onChange?.(fieldConfig.default || '')
+                    onChange(fieldConfig.default || '')
                     setEditingSecret(true)
                 }}
             >

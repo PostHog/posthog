@@ -1,10 +1,9 @@
-import { MutableRefObject as ReactMutableRefObject } from 'react'
+import { MutableRefObject } from 'react'
 import { kea } from 'kea'
-import { seekbarLogicType } from './seekbarLogicType'
+import type { seekbarLogicType } from './seekbarLogicType'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { clamp } from 'lib/utils'
-import { PlayerPosition } from '~/types'
+import { PlayerPosition, SessionRecordingPlayerProps } from '~/types'
 
 import {
     convertPlayerPositionToX,
@@ -17,16 +16,19 @@ import {
     THUMB_SIZE,
 } from './playerUtils'
 export const seekbarLogic = kea<seekbarLogicType>({
-    path: ['scenes', 'session-recordings', 'player', 'seekbarLogic'],
-    connect: {
+    path: (key) => ['scenes', 'session-recordings', 'player', 'seekbarLogic', key],
+    props: {} as SessionRecordingPlayerProps,
+    key: (props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`,
+    connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
         values: [
-            sessionRecordingPlayerLogic,
+            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['sessionPlayerData', 'currentPlayerPosition'],
-            sessionRecordingLogic,
-            ['eventsToShow'],
         ],
-        actions: [sessionRecordingPlayerLogic, ['seek', 'startScrub', 'endScrub', 'setCurrentPlayerPosition']],
-    },
+        actions: [
+            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
+            ['seek', 'startScrub', 'endScrub', 'setCurrentPlayerPosition'],
+        ],
+    }),
     actions: {
         setThumbLeftPos: (thumbLeftPos: number, shouldSeek: boolean) => ({ thumbLeftPos, shouldSeek }),
         setCursorDiff: (cursorDiff: number) => ({ cursorDiff }),
@@ -36,8 +38,8 @@ export const seekbarLogic = kea<seekbarLogicType>({
         handleDown: (event: ReactInteractEvent) => ({ event }),
         handleClick: (event: ReactInteractEvent) => ({ event }),
         handleTickClick: (playerPosition: PlayerPosition) => ({ playerPosition }),
-        setSlider: (ref: ReactMutableRefObject<HTMLDivElement | null>) => ({ ref }),
-        setThumb: (ref: ReactMutableRefObject<HTMLDivElement | null>) => ({ ref }),
+        setSlider: (ref: MutableRefObject<HTMLDivElement | null>) => ({ ref }),
+        setThumb: (ref: MutableRefObject<HTMLDivElement | null>) => ({ ref }),
         debouncedSetTime: (time: number) => ({ time }),
         endSeeking: true,
     },
@@ -198,7 +200,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
             document.addEventListener('mouseup', actions.handleUp)
         },
         handleTickClick: ({ playerPosition }) => {
-            if (!values.isSeeking) {
+            if (!values.isSeeking && values.slider) {
                 actions.handleSeek(
                     convertPlayerPositionToX(
                         playerPosition,

@@ -1,11 +1,10 @@
-import { Input } from 'antd'
+import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonModal } from 'lib/components/LemonModal/LemonModal'
+import { LemonModal } from 'lib/components/LemonModal'
+import { DOMAIN_REGEX } from 'lib/constants'
 import React, { useState } from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
-
-const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
 
 export function AddDomainModal(): JSX.Element {
     const { addModalShown, verifiedDomainsLoading } = useValues(verifiedDomainsLogic)
@@ -34,32 +33,32 @@ export function AddDomainModal(): JSX.Element {
     }
 
     return (
-        <LemonModal onCancel={handleClose} visible={addModalShown} destroyOnClose>
-            <section>
-                <h5>Add authentication domain</h5>
-
-                <Input
-                    placeholder="posthog.com"
-                    autoFocus
-                    value={newDomain}
-                    onChange={(e) => setNewDomain(e.target.value)}
-                    onPressEnter={handleSubmit}
-                />
-                {submitted && errored && (
-                    <span className="text-danger text-small">
-                        Please enter a valid domain or subdomain name (e.g. my.posthog.com)
-                    </span>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <LemonButton
-                        type="primary"
-                        disabled={newDomain === '' || (submitted && errored) || verifiedDomainsLoading}
-                        onClick={handleSubmit}
-                    >
-                        Add domain
-                    </LemonButton>
-                </div>
-            </section>
+        <LemonModal
+            onClose={handleClose}
+            isOpen={addModalShown}
+            title="Add authentication domain"
+            footer={
+                <LemonButton
+                    type="primary"
+                    disabled={newDomain === '' || (submitted && errored) || verifiedDomainsLoading}
+                    onClick={handleSubmit}
+                >
+                    Add domain
+                </LemonButton>
+            }
+        >
+            <LemonInput
+                placeholder="posthog.com"
+                autoFocus
+                value={newDomain}
+                onChange={setNewDomain}
+                onPressEnter={handleSubmit}
+            />
+            {submitted && errored && (
+                <span className="text-danger text-xs">
+                    Please enter a valid domain or subdomain name (e.g. my.posthog.com)
+                </span>
+            )}
         </LemonModal>
     )
 }

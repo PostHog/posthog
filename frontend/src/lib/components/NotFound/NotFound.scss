@@ -1,18 +1,12 @@
-@import '~/vars';
-
-.not-found-component {
+.NotFoundComponent {
     text-align: center;
-    margin-top: $default_spacing * 2;
-    .graphic {
-        background: url('../../../../public/not-found-rocket.svg') no-repeat center center;
+    margin-top: 2rem;
+    margin: 6rem auto;
+    max-width: 600px;
+
+    .NotFoundComponent__graphic {
+        background: url('../../../../public/not-found-astrohog.png') no-repeat center center;
         height: 270px;
         width: 100%;
-    }
-    b {
-        display: block;
-    }
-    p {
-        margin: 0 auto;
-        max-width: 600px;
     }
 }

@@ -1,32 +1,76 @@
-import { kea } from 'kea'
-import { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
+import { KeyboardEvent } from 'react'
+import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { windowValues } from 'kea-window-values'
+import * as Sentry from '@sentry/react'
+import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { PlayerPosition, RecordingSegment, SessionPlayerState } from '~/types'
+import {
+    PlayerPosition,
+    RecordingSegment,
+    SessionPlayerState,
+    SessionRecordingPlayerProps,
+    SessionRecordingType,
+} from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     comparePlayerPositions,
     getPlayerPositionFromPlayerTime,
     getPlayerTimeFromPlayerPosition,
     getSegmentFromPlayerPosition,
 } from './playerUtils'
+import { playerSettingsLogic } from './playerSettingsLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import equal from 'fast-deep-equal'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
-interface Player {
+export interface Player {
     replayer: Replayer
     windowId: string
 }
 
-export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<Player>>({
-    path: ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic'],
-    connect: {
+export interface SessionRecordingPlayerLogicProps extends SessionRecordingPlayerProps {
+    recordingStartTime?: string
+}
+
+export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
+    path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
+    props({} as SessionRecordingPlayerLogicProps),
+    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect(({ sessionRecordingId, playerKey, recordingStartTime }: SessionRecordingPlayerLogicProps) => ({
         logic: [eventUsageLogic],
-        values: [sessionRecordingLogic, ['sessionRecordingId', 'sessionPlayerData']],
-        actions: [sessionRecordingLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess']],
-    },
-    actions: {
+        values: [
+            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
+            [
+                'sessionRecordingId',
+                'sessionPlayerData',
+                'loadMetaTimeMs',
+                'loadFirstSnapshotTimeMs',
+                'loadAllSnapshotsTimeMs',
+            ],
+            sharedListLogic({ sessionRecordingId, playerKey }),
+            ['tab'],
+            playerSettingsLogic,
+            ['speed', 'skipInactivitySetting'],
+        ],
+        actions: [
+            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
+            ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess'],
+            sharedListLogic({ sessionRecordingId, playerKey }),
+            ['setTab'],
+            playerSettingsLogic,
+            ['setSpeed', 'setSkipInactivitySetting'],
+        ],
+    })),
+    propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
+        // Ensures that if filter results change, then matching results in this player logic will also change
+        if (!equal(matching, oldMatching)) {
+            actions.setMatching(matching)
+        }
+    }),
+    actions({
         tryInitReplayer: () => true,
         setPlayer: (player: Player | null) => ({ player }),
         setPlay: true,
@@ -35,11 +79,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         endBuffer: true,
         startScrub: true,
         endScrub: true,
-        setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         syncPlayerSpeed: true,
         setCurrentPlayerPosition: (playerPosition: PlayerPosition | null) => ({ playerPosition }),
-        setSpeed: (speed: number) => ({ speed }),
         setScale: (scale: number) => ({ scale }),
         togglePlayPause: true,
         seek: (playerPosition: PlayerPosition | null, forcePlay: boolean = false) => ({ playerPosition, forcePlay }),
@@ -52,8 +94,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         setRootFrame: (frame: HTMLDivElement) => ({ frame }),
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
-    },
-    reducers: () => ({
+        handleKeyDown: (event: KeyboardEvent<HTMLDivElement>) => ({ event }),
+        incrementErrorCount: true,
+        incrementWarningCount: true,
+        setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
+    }),
+    reducers(({ props }) => ({
         rootFrame: [
             null as HTMLDivElement | null,
             {
@@ -78,20 +124,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                 setCurrentSegment: (_, { segment }) => segment,
             },
         ],
-        speed: [
-            1,
-            { persist: true },
-            {
-                setSpeed: (_, { speed }) => speed,
-            },
-        ],
-        skipInactivitySetting: [
-            true,
-            { persist: true },
-            {
-                setSkipInactivitySetting: (_, { skipInactivitySetting }) => skipInactivitySetting,
-            },
-        ],
         isSkippingInactivity: [false, { setSkippingInactivity: (_, { isSkippingInactivity }) => isSkippingInactivity }],
         scale: [
             1,
@@ -108,8 +140,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
-    }),
-    selectors: {
+        errorCount: [0, { incrementErrorCount: (prevErrorCount, {}) => prevErrorCount + 1 }],
+        warningCount: [0, { incrementWarningCount: (prevWarningCount, {}) => prevWarningCount + 1 }],
+        matching: [
+            props.matching ?? ([] as SessionRecordingType['matching_events']),
+            {
+                setMatching: (_, { matching }) => matching,
+            },
+        ],
+    })),
+    selectors({
         currentPlayerState: [
             (selectors) => [
                 selectors.playingState,
@@ -141,8 +181,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             },
         ],
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
-    },
-    listeners: ({ values, actions, cache }) => ({
+        matchingEvents: [
+            (s) => [s.matching],
+            (matching) => (matching ?? []).map((filterMatches) => filterMatches.events).flat(),
+        ],
+    }),
+    listeners(({ values, actions, cache }) => ({
         setRootFrame: () => {
             actions.tryInitReplayer()
         },
@@ -457,14 +501,79 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                 cancelAnimationFrame(cache.timer)
             }
         },
+        handleKeyDown: ({ event }) => {
+            // Don't trigger keydown evens if in input box
+            if ((event.target as HTMLInputElement)?.matches('input')) {
+                return
+            }
+            if (event.key === ' ') {
+                actions.togglePlayPause()
+                event.preventDefault()
+            } else if (event.key === 'ArrowLeft') {
+                actions.seekBackward()
+            } else if (event.key === 'ArrowRight') {
+                actions.seekForward()
+            } else {
+                // Playback speeds shortcuts
+                for (let i = 0; i < PLAYBACK_SPEEDS.length; i++) {
+                    if (event.key === (i + 1).toString()) {
+                        actions.setSpeed(PLAYBACK_SPEEDS[i])
+                    }
+                }
+            }
+        },
+    })),
+    windowValues({
+        isSmallScreen: (window: any) => window.innerWidth < getBreakpoint('md'),
     }),
-    windowValues: {
-        isSmallScreen: (window) => window.innerWidth < getBreakpoint('md'),
-    },
-    events: ({ values, actions }) => ({
+    events(({ values, actions, cache }) => ({
         beforeUnmount: () => {
             values.player?.replayer?.pause()
             actions.setPlayer(null)
+            if (cache.originalWarning) {
+                console.warn = cache.originalWarning
+            }
+            if (cache.errorHandler) {
+                window.removeEventListener('error', cache.errorHandler)
+            }
+            eventUsageLogic.actions.reportRecordingViewedSummary({
+                viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
+                recording_duration_ms: values.sessionPlayerData?.metadata
+                    ? values.sessionPlayerData.metadata.recordingDurationMs
+                    : undefined,
+                recording_age_days:
+                    values.sessionPlayerData?.metadata && values.sessionPlayerData?.metadata.segments.length > 0
+                        ? Math.floor(
+                              (Date.now() - values.sessionPlayerData.metadata.segments[0].startTimeEpochMs) /
+                                  (1000 * 60 * 60 * 24)
+                          )
+                        : undefined,
+                meta_data_load_time_ms: values.loadMetaTimeMs ?? undefined,
+                first_snapshot_load_time_ms: values.loadFirstSnapshotTimeMs ?? undefined,
+                first_snapshot_and_meta_load_time_ms:
+                    values.loadFirstSnapshotTimeMs !== null && values.loadMetaTimeMs !== null
+                        ? Math.max(values.loadFirstSnapshotTimeMs, values.loadMetaTimeMs)
+                        : undefined,
+                all_snapshots_load_time_ms: values.loadAllSnapshotsTimeMs ?? undefined,
+                rrweb_warning_count: values.warningCount,
+                error_count_during_recording_playback: values.errorCount,
+            })
         },
-    }),
-})
+        afterMount: () => {
+            cache.openTime = performance.now()
+
+            cache.errorHandler = (error: ErrorEvent) => {
+                Sentry.captureException(error)
+                actions.incrementErrorCount()
+            }
+            window.addEventListener('error', cache.errorHandler)
+            cache.originalWarning = console.warn
+            console.warn = function (...args: Array<unknown>) {
+                if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
+                    actions.incrementWarningCount()
+                }
+                cache.originalWarning(...args)
+            }
+        },
+    })),
+])

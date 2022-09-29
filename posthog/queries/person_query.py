@@ -1,18 +1,23 @@
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.property import extract_tables_and_properties, parse_prop_grouped_clauses
-from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import Property, PropertyGroup
+from posthog.models.property.util import (
+    extract_tables_and_properties,
+    parse_prop_grouped_clauses,
+    prop_filter_json_extract,
+)
 from posthog.models.utils import PersonPropertiesMode
-from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 
 class PersonQuery:
@@ -63,27 +68,64 @@ class PersonQuery:
             properties
         ).inner
 
-    def get_query(self) -> Tuple[str, Dict]:
+    def get_query(self, prepend: str = "", paginate: bool = False) -> Tuple[str, Dict]:
         fields = "id" + " ".join(
-            f", argMax({column_name}, _timestamp) as {alias}" for column_name, alias in self._get_fields()
+            f", argMax({column_name}, version) as {alias}" for column_name, alias in self._get_fields()
         )
 
-        person_filters, params = self._get_person_filters()
+        grouped_person_filters, grouped_person_params = self._get_grouped_person_filters(
+            prepend=f"grouped_filters_{prepend}"
+        )
+        person_filters, person_params = self._get_person_filters(prepend=prepend)
         cohort_query, cohort_params = self._get_cohort_query()
-        limit_offset, limit_params = self._get_limit_offset()
-        search_clause, search_params = self._get_search_clause()
+        if paginate:
+            limit_offset, limit_params = self._get_limit_offset()
+        else:
+            limit_offset = ""
+            limit_params = {}
+        search_clause, search_params = self._get_search_clause(prepend=prepend)
+        distinct_id_clause, distinct_id_params = self._get_distinct_id_clause()
+        email_clause, email_params = self._get_email_clause()
 
         return (
             f"""
             SELECT {fields}
             FROM person
+            WHERE team_id = %(team_id)s
+            AND id IN (
+                SELECT id FROM person
+                {cohort_query}
+                WHERE team_id = %(team_id)s
+                {person_filters}
+            )
+            GROUP BY id
+            HAVING max(is_deleted) = 0
+            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
+            {"ORDER BY max(created_at) DESC, id" if paginate else ""}
+            {limit_offset}
+        """
+            if person_filters
+            else f"""
+            SELECT {fields}
+            FROM person
             {cohort_query}
             WHERE team_id = %(team_id)s
             GROUP BY id
-            HAVING max(is_deleted) = 0 {person_filters} {search_clause}
+            HAVING max(is_deleted) = 0
+            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
+            {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
         """,
-            {**params, **cohort_params, **limit_params, **search_params},
+            {
+                **person_params,
+                **grouped_person_params,
+                **cohort_params,
+                **limit_params,
+                **search_params,
+                **distinct_id_params,
+                **email_params,
+                "team_id": self._team_id,
+            },
         )
 
     @property
@@ -109,7 +151,7 @@ class PersonQuery:
         #   We use the result from column_optimizer to figure out counts of all properties to be filtered and queried.
         #   Here, we remove the ones only to be used for filtering.
         # The same property might be present for both querying and filtering, and hence the Counter.
-        properties_to_query = self._column_optimizer._used_properties_with_type("person")
+        properties_to_query = self._column_optimizer.used_properties_with_type("person")
         if self._inner_person_properties:
             properties_to_query -= extract_tables_and_properties(self._inner_person_properties.flat)
 
@@ -117,13 +159,25 @@ class PersonQuery:
 
         return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in sorted(columns)]
 
-    def _get_person_filters(self) -> Tuple[str, Dict]:
+    def _get_grouped_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
         return parse_prop_grouped_clauses(
             self._team_id,
             self._inner_person_properties,
             has_person_id_joined=False,
             group_properties_joined=False,
             person_properties_mode=PersonPropertiesMode.DIRECT,
+            prepend=prepend,
+        )
+
+    def _get_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
+        return parse_prop_grouped_clauses(
+            self._team_id,
+            self._inner_person_properties,
+            has_person_id_joined=False,
+            group_properties_joined=False,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_PERSONS,
+            prepend=prepend,
+            table_name="person",
         )
 
     def _get_cohort_query(self) -> Tuple[str, Dict]:
@@ -149,12 +203,10 @@ class PersonQuery:
         if not isinstance(self._filter, Filter):
             return "", {}
 
-        if not self._cohort or not (self._filter.limit or self._filter.offset):
+        if not (self._filter.limit or self._filter.offset):
             return "", {}
 
-        clause = """
-        ORDER BY id
-        """
+        clause = ""
 
         params = {}
 
@@ -168,7 +220,7 @@ class PersonQuery:
 
         return clause, params
 
-    def _get_search_clause(self) -> Tuple[str, Dict]:
+    def _get_search_clause(self, prepend: str = "") -> Tuple[str, Dict]:
 
         if not isinstance(self._filter, Filter):
             return "", {}
@@ -181,21 +233,45 @@ class PersonQuery:
             search_clause, params = parse_prop_grouped_clauses(
                 self._team_id,
                 prop_group,
-                prepend="search",
+                prepend=f"search_{prepend}",
                 has_person_id_joined=False,
                 group_properties_joined=False,
                 person_properties_mode=PersonPropertiesMode.DIRECT,
                 _top_level=False,
             )
 
-            distinct_id_clause = """
+            distinct_id_param = f"distinct_id_{prepend}"
+            distinct_id_clause = f"""
             id IN (
-                SELECT person_id FROM person_distinct_id where distinct_id = %(distinct_id)s
+                SELECT person_id FROM ({get_team_distinct_ids_query(self._team_id)}) where distinct_id = %({distinct_id_param})s
             )
             """
 
-            params.update({"distinct_id": self._filter.search})
+            params.update({distinct_id_param: self._filter.search})
 
             return f"AND (({search_clause}) OR ({distinct_id_clause}))", params
 
+        return "", {}
+
+    def _get_distinct_id_clause(self) -> Tuple[str, Dict]:
+        if not isinstance(self._filter, Filter):
+            return "", {}
+
+        if self._filter.distinct_id:
+            distinct_id_clause = f"""
+            AND id IN (
+                SELECT person_id FROM ({get_team_distinct_ids_query(self._team_id)}) where distinct_id = %(distinct_id_filter)s
+            )
+            """
+            return distinct_id_clause, {"distinct_id_filter": self._filter.distinct_id}
+        return "", {}
+
+    def _get_email_clause(self) -> Tuple[str, Dict]:
+        if not isinstance(self._filter, Filter):
+            return "", {}
+
+        if self._filter.email:
+            return prop_filter_json_extract(
+                Property(key="email", value=self._filter.email, type="person"), 0, prepend="_email"
+            )
         return "", {}

@@ -33,7 +33,7 @@ export function RepositoryTab(): JSX.Element {
 
     return (
         <div>
-            <Subtitle subtitle="Plugin Repository" />
+            <Subtitle subtitle="App Repository" />
             <PluginsSearch />
             <div>
                 {(!repositoryLoading || filteredUninstalledPlugins.length > 0) && (
@@ -51,7 +51,7 @@ export function RepositoryTab(): JSX.Element {
                                             ) : (
                                                 <CaretRightOutlined />
                                             )}
-                                            {` Official Plugins (${officialPlugins.length})`}
+                                            {` Official apps (${officialPlugins.length})`}
                                         </>
                                     }
                                 />
@@ -60,8 +60,8 @@ export function RepositoryTab(): JSX.Element {
                                 <>
                                     <Col span={24}>
                                         {officialPlugins.length > 0
-                                            ? 'Official plugins are built and maintained by the PostHog team.'
-                                            : 'You have already installed all official plugins!'}
+                                            ? 'Official apps are built and maintained by the PostHog team.'
+                                            : 'You have already installed all official apps!'}
                                     </Col>
                                     <br />
                                     {officialPlugins.map((plugin) => {
@@ -93,7 +93,7 @@ export function RepositoryTab(): JSX.Element {
                                             ) : (
                                                 <CaretRightOutlined />
                                             )}
-                                            {` Community Plugins (${communityPlugins.length})`}
+                                            {` Community apps (${communityPlugins.length})`}
                                         </>
                                     }
                                 />
@@ -103,17 +103,17 @@ export function RepositoryTab(): JSX.Element {
                                     <Col span={24}>
                                         {communityPlugins.length > 0 ? (
                                             <span>
-                                                Community plugins are not built nor maintained by the PostHog team.{' '}
+                                                Community apps are not built nor maintained by the PostHog team.{' '}
                                                 <a
-                                                    href="https://posthog.com/docs/plugins/build"
+                                                    href="https://posthog.com/docs/apps/build"
                                                     target="_blank"
                                                     rel="noopener"
                                                 >
-                                                    Anyone, including you, can build a plugin.
+                                                    Anyone, including you, can build an app.
                                                 </a>
                                             </span>
                                         ) : (
-                                            'You have already installed all community plugins!'
+                                            'You have already installed all community apps!'
                                         )}
                                     </Col>
                                     <br />

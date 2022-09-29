@@ -1,25 +1,29 @@
 import React from 'react'
-import { kea, useMountedLogic, useValues } from 'kea'
+import { kea, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneLoading } from 'lib/utils'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { appLogicType } from './AppType'
+import type { appLogicType } from './AppType'
 import { models } from '~/models'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { appScenes } from 'scenes/appScenes'
 import { Navigation } from '~/layout/navigation/Navigation'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconClose } from 'lib/components/icons'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { ToastCloseButton } from 'lib/components/lemonToast'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
+    connect: [teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic],
     actions: {
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
@@ -75,7 +79,7 @@ export function App(): JSX.Element | null {
         )
     }
 
-    return showingDelayedSpinner ? <SceneLoading /> : null
+    return showingDelayedSpinner ? <SpinnerOverlay /> : null
 }
 
 function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
@@ -105,18 +109,15 @@ function Models(): null {
     return null
 }
 
-function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
-    return <LemonButton type="tertiary" icon={<IconClose />} onClick={closeToast} data-attr="toast-close-button" />
-}
-
 function AppScene(): JSX.Element | null {
+    useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
-    const { activeScene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
         (activeScene ? loadedScenes[activeScene]?.component : null) ||
-        (() => (showingDelayedSpinner ? <SceneLoading /> : null))
+        (() => (showingDelayedSpinner ? <SpinnerOverlay /> : null))
 
     const toastContainer = (
         <ToastContainer
@@ -129,12 +130,22 @@ function AppScene(): JSX.Element | null {
         />
     )
 
+    const protectedBoundActiveScene = (
+        <ErrorBoundary key={activeScene}>
+            {activeLoadedScene?.logic ? (
+                <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
+                    <SceneComponent user={user} {...params} />
+                </BindLogic>
+            ) : (
+                <SceneComponent user={user} {...params} />
+            )}
+        </ErrorBoundary>
+    )
+
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <ErrorBoundary key={activeScene}>
-                    <SceneComponent {...params} />
-                </ErrorBoundary>
+                {protectedBoundActiveScene}
                 {toastContainer}
             </Layout>
         ) : null
@@ -142,11 +153,7 @@ function AppScene(): JSX.Element | null {
 
     return (
         <>
-            <Navigation>
-                <ErrorBoundary key={activeScene}>
-                    <SceneComponent user={user} {...params} />
-                </ErrorBoundary>
-            </Navigation>
+            <Navigation>{protectedBoundActiveScene}</Navigation>
             {toastContainer}
             <UpgradeModal />
         </>

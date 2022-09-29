@@ -3,7 +3,6 @@ import { PropertyNamesSelect } from './PropertyNamesSelect'
 import { render, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { initKeaTests } from '~/test/init'
-import { Provider } from 'kea'
 
 describe('PropertyNamesSelect', () => {
     beforeEach(() => {
@@ -13,11 +12,7 @@ describe('PropertyNamesSelect', () => {
     test('Can load, deselect property, hide popup and receive selection via onChange', async () => {
         const properties = ['Property A', 'Property B', 'Property C']
         const onChange = jest.fn()
-        const { findByRole } = render(
-            <Provider>
-                <PropertyNamesSelect onChange={onChange} allProperties={properties} />
-            </Provider>
-        )
+        const { findByRole } = render(<PropertyNamesSelect onChange={onChange} allProperties={properties} />)
 
         const combo = await findByRole('combobox')
         const summaryText = await within(combo).findByText(/0 of 3/)
@@ -36,11 +31,7 @@ describe('PropertyNamesSelect', () => {
 
         const onChange = jest.fn()
 
-        const { findByRole } = render(
-            <Provider>
-                <PropertyNamesSelect onChange={onChange} allProperties={properties} />
-            </Provider>
-        )
+        const { findByRole } = render(<PropertyNamesSelect onChange={onChange} allProperties={properties} />)
         const combo = await findByRole('combobox')
         const summaryText = await within(combo).findByText(/0 of 3/)
         userEvent.click(summaryText)
@@ -59,11 +50,7 @@ describe('PropertyNamesSelect', () => {
 
         const onChange = jest.fn()
 
-        const { findByRole } = render(
-            <Provider>
-                <PropertyNamesSelect onChange={onChange} allProperties={properties} />
-            </Provider>
-        )
+        const { findByRole } = render(<PropertyNamesSelect onChange={onChange} allProperties={properties} />)
         const combo = await findByRole('combobox')
         await within(combo).findByText(/0 of 3/)
 
@@ -84,9 +71,7 @@ describe('PropertyNamesSelect', () => {
         const onChange = jest.fn()
 
         const { findByRole, queryByRole } = render(
-            <Provider>
-                <PropertyNamesSelect onChange={onChange} allProperties={properties} />
-            </Provider>
+            <PropertyNamesSelect onChange={onChange} allProperties={properties} />
         )
 
         const combo = await findByRole('combobox')
