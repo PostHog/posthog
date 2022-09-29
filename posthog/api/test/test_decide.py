@@ -5,7 +5,7 @@ from django.db import connection
 from django.test.client import Client
 from rest_framework import status
 
-from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey
+from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import BaseTest
@@ -123,7 +123,7 @@ class TestDecide(BaseTest):
         response = self._post_decide(origin="any.site.com").json()
         self.assertEqual(response["sessionRecording"], {"endpoint": "/s/"})
 
-    def test_web_apps_queries(self):
+    def test_web_app_queries(self):
         with self.assertNumQueries(2):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -134,6 +134,25 @@ class TestDecide(BaseTest):
         with self.assertNumQueries(3):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_web_app_injection(self):
+        plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
+        PluginSourceFile.objects.create(
+            plugin=plugin,
+            filename="web.ts",
+            source="export function inject (){}",
+            transpiled="function inject(){}",
+            status=PluginSourceFile.Status.TRANSPILED,
+        )
+        PluginConfig.objects.create(plugin=plugin, enabled=True, order=1, team=self.team, config={})
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.inject_web_apps)
+        with self.assertNumQueries(3):
+            response = self._post_decide()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            injected = response.json()["inject"]
+            self.assertEqual(len(injected), 1)
+            self.assertEqual(injected[0]["source"], "function inject(){}")
 
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]
