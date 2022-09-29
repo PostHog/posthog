@@ -364,7 +364,7 @@ describe('PersonState.update()', () => {
     })
 
     describe('on $identify event', () => {
-        it('creates person', async () => {
+        it('creates person and sets is_identified false when $anon_distinct_id not passed', async () => {
             const personContainer = await personState({
                 event: '$identify',
                 distinct_id: 'new-user',
@@ -386,7 +386,7 @@ describe('PersonState.update()', () => {
                     properties: { foo: 'bar' },
                     created_at: timestamp,
                     version: 0,
-                    is_identified: false, // is_identified is not tied to $identify calls but used for safeguarding bad merges
+                    is_identified: false,
                 })
             )
 
@@ -402,7 +402,7 @@ describe('PersonState.update()', () => {
             expect(clickhouseRows.length).toEqual(1)
         })
 
-        it('creates person with both distinct_ids and marks user as is_identified', async () => {
+        it('creates person with both distinct_ids and marks user as is_identified when $anon_distinct_id passed', async () => {
             const personContainer = await personState({
                 event: '$identify',
                 distinct_id: 'new-user',
@@ -441,7 +441,7 @@ describe('PersonState.update()', () => {
             expect(clickhouseRows.length).toEqual(1)
         })
 
-        it('updates person properties', async () => {
+        it('updates person properties leaves is_identified false when no change to distinct_ids', async () => {
             await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
 
             const personContainer = await personState({
@@ -472,10 +472,6 @@ describe('PersonState.update()', () => {
                 })
             )
 
-            // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-            expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
-
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
 
@@ -484,8 +480,8 @@ describe('PersonState.update()', () => {
             expect(clickhouseRows.length).toEqual(1)
         })
 
-        it('marks is_identified if no change in distinct_ids', async () => {
-            // TODO: current code, but we shouldn't
+        it('marks user as is_identified when no change to distinct_ids when $anon_distinct_id passed', async () => {
+            // TODO: current code does so, but we shouldn't
             await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['new-user', 'old-user'])
 
             await personState({
@@ -548,10 +544,6 @@ describe('PersonState.update()', () => {
                 })
             )
 
-            // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-            expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
-
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
 
@@ -560,7 +552,7 @@ describe('PersonState.update()', () => {
             expect(clickhouseRows.length).toEqual(1)
         })
 
-        it('add distinct id while anon person does not exists', async () => {
+        it('add distinct id and marks user is_identified when passed $anon_distinct_id person does not exists and distinct_id does', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
 
             const personContainer = await personState({
@@ -597,7 +589,7 @@ describe('PersonState.update()', () => {
             await delayUntilEventIngested(fetchPersonsRows)
         })
 
-        it('add distinct id while only anon person exists', async () => {
+        it('add distinct id and marks user as is_identified when passed $anon_distinct_id person exists and distinct_id does not', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['old-user'])
 
             const personContainer = await personState({
@@ -634,7 +626,7 @@ describe('PersonState.update()', () => {
             await delayUntilEventIngested(fetchPersonsRows)
         })
 
-        it('add distinct id while anon person does not exists with properties update', async () => {
+        it('add distinct id, marks user as is_identified and updates properties when one of the persons exists and properties are passed', async () => {
             await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
 
             const personContainer = await personState({
@@ -673,46 +665,7 @@ describe('PersonState.update()', () => {
             await delayUntilEventIngested(fetchPersonsRows)
         })
 
-        it('add distinct id while only anon person exists with properties update', async () => {
-            await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['old-user'])
-
-            const personContainer = await personState({
-                event: '$identify',
-                distinct_id: 'new-user',
-                properties: {
-                    $anon_distinct_id: 'old-user',
-                    $set_once: { c: 3, e: 4 },
-                    $set: { b: 4 },
-                },
-            }).update()
-            await hub.db.kafkaProducer.flush()
-
-            // verify Postgres persons
-            const persons = await hub.db.fetchPersons()
-            expect(persons.length).toEqual(1)
-            expect(persons[0]).toEqual(
-                expect.objectContaining({
-                    id: expect.any(Number),
-                    uuid: uuid.toString(),
-                    properties: { b: 4, c: 4, e: 4 },
-                    created_at: timestamp,
-                    version: 1,
-                    is_identified: true,
-                })
-            )
-
-            // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
-            expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
-
-            // verify personContainer
-            expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            await delayUntilEventIngested(fetchPersonsRows)
-        })
-
-        it('merges people when neither identified', async () => {
+        it('merges people and marks user as is_identified when both persons have is_identified false', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['old-user'])
             await hub.db.createPerson(timestamp2, {}, {}, {}, 2, null, false, uuid2.toString(), ['new-user'])
 
@@ -772,7 +725,7 @@ describe('PersonState.update()', () => {
             expect(persons[0]).toEqual(await personContainer.get())
         })
 
-        it('merges people when non-anon user identified', async () => {
+        it('merges people and marks user as is_identified when distinct_id user is identified and $anon_distinct_id user is not', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['old-user'])
             await hub.db.createPerson(timestamp2, {}, {}, {}, 2, null, true, uuid2.toString(), ['new-user'])
 
@@ -832,7 +785,7 @@ describe('PersonState.update()', () => {
             expect(persons[0]).toEqual(await personContainer.get())
         })
 
-        it('does not merge people when anon user identified', async () => {
+        it('does not merge people and leaves is_identified unchanged when distinct_id user is not identified and $anon_distinct_id user is', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, true, uuid.toString(), ['old-user'])
             await hub.db.createPerson(timestamp2, {}, {}, {}, 2, null, false, uuid2.toString(), ['new-user'])
 
@@ -908,7 +861,7 @@ describe('PersonState.update()', () => {
             expect(persons[1]).toEqual(await personContainer.get())
         })
 
-        it('does not merge people when both users identified', async () => {
+        it('does not merge people when both users are identified', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, true, uuid.toString(), ['old-user'])
             await hub.db.createPerson(timestamp2, {}, {}, {}, 2, null, true, uuid2.toString(), ['new-user'])
 
