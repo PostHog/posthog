@@ -32,7 +32,7 @@ class LicenseKeySerializer(serializers.Serializer):
     license = serializers.CharField()
 
 
-class BillingViewset(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+class BillingViewset(viewsets.GenericViewSet):
     serializer_class = BillingSerializer
 
     authentication_classes = [
@@ -45,22 +45,26 @@ class BillingViewset(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewset
         license = License.objects.first_valid()
         org = self._get_org()
 
-        if not license:
-            return Response(UNLICENSED_BILLING_RESPONSE)
+        if license:
+            billing_service_token = self._build_token(license, org)
 
-        billing_service_token = self._build_token(license, org)
+            res = requests.get(
+                f"{BILLING_SERVICE_URL}/api/billing",
+                headers={"Authorization": f"Bearer {billing_service_token}"},
+            )
 
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/billing",
-            headers={"Authorization": f"Bearer {billing_service_token}"},
-        )
+            if res.status_code == 200 and res.json().get("customer"):
+                return Response(res.json()["customer"])
 
-        if res.status_code == 404:
-            return Response(UNLICENSED_BILLING_RESPONSE)
+            # For all unhandled statuses we raise an exception
+            if res.status_code not in (200, 404):
+                raise Exception(f"Billing service returned bad status code: {res.status_code}")
 
-        # TODO: Validate that "license" part of response is the same as local and update if not
+        # The default response includes products but no subscription
 
-        return Response(res.json()["customer"])
+        products = self._get_products()
+
+        return Response({"subscription_url": None, "products": products, "custom_limits": {}})
 
     @action(methods=["GET"], detail=False)
     def activation(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -131,8 +135,6 @@ class BillingViewset(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewset
         license_id = license.key.split("::")[0]
         license_secret = license.key.split("::")[1]
 
-        print(license_id, license_secret, BILLING_SERVICE_JWT_AUD)
-
         encoded_jwt = jwt.encode(
             {
                 "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
@@ -145,3 +147,9 @@ class BillingViewset(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewset
         )
 
         return encoded_jwt
+
+    def _get_products(self):
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/products",
+        )
+        return res.json()["products"]

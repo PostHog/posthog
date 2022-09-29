@@ -4,7 +4,7 @@ Django settings for PostHog Enterprise Edition.
 import os
 from typing import Dict, List
 
-from posthog.settings import AUTHENTICATION_BACKENDS, DEMO, SITE_URL, get_from_env
+from posthog.settings import AUTHENTICATION_BACKENDS, DEMO, DEBUG, SITE_URL, get_from_env
 
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {
@@ -59,4 +59,6 @@ MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BAC
 # Maximum number of columns to materialize at once. Avoids running into resource bottlenecks (storage + ingest + backfilling).
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 10, type_cast=int)
 
-BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posthog.com")
+BILLING_SERVICE_URL = get_from_env(
+    "BILLING_SERVICE_URL", "https://billing.posthog.com" if not DEBUG else "http://localhost:8100"
+)

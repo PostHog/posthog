@@ -1,13 +1,14 @@
 import React, { useState } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { billingLogic } from './billingLogic'
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { LemonDialog } from 'lib/components/LemonDialog'
+import { BillingProductV2Type } from '~/types'
 
 export function BillingV2(): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
@@ -84,7 +85,7 @@ export function BillingV2(): JSX.Element {
                             </>
                         )}
 
-                        {!billing ? (
+                        {!billing?.subscription_url ? (
                             <LemonButton
                                 fullWidth
                                 center
@@ -99,15 +100,27 @@ export function BillingV2(): JSX.Element {
                 </div>
             )}
 
-            <LemonDivider dashed className="my-2" />
-            <BillingProduct />
-            <LemonDivider dashed className="my-2" />
-            <BillingProduct />
+            {billing?.products?.map((x) => (
+                <>
+                    <LemonDivider dashed className="my-2" />
+                    <BillingProduct product={x} />
+                </>
+            ))}
         </div>
     )
 }
 
-const BillingProduct = (): JSX.Element => {
+const summarizeUsage = (usage: number): string => {
+    if (usage < 1000) {
+        return `${usage} events`
+    } else if (Math.round(usage / 1000) < 1000) {
+        return `${Math.round(usage / 1000)} thousand`
+    } else {
+        return `${Math.round(usage / 1000000)} million`
+    }
+}
+
+const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const [showBillingLimit, setShowBillingLimit] = useState(false)
 
     const onBillingLimitToggle = (): void => {
@@ -127,13 +140,14 @@ const BillingProduct = (): JSX.Element => {
             },
         })
     }
+
     return (
         <div className="flex">
             <div className="flex-1 py-4 pr-2 space-y-4">
                 <div className="flex justify-between items-start">
                     <div>
-                        <h3>Product OS</h3>
-                        <p>Event Pipelines, data warehouse, APIs</p>
+                        <h3>{product.name}</h3>
+                        <p>{product.description}</p>
                     </div>
                     <div className="space-y-2 flex flex-col items-end">
                         <LemonSwitch
@@ -150,18 +164,23 @@ const BillingProduct = (): JSX.Element => {
                     </div>
                 </div>
 
-                <div className="">
-                    <div className="rounded-lg bg-border-light h-4">
-                        <div className="rounded-lg bg-success h-4 w-1/3" />
+                {product.current_bill_amount ? (
+                    <div>
+                        <div className="flex gap-2">
+                            <span>Current bill:</span>
+                            <span className="font-bold">$1000</span>
+                        </div>
+                        <div className="flex gap-2">
+                            <span>Predicted bill :</span>
+                            <span className="font-bold">$12000</span>
+                        </div>
                     </div>
-                </div>
-                <div className="flex gap-2">
-                    <span>Current bill:</span>
-                    <span className="font-bold">$1000</span>
-                </div>
-                <div className="flex gap-2">
-                    <span>Predicted bill :</span>
-                    <span className="font-bold">$12000</span>
+                ) : null}
+
+                <div className="">
+                    <div className="rounded-lg bg-border-light h-2">
+                        <div className="rounded-lg bg-success h-2 w-1/3" />
+                    </div>
                 </div>
             </div>
 
@@ -169,27 +188,20 @@ const BillingProduct = (): JSX.Element => {
 
             <div className="p-4 space-y-2 text-xs" style={{ width: '20rem' }}>
                 <h4>Pricing breakdown</h4>
+                <p>Pay per {product.type.toLowerCase()}</p>
                 <ul>
-                    <li className="flex justify-between border-b border-dashed py-2">
-                        <span>First 1 million events/mo</span>
-                        <b>Free</b>
-                    </li>
-                    <li className="flex justify-between border-b border-dashed py-2">
-                        <span>1-2 million</span>
-                        <b>$0.00045</b>
-                    </li>
-                    <li className="flex justify-between border-b border-dashed py-2">
-                        <span>2-10 million</span>
-                        <b>$0.000225</b>
-                    </li>
-                    <li className="flex justify-between border-b border-dashed py-2">
-                        <span>10-100 million</span>
-                        <b>$0.000075</b>
-                    </li>
-                    <li className="flex justify-between py-2">
-                        <span>100 million - 1 billion</span>
-                        <b>$0.000025</b>
-                    </li>
+                    {product.tiers.map((tier, i) => (
+                        <li key={i} className="flex justify-between border-b border-dashed py-2">
+                            <span>
+                                {i === 0
+                                    ? `First ${summarizeUsage(tier.up_to)} ${product.type.toLowerCase()} / mo`
+                                    : tier.up_to
+                                    ? `${summarizeUsage(product.tiers[i - 1].up_to)} - ${summarizeUsage(tier.up_to)}`
+                                    : `> ${summarizeUsage(product.tiers[i - 1].up_to)}`}
+                            </span>
+                            <b>{tier.unit_amount_usd !== 0 ? `$${tier.unit_amount_usd.toPrecision(3)}` : 'Free'}</b>
+                        </li>
+                    ))}
                 </ul>
             </div>
         </div>

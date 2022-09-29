@@ -780,24 +780,25 @@ export interface BillingType {
 }
 
 export interface BillingProductV2Type {
+    type: 'EVENTS' | 'RECORDINGS'
     name: string
     description: string
     free_allocation: number
-    tiers: BillingTierType[]
+    tiers: {
+        unit_amount_usd: number
+        up_to: number
+    }[]
+    // These are only returned if the user has a subscription
+    current_bill_amount?: number // $5000
+    current_bill_usage?: number // 12000
+    current_bill_usage_limit?: number // 10000
 }
 
 export interface BillingV2Type {
-    subscription_url: string
+    subscription_url?: string
+    products: BillingProductV2Type[]
 
-    products: {
-        type: 'events' | 'recordings'
-        current_bill_amount: number
-        current_bill_usage: number
-        free_allocation: number
-        tiers: BillingTierType[]
-    }[]
-
-    custom_limits: {
+    custom_limits?: {
         [key: string]: number
     }
 }
