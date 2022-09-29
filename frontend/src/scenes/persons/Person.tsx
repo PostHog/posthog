@@ -32,6 +32,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/SessionRecordingsPlaylist'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { PersonFeed } from './PersonFeed'
 
 const { TabPane } = Tabs
 
@@ -141,6 +142,11 @@ export function Person(): JSX.Element | null {
                 destroyInactiveTabPane={true}
                 data-attr="persons-tabs"
             >
+                {featureFlags[FEATURE_FLAGS.PERSON_FEED] && (
+                    <TabPane tab={<span data-attr="persons-feed-tab">Feed</span>} key={PersonsTabType.FEED}>
+                        <PersonFeed />
+                    </TabPane>
+                )}
                 <TabPane
                     tab={<span data-attr="persons-properties-tab">Properties</span>}
                     key={PersonsTabType.PROPERTIES}

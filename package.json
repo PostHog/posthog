@@ -88,6 +88,7 @@
         "kea-subscriptions": "^3.0.0",
         "kea-waitfor": "^0.2.1",
         "kea-window-values": "^3.0.0",
+        "maplibre-gl": "^2.4.0",
         "md5": "^2.3.0",
         "monaco-editor": "^0.23.0",
         "posthog-js": "1.31.0",

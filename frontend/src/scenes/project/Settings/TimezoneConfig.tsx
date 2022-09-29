@@ -6,6 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonDialog } from 'lib/components/LemonDialog'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { humanTzName } from 'lib/utils'
 
 export function TimezoneConfig(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -32,9 +33,7 @@ export function TimezoneConfig(): JSX.Element {
     }
 
     const options = Object.entries(preflight.available_timezones).map(([tz, offset]) => {
-        const label = `${tz.replace(/\//g, ' / ').replace(/_/g, ' ')} (UTC${
-            offset === 0 ? '±' : offset > 0 ? '+' : '-'
-        }${Math.abs(offset)})`
+        const label = humanTzName(tz, offset)
         return {
             key: tz,
             label: label,

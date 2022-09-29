@@ -166,8 +166,7 @@ input::-ms-clear {
     padding: 0.75rem;
     margin-bottom: 0.5rem;
     border-radius: var(--radius);
-    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
-        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    font-family: var(--font-sans);
     border: 1px solid var(--border);
     box-shadow: var(--shadow-elevation);
     font-size: 1rem;
@@ -663,4 +662,9 @@ body {
     .ant-tooltip {
         max-width: 350px;
     }
+}
+
+.mapboxgl-ctrl-attrib {
+    font-family: var(--font-sans);
+    font-size: 0.625rem;
 }

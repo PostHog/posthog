@@ -7,11 +7,13 @@ import { Breadcrumb, CohortType, ExporterFormat, PersonListParams, PersonsTabTyp
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
-import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
+import { convertPropertyGroupToProperties, shortTimeZone, shortTzOffset, toParams } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/components/lemonToast'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface PersonPaginatedResponse {
     next: string | null
@@ -108,9 +110,12 @@ export const personsLogic = kea<personsLogicType>({
         ],
         cohortId: [() => [(_, props) => props.cohort], (cohort: PersonLogicProps['cohort']) => cohort],
         currentTab: [
-            (s) => [s.activeTab],
-            (activeTab) => {
-                return activeTab || PersonsTabType.PROPERTIES
+            (s) => [s.activeTab, featureFlagLogic.selectors.featureFlags],
+            (activeTab, featureFlags) => {
+                return (
+                    activeTab ||
+                    (featureFlags[FEATURE_FLAGS.PERSON_FEED] ? PersonsTabType.FEED : PersonsTabType.PROPERTIES)
+                )
             },
         ],
         breadcrumbs: [
@@ -147,6 +152,48 @@ export const personsLogic = kea<personsLogicType>({
             ],
         ],
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
+        personCoordinates: [
+            (s) => [s.person],
+            (person): [number, number] | null => {
+                const longtitude = person?.properties?.['$geoip_longitude']
+                const latitude = person?.properties?.['$geoip_latitude']
+                if (isNaN(longtitude) || isNaN(latitude)) {
+                    return null
+                }
+                return [Number(longtitude), Number(latitude)]
+            },
+        ],
+        personPlace: [
+            (s) => [s.person],
+            (person): string | null => {
+                const cityName = person?.properties?.['$geoip_city_name']
+                const countryName = person?.properties?.['$geoip_country_name']
+                const subdivision1Name = person?.properties?.['$geoip_subdivision_1_name']
+                if (!cityName && !countryName) {
+                    return null
+                }
+                const placeComponents = cityName ? [cityName] : []
+                if (countryName === 'United States') {
+                    placeComponents.push(subdivision1Name || countryName)
+                }
+                {
+                    placeComponents.push(countryName)
+                }
+                return placeComponents.join(', ')
+            },
+        ],
+        personTimezone: [
+            (s) => [s.person],
+            (person): string | null => {
+                const timezone = person?.properties?.['$geoip_time_zone']
+                if (!timezone) {
+                    return null
+                }
+                const tzDisplay = shortTimeZone(timezone)
+                const tzOffsetDisplay = shortTzOffset(timezone)
+                return tzDisplay !== tzOffsetDisplay ? `${tzDisplay} (${tzOffsetDisplay})` : tzDisplay
+            },
+        ],
     }),
     listeners: ({ actions, values }) => ({
         deletePersonSuccess: ({ deletedPerson }) => {

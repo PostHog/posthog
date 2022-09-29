@@ -672,8 +672,7 @@
 }
 
 .font-sans {
-    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
-        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    font-family: var(--font-sans);
 }
 .font-mono {
     font-family: monospace;

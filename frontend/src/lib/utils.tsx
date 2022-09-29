@@ -1212,6 +1212,20 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     }
 }
 
+export function shortTzOffset(offsetOrTimezone: number | string): string {
+    let offset: number
+    if (typeof offsetOrTimezone === 'number') {
+        offset = offsetOrTimezone
+    } else {
+        offset = dayjs().tz(offsetOrTimezone).utcOffset() / 60
+    }
+    return `UTC${offset === 0 ? '±' : offset > 0 ? '+' : '-'}${Math.abs(offset)}`
+}
+
+export function humanTzName(timezone: string, offset?: number): string {
+    return `${timezone.replace(/\//g, ' / ').replace(/_/g, ' ')} (${shortTzOffset(offset || timezone)})`
+}
+
 export function humanTzOffset(timezone?: string): string {
     const offset = dayjs().tz(timezone).utcOffset() / 60
     if (!offset) {

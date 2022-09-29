@@ -140,6 +140,8 @@ $_lifecycle_dormant: #f86234;
     --opacity-disabled: 0.6;
     --font-medium: 500;
     --font-semibold: 600;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
 
     // LEGACY data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --blue: #597dce;
