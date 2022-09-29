@@ -10,7 +10,6 @@
     align-items: center;
     justify-content: center;
     color: var(--white);
-    background: var(--primary);
     border: 2px solid var(--bg-light);
     width: var(--lemon-counter-size);
     height: var(--lemon-counter-size);
@@ -24,6 +23,14 @@
     position: absolute;
     font-weight: 700;
     z-index: 1; // Make sure it is at least in front of non-absolute items
+
+    &.LemonBadge--primary {
+        background: var(--primary);
+    }
+
+    &.LemonBadge--danger {
+        background: var(--danger);
+    }
 
     &.LemonBadge--position-none {
         position: relative;

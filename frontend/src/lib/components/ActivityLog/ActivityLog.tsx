@@ -4,7 +4,7 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { useValues } from 'kea'
 import './ActivityLog.scss'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { ActivityScope, Describer } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityScope, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
 import { LemonSkeleton } from '../LemonSkeleton'
 
@@ -12,7 +12,6 @@ export interface ActivityLogProps {
     scope: ActivityScope
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number | string
-    describer?: Describer
     startingPage?: number
     caption?: string | JSX.Element
 }
@@ -64,14 +63,31 @@ const Loading = (): JSX.Element => {
     )
 }
 
-export const ActivityLog = ({
-    scope,
-    id,
-    describer,
-    caption,
-    startingPage = 1,
-}: ActivityLogProps): JSX.Element | null => {
-    const logic = activityLogLogic({ scope, id, describer, caption, startingPage })
+export const ActivityLogRow = ({
+    logItem,
+    showExtendedDescription,
+}: {
+    logItem: HumanizedActivityLogItem
+    showExtendedDescription?: boolean
+}): JSX.Element => {
+    return (
+        <div className={'activity-log-row'}>
+            <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
+            <div className="details">
+                <div className="activity-description">{logItem.description}</div>
+                {showExtendedDescription && logItem.extendedDescription && (
+                    <div className="activity-description-extended">{logItem.extendedDescription}</div>
+                )}
+                <div className={'text-muted'}>
+                    <TZLabel time={logItem.created_at} />
+                </div>
+            </div>
+        </div>
+    )
+}
+
+export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
+    const logic = activityLogLogic({ scope, id, caption, startingPage })
     const { humanizedActivity, nextPageLoading, pagination } = useValues(logic)
 
     const paginationState = usePagination(humanizedActivity || [], pagination)
@@ -83,24 +99,9 @@ export const ActivityLog = ({
                 <Loading />
             ) : humanizedActivity.length > 0 ? (
                 <>
-                    {humanizedActivity.map((logItem, index) => {
-                        return (
-                            <div className={'activity-log-row'} key={index}>
-                                <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
-                                <div className="details">
-                                    <div className="activity-description">{logItem.description}</div>
-                                    {logItem.extendedDescription && (
-                                        <div className="activity-description-extended">
-                                            {logItem.extendedDescription}
-                                        </div>
-                                    )}
-                                    <div className={'text-muted'}>
-                                        <TZLabel time={logItem.created_at} />
-                                    </div>
-                                </div>
-                            </div>
-                        )
-                    })}
+                    {humanizedActivity.map((logItem, index) => (
+                        <ActivityLogRow key={index} logItem={logItem} />
+                    ))}
                     <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
                 </>
             ) : (

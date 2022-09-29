@@ -1,5 +1,9 @@
 import { dayjs } from 'lib/dayjs'
 import { InsightShortId, PersonType } from '~/types'
+import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
+import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
+import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 
 export interface ActivityChange {
     type: 'FeatureFlag' | 'Person' | 'Insight' | 'Plugin'
@@ -63,7 +67,7 @@ export interface HumanizedActivityLogItem {
     created_at: dayjs.Dayjs
 }
 
-export type Describer = (logItem: ActivityLogItem) => HumanizedChange
+export type Describer = (logItem: ActivityLogItem, asNotification?: boolean) => HumanizedChange
 
 export function detectBoolean(candidate: unknown): boolean {
     let b: boolean = !!candidate
@@ -73,16 +77,20 @@ export function detectBoolean(candidate: unknown): boolean {
     return b
 }
 
-export function humanize(results: ActivityLogItem[], describer?: Describer): HumanizedActivityLogItem[] {
-    if (!describer) {
-        // TODO make a default describer
-        return []
-    }
+const describerForScope: Record<ActivityScope, Describer> = {
+    [ActivityScope.PERSON]: personActivityDescriber,
+    [ActivityScope.INSIGHT]: insightActivityDescriber,
+    [ActivityScope.PLUGIN_CONFIG]: pluginActivityDescriber,
+    [ActivityScope.FEATURE_FLAG]: flagActivityDescriber,
+    [ActivityScope.PLUGIN]: pluginActivityDescriber,
+}
 
+export function humanize(results: ActivityLogItem[], asNotification?: boolean): HumanizedActivityLogItem[] {
     const logLines: HumanizedActivityLogItem[] = []
 
     for (const logItem of results) {
-        const { description, extendedDescription } = describer(logItem)
+        const describer = describerForScope[logItem.scope]
+        const { description, extendedDescription } = describer(logItem, asNotification)
         if (description !== null) {
             logLines.push({
                 email: logItem.user.email,

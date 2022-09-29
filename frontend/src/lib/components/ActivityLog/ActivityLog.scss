@@ -1,4 +1,8 @@
 .activity-log {
+    &.notifications-menu {
+        max-width: 25rem;
+    }
+
     .empty {
         text-align: center;
 

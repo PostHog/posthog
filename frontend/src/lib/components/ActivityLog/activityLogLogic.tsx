@@ -34,7 +34,7 @@ export const activityLogLogic = kea<activityLogLogicType>({
             },
         ],
     }),
-    reducers: ({ props }) => ({
+    reducers: () => ({
         page: [
             1,
             {
@@ -44,10 +44,9 @@ export const activityLogLogic = kea<activityLogLogicType>({
         humanizedActivity: [
             [] as HumanizedActivityLogItem[],
             {
-                fetchNextPageSuccess: (state, { nextPage }) =>
-                    nextPage ? humanize(nextPage.results, props.describer) : state,
+                fetchNextPageSuccess: (state, { nextPage }) => (nextPage ? humanize(nextPage.results) : state),
                 fetchPreviousPageSuccess: (state, { previousPage }) =>
-                    previousPage ? humanize(previousPage.results, props.describer) : state,
+                    previousPage ? humanize(previousPage.results) : state,
             },
         ],
         totalCount: [

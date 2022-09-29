@@ -17,6 +17,7 @@ import { UniversalSearchPopup } from 'lib/components/UniversalSearch/UniversalSe
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { BillingAlerts } from 'lib/components/BillingAlerts'
+import { NotificationBell } from '~/layout/navigation/TopBar/NotificationBell'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -64,6 +65,7 @@ export function TopBar(): JSX.Element {
                     </div>
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
+                    <NotificationBell />
                     <HelpButton />
                     <SitePopover />
                 </div>

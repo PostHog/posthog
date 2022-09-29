@@ -44,7 +44,7 @@ describe('the activity log logic', () => {
             // stringify to confirm this value has the humanized version of the response
             // detailed tests for humanization are below
             expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
-                JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
+                JSON.stringify(humanize(featureFlagsActivityResponseJson))
             )
         })
     })
@@ -108,7 +108,7 @@ describe('the activity log logic', () => {
             await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
 
             expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
-                JSON.stringify(humanize(featureFlagsActivityResponseJson, flagActivityDescriber))
+                JSON.stringify(humanize(featureFlagsActivityResponseJson))
             )
         })
     })
