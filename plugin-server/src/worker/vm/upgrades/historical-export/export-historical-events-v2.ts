@@ -381,20 +381,20 @@ export function addHistoricalEventsExportCapabilityV2(
                 type: PluginLogEntryType.Debug,
             })
             await meta.storage.set(payload.statusKey, {
+                ...payload,
                 done: true,
                 progress: 1,
                 statusTime: Date.now(),
-                ...payload,
             } as ExportChunkStatus)
 
             return
         }
 
         await meta.storage.set(payload.statusKey, {
+            ...payload,
             done: false,
             progress: (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime),
             statusTime: Date.now(),
-            ...payload,
         } as ExportChunkStatus)
 
         let events: PluginEvent[] = []
