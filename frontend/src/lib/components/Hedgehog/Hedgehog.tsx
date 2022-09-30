@@ -34,7 +34,7 @@ const animations: {
     fall: {
         img: hhFall,
         frames: 9,
-        moveY: -5,
+        moveY: -10,
         forceDirection: 'left',
         randomChance: 0,
     },
@@ -77,12 +77,16 @@ const randomChoiceList: string[] = Object.keys(animations).reduce((acc: string[]
     return [...acc, ...range(animations[key].randomChance || 0).map(() => key)]
 }, [])
 
+const startX = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - s)
+const startY = window.innerHeight - s * 2
+
 export function Hedgehog(): JSX.Element {
     const [_loopTrigger, setLoopTrigger] = useState(0)
     const iterationCount = useRef(0)
     const frameRef = useRef(0)
     const directionRef = useRef('right')
-    const position = useRef([0, 200])
+    const position = useRef([startX, startY])
+    const [isDragging, setIsDragging] = useState(false)
 
     const [animationName, setAnimationName] = useState('fall')
     const animation = animations[animationName]
@@ -109,6 +113,10 @@ export function Hedgehog(): JSX.Element {
 
             const moveX = (animation.moveX || 0) * (directionRef.current === 'right' ? 1 : -1)
             const moveY = animation.moveY || 0
+
+            if (isDragging) {
+                return
+            }
 
             position.current = [position.current[0] + moveX, position.current[1] + moveY]
 
@@ -139,21 +147,41 @@ export function Hedgehog(): JSX.Element {
             iterationCount.current = 0
             clearTimeout(timer)
         }
-    }, [animation])
+    }, [animation, isDragging])
 
     return (
         <div
             className={clsx('Hedgehog', {})}
+            onMouseDown={() => {
+                setIsDragging(true)
+                setAnimationName('fall')
+
+                const onMouseMove = (e): void => {
+                    position.current = [e.clientX - s / 2, window.innerHeight - e.clientY - s / 2]
+                }
+
+                const onWindowUp = (): void => {
+                    setIsDragging(false)
+                    setAnimationName('fall')
+                    window.removeEventListener('mouseup', onWindowUp)
+                    window.removeEventListener('mousemove', onMouseMove)
+                }
+                window.addEventListener('mousemove', onMouseMove)
+                window.addEventListener('mouseup', onWindowUp)
+            }}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 position: 'fixed',
                 left: position.current[0],
                 bottom: position.current[1],
-                transition: `all ${1000 / fps}ms`,
+                transition: !isDragging ? `all ${1000 / fps}ms` : undefined,
                 transform: `scaleX(${directionRef.current === 'right' ? 1 : -1})`,
                 cursor: 'pointer',
+                zIndex: 1001,
             }}
         >
             <div
+                // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     width: s,
                     height: s,

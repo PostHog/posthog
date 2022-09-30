@@ -1,5 +1,6 @@
 import { Layout } from 'antd'
 import { useValues } from 'kea'
+import { Hedgehog } from 'lib/components/Hedgehog/Hedgehog'
 import React from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -24,6 +25,7 @@ export function Navigation({ children }: { children: any }): JSX.Element {
                     )}
                     {children}
                 </Layout.Content>
+                <Hedgehog />
             </SideBar>
         </Layout>
     )
