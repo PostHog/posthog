@@ -11,11 +11,11 @@ from statshog.defaults.django import statsd
 
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.utils import get_project_id, get_token
-from posthog.api.web_js import get_decide_web_js_inject
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
+from posthog.plugins.web import get_decide_web_js_inject
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 

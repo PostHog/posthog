@@ -26,7 +26,7 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from posthog.plugins.web import get_transpiled_web_sources
+from posthog.plugins.web import get_decide_web_js_inject
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
@@ -443,7 +443,7 @@ def sync_team_inject_web_apps(sender, instance, created=None, **kwargs):
     team = instance.team
     if not team:
         return
-    inject_web_apps = len(get_transpiled_web_sources(team)) > 0
+    inject_web_apps = len(get_decide_web_js_inject(team)) > 0
     if inject_web_apps != team.inject_web_apps:
         Team.objects.filter(pk=team.pk).update(inject_web_apps=inject_web_apps)
 

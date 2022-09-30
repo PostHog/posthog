@@ -3,7 +3,7 @@ from typing import List
 from django.test.client import Client
 from rest_framework import status
 
-from posthog.api.web_js import get_web_config_from_schema, requires_bootloader
+from posthog.api.web_js import get_web_config_from_schema
 from posthog.models import Plugin, PluginConfig, PluginSourceFile
 from posthog.test.base import BaseTest
 
@@ -37,10 +37,6 @@ class TestWebJs(BaseTest):
             response.content.decode("utf-8"),
             f"function inject(){{}}().inject({{config:{{}},posthog:window['__$$ph_web_js_{plugin_config.id}']}})",
         )
-
-    def test_requires_bootloader(self):
-        self.assertFalse(requires_bootloader("a" * 100))
-        self.assertTrue(requires_bootloader("a" * 1024))
 
     def test_get_web_config_from_schema(self):
         schema: List[dict] = [{"key": "in_web", "web": True}, {"key": "not_in_web"}]
