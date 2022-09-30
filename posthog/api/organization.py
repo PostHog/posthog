@@ -97,7 +97,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         organization, _, _ = Organization.objects.bootstrap(self.context["request"].user, **validated_data)
         return organization
 
-    def update(self, organization: Organization, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
+    def update(self, organization: Organization, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:  # type: ignore
         if self.context["request"].data.get("members_to_send_plugin_alerts") or isinstance(
             self.context["request"].data.get("members_to_send_plugin_alerts"), list
         ):
