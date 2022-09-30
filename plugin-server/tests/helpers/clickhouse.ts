@@ -54,6 +54,5 @@ export async function delayUntilEventIngested<T extends any[] | number>(
         }
         await delay(delayMs)
     }
-    expect(1).toBeNull() // Delay exhausted, try re-running the test
     return data
 }

@@ -1036,6 +1036,7 @@ describe('PersonState.update()', () => {
     })
 
     describe.skip('on $create_alias event', () => {
+        // TODO: I'll fix these after we agree on what $identify tests should be like
         it('creates person', async () => {
             // same as $identify > creates person with anon_distinct_id'
             const personContainer = await personState({
