@@ -30,7 +30,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             password="",
         )
 
-    def test_can_get_top_ten_important_changes(self) -> None:
+    def _create_and_edit_things(self):
         created_insights = []
         for i in range(0, 11):
             insight_id, _ = self._create_insight({})
@@ -56,8 +56,13 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag_one}", {"name": "one"})
         self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag_two}", {"name": "two"})
 
+        self.client.force_login(self.user)
+
+    def test_can_get_top_ten_important_changes(self) -> None:
         # user one has created 10 insights and 2 flags
         # user two has edited them all
+        self._create_and_edit_things()
+
         # user one is shown the most recent 10 of those changes
         self.client.force_login(self.user)
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
@@ -75,6 +80,26 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             "Insight",
             "Insight",
         ]
+        assert [c["unread"] for c in changes.json()] == [True] * 10
+
+    def test_reading_notifications_marks_them_unread(self):
+        # user one has created 10 insights and 2 flags
+        # user two has edited them all
+        self._create_and_edit_things()
+        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
+        assert changes.status_code == status.HTTP_200_OK
+
+        most_recent_date = changes.json()[2]["created_at"]
+
+        # the user can mark where they have read up to
+        bookmark_response = self.client.post(
+            f"/api/projects/{self.team.id}/activity_log/bookmark_activity_notification", {"bookmark": most_recent_date}
+        )
+        assert bookmark_response.status_code == status.HTTP_204_NO_CONTENT
+
+        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
+
+        assert [c["unread"] for c in changes.json()] == [True, True] + ([False] * 8)
 
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
