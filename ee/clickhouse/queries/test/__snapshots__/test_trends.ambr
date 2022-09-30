@@ -263,6 +263,7 @@
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
+       AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -304,7 +305,9 @@
              AND event = 'sign up'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND e.person_id != toUUIDOrZero('')
              AND replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') in (['finance', 'technology'])
+             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -349,6 +352,7 @@
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
+       AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -390,7 +394,9 @@
              AND event = 'sign up'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND e.person_id != toUUIDOrZero('')
              AND "mat_gp0_industry" in (['finance', 'technology'])
+             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -552,6 +558,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
        AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
+       AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -594,7 +601,9 @@
              AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND e.person_id != toUUIDOrZero('')
              AND replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') in (['finance'])
+             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -618,6 +627,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
        AND (has(['value'], "mat_pp_key"))
+       AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -660,7 +670,9 @@
              AND (has(['value'], "mat_pp_key"))
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND e.person_id != toUUIDOrZero('')
              AND "mat_gp0_industry" in (['finance'])
+             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -783,6 +795,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
        AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+       AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -825,7 +838,9 @@
              AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND e.person_id != toUUIDOrZero('')
              AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['uh', 'oh'])
+             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -849,6 +864,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
        AND (has(['finance'], "mat_gp0_industry"))
+       AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -891,7 +907,9 @@
              AND (has(['finance'], "mat_gp0_industry"))
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND e.person_id != toUUIDOrZero('')
              AND "mat_key" in (['uh', 'oh'])
+             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
