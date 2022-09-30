@@ -187,7 +187,7 @@ class OrganizationMembership(UUIDModel):
     joined_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
-    send_plugin_alerts: models.BooleanField = models.BooleanField(blank=True, null=True, default=False)
+    send_plugin_alerts: models.BooleanField = models.BooleanField(blank=True, null=True)
 
     class Meta:
         constraints = [

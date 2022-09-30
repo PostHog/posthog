@@ -98,9 +98,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
         return organization
 
     def update(self, organization: Organization, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
-        if (
-            self.context["request"].data.get("members_to_send_plugin_alerts")
-            or len(self.context["request"].data.get("members_to_send_plugin_alerts")) == 0
+        if self.context["request"].data.get("members_to_send_plugin_alerts") or isinstance(
+            self.context["request"].data.get("members_to_send_plugin_alerts"), list
         ):
             OrganizationMembership.objects.filter(organization=organization, send_plugin_alerts=True).update(
                 send_plugin_alerts=False
@@ -117,7 +116,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         ).first()
         return membership.level if membership is not None else None
 
-    def get_members_to_send_plugin_alerts(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
+    def get_members_to_send_plugin_alerts(self, organization: Organization):
         return list(
             OrganizationMembership.objects.filter(organization=organization, send_plugin_alerts=True).values_list(
                 "user__uuid", flat=True

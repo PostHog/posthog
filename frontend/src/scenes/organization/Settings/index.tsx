@@ -15,6 +15,7 @@ import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lem
 import { membersLogic } from './membersLogic'
 import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { OrganizationMemberType } from '~/types'
 
 export const scene: SceneExport = {
     component: OrganizationSettings,
@@ -89,13 +90,12 @@ function PluginAlertPreference({ isRestricted }: RestrictedComponentProps): JSX.
                 <LemonSelectMultiple
                     mode="multiple"
                     onChange={function We(user) {
-                        console.log(user, currentOrganization.members_to_send_plugin_alerts)
                         updateOrganization({ members_to_send_plugin_alerts: user })
                     }}
                     disabled={isRestricted}
                     loading={membersLoading}
                     options={usersLemonSelectOptions(
-                        members.map((x) => x.user),
+                        members.map((x: OrganizationMemberType) => x.user),
                         'uuid'
                     )}
                     placeholder="Pick users to notify"
