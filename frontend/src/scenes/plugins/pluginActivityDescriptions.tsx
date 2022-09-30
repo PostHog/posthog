@@ -66,6 +66,18 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         }
     }
 
+    if (logItem.activity == 'job_triggered' && logItem.detail.trigger?.job_type == 'Export historical events V2') {
+        const [startDate, endDate] = logItem.detail.trigger.payload.dateRange
+        return {
+            description: (
+                <>
+                    <strong>{logItem.user.first_name}</strong> started exporting historical events between {startDate}{' '}
+                    and {endDate} (inclusive).
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'job_triggered' && logItem.detail.trigger) {
         return {
             description: (
