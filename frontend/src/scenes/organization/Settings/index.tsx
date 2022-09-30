@@ -99,7 +99,7 @@ function PluginAlertPreference({ isRestricted }: RestrictedComponentProps): JSX.
                         'uuid'
                     )}
                     placeholder="Pick users to notify"
-                    value={currentOrganization.members_to_send_plugin_alerts || []}
+                    value={currentOrganization?.members_to_send_plugin_alerts || []}
                 />
             </div>
         </div>
