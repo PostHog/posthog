@@ -21,9 +21,11 @@ export enum BillingAlertType {
 }
 
 const parseBillingResponse = (data: any): BillingV2Type => {
-    data.billing_period = {
-        current_period_start: dayjs(data.billing_period.current_period_start),
-        current_period_end: dayjs(data.billing_period.current_period_end),
+    if (data.billing_period) {
+        data.billing_period = {
+            current_period_start: dayjs(data.billing_period.current_period_start),
+            current_period_end: dayjs(data.billing_period.current_period_end),
+        }
     }
 
     return data

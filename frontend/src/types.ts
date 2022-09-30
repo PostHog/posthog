@@ -801,7 +801,7 @@ export interface BillingV2Type {
     custom_limits_usd?: {
         [key: string]: string | null
     }
-    billing_period: {
+    billing_period?: {
         current_period_start: Dayjs
         current_period_end: Dayjs
     }
