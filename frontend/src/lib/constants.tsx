@@ -137,6 +137,7 @@ export const FEATURE_FLAGS = {
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     CURRENCY_UNITS: 'currency-units', // owner: @pauldambra
     APP_METRICS: 'app-metrics', // owner: @macobo
+    FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
