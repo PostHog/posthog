@@ -272,13 +272,17 @@ class PluginSourceFileManager(models.Manager):
         filenames_to_delete = []
         # Save plugin.json
         plugin_json_instance, _ = PluginSourceFile.objects.update_or_create(
-            plugin=plugin, filename="plugin.json", defaults={"source": plugin_json}
+            plugin=plugin,
+            filename="plugin.json",
+            defaults={"source": plugin_json, "transpiled": None, "status": None, "error": None},
         )
         # Save frontend.tsx
         frontend_tsx_instance: Optional["PluginSourceFile"] = None
         if frontend_tsx is not None:
             frontend_tsx_instance, _ = PluginSourceFile.objects.update_or_create(
-                plugin=plugin, filename="frontend.tsx", defaults={"source": frontend_tsx}
+                plugin=plugin,
+                filename="frontend.tsx",
+                defaults={"source": frontend_tsx, "transpiled": None, "status": None, "error": None},
             )
         else:
             filenames_to_delete.append("frontend.tsx")
@@ -286,7 +290,9 @@ class PluginSourceFileManager(models.Manager):
         web_ts_instance: Optional["PluginSourceFile"] = None
         if web_ts is not None:
             web_ts_instance, _ = PluginSourceFile.objects.update_or_create(
-                plugin=plugin, filename="web.ts", defaults={"source": web_ts}
+                plugin=plugin,
+                filename="web.ts",
+                defaults={"source": web_ts, "transpiled": None, "status": None, "error": None},
             )
         else:
             filenames_to_delete.append("web.ts")
@@ -296,7 +302,9 @@ class PluginSourceFileManager(models.Manager):
             # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
             # and we don't need to model the whole filesystem (at this point)
             index_ts_instance, _ = PluginSourceFile.objects.update_or_create(
-                plugin=plugin, filename="index.ts", defaults={"source": index_ts}
+                plugin=plugin,
+                filename="index.ts",
+                defaults={"source": index_ts, "transpiled": None, "status": None, "error": None},
             )
         else:
             filenames_to_delete.append("index.ts")
