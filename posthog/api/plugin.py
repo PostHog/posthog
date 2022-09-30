@@ -593,7 +593,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         payload_json = json.dumps(
             {
                 "type": job_type,
-                "payload": {**job_payload, **{"$operation": job_op, "job_id": job_id}},
+                "payload": {**job_payload, **{"$operation": job_op, "$job_id": job_id}},
                 "pluginConfigId": plugin_config_id,
                 "pluginConfigTeam": self.team.pk,
             }

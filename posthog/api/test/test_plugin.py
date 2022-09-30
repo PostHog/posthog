@@ -1045,15 +1045,19 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         execute_fn = db_connections["default"].cursor().__enter__().execute
         self.assertEqual(execute_fn.call_count, 1)
-        expected_sql = "SELECT graphile_worker.add_job('pluginJob', %s)"
-        expected_params = [
-            (
-                '{"type": "myJob", "payload": {"a": 1, "$operation": "stop"}, '
-                f'"pluginConfigId": {plugin_config_id}, "pluginConfigTeam": {self.team.pk}'
-                "}"
-            )
-        ]
-        execute_fn.assert_called_with(expected_sql, expected_params)
+
+        execute_fn_args = execute_fn.mock_calls[0].args
+        self.assertEqual(execute_fn_args[0], "SELECT graphile_worker.add_job('pluginJob', %s)")
+        self.assertDictEqual(
+            json.loads(execute_fn_args[1][0]),
+            {
+                "type": "myJob",
+                "payload": {"a": 1, "$operation": "stop", "$job_id": ANY},
+                "pluginConfigId": plugin_config_id,
+                "pluginConfigTeam": self.team.pk,
+            },
+        )
+
         mock_validate_plugin_job_payload.assert_called_with(ANY, "myJob", {"a": 1}, is_staff=False)
 
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
