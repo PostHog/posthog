@@ -24,6 +24,7 @@ from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Change,
     Detail,
+    Trigger,
     dict_changes_between,
     load_all_activity,
     log_activity,
@@ -32,6 +33,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginSourceFile, update_validated_data_from_url, validate_plugin_job_payload
+from posthog.models.utils import UUIDT
 from posthog.permissions import (
     OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
@@ -579,6 +581,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         job_type = job.get("type")
         job_payload = job.get("payload", {})
         job_op = job.get("operation", "start")
+        job_id = str(UUIDT())
 
         validate_plugin_job_payload(
             plugin_config.plugin,
@@ -590,7 +593,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         payload_json = json.dumps(
             {
                 "type": job_type,
-                "payload": {**job_payload, **{"$operation": job_op}},
+                "payload": {**job_payload, **{"$operation": job_op, "job_id": job_id}},
                 "pluginConfigId": plugin_config_id,
                 "pluginConfigTeam": self.team.pk,
             }
@@ -607,12 +610,15 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         log_activity(
             organization_id=self.team.organization.id,
             # Users in an org but not yet in a team can technically manage plugins via the API
-            team_id=self.team.id,
+            team_id=self.team.pk,
             user=request.user,  # type: ignore
             item_id=plugin_config_id,
             scope="PluginConfig",  # use the type plugin so we can also provide unified history
             activity="job_triggered",
-            detail=Detail(name=self.get_object().plugin.name, changes=[Change(type="PluginConfig", action=job_type)]),
+            detail=Detail(
+                name=self.get_object().plugin.name,
+                trigger=Trigger(job_type=job_type, job_id=job_id, payload=job_payload),
+            ),
         )
         return Response(status=200)
 

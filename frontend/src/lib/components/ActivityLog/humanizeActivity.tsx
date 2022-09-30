@@ -15,8 +15,15 @@ export interface PersonMerge {
     target: PersonType
 }
 
+export interface Trigger {
+    job_type: string
+    job_id: string
+    payload: Record<string, any>
+}
+
 export interface ActivityLogDetail {
     merge: PersonMerge | null
+    trigger: Trigger | null
     changes: ActivityChange[] | null
     name: string | null
     short_id?: InsightShortId | null
