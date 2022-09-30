@@ -17,6 +17,7 @@ import { UniversalSearchPopup } from 'lib/components/UniversalSearch/UniversalSe
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { BillingAlerts } from 'lib/components/BillingAlerts'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -64,6 +65,9 @@ export function TopBar(): JSX.Element {
                     </div>
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
+                    <LemonButton data-attr={`posthog-feedback-button`}>
+                        <span className="text-default grow">Feedback</span>
+                    </LemonButton>
                     <HelpButton />
                     <SitePopover />
                 </div>
