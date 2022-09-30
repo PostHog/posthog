@@ -725,7 +725,7 @@ export interface EventType {
 
 export interface EventWithActionMatches {
     event: EventType
-    actionIds: ActionType['id'][]
+    actions: ActionType[]
 }
 
 export interface RecordingTimeMixinType {

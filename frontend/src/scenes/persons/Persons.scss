@@ -11,3 +11,25 @@
         margin-left: 0.25rem;
     }
 }
+
+.EventBrief:not(:last-child)::before {
+    // Small touch to link events visually
+    position: absolute;
+    content: '';
+    width: 0;
+    height: 0.5rem;
+    bottom: calc(-0.5rem - 1px);
+    left: 1.5rem;
+    border-left: 1px solid var(--border);
+}
+
+.FeedEntryBrief:not(:last-child)::before {
+    // Small touch to link feed entries visually
+    position: absolute;
+    content: '';
+    width: 0;
+    height: 1rem;
+    bottom: -1rem;
+    left: calc(2rem + 2px);
+    border-left: 1px solid var(--border);
+}

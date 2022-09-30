@@ -8,7 +8,8 @@ import { IconPlace, IconSchedule } from 'lib/components/icons'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { Session, SessionsList } from './SessionsList'
+import { Session, PersonFeedList } from './SessionsList'
+import { EventWithActionMatches } from '~/types'
 
 export function PersonFeed(): JSX.Element {
     return (
@@ -26,14 +27,14 @@ export function PersonSessions(): JSX.Element {
         throw new Error("Can't render PersonSessions without person.")
     }
 
-    const SESSIONS: Session[] = [
+    const FEED_ENTRIES: (Session | EventWithActionMatches[])[] = [
         {
-            id: 'session1',
+            id: 'session3',
             eventsWithActionMatches: [
                 {
                     event: {
-                        id: 'event1',
-                        event: 'event1',
+                        id: 'event4',
+                        event: '$pageview',
                         properties: {
                             $current_url: 'https://posthog.com',
                             $browser: 'Chrome',
@@ -42,15 +43,15 @@ export function PersonSessions(): JSX.Element {
                             $screen_width: 1920,
                             $lib: 'web',
                         },
-                        timestamp: '2021-10-01T00:00:00.000Z',
+                        timestamp: '2021-10-01T03:09:35.000Z',
                         elements: [],
                         elements_hash: '',
                     },
-                    actionIds: [1],
+                    actions: [],
                 },
                 {
                     event: {
-                        id: 'event2',
+                        id: 'event5',
                         event: '$autocapture',
                         properties: {
                             $current_url: 'https://posthog.com',
@@ -60,12 +61,136 @@ export function PersonSessions(): JSX.Element {
                             $screen_width: 1920,
                             $lib: 'web',
                         },
-                        timestamp: '2021-10-01T00:01:01.000Z',
+                        timestamp: '2021-10-01T03:05:00.000Z',
                         elements: [],
                         elements_hash: '',
                     },
-                    actionIds: [1],
+                    actions: [
+                        {
+                            id: 2,
+                            name: 'action2',
+                            steps: [],
+                            created_at: '2021-10-01T00:00:00.000Z',
+                            deleted: false,
+                            is_calculating: false,
+                            last_calculated_at: '2021-10-01T00:00:00.000Z',
+                            post_to_slack: false,
+                            slack_message_format: '',
+                            created_by: null,
+                        },
+                    ],
                 },
+                {
+                    event: {
+                        id: 'event6',
+                        event: '$autocapture',
+                        properties: {
+                            $current_url: 'https://posthog.com',
+                            $browser: 'Chrome',
+                            $os: 'Mac OS',
+                            $screen_height: 1080,
+                            $screen_width: 1920,
+                            $lib: 'web',
+                        },
+                        timestamp: '2021-10-01T03:04:00.000Z',
+                        elements: [],
+                        elements_hash: '',
+                    },
+                    actions: [
+                        {
+                            id: 1,
+                            name: 'action1',
+                            steps: [],
+                            created_at: '2021-10-01T00:00:00.000Z',
+                            deleted: false,
+                            is_calculating: false,
+                            last_calculated_at: '2021-10-01T00:00:00.000Z',
+                            post_to_slack: false,
+                            slack_message_format: '',
+                            created_by: null,
+                        },
+                    ],
+                },
+                {
+                    event: {
+                        id: 'event7',
+                        event: '$pageleave',
+                        properties: {
+                            $current_url: 'https://posthog.com',
+                            $browser: 'Chrome',
+                            $os: 'Mac OS',
+                            $screen_height: 1080,
+                            $screen_width: 1920,
+                            $lib: 'web',
+                        },
+                        timestamp: '2021-10-01T03:03:19.000Z',
+                        elements: [],
+                        elements_hash: '',
+                    },
+                    actions: [],
+                },
+            ],
+            recordings: [],
+        },
+        [
+            {
+                event: {
+                    id: 'event99',
+                    event: 'sent bill',
+                    properties: {
+                        amount: '10.99',
+                        currency: 'USD',
+                    },
+                    timestamp: '2021-10-01T01:09:11.980Z',
+                    elements: [],
+                    elements_hash: '',
+                },
+                actions: [
+                    {
+                        id: 1,
+                        name: 'action1',
+                        steps: [],
+                        created_at: '2021-10-01T00:00:00.000Z',
+                        deleted: false,
+                        is_calculating: false,
+                        last_calculated_at: '2021-10-01T00:00:00.000Z',
+                        post_to_slack: false,
+                        slack_message_format: '',
+                        created_by: null,
+                    },
+                ],
+            },
+            {
+                event: {
+                    id: 'event99',
+                    event: 'charged card',
+                    properties: {
+                        amount: '10.99',
+                        currency: 'USD',
+                    },
+                    timestamp: '2021-10-01T01:09:11.000Z',
+                    elements: [],
+                    elements_hash: '',
+                },
+                actions: [
+                    {
+                        id: 1,
+                        name: 'action1',
+                        steps: [],
+                        created_at: '2021-10-01T00:00:00.000Z',
+                        deleted: false,
+                        is_calculating: false,
+                        last_calculated_at: '2021-10-01T00:00:00.000Z',
+                        post_to_slack: false,
+                        slack_message_format: '',
+                        created_by: null,
+                    },
+                ],
+            },
+        ],
+        {
+            id: 'session1',
+            eventsWithActionMatches: [
                 {
                     event: {
                         id: 'event3',
@@ -82,7 +207,56 @@ export function PersonSessions(): JSX.Element {
                         elements: [],
                         elements_hash: '',
                     },
-                    actionIds: [1],
+                    actions: [],
+                },
+                {
+                    event: {
+                        id: 'event1',
+                        event: 'event1',
+                        properties: {
+                            $current_url: 'https://posthog.com',
+                            $browser: 'Chrome',
+                            $os: 'Mac OS',
+                            $screen_height: 1080,
+                            $screen_width: 1920,
+                            $lib: 'web',
+                        },
+                        timestamp: '2021-10-01T00:01:01.000Z',
+                        elements: [],
+                        elements_hash: '',
+                    },
+                    actions: [],
+                },
+                {
+                    event: {
+                        id: 'event2',
+                        event: '$autocapture',
+                        properties: {
+                            $current_url: 'https://posthog.com',
+                            $browser: 'Chrome',
+                            $os: 'Mac OS',
+                            $screen_height: 1080,
+                            $screen_width: 1920,
+                            $lib: 'web',
+                        },
+                        timestamp: '2021-10-01T00:00:00.000Z',
+                        elements: [],
+                        elements_hash: '',
+                    },
+                    actions: [
+                        {
+                            id: 1,
+                            name: 'action1',
+                            steps: [],
+                            created_at: '2021-10-01T00:00:00.000Z',
+                            deleted: false,
+                            is_calculating: false,
+                            last_calculated_at: '2021-10-01T00:00:00.000Z',
+                            post_to_slack: false,
+                            slack_message_format: '',
+                            created_by: null,
+                        },
+                    ],
                 },
             ],
             recordings: [
@@ -97,11 +271,7 @@ export function PersonSessions(): JSX.Element {
         },
     ]
 
-    return (
-        <div className="flex-1">
-            <SessionsList sessions={SESSIONS} />
-        </div>
-    )
+    return <PersonFeedList entries={FEED_ENTRIES} />
 }
 
 export function PersonSidebar(): JSX.Element | null {
