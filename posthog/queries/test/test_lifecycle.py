@@ -4,11 +4,8 @@ from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models import Filter
-from posthog.models.action.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.instance_setting import get_instance_setting
-from posthog.queries.trends.trends import Trends
-from posthog.test.base import APIBaseTest, _create_event, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import APIBaseTest, _create_event, snapshot_clickhouse_queries
 from posthog.utils import relative_date_parse
 
 
@@ -779,15 +776,3 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
     return TestLifecycle
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
-    return action
-
-
-class TestFOSSLifecycle(lifecycle_test_factory(Trends, _create_event, _create_person, _create_action)):  # type: ignore
-    pass
