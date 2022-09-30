@@ -76,14 +76,14 @@ class BillingViewset(viewsets.GenericViewSet):
         billing_service_token = self._build_token(license, org)
 
         res = requests.patch(
-            f"{BILLING_SERVICE_URL}/api/billing/limits/",
+            f"{BILLING_SERVICE_URL}/api/billing/",
             headers={"Authorization": f"Bearer {billing_service_token}"},
-            data=request.data,
+            data={"custom_limits_usd": request.data.get("custom_limits_usd")},
         )
 
         if res.status_code == 200:
             res = requests.get(
-                f"{BILLING_SERVICE_URL}/api/billing",
+                f"{BILLING_SERVICE_URL}/api/billing/",
                 headers={"Authorization": f"Bearer {billing_service_token}"},
             )
 
