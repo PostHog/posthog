@@ -3,7 +3,7 @@ import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { HedgehogBuddy } from './HedgehogBuddy'
 
 export default {
-    title: 'Random/HedgehogBuddy',
+    title: 'Components/Hedgehog Buddy',
     component: HedgehogBuddy,
 } as ComponentMeta<typeof HedgehogBuddy>
 
