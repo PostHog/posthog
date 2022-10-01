@@ -1,6 +1,8 @@
 import { actions, kea, path, reducers } from 'kea'
 
-export const hedgehogbuddyLogic = kea([
+import type { hedgehogbuddyLogicType } from './hedgehogbuddyLogicType'
+
+export const hedgehogbuddyLogic = kea<hedgehogbuddyLogicType>([
     path(['hedgehog', 'hedgehogbuddyLogic']),
 
     actions({

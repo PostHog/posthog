@@ -17,6 +17,7 @@ import { LemonDivider } from '../LemonDivider'
 const size = 64
 const imageWidth = 512
 const xFrames = imageWidth / size
+const boundaryPadding = 20
 const fps = 20
 
 const animations: {
@@ -59,7 +60,7 @@ const animations: {
     spin: {
         img: hhSpin,
         frames: 9,
-        maxIteration: 10,
+        maxIteration: 3,
         randomChance: 2,
     },
     walk: {
@@ -102,14 +103,6 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
             ? Math.max(1, Math.floor(Math.random() * animation.maxIteration))
             : null
 
-        console.log(
-            `🦔 Hedgehog!! ${animationName} for ${
-                iterationsCountdown ? iterationsCountdown * fps * animation.frames : 'lots of '
-            }ms to the ${directionRef.current}`,
-            animation,
-            animations
-        )
-
         const loop = (): void => {
             if (frameRef.current + 1 >= animation.frames && iterationsCountdown !== null) {
                 iterationsCountdown -= 1
@@ -129,13 +122,16 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
 
             if (
                 iterationsCountdown === 0 ||
-                position.current[0] < 0 ||
-                position.current[0] + size > window.innerWidth ||
+                position.current[0] < boundaryPadding ||
+                position.current[0] + size > window.innerWidth - boundaryPadding ||
                 position.current[1] < 0 ||
                 position.current[1] + size > window.innerHeight
             ) {
                 position.current = [
-                    Math.min(Math.max(0, position.current[0]), window.innerWidth - size),
+                    Math.min(
+                        Math.max(boundaryPadding, position.current[0]),
+                        window.innerWidth - size - boundaryPadding
+                    ),
                     Math.min(Math.max(0, position.current[1]), window.innerHeight - size),
                 ]
                 if (animationName === 'stop') {
@@ -244,6 +240,21 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
                         }px`,
                     }}
                 />
+
+                {/* We need to preload the images to avoid flashing on the first animation
+                    The images are small and this is the best way I could find...  */}
+                {Object.keys(animations).map((x) => (
+                    <div
+                        key={x}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            position: 'absolute',
+                            width: 1, // This needs to be 1 as browsers are clever enough to realise the image isn't visible...
+                            height: 1,
+                            backgroundImage: `url(${animations[x].img})`,
+                        }}
+                    />
+                ))}
             </div>
         </Popup>
     )
