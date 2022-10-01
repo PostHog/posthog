@@ -1,0 +1,4 @@
+.NotificationsBell-Popup {
+    z-index: 900; // so TZ aware time pop-up is not behind this pop-up
+    max-height: calc(90vh - 2em);
+}

@@ -46,6 +46,7 @@ export interface ActivityLogItem {
     scope: ActivityScope
     item_id?: string
     detail: ActivityLogDetail
+    unread?: boolean // when used as a notification
 }
 
 // the description of a single activity log is a sentence describing one or more changes that makes up the entry
@@ -65,6 +66,7 @@ export interface HumanizedActivityLogItem {
     description: Description
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     created_at: dayjs.Dayjs
+    unread?: boolean
 }
 
 export type Describer = (logItem: ActivityLogItem, asNotification?: boolean) => HumanizedChange
@@ -98,6 +100,7 @@ export function humanize(results: ActivityLogItem[], asNotification?: boolean): 
                 description,
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),
+                unread: logItem.unread,
             })
         }
     }

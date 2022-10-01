@@ -7,9 +7,10 @@ import { Popup } from 'lib/components/Popup/Popup'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
+import './NotificationsBell.scss'
 
 export function NotificationBell(): JSX.Element {
-    const { importantChanges, isNotificationPopoverOpen } = useValues(notificationsLogic)
+    const { importantChanges, isNotificationPopoverOpen, hasUnread } = useValues(notificationsLogic)
     const { toggleNotificationsPopover, togglePolling } = useActions(notificationsLogic)
 
     usePageVisibility((pageIsVisible) => {
@@ -29,14 +30,18 @@ export function NotificationBell(): JSX.Element {
                     ))}
                 </div>
             }
-            style={{ zIndex: 900 }} // so TZ aware time pop-up is not behind this pop-up
+            className="NotificationsBell-Popup"
         >
             <div
                 className={clsx('h-10 items-center cursor-pointer flex color-primary-alt text-2xl')}
                 onClick={toggleNotificationsPopover}
                 data-attr="notifications-button"
             >
-                <IconWithCount count={importantChanges.length || 0} showZero={false} status={'danger'}>
+                <IconWithCount
+                    count={importantChanges.length || 0}
+                    showZero={false}
+                    status={hasUnread ? 'danger' : 'primary'}
+                >
                     <IconNotification />
                 </IconWithCount>
                 <IconArrowDropDown />

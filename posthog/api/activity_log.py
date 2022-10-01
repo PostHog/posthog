@@ -25,10 +25,13 @@ class ActivityLogSerializer(serializers.ModelSerializer):
         user_bookmark: Optional[NotificationViewed] = NotificationViewed.objects.filter(
             user=self.context["user"]
         ).first()
+
         if user_bookmark is None:
             return True
         else:
-            return user_bookmark.last_viewed_activity_date < obj.created_at
+            return user_bookmark.last_viewed_activity_date.replace(microsecond=0) < obj.created_at.replace(
+                microsecond=0
+            )
 
 
 class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
