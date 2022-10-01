@@ -1,9 +1,7 @@
 import { actions, kea, path, reducers } from 'kea'
 
-import type { hedgehogLogicType } from './hedgehogLogicType'
-
-export const hedgehogLogic = kea<hedgehogLogicType>([
-    path(['hedgehog', 'hedgehogLogic']),
+export const hedgehogbuddyLogic = kea([
+    path(['hedgehog', 'hedgehogbuddyLogic']),
 
     actions({
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),

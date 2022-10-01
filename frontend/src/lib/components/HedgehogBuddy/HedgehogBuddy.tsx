@@ -11,7 +11,7 @@ import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
 import { Popup } from '../Popup/Popup'
 import { LemonButton } from '../LemonButton'
 import { useActions, useValues } from 'kea'
-import { hedgehogLogic } from './hedgehogLogic'
+import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
 import { LemonDivider } from '../LemonDivider'
 
 const s = 64
@@ -83,9 +83,9 @@ const randomChoiceList: string[] = Object.keys(animations).reduce((acc: string[]
 }, [])
 
 const startX = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - s)
-const startY = window.innerHeight - s * 2
+const startY = 200
 
-export function Hedgehog({ onClose }: { onClose: () => void }): JSX.Element {
+export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [_, setLoopTrigger] = useState(0)
     const iterationCount = useRef(0)
@@ -251,9 +251,9 @@ export function Hedgehog({ onClose }: { onClose: () => void }): JSX.Element {
     )
 }
 
-export function HedgehogWithLogic(): JSX.Element {
-    const { hedgehogModeEnabled } = useValues(hedgehogLogic)
-    const { setHedgehogModeEnabled } = useActions(hedgehogLogic)
+export function HedgehogBuddyWithLogic(): JSX.Element {
+    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
+    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
 
-    return hedgehogModeEnabled ? <Hedgehog onClose={() => setHedgehogModeEnabled(false)} /> : <></>
+    return hedgehogModeEnabled ? <HedgehogBuddy onClose={() => setHedgehogModeEnabled(false)} /> : <></>
 }
