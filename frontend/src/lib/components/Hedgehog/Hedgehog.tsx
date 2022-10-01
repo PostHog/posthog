@@ -7,7 +7,12 @@ import hhSpin from 'public/hedgehog/sprites/spin.png'
 import hhWalk from 'public/hedgehog/sprites/walk.png'
 import hhWave from 'public/hedgehog/sprites/wave.png'
 import clsx from 'clsx'
-import { range, sampleOne } from 'lib/utils'
+import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
+import { Popup } from '../Popup/Popup'
+import { LemonButton } from '../LemonButton'
+import { useActions, useValues } from 'kea'
+import { hedgehogLogic } from './hedgehogLogic'
+import { LemonDivider } from '../LemonDivider'
 
 const s = 64
 const w = 512
@@ -80,13 +85,15 @@ const randomChoiceList: string[] = Object.keys(animations).reduce((acc: string[]
 const startX = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - s)
 const startY = window.innerHeight - s * 2
 
-export function Hedgehog(): JSX.Element {
-    const [_loopTrigger, setLoopTrigger] = useState(0)
+export function Hedgehog({ onClose }: { onClose: () => void }): JSX.Element {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const [_, setLoopTrigger] = useState(0)
     const iterationCount = useRef(0)
     const frameRef = useRef(0)
     const directionRef = useRef('right')
     const position = useRef([startX, startY])
     const [isDragging, setIsDragging] = useState(false)
+    const [popupVisible, setPopupVisible] = useState(false)
 
     const [animationName, setAnimationName] = useState('fall')
     const animation = animations[animationName]
@@ -100,7 +107,9 @@ export function Hedgehog(): JSX.Element {
         console.log(
             `🦔 Hedgehog!! ${animationName} for ${
                 iterationsCountdown ? iterationsCountdown * fps * animation.frames : 'lots of '
-            }ms to the ${directionRef.current}`
+            }ms to the ${directionRef.current}`,
+            animation,
+            animations
         )
 
         const loop = (): void => {
@@ -149,48 +158,102 @@ export function Hedgehog(): JSX.Element {
         }
     }, [animation, isDragging])
 
+    const onClick = (): void => {
+        !isDragging && setPopupVisible(!popupVisible)
+    }
+    const disappear = (): void => {
+        setPopupVisible(false)
+        setAnimationName('wave')
+        setTimeout(() => onClose(), (animations.wave.frames * 1000) / fps)
+    }
+
     return (
-        <div
-            className={clsx('Hedgehog', {})}
-            onMouseDown={() => {
-                setIsDragging(true)
+        <Popup
+            onClickOutside={() => {
+                setPopupVisible(false)
                 setAnimationName('fall')
-
-                const onMouseMove = (e): void => {
-                    position.current = [e.clientX - s / 2, window.innerHeight - e.clientY - s / 2]
-                }
-
-                const onWindowUp = (): void => {
-                    setIsDragging(false)
-                    setAnimationName('fall')
-                    window.removeEventListener('mouseup', onWindowUp)
-                    window.removeEventListener('mousemove', onMouseMove)
-                }
-                window.addEventListener('mousemove', onMouseMove)
-                window.addEventListener('mouseup', onWindowUp)
             }}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                position: 'fixed',
-                left: position.current[0],
-                bottom: position.current[1],
-                transition: !isDragging ? `all ${1000 / fps}ms` : undefined,
-                transform: `scaleX(${directionRef.current === 'right' ? 1 : -1})`,
-                cursor: 'pointer',
-                zIndex: 1001,
-            }}
+            visible={popupVisible}
+            overlay={
+                <div className="p-2">
+                    <h3>Hello!</h3>
+                    <p>
+                        Don't mind me. I'm just here to keep you company.
+                        <br />
+                        You can move me around by clicking and dragging.
+                    </p>
+                    <div className="flex gap-2 my-2">
+                        {['jump', 'sign', 'spin', 'wave'].map((x) => (
+                            <LemonButton key={x} type="secondary" size="small" onClick={() => setAnimationName(x)}>
+                                {capitalizeFirstLetter(x)}
+                            </LemonButton>
+                        ))}
+                    </div>
+                    <LemonDivider />
+                    <div className="flex justify-end gap-2">
+                        <LemonButton type="secondary" status="danger" onClick={() => disappear()}>
+                            Good bye!
+                        </LemonButton>
+                        <LemonButton type="secondary" onClick={() => setPopupVisible(false)}>
+                            Carry on!
+                        </LemonButton>
+                    </div>
+                </div>
+            }
         >
             <div
+                className={clsx('Hedgehog', {})}
+                onMouseDown={() => {
+                    let moved = false
+                    const onMouseMove = (e: any): void => {
+                        moved = true
+                        setIsDragging(true)
+                        setAnimationName('fall')
+                        position.current = [e.clientX - s / 2, window.innerHeight - e.clientY - s / 2]
+                    }
+
+                    const onWindowUp = (): void => {
+                        if (!moved) {
+                            onClick()
+                        }
+                        setIsDragging(false)
+                        setAnimationName('fall')
+                        window.removeEventListener('mouseup', onWindowUp)
+                        window.removeEventListener('mousemove', onMouseMove)
+                    }
+                    window.addEventListener('mousemove', onMouseMove)
+                    window.addEventListener('mouseup', onWindowUp)
+                }}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    width: s,
-                    height: s,
-                    backgroundImage: `url(${animation.img})`,
-                    backgroundPosition: `-${(frameRef.current % xFrames) * s}px -${
-                        Math.floor(frameRef.current / xFrames) * s
-                    }px`,
+                    position: 'fixed',
+                    left: position.current[0],
+                    bottom: position.current[1],
+                    transition: !isDragging ? `all ${1000 / fps}ms` : undefined,
+                    transform: `scaleX(${directionRef.current === 'right' ? 1 : -1})`,
+                    cursor: 'pointer',
+                    zIndex: 1001,
                 }}
-            />
-        </div>
+            >
+                <div
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        width: s,
+                        height: s,
+                        backgroundImage: `url(${animation.img})`,
+                        backgroundPosition: `-${(frameRef.current % xFrames) * s}px -${
+                            Math.floor(frameRef.current / xFrames) * s
+                        }px`,
+                    }}
+                />
+            </div>
+        </Popup>
     )
+}
+
+export function HedgehogWithLogic(): JSX.Element {
+    const { hedgehogModeEnabled } = useValues(hedgehogLogic)
+    const { setHedgehogModeEnabled } = useActions(hedgehogLogic)
+
+    return hedgehogModeEnabled ? <Hedgehog onClose={() => setHedgehogModeEnabled(false)} /> : <></>
 }

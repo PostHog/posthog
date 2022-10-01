@@ -14,10 +14,12 @@ import {
     IconMail,
     IconQuestionAnswer,
     IconMessages,
+    IconFlare,
 } from '../icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react-dom-interactions'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { hedgehogLogic } from '../Hedgehog/hedgehogLogic'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -80,6 +82,8 @@ export function HelpButton({
     const { validSequences } = useValues(inAppPromptLogic)
     const { runFirstValidSequence, promptAction } = useActions(inAppPromptLogic)
     const { isPromptVisible } = useValues(inAppPromptLogic)
+    const { hedgehogModeEnabled } = useValues(hedgehogLogic)
+    const { setHedgehogModeEnabled } = useActions(hedgehogLogic)
 
     return (
         <Popup
@@ -156,6 +160,18 @@ export function HelpButton({
                             {isPromptVisible ? 'Stop tutorial' : 'Explain this page'}
                         </LemonButton>
                     )}
+
+                    <LemonButton
+                        icon={<IconFlare />}
+                        status="stealth"
+                        fullWidth
+                        onClick={() => {
+                            setHedgehogModeEnabled(!hedgehogModeEnabled)
+                            hideHelp()
+                        }}
+                    >
+                        {hedgehogModeEnabled ? 'Disable Hedgehog mode' : 'Enable Hedgehog mode'}
+                    </LemonButton>
                 </>
             }
             onClickOutside={hideHelp}
