@@ -14,9 +14,9 @@ import { useActions, useValues } from 'kea'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
 import { LemonDivider } from '../LemonDivider'
 
-const s = 64
-const w = 512
-const xFrames = w / s
+const size = 64
+const imageWidth = 512
+const xFrames = imageWidth / size
 const fps = 20
 
 const animations: {
@@ -82,16 +82,14 @@ const randomChoiceList: string[] = Object.keys(animations).reduce((acc: string[]
     return [...acc, ...range(animations[key].randomChance || 0).map(() => key)]
 }, [])
 
-const startX = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - s)
-const startY = 200
-
 export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [_, setLoopTrigger] = useState(0)
     const iterationCount = useRef(0)
     const frameRef = useRef(0)
     const directionRef = useRef('right')
-    const position = useRef([startX, startY])
+    const startX = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - size)
+    const position = useRef([startX, 200])
     const [isDragging, setIsDragging] = useState(false)
     const [popupVisible, setPopupVisible] = useState(false)
 
@@ -132,13 +130,13 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
             if (
                 iterationsCountdown === 0 ||
                 position.current[0] < 0 ||
-                position.current[0] + s > window.innerWidth ||
+                position.current[0] + size > window.innerWidth ||
                 position.current[1] < 0 ||
-                position.current[1] + s > window.innerHeight
+                position.current[1] + size > window.innerHeight
             ) {
                 position.current = [
-                    Math.min(Math.max(0, position.current[0]), window.innerWidth - s),
-                    Math.min(Math.max(0, position.current[1]), window.innerHeight - s),
+                    Math.min(Math.max(0, position.current[0]), window.innerWidth - size),
+                    Math.min(Math.max(0, position.current[1]), window.innerHeight - size),
                 ]
                 if (animationName === 'stop') {
                     const newAnimationName = sampleOne(randomChoiceList)
@@ -209,7 +207,7 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
                         moved = true
                         setIsDragging(true)
                         setAnimationName('fall')
-                        position.current = [e.clientX - s / 2, window.innerHeight - e.clientY - s / 2]
+                        position.current = [e.clientX - size / 2, window.innerHeight - e.clientY - size / 2]
                     }
 
                     const onWindowUp = (): void => {
@@ -238,11 +236,11 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        width: s,
-                        height: s,
+                        width: size,
+                        height: size,
                         backgroundImage: `url(${animation.img})`,
-                        backgroundPosition: `-${(frameRef.current % xFrames) * s}px -${
-                            Math.floor(frameRef.current / xFrames) * s
+                        backgroundPosition: `-${(frameRef.current % xFrames) * size}px -${
+                            Math.floor(frameRef.current / xFrames) * size
                         }px`,
                     }}
                 />
