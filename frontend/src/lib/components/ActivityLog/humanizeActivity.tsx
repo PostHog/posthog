@@ -1,5 +1,9 @@
 import { dayjs } from 'lib/dayjs'
 import { InsightShortId, PersonType } from '~/types'
+import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
+import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
+import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 
 export interface ActivityChange {
     type: 'FeatureFlag' | 'Person' | 'Insight' | 'Plugin'
@@ -73,15 +77,33 @@ export function detectBoolean(candidate: unknown): boolean {
     return b
 }
 
-export function humanize(results: ActivityLogItem[], describer?: Describer): HumanizedActivityLogItem[] {
-    if (!describer) {
-        // TODO make a default describer
-        return []
+const getDescriberFor = (logItem?: ActivityLogItem): Describer | undefined => {
+    switch (logItem?.scope) {
+        case ActivityScope.FEATURE_FLAG:
+            return flagActivityDescriber
+        case ActivityScope.PLUGIN:
+        case ActivityScope.PLUGIN_CONFIG:
+            return pluginActivityDescriber
+        case ActivityScope.INSIGHT:
+            return insightActivityDescriber
+        case ActivityScope.PERSON:
+            return personActivityDescriber
+        default:
+            return undefined
     }
+}
 
+export function humanize(results: ActivityLogItem[], describer?: Describer): HumanizedActivityLogItem[] {
     const logLines: HumanizedActivityLogItem[] = []
 
     for (const logItem of results) {
+        if (!describer) {
+            describer = getDescriberFor(logItem)
+        }
+        if (!describer) {
+            continue
+        }
+
         const { description, extendedDescription } = describer(logItem)
         if (description !== null) {
             logLines.push({
