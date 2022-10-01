@@ -10,7 +10,8 @@ import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import './NotificationsBell.scss'
 
 export function NotificationBell(): JSX.Element {
-    const { importantChanges, isNotificationPopoverOpen, hasUnread } = useValues(notificationsLogic)
+    const { unreadCount, hasImportantChanges, importantChanges, isNotificationPopoverOpen, hasUnread } =
+        useValues(notificationsLogic)
     const { toggleNotificationsPopover, togglePolling } = useActions(notificationsLogic)
 
     usePageVisibility((pageIsVisible) => {
@@ -25,9 +26,11 @@ export function NotificationBell(): JSX.Element {
                 <div className="activity-log notifications-menu">
                     <h5>Notifications</h5>
                     <LemonDivider />
-                    {importantChanges.map((logItem, index) => (
-                        <ActivityLogRow logItem={logItem} key={index} />
-                    ))}
+                    {hasImportantChanges ? (
+                        importantChanges.map((logItem, index) => <ActivityLogRow logItem={logItem} key={index} />)
+                    ) : (
+                        <h5>You're all caught up</h5>
+                    )}
                 </div>
             }
             className="NotificationsBell-Popup"
@@ -37,11 +40,7 @@ export function NotificationBell(): JSX.Element {
                 onClick={toggleNotificationsPopover}
                 data-attr="notifications-button"
             >
-                <IconWithCount
-                    count={importantChanges.length || 0}
-                    showZero={false}
-                    status={hasUnread ? 'danger' : 'primary'}
-                >
+                <IconWithCount count={unreadCount} showZero={true} status={hasUnread ? 'danger' : 'primary'}>
                     <IconNotification />
                 </IconWithCount>
                 <IconArrowDropDown />

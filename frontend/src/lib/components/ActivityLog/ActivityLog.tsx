@@ -7,6 +7,7 @@ import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityScope, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
 import { LemonSkeleton } from '../LemonSkeleton'
+import clsx from 'clsx'
 
 export interface ActivityLogProps {
     scope: ActivityScope
@@ -71,7 +72,7 @@ export const ActivityLogRow = ({
     showExtendedDescription?: boolean
 }): JSX.Element => {
     return (
-        <div className={'activity-log-row'}>
+        <div className={clsx('activity-log-row', logItem.unread && 'unread')}>
             <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
             <div className="details">
                 <div className="activity-description">{logItem.description}</div>

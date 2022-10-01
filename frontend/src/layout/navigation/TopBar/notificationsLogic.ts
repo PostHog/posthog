@@ -82,7 +82,10 @@ export const notificationsLogic = kea<notificationsLogicType>([
         },
     })),
     selectors({
-        hasUnread: [(s) => [s.importantChanges], (importantChanges) => importantChanges.find((ic) => ic.unread)],
+        unread: [(s) => [s.importantChanges], (importantChanges) => importantChanges.filter((ic) => ic.unread)],
+        unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
+        hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
+        hasImportantChanges: [(s) => [s.importantChanges], (importantChanges) => (importantChanges || []).length > 0],
     }),
     events(({ actions }) => ({
         afterMount: () => actions.loadImportantChanges(null),
