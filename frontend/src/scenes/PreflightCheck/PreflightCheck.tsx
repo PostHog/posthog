@@ -134,7 +134,7 @@ export function PreflightCheck(): JSX.Element {
                                     troubleshooting guide
                                 </a>{' '}
                                 or our{' '}
-                                <a href="https://posthog.com/docs/self-host/runbook" target="_blank">
+                                <a href="https://posthog.com/docs/runbook" target="_blank">
                                     self host runbook
                                 </a>
                                 .
