@@ -2,7 +2,7 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
-import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import { activityLogLogic, describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { featureFlagsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import '@testing-library/jest-dom'
@@ -22,7 +22,7 @@ describe('the activity log logic', () => {
                 },
             })
             initKeaTests()
-            logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG, describer: flagActivityDescriber })
+            logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG })
             logic.mount()
         })
 
@@ -44,7 +44,7 @@ describe('the activity log logic', () => {
             // stringify to confirm this value has the humanized version of the response
             // detailed tests for humanization are below
             expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
-                JSON.stringify(humanize(featureFlagsActivityResponseJson))
+                JSON.stringify(humanize(featureFlagsActivityResponseJson, describerFor))
             )
         })
     })
@@ -108,7 +108,7 @@ describe('the activity log logic', () => {
             await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
 
             expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
-                JSON.stringify(humanize(featureFlagsActivityResponseJson))
+                JSON.stringify(humanize(featureFlagsActivityResponseJson, () => flagActivityDescriber))
             )
         })
     })

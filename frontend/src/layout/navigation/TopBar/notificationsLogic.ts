@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 
 import type { notificationsLogicType } from './notificationsLogicType'
+import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 
 const POLL_TIMEOUT = 5000
 const MARK_READ_TIMEOUT = 15000
@@ -29,7 +30,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
                     const response = (await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
                     )) as ActivityLogItem[]
-                    const humanizedNotifications = humanize(response, true)
+                    const humanizedNotifications = humanize(response, describerFor, true)
 
                     const timeout = window.setTimeout(actions.loadImportantChanges, POLL_TIMEOUT)
                     actions.setPollTimeout(timeout)
