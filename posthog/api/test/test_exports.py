@@ -19,6 +19,7 @@ from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_REGION,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.tasks import exporter
@@ -39,7 +40,7 @@ class TestExports(APIBaseTest):
             aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
             aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
             config=Config(signature_version="s3v4"),
-            region_name="us-east-1",
+            region_name=OBJECT_STORAGE_REGION,
         )
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_ROOT_BUCKET).delete()
