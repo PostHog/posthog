@@ -16,10 +16,8 @@ export const scene: SceneExport = {
 }
 
 const WARNING_TYPE_TO_DESCRIPTION = {
-    cannot_merge_already_identified: 'Refused to merge an already identified user via $identify or $create_alias call',
-    cannot_merge_with_illegal_distinct_id:
-        'Refused to merge with an illegal distinct_id via $identify or $create_alias call',
-    cannot_merge_attepts_exhausted: 'Merge via $identify or $create_alias call failed',
+    cannot_merge_already_identified: 'Refused to merge an already identified user',
+    cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
 }
 
@@ -52,25 +50,15 @@ const WARNING_TYPE_RENDERER = {
             </>
         )
     },
-    cannot_merge_attepts_exhausted: function Render(warning: IngestionWarning): JSX.Element {
-        const details = warning.details as {
-            sourcePersonDistinctId: string
-            targetPersonDistinctId: string
-            error: string
-        }
-        return (
-            <>
-                Merging <Link to={urls.person(details.sourcePersonDistinctId)}>{details.sourcePersonDistinctId}</Link>{' '}
-                into <Link to={urls.person(details.targetPersonDistinctId)}>{details.targetPersonDistinctId}</Link> via
-                an $identify or $create_alias call failed with error: {details.error}.
-            </>
-        )
-    },
     skipping_event_invalid_uuid: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
             eventUuid: string
         }
-        return <>Refused to process event with invalid uuid: {details.eventUuid}.</>
+        return (
+            <>
+                Refused to process event with invalid uuid: <code>{details.eventUuid}</code>.
+            </>
+        )
     },
 }
 
@@ -96,7 +84,20 @@ export function IngestionWarningsView(): JSX.Element {
                         title: 'Warning',
                         dataIndex: 'type',
                         render: function Render(_, summary: IngestionWarningSummary) {
-                            return <>{WARNING_TYPE_TO_DESCRIPTION[summary.type] || summary.type}</>
+                            const type = WARNING_TYPE_TO_DESCRIPTION[summary.type] || summary.type
+                            return (
+                                <>
+                                    {type} (
+                                    <Link
+                                        to={`https://posthog.com/docs/integrate/ingestion-warnings#${type
+                                            .toLowerCase()
+                                            .split(' ')
+                                            .join('-')}`}
+                                    >
+                                        {'docs'})
+                                    </Link>
+                                </>
+                            )
                         },
                     },
                     {

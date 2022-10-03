@@ -507,11 +507,6 @@ export class PersonState {
 
                 failedAttempts++
                 if (failedAttempts === MAX_FAILED_PERSON_MERGE_ATTEMPTS) {
-                    captureIngestionWarning(this.db, teamId, 'cannot_merge_attepts_exhausted', {
-                        sourcePersonDistinctId: otherPersonDistinctId,
-                        targetPersonDistinctId: mergeIntoDistinctId,
-                        error: error.message,
-                    })
                     throw error // Very much not OK, failed repeatedly so rethrowing the error
                 }
 

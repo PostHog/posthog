@@ -54,7 +54,9 @@ export class EventsProcessor {
         eventUuid: string
     ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
-            captureIngestionWarning(this.db, teamId, 'skipping_event_invalid_uuid', { eventUuid: eventUuid })
+            captureIngestionWarning(this.db, teamId, 'skipping_event_invalid_uuid', {
+                eventUuid: JSON.stringify(eventUuid),
+            })
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
         }
         const singleSaveTimer = new Date()
