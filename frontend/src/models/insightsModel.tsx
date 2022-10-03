@@ -17,7 +17,6 @@ export const insightsModel = kea<insightsModelType>({
     actions: () => ({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
-        /** duplicate an insight from the insight page */
         duplicateInsight: (item: InsightModel, dashboardId?: number) => ({
             item,
             dashboardId,
@@ -118,6 +117,7 @@ export const insightsModel = kea<insightsModelType>({
             // })
 
             const { id: _discard, short_id: __discard, ...rest } = item
+            // todo what if the source insight is on more than one dashboard
             const newItem = dashboardId ? { ...rest, dashboards: [dashboardId] } : { ...rest }
             const addedItem = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, newItem)
 
@@ -134,7 +134,6 @@ export const insightsModel = kea<insightsModelType>({
                 actions.duplicateInsightSuccess(addedItem)
                 lemonToast.success('Insight duplicated')
             }
-            lemonToast.error('Insight duplication not yet implemented ' + dashboardId)
         },
     }),
 })
