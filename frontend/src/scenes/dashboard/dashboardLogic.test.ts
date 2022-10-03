@@ -361,16 +361,18 @@ describe('dashboardLogic', () => {
     })
 
     describe('external updates', () => {
-        it('can respond to external filter update', async () => {
+        beforeEach(async () => {
             logic = dashboardLogic({ id: 9 })
             logic.mount()
-
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.allItems?.items).toHaveLength(1)
             expect(logic.values.allItems?.items[0].short_id).toEqual('800')
             expect(logic.values.allItems?.items[0].filters.date_from).toBeUndefined()
             expect(logic.values.allItems?.items[0].filters.interval).toEqual('day')
+            expect(logic.values.allItems?.items[0].name).toEqual('pageviews')
+        })
 
+        it('can respond to external filter update', async () => {
             const copiedInsight = insight800()
             dashboardsModel.actions.updateDashboardInsight({
                 ...copiedInsight,
@@ -379,9 +381,20 @@ describe('dashboardLogic', () => {
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.allItems?.items).toHaveLength(1)
-            expect(logic.values.allItems?.items[0].short_id).toEqual('800')
             expect(logic.values.allItems?.items[0].filters.date_from).toEqual('-1d')
             expect(logic.values.allItems?.items[0].filters.interval).toEqual('hour')
+        })
+
+        it('can respond to external insight rename', async () => {
+            const copiedInsight = insight800()
+            insightsModel.actions.renameInsightSuccess({
+                ...copiedInsight,
+                name: 'renamed',
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.allItems?.items).toHaveLength(1)
+            expect(logic.values.allItems?.items[0].name).toEqual('renamed')
         })
     })
 
