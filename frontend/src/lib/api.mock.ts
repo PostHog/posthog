@@ -99,7 +99,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     first_name: 'John',
     email: 'john.doe@posthog.com',
     email_opt_in: true,
-    notification_settings: {},
+    notification_settings: { plugin_disabled: false },
     anonymize_data: false,
     toolbar_mode: 'toolbar',
     has_password: true,
