@@ -573,8 +573,6 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         self.assertTrue(run_migration())
 
-        with self.settings(CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION=False):
-            self.assertTrue(run_migration())
 
         MIGRATION_DEFINITION.operations[-4].fn = old_fn
 
