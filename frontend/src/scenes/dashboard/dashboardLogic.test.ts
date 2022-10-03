@@ -172,14 +172,14 @@ describe('dashboardLogic', () => {
 
                         starting.dashboards?.forEach((dashboardId) => {
                             // remove this insight from any dashboard it is already on
-                            dashboards[dashboardId].items = dashboards[dashboardId].items.filter(
-                                (i: InsightModel) => i.id !== starting.id
+                            dashboards[dashboardId].tiles = dashboards[dashboardId].tiles.filter(
+                                (t: DashboardTile) => t.insight.id !== starting.id
                             )
                         })
 
                         insights[insightId].dashboards?.forEach((dashboardId: number) => {
-                            // then add it to any it now references
-                            dashboards[dashboardId].items.push(insights[insightId])
+                            // then add it to any it new references
+                            dashboards[dashboardId].tiles.push(tileFromInsight(insights[insightId]))
                         })
 
                         return [200, insights[insightId]]
@@ -199,7 +199,10 @@ describe('dashboardLogic', () => {
         })
 
         it('only replaces the source dashboard with the target', async () => {
+            // insight 800 starts on dashboard 9 and 10
+            // dashboard 9 has only that 1 insight
             const startingDashboard = dashboards['9']
+            // moving insight 800 to dashboard 8 means dashboard 9 has no insights
             const expectedDashboard = dashboardResult(9, [])
 
             const tiles = startingDashboard.tiles
@@ -299,14 +302,14 @@ describe('dashboardLogic', () => {
                         'refreshAllDashboardItems',
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses(
-                            dashboards['5'].items.map(({ short_id }: InsightModel) => short_id),
+                            dashboards['5'].tiles.map((t: DashboardTile) => t.insight.short_id),
                             true
                         ),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].tiles[0].short_id]: { loading: true, timer: anything() },
-                            [dashboards['5'].tiles[1].short_id]: { loading: true, timer: anything() },
+                            [dashboards['5'].tiles[0].insight.short_id]: { loading: true, timer: anything() },
+                            [dashboards['5'].tiles[1].insight.short_id]: { loading: true, timer: anything() },
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -317,18 +320,18 @@ describe('dashboardLogic', () => {
                         // and updates the action in the model
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                            a.payload.item.short_id === dashboards['5'].tiles[1].short_id,
+                            a.payload.insight.short_id === dashboards['5'].tiles[1].insight.short_id,
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                            a.payload.item.short_id === dashboards['5'].tiles[0].short_id,
+                            a.payload.insight.short_id === dashboards['5'].tiles[0].insight.short_id,
                         // no longer reloading
-                        logic.actionCreators.setRefreshStatus(dashboards['5'].tiles[0].short_id, false),
-                        logic.actionCreators.setRefreshStatus(dashboards['5'].tiles[1].short_id, false),
+                        logic.actionCreators.setRefreshStatus(dashboards['5'].tiles[0].insight.short_id, false),
+                        logic.actionCreators.setRefreshStatus(dashboards['5'].tiles[1].insight.short_id, false),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].tiles[0].short_id]: { refreshed: true, timer: anything() },
-                            [dashboards['5'].tiles[1].short_id]: { refreshed: true, timer: anything() },
+                            [dashboards['5'].tiles[0].insight.short_id]: { refreshed: true, timer: anything() },
+                            [dashboards['5'].tiles[1].insight.short_id]: { refreshed: true, timer: anything() },
                         },
                         refreshMetrics: {
                             completed: 2,
@@ -339,16 +342,16 @@ describe('dashboardLogic', () => {
 
             it('reloads selected items', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.refreshAllDashboardItems([dashboards['5'].tiles[0] as any])
+                    logic.actions.refreshAllDashboardItems([dashboards['5'].tiles[0]])
                 })
                     .toFinishAllListeners()
                     .toDispatchActions([
                         'refreshAllDashboardItems',
-                        logic.actionCreators.setRefreshStatuses([dashboards['5'].tiles[0].short_id], true),
+                        logic.actionCreators.setRefreshStatuses([dashboards['5'].tiles[0].insight.short_id], true),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].tiles[0].short_id]: { loading: true, timer: anything() },
+                            [dashboards['5'].tiles[0].insight.short_id]: { loading: true, timer: anything() },
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -358,12 +361,12 @@ describe('dashboardLogic', () => {
                     .toDispatchActionsInAnyOrder([
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                            a.payload.item.short_id === dashboards['5'].tiles[0].short_id,
-                        logic.actionCreators.setRefreshStatus(dashboards['5'].tiles[0].short_id, false),
+                            a.payload.insight.short_id === dashboards['5'].tiles[0].insight.short_id,
+                        logic.actionCreators.setRefreshStatus(dashboards['5'].tiles[0].insight.short_id, false),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].tiles[0].short_id]: { refreshed: true, timer: anything() },
+                            [dashboards['5'].tiles[0].insight.short_id]: { refreshed: true, timer: anything() },
                         },
                         refreshMetrics: {
                             completed: 1,
@@ -429,8 +432,11 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboardItemsSuccess'])
                 .toMatchValues({
-                    allItems: truth(({ items }) => items.filter((i: InsightModel) => i.result === null).length === 2),
+                    allItems: truth(
+                        ({ tiles }) => tiles.filter((i: DashboardTile) => i.insight.result === null).length === 2
+                    ),
                     items: truth((items) => items.length === 4),
+                    tiles: truth((tiles) => tiles.length === 4),
                 })
                 .toDispatchActions(['refreshAllDashboardItems', 'setRefreshStatuses'])
                 .toMatchValues({
@@ -447,8 +453,11 @@ describe('dashboardLogic', () => {
                     },
                 })
                 .toMatchValues({
-                    allItems: truth(({ items }) => items.filter((i: InsightModel) => i.result === null).length === 0),
+                    allItems: truth(
+                        ({ tiles }) => tiles.filter((i: DashboardTile) => i.insight.result === null).length === 0
+                    ),
                     items: truth((items) => items.length === 4),
+                    tiles: truth((tiles) => tiles.length === 4),
                 })
         })
     })

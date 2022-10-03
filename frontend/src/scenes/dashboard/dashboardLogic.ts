@@ -251,6 +251,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 },
                 [dashboardsModel.actionTypes.updateDashboardTile]: (state, { tile, extraDashboardIds }) => {
                     const targetDashboards = (tile.insight.dashboards || []).concat(extraDashboardIds || [])
+
                     if (!props.id) {
                         // what are we even updating?
                         return state
@@ -263,7 +264,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     if (state) {
                         const tileIndex = state.tiles.findIndex((t) => t.insight.short_id === tile.insight.short_id)
                         const newTiles = state.tiles.slice(0)
-
                         if (tileIndex >= 0) {
                             if (tile.insight.dashboards?.includes(props.id)) {
                                 newTiles[tileIndex] = { ...newTiles[tileIndex], ...tile }
@@ -723,7 +723,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         })}`
                     )
                     breakpoint()
-
                     // reload the cached results inside the insight's logic
                     if (insight.filters.insight) {
                         const itemResultLogic = insightLogic?.findMounted({
