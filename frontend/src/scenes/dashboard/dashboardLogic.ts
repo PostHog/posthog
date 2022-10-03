@@ -457,14 +457,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
             (searchParams) => searchParams.highlightInsightId,
         ],
         lastRefreshed: [
-            (s) => [s.items],
-            (items) => {
-                if (!items || !items.length) {
+            (s) => [s.tiles],
+            (tiles) => {
+                if (!tiles || !tiles.length) {
                     return null
                 }
                 let oldestLastRefreshed = null
-                for (const item of items) {
-                    const itemLastRefreshed = item.last_refresh ? dayjs(item.last_refresh) : null
+                for (const tile of tiles) {
+                    const itemLastRefreshed = tile.last_refresh ? dayjs(tile.last_refresh) : null
                     if (
                         !oldestLastRefreshed ||
                         (itemLastRefreshed && itemLastRefreshed.isBefore(oldestLastRefreshed))
