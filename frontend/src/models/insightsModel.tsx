@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import type { insightsModelType } from './insightsModelType'
 import { lemonToast } from 'lib/components/lemonToast'
-import { router } from 'kea-router'
 
 export const insightsModel = kea<insightsModelType>({
     path: ['models', 'insightsModel'],
@@ -105,35 +104,17 @@ export const insightsModel = kea<insightsModelType>({
                 }
             )
         },
-        duplicateInsight: async ({ item, dashboardId }) => {
+        duplicateInsight: async ({ item }) => {
             if (!item) {
                 return
             }
 
-            // TODO insight only has layouts in dashboard context -
-            // const layouts: Record<string, any> = {}
-            // Object.entries(item.layouts || {}).forEach(([size, { w, h }]) => {
-            //     layouts[size] = { w, h }
-            // })
-
             const { id: _discard, short_id: __discard, ...rest } = item
-            // todo what if the source insight is on more than one dashboard
-            const newItem = dashboardId ? { ...rest, dashboards: [dashboardId] } : { ...rest }
+            const newItem = { ...rest, name: rest.name + ' (copy)' }
             const addedItem = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, newItem)
 
-            const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
-
-            if (dashboardId && dashboard) {
-                lemonToast.success('Insight copied', {
-                    button: {
-                        label: `View ${dashboard.name}`,
-                        action: () => router.actions.push(urls.dashboard(dashboard.id)),
-                    },
-                })
-            } else {
-                actions.duplicateInsightSuccess(addedItem)
-                lemonToast.success('Insight duplicated')
-            }
+            actions.duplicateInsightSuccess(addedItem)
+            lemonToast.success('Insight duplicated')
         },
     }),
 })
