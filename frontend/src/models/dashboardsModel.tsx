@@ -5,7 +5,7 @@ import { delay, idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import type { dashboardsModelType } from './dashboardsModelType'
-import { DashboardType, InsightShortId, DashboardTile } from '~/types'
+import { DashboardType, InsightShortId, DashboardTile, InsightModel } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/components/lemonToast'
@@ -22,7 +22,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // can provide extra dashboard ids if not all listeners will choose to respond to this action
         // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
         // specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
-        updateDashboardInsight: (tile: DashboardTile, extraDashboardIds?: number[]) => ({
+        updateDashboardInsight: (insight: InsightModel, extraDashboardIds?: number[]) => ({
+            insight,
+            extraDashboardIds,
+        }),
+        updateDashboardTile: (tile: DashboardTile, extraDashboardIds?: number[]) => ({
             tile,
             extraDashboardIds,
         }),

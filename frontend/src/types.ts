@@ -817,6 +817,7 @@ export enum InsightColor {
 export interface Cacheable {
     last_refresh: string | null
     filters_hash: string
+    refreshing: boolean
 }
 
 export interface Tileable {
@@ -843,7 +844,6 @@ export interface InsightModel extends Cacheable {
     saved: boolean
     created_at: string
     created_by: UserBasicType | null
-    refreshing: boolean
     is_sample: boolean
     dashboards: number[] | null
     updated_at: string

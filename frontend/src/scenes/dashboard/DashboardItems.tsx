@@ -78,22 +78,22 @@ export function DashboardItems(): JSX.Element {
                 draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popup"
             >
                 {tiles?.map((tile: DashboardTile) => {
-                    const item = tile.insight
+                    const insight = tile.insight
                     return (
                         <InsightCard
-                            key={item.short_id}
-                            insight={item}
+                            key={insight.short_id}
+                            insight={insight}
                             dashboardId={dashboard?.id}
-                            loading={isRefreshing(item.short_id)}
-                            apiErrored={refreshStatus[item.short_id]?.error || false}
-                            highlighted={highlightedInsightId && item.short_id === highlightedInsightId}
+                            loading={isRefreshing(insight.short_id)}
+                            apiErrored={refreshStatus[insight.short_id]?.error || false}
+                            highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                             showResizeHandles={dashboardMode === DashboardMode.Edit}
                             canResizeWidth={canResizeWidth}
-                            updateColor={(color) => updateItemColor(item.id, color)}
-                            removeFromDashboard={() => removeItem(item)}
-                            refresh={() => refreshAllDashboardItems([item])}
-                            rename={() => renameInsight(item)}
-                            duplicate={() => duplicateInsight(item)}
+                            updateColor={(color) => updateItemColor(insight.id, color)}
+                            removeFromDashboard={() => removeItem(insight)}
+                            refresh={() => refreshAllDashboardItems([tile])}
+                            rename={() => renameInsight(insight)}
+                            duplicate={() => duplicateInsight(insight)}
                             moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                                 if (!dashboard) {
                                     throw new Error('must be on a dashboard to move an insight')

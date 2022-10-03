@@ -177,7 +177,7 @@ function SavedInsightsGrid(): JSX.Element {
                 {paginationState.dataSourcePage.map((insight: InsightModel) => (
                     <InsightCard
                         key={insight.short_id}
-                        insight={{ ...insight, color: null }}
+                        insight={{ ...insight }}
                         rename={() => renameInsight(insight)}
                         duplicate={() => duplicateInsight(insight)}
                         deleteWithUndo={() =>

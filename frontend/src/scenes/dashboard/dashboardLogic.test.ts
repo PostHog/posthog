@@ -29,6 +29,7 @@ const tileFromInsight = (insight: InsightModel): DashboardTile => ({
     insight: insight,
     last_refresh: insight.last_refresh,
     filters_hash: insight.filters_hash,
+    refreshing: false,
 })
 
 const dashboardResult = (dashboardId: number, insights: InsightModel[]): DashboardType => {
@@ -386,12 +387,9 @@ describe('dashboardLogic', () => {
 
             const copiedInsight = insight800()
             dashboardsModel.actions.updateDashboardInsight({
-                ...logic.values.allItems?.tiles[0],
-                insight: {
-                    ...copiedInsight,
-                    filters: { ...copiedInsight.filters, date_from: '-1d', interval: 'hour' },
-                },
-            } as DashboardTile)
+                ...copiedInsight,
+                filters: { ...copiedInsight.filters, date_from: '-1d', interval: 'hour' },
+            })
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.allItems?.tiles).toHaveLength(1)
@@ -494,10 +492,11 @@ describe('dashboardLogic', () => {
         ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
 
         const changedTile: DashboardTile = {
-            ...(nineLogic.values.allItems?.tiles[0] as DashboardTile), // we know it's not undefined
+            ...(nineLogic.values.allItems?.tiles[0] as DashboardTile), // we know it isn't undefined
             insight: { ...insight800(), dashboards: [10, 5] },
         }
-        dashboardsModel.actions.updateDashboardInsight(changedTile, [9])
+
+        dashboardsModel.actions.updateDashboardTile(changedTile, [9])
 
         expect(
             fiveLogic.values.allItems?.tiles.map((t) => ({
