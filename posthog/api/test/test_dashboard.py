@@ -181,7 +181,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
     @snapshot_postgres_queries
-    def test_listing_insights_is_not_nplus1(self) -> None:
+    def test_listing_dashboards_is_not_nplus1(self) -> None:
         self.client.logout()
 
         self.organization.available_features = [AvailableFeature.DASHBOARD_COLLABORATION]
@@ -201,7 +201,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         for i in range(5):
             self._create_dashboard({"name": f"dashboard-{i}", "description": i})
 
-            with self.assertNumQueries(9):
+            with self.assertNumQueries(10):
                 response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -306,6 +306,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response["items"]), 1)
         self.assertEqual(response["items"][0]["name"], "some_item")
         self.assertEqual(response["items"][0]["filters"]["date_from"], "-14d")
+        self.assertEqual(len(response["tiles"]), 1)
+        self.assertEqual(response["tiles"][0]["insight"]["name"], "some_item")
+        self.assertEqual(response["tiles"][0]["insight"]["filters"]["date_from"], "-14d")
 
         item_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(item_response["results"][0]["name"], "some_item")
@@ -316,6 +319,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         items_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(len(items_response["results"]), 0)
+
+        excludes_deleted_insights_response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/"
+        ).json()
+        self.assertEqual(len(excludes_deleted_insights_response["items"]), 0)
+        self.assertEqual(len(excludes_deleted_insights_response["tiles"]), 0)
 
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
