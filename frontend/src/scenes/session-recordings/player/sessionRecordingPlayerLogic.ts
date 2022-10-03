@@ -386,8 +386,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 !values.sessionPlayerDataLoading
             ) {
                 values.player?.replayer?.pause()
-                actions.setErrorPlayerState(true)
                 actions.endBuffer()
+                actions.setErrorPlayerState(true)
             }
 
             // If next time is greater than last buffered time, set to buffering
@@ -506,6 +506,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setCurrentPlayerPosition(values.sessionPlayerData.metadata.segments[0].startPlayerPosition)
                 }
             }
+            // If next position tries to access snapshot that is not loaded, show error state
+            else if (
+                !!values.sessionPlayerData?.bufferedTo &&
+                !!nextPlayerPosition &&
+                !!values.currentSegment &&
+                comparePlayerPositions(
+                    nextPlayerPosition,
+                    values.sessionPlayerData.bufferedTo,
+                    values.sessionPlayerData.metadata.segments
+                ) > 0 &&
+                !values.sessionPlayerDataLoading
+            ) {
+                values.player?.replayer?.pause()
+                actions.endBuffer()
+                actions.setErrorPlayerState(true)
+            }
 
             // If we're beyond buffered position, set to buffering
             else if (
@@ -522,6 +538,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // when the buffering progresses
                 values.player?.replayer?.pause()
                 actions.startBuffer()
+                actions.setErrorPlayerState(false)
             } else {
                 // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentPlayerPosition(nextPlayerPosition)
