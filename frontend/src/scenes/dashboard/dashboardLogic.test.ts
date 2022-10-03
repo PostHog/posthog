@@ -375,16 +375,18 @@ describe('dashboardLogic', () => {
     })
 
     describe('external updates', () => {
-        it('can respond to external filter update', async () => {
+        beforeEach(async () => {
             logic = dashboardLogic({ id: 9 })
             logic.mount()
-
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.allItems?.tiles).toHaveLength(1)
             expect(logic.values.allItems?.tiles[0].insight.short_id).toEqual('800')
             expect(logic.values.allItems?.tiles[0].insight.filters.date_from).toBeUndefined()
             expect(logic.values.allItems?.tiles[0].insight.filters.interval).toEqual('day')
+            expect(logic.values.allItems?.tiles[0].insight.name).toEqual('donut')
+        })
 
+        it('can respond to external filter update', async () => {
             const copiedInsight = insight800()
             dashboardsModel.actions.updateDashboardInsight({
                 ...copiedInsight,
@@ -393,9 +395,26 @@ describe('dashboardLogic', () => {
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.allItems?.tiles).toHaveLength(1)
-            expect(logic.values.allItems?.tiles[0].insight.short_id).toEqual('800')
             expect(logic.values.allItems?.tiles[0].insight.filters.date_from).toEqual('-1d')
             expect(logic.values.allItems?.tiles[0].insight.filters.interval).toEqual('hour')
+        })
+
+        it('can respond to external insight rename', async () => {
+            expect(logic.values.allItems?.tiles[0].color).toEqual(null)
+
+            const copiedInsight = insight800()
+            insightsModel.actions.renameInsightSuccess({
+                ...copiedInsight,
+                name: 'renamed',
+                last_modified_at: '2021-04-01 12:00:00',
+                description: 'should be ignored',
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.allItems?.tiles).toHaveLength(1)
+            expect(logic.values.allItems?.tiles[0].insight.name).toEqual('renamed')
+            expect(logic.values.allItems?.tiles[0].insight.last_modified_at).toEqual('2021-04-01 12:00:00')
+            expect(logic.values.allItems?.tiles[0].insight.description).toEqual(null)
         })
     })
 

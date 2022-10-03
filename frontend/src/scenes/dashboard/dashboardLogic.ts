@@ -318,18 +318,26 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                 : state?.tiles,
                     } as DashboardType
                 },
-                // TODO this is broken in production cos the logic didn't already listen for it
-                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
-                    const matchingTile = state?.tiles.findIndex((t) => t.insight.short_id === item.short_id)
+                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }): DashboardType | null => {
+                    const tileIndex = state?.tiles.findIndex((t) => t.insight.short_id === item.short_id)
                     const tiles = state?.tiles.slice(0)
-                    if (!matchingTile || matchingTile === -1 || !tiles) {
+
+                    if (tileIndex === undefined || tileIndex === -1 || !tiles) {
                         return state
                     }
 
-                    tiles[matchingTile] = { ...tiles[matchingTile], insight: item }
+                    tiles[tileIndex] = {
+                        ...tiles[tileIndex],
+                        insight: {
+                            ...tiles[tileIndex].insight,
+                            name: item.name,
+                            last_modified_at: item.last_modified_at,
+                        },
+                    }
+
                     return {
                         ...state,
-                        tiles: tiles,
+                        tiles,
                     } as DashboardType
                 },
             },
