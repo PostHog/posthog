@@ -413,9 +413,9 @@ export const insightLogic = kea<insightLogicType>({
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                 // TODO when is this called without changes originating in this logic
-                const targetDashboards = (item.dashboards || []).concat(extraDashboardIds || [])
+                const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
                 const updateIsForThisDashboard =
-                    item.short_id === state.short_id &&
+                    item?.short_id === state.short_id &&
                     props.dashboardId &&
                     targetDashboards.includes(props.dashboardId)
                 if (updateIsForThisDashboard) {
@@ -844,7 +844,7 @@ export const insightLogic = kea<insightLogicType>({
                     throw error
                 }
 
-                // We don't want to send ALL of the insight back to the API, so only grabbing fields that might have changed
+                // We don't want to send ALL the insight properties back to the API, so only grabbing fields that might have changed
                 const insightRequest: Partial<InsightModel> = {
                     name,
                     derived_name: values.derivedName,

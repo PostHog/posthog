@@ -318,6 +318,20 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                 : state?.tiles,
                     } as DashboardType
                 },
+                // TODO this is broken in production cos the logic didn't already listen for it
+                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
+                    const matchingTile = state?.tiles.findIndex((t) => t.insight.short_id === item.short_id)
+                    const tiles = state?.tiles.slice(0)
+                    if (!matchingTile || matchingTile === -1 || !tiles) {
+                        return state
+                    }
+
+                    tiles[matchingTile] = { ...tiles[matchingTile], insight: item }
+                    return {
+                        ...state,
+                        tiles: tiles,
+                    } as DashboardType
+                },
             },
         ],
         loadTimer: [null as Date | null, { loadDashboardItems: () => new Date() }],
@@ -676,26 +690,26 @@ export const dashboardLogic = kea<dashboardLogicType>({
             }
             const dashboardId: number = props.id
 
-            const items = tiles?.map((t) => t.insight) || values.items || []
+            const insights = tiles?.map((t) => t.insight) || values.items || []
 
             // Don't do anything if there's nothing to refresh
-            if (items.length === 0) {
+            if (insights.length === 0) {
                 return
             }
 
             let breakpointTriggered = false
             actions.setRefreshStatuses(
-                items.map((item) => item.short_id),
+                insights.map((item) => item.short_id),
                 true
             )
 
             // array of functions that reload each item
-            const fetchItemFunctions = items.map((dashboardItem) => async () => {
+            const fetchItemFunctions = insights.map((insight) => async () => {
                 try {
                     breakpoint()
 
-                    const refreshedDashboardItem = await api.get(
-                        `api/projects/${values.currentTeamId}/insights/${dashboardItem.id}/?${toParams({
+                    const refreshedInsight = await api.get(
+                        `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
                             refresh: true,
                             from_dashboard: dashboardId, // needed to load insight in correct context
                         })}`
@@ -703,25 +717,25 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     breakpoint()
 
                     // reload the cached results inside the insight's logic
-                    if (dashboardItem.filters.insight) {
+                    if (insight.filters.insight) {
                         const itemResultLogic = insightLogic?.findMounted({
-                            dashboardItemId: dashboardItem.short_id,
+                            dashboardItemId: insight.short_id,
                             dashboardId: dashboardId,
-                            cachedInsight: dashboardItem,
+                            cachedInsight: insight,
                         })
                         itemResultLogic?.actions.setInsight(
-                            { ...dashboardItem, result: refreshedDashboardItem.result },
+                            { ...insight, result: refreshedInsight.result },
                             { fromPersistentApi: true }
                         )
                     }
 
-                    dashboardsModel.actions.updateDashboardInsight(refreshedDashboardItem)
-                    actions.setRefreshStatus(dashboardItem.short_id)
+                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
+                    actions.setRefreshStatus(insight.short_id)
                 } catch (e: any) {
                     if (isBreakpoint(e)) {
                         breakpointTriggered = true
                     } else {
-                        actions.setRefreshError(dashboardItem.short_id)
+                        actions.setRefreshError(insight.short_id)
                     }
                 }
             })

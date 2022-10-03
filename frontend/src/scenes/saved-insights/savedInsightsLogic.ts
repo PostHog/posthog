@@ -253,7 +253,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.setInsight(item)
         },
-        // include params to help kea typegen
         [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
     }),
     actionToUrl: ({ values }) => {
