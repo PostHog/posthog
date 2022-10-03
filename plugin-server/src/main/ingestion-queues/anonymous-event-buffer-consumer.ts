@@ -1,7 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Kafka } from 'kafkajs'
 import { JobQueueManager } from 'main/job-queues/job-queue-manager'
-import { JobName } from 'types'
+
+import { JobName } from '../../types'
 
 export const startAnonymousEventBufferConsumer = (kafka: Kafka, jobQueueManager: JobQueueManager) => {
     const consumer = kafka.consumer({ groupId: 'clickhouse-ingester' })
