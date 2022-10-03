@@ -289,7 +289,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         return state
                     }
 
-                    insights[insightIndex] = { ...item }
+                    insights[insightIndex] = { ...insights[insightIndex], ...item }
 
                     return {
                         ...state,
