@@ -25,6 +25,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { isLemonSelectSection } from 'lib/components/LemonSelect'
 
 export function DashboardHeader(): JSX.Element | null {
     const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId, apiUrl } =
@@ -46,13 +47,13 @@ export function DashboardHeader(): JSX.Element | null {
             {dashboard && (
                 <>
                     <SubscriptionsModal
-                        visible={showSubscriptions}
+                        isOpen={showSubscriptions}
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal
-                        visible={dashboardMode === DashboardMode.Sharing}
+                        isOpen={dashboardMode === DashboardMode.Sharing}
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}
                     />
@@ -61,14 +62,17 @@ export function DashboardHeader(): JSX.Element | null {
 
             <PageHeader
                 title={
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <div className="flex items-center">
                         <EditableField
                             name="name"
                             value={dashboard?.name || (allItemsLoading ? 'Loading…' : '')}
                             placeholder="Name this dashboard"
                             onSave={
-                                dashboard ? (value) => updateDashboard({ id: dashboard.id, name: value }) : undefined
+                                dashboard
+                                    ? (value) => updateDashboard({ id: dashboard.id, name: value, allowUndo: true })
+                                    : undefined
                             }
+                            saveOnBlur={true}
                             minLength={1}
                             maxLength={400} // Sync with Dashboard model
                             mode={!canEditDashboard ? 'view' : undefined}
@@ -107,7 +111,7 @@ export function DashboardHeader(): JSX.Element | null {
                     ) : (
                         <>
                             <More
-                                data-tooltip="dashboard-three-dots-options-menu"
+                                data-attr="dashboard-three-dots-options-menu"
                                 overlay={
                                     dashboard ? (
                                         <>
@@ -254,7 +258,10 @@ export function DashboardHeader(): JSX.Element | null {
                                 name="description"
                                 value={dashboard.description || ''}
                                 placeholder="Description (optional)"
-                                onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
+                                onSave={(value) =>
+                                    updateDashboard({ id: dashboard.id, description: value, allowUndo: true })
+                                }
+                                saveOnBlur={true}
                                 compactButtons
                                 mode={!canEditDashboard ? 'view' : undefined}
                                 paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
@@ -269,7 +276,6 @@ export function DashboardHeader(): JSX.Element | null {
                                         saving={dashboardLoading}
                                         tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags?.includes(tag))}
                                         className="insight-metadata-tags"
-                                        data-tooltip="dashboard-tags"
                                     />
                                 ) : dashboard.tags.length ? (
                                     <ObjectTags
@@ -277,7 +283,6 @@ export function DashboardHeader(): JSX.Element | null {
                                         saving={dashboardLoading}
                                         staticOnly
                                         className="insight-metadata-tags"
-                                        data-tooltip="dashboard-tags"
                                     />
                                 ) : null}
                             </>
@@ -305,8 +310,11 @@ function CollaboratorBubbles({
 
     const effectiveRestrictionLevelOption = DASHBOARD_RESTRICTION_OPTIONS[dashboard.effective_restriction_level]
     const tooltipParts: string[] = []
-    if (typeof effectiveRestrictionLevelOption?.label === 'string') {
-        tooltipParts.push(effectiveRestrictionLevelOption.label)
+    if (
+        isLemonSelectSection(effectiveRestrictionLevelOption) &&
+        typeof effectiveRestrictionLevelOption?.title === 'string'
+    ) {
+        tooltipParts.push(effectiveRestrictionLevelOption.title)
     }
     if (dashboard.is_shared) {
         tooltipParts.push('Shared publicly')
@@ -317,7 +325,9 @@ function CollaboratorBubbles({
             people={allCollaborators.map((collaborator) => ({
                 email: collaborator.user.email,
                 name: collaborator.user.first_name,
-                title: `${collaborator.user.first_name} (${privilegeLevelToName[collaborator.level]})`,
+                title: `${collaborator.user.first_name} <${collaborator.user.email}> (${
+                    privilegeLevelToName[collaborator.level]
+                })`,
             }))}
             tooltip={tooltipParts.join(' • ')}
             onClick={onClick}

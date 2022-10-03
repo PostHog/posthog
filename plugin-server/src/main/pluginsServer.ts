@@ -2,12 +2,11 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
-import { Consumer, KafkaJSProtocolError } from 'kafkajs'
+import { KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
-import { KAFKA_HEALTHCHECK } from '../config/kafka-topics'
 import {
     Hub,
     JobQueueConsumerControl,
@@ -28,7 +27,6 @@ import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startPluginSchedules } from './services/schedule'
-import { setupKafkaHealthcheckConsumer } from './utils'
 
 const { version } = require('../../package.json')
 
@@ -38,7 +36,6 @@ export type ServerInstance = {
     piscina: Piscina
     queue: KafkaQueue | null
     mmdb?: ReaderModel
-    kafkaHealthcheckConsumer?: Consumer
     mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
 }
@@ -62,7 +59,6 @@ export async function startPluginsServer(
     let hub: Hub | undefined
     let piscina: Piscina | undefined
     let queue: KafkaQueue | undefined | null // ingestion queue
-    let healthCheckConsumer: Consumer | undefined
     let jobQueueConsumer: JobQueueConsumerControl | undefined
     let closeHub: () => Promise<void> | undefined
     let pluginScheduleControl: PluginScheduleControl | undefined
@@ -71,19 +67,7 @@ export async function startPluginsServer(
     let httpServer: Server | undefined
     let stopEventLoopMetrics: (() => void) | undefined
 
-    let shutdownStatus = 0
-
     async function closeJobs(): Promise<void> {
-        shutdownStatus += 1
-        if (shutdownStatus === 2) {
-            status.info('🔁', 'Try again to shut down forcibly')
-            return
-        }
-        if (shutdownStatus >= 3) {
-            status.info('❗️', 'Shutting down forcibly!')
-            void piscina?.destroy()
-            process.exit()
-        }
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
@@ -92,7 +76,6 @@ export async function startPluginsServer(
         await pubSub?.stop()
         await jobQueueConsumer?.stop()
         await pluginScheduleControl?.stopSchedule()
-        await healthCheckConsumer?.stop()
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
                 ? resolve()
@@ -127,8 +110,7 @@ export async function startPluginsServer(
     })
 
     process.on('unhandledRejection', (error: Error) => {
-        status.error('🤮', 'Unhandled Promise Rejection!')
-        status.error('🤮', error)
+        status.error('🤮', `Unhandled Promise Rejection: ${error.stack}`)
 
         // Don't send some Kafka normal operation "errors" to Sentry - kafkajs handles these correctly
         if (error instanceof KafkaJSProtocolError) {
@@ -151,6 +133,11 @@ export async function startPluginsServer(
 
         const serverInstance: Partial<ServerInstance> & Pick<ServerInstance, 'hub'> = {
             hub,
+        }
+
+        if (hub.capabilities.http) {
+            // start http server used for the healthcheck
+            httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
         }
 
         if (!serverConfig.DISABLE_MMDB) {
@@ -283,23 +270,6 @@ export async function startPluginsServer(
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
-        healthCheckConsumer = await setupKafkaHealthcheckConsumer(hub.kafka)
-        serverInstance.kafkaHealthcheckConsumer = healthCheckConsumer
-
-        await healthCheckConsumer.connect()
-
-        try {
-            healthCheckConsumer.pause([{ topic: KAFKA_HEALTHCHECK }])
-        } catch (err) {
-            // It's fine to do nothing for now - Kafka issues will be caught by the periodic healthcheck
-            status.error('🔴', 'Failed to pause Kafka healthcheck consumer on connect!')
-        }
-
-        if (hub.capabilities.http) {
-            // start http server used for the healthcheck
-            httpServer = createHttpServer(hub!, serverInstance as ServerInstance, serverConfig)
-        }
-
         hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')
 
@@ -321,5 +291,7 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
     await Promise.race([piscina.broadcastTask({ task: 'teardownPlugins' }), delay(5000)])
     // Wait 2 seconds to flush the last queues and caches
     await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
-    await piscina.destroy()
+    try {
+        await piscina.destroy()
+    } catch {}
 }

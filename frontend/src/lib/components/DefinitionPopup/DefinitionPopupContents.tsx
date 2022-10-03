@@ -16,13 +16,14 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
 import { CohortPopupInfo } from 'lib/components/DefinitionPopup/CohortPopupInfo'
-import { Button, Checkbox, Input, Typography } from 'antd'
+import { Button, Checkbox, Typography } from 'antd'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/components/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { TitleWithIcon } from '../TitleWithIcon'
 import { UseFloatingReturn } from '@floating-ui/react-dom-interactions'
+import { LemonTextArea } from '../LemonTextArea/LemonTextArea'
 
 export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
     <TitleWithIcon
@@ -88,7 +89,7 @@ function TaxonomyIntroductionSection(): JSX.Element {
                     to="https://posthog.com/docs/user-guides/data-management"
                     target="_blank"
                     data-attr="taxonomy-learn-more"
-                    style={{ fontWeight: 600, marginTop: 8 }}
+                    className="mt-2 font-semibold"
                 >
                     Learn more about Data Management
                     <IconOpenInNew style={{ marginLeft: 8 }} />
@@ -233,12 +234,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 <DefinitionPopup.Grid cols={2}>
-                    <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(_definition.created_at)} />
-                    <DefinitionPopup.Card title="Last seen" value={formatTimeFromNow(_definition.last_seen_at)} />
-                    <DefinitionPopup.Card
-                        title="30 day volume"
-                        value={_definition.volume_30_day == null ? '-' : humanFriendlyNumber(_definition.volume_30_day)}
-                    />
                     <DefinitionPopup.Card
                         title="30 day queries"
                         value={
@@ -247,6 +242,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 : humanFriendlyNumber(_definition.query_usage_30_day)
                         }
                     />
+                    <DefinitionPopup.Card title="Property Type" value={_definition.property_type ?? '-'} />
                 </DefinitionPopup.Grid>
                 <DefinitionPopup.HorizontalLine />
                 <DefinitionPopup.Grid cols={2}>
@@ -263,11 +259,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 </Typography.Text>
                             </>
                         }
-                    />
-                    <DefinitionPopup.Card
-                        title={<>&nbsp;</>}
-                        value={<DefinitionPopup.Type propertyType={_definition.property_type} />}
-                        alignItems={'end'}
                     />
                 </DefinitionPopup.Grid>
             </>
@@ -363,16 +354,15 @@ function DefinitionEdit(): JSX.Element {
                             <span className="label-text">Description</span>
                             <span className="text-muted-alt">(optional)</span>
                         </label>
-                        <Input.TextArea
+                        <LemonTextArea
                             id="description"
                             className="definition-popup-edit-form-value"
                             autoFocus
                             placeholder={`Add a description for this ${singularType}.`}
                             value={localDefinition.description || ''}
-                            onChange={(e) => {
-                                setLocalDefinition({ description: e.target.value })
-                            }}
-                            autoSize={{ minRows: 3, maxRows: 4 }}
+                            onChange={(value) => setLocalDefinition({ description: value })}
+                            minRows={3}
+                            maxRows={4}
                             data-attr="definition-popup-edit-description"
                         />
                     </>

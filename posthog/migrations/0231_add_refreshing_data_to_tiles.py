@@ -11,10 +11,18 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="dashboardtile", name="last_refresh", field=models.DateTimeField(blank=True, null=True),
+            model_name="dashboardtile",
+            name="last_refresh",
+            field=models.DateTimeField(blank=True, null=True),
         ),
         migrations.AddField(
-            model_name="dashboardtile", name="refresh_attempt", field=models.IntegerField(blank=True, null=True),
+            model_name="dashboardtile",
+            name="refresh_attempt",
+            field=models.IntegerField(blank=True, null=True),
         ),
-        migrations.AddField(model_name="dashboardtile", name="refreshing", field=models.BooleanField(null=True),),
+        migrations.AddField(
+            model_name="dashboardtile",
+            name="refreshing",
+            field=models.BooleanField(null=True),
+        ),
     ]

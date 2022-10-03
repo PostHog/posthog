@@ -98,6 +98,22 @@ module.exports = {
                         element: 'Button',
                         message: 'use <LemonButton> instead',
                     },
+                    {
+                        element: 'Input.TextArea',
+                        message: 'use <LemonTextArea> instead',
+                    },
+                    {
+                        element: 'Input',
+                        message: 'use <LemonInput> instead',
+                    },
+                    {
+                        element: 'Skeleton',
+                        message: 'use <LemonSkeleton> instead',
+                    },
+                    {
+                        element: 'a',
+                        message: 'use <Link> instead',
+                    },
                 ],
             },
         ],

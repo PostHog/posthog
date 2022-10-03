@@ -2,6 +2,7 @@ from .action import Action
 from .action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
 from .annotation import Annotation
+from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
@@ -28,6 +29,7 @@ from .organization_domain import OrganizationDomain
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
+from .prompt import PromptSequenceState, UserPromptSequenceState
 from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
@@ -43,12 +45,14 @@ __all__ = [
     "ActionStep",
     "ActivityLog",
     "Annotation",
+    "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
     "Cohort",
     "CohortPeople",
     "Dashboard",
     "DashboardTile",
+    "DeletionType",
     "Element",
     "ElementGroup",
     "Entity",
@@ -80,6 +84,7 @@ __all__ = [
     "PluginConfig",
     "PluginLogEntry",
     "PluginSourceFile",
+    "PromptSequenceState",
     "Property",
     "PropertyDefinition",
     "RetentionFilter",
@@ -91,4 +96,5 @@ __all__ = [
     "Team",
     "User",
     "UserManager",
+    "UserPromptSequenceState",
 ]

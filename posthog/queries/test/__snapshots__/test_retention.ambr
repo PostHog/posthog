@@ -6,7 +6,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.event AS event,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -19,10 +18,11 @@
         WHERE team_id = 2
           AND e.event = '$some_event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00') ),
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00')
+        GROUP BY target,
+                 event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
-                        e.event AS event,
                         pdi.person_id as target,
                         [
                           dateDiff(
@@ -78,7 +78,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.event AS event,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -91,10 +90,11 @@
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00') ),
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00')
+        GROUP BY target,
+                 event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
-                        e.event AS event,
                         pdi.person_id as target,
                         [
                           dateDiff(
@@ -150,7 +150,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'US/Pacific')) AS event_date,
-               e.event AS event,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -163,10 +162,11 @@
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 07:00:00')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 07:00:00') ),
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 07:00:00')
+        GROUP BY target,
+                 event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp, 'US/Pacific')) AS event_date,
-                        e.event AS event,
                         pdi.person_id as target,
                         [
                           dateDiff(

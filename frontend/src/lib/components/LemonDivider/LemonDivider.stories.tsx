@@ -48,7 +48,7 @@ export const Default = HorizontalTemplate.bind({})
 Default.args = {}
 
 export const Large = HorizontalTemplate.bind({})
-Large.args = { large: true }
+Large.args = { className: 'my-6' }
 
 export const Vertical = VerticalTemplate.bind({})
 Vertical.args = { vertical: true }

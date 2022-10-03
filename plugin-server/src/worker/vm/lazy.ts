@@ -14,9 +14,10 @@ import {
 } from '../../types'
 import { clearError, processError } from '../../utils/db/error'
 import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
+import { instrument } from '../../utils/metrics'
+import { getNextRetryMs } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
-import { getNextRetryMs } from '../retries'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
 import { createPluginConfigVM } from './vm'
 
@@ -181,7 +182,15 @@ export class LazyPluginVM {
         if (!this.ready) {
             const vm = (await this.resolveInternalVm)?.vm
             try {
-                await this._setupPlugin(vm)
+                await instrument(
+                    this.hub.statsd,
+                    {
+                        metricName: 'vm.setup',
+                        key: 'plugin',
+                        tag: this.pluginConfig.plugin?.name || '?',
+                    },
+                    () => this._setupPlugin(vm)
+                )
             } catch (error) {
                 status.warn('⚠️', error.message)
                 return false
@@ -197,7 +206,15 @@ export class LazyPluginVM {
         this.totalInitAttemptsCounter++
         const timer = new Date()
         try {
-            await vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
+            await instrument(
+                this.hub.statsd,
+                {
+                    metricName: 'plugin.setupPlugin',
+                    key: 'plugin',
+                    tag: this.pluginConfig.plugin?.name || '?',
+                },
+                () => vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
+            )
             this.hub.statsd?.increment('plugin.setup.success', { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.hub.statsd?.timing('plugin.setup.timing', timer, { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.ready = true

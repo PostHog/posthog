@@ -41,10 +41,11 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { authorizedUrlsLogic } from 'scenes/toolbar-launch/authorizedUrlsLogic'
+import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Tooltip } from 'lib/components/Tooltip'
 import Typography from 'antd/lib/typography'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -57,21 +58,20 @@ function Pages(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
     const { frontendApps } = useValues(frontendAppsLogic)
-    const { appUrls, launchUrl } = useValues(authorizedUrlsLogic)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
     const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
 
     return (
-        <div className="Pages">
+        <ul>
             <div className="SideBar__heading">Project</div>
             <PageButton
-                data-tooltip="project-button"
                 title={currentTeam?.name ?? 'Choose project'}
                 icon={<Lettermark name={currentOrganization?.name} />}
                 identifier={Scene.ProjectHomepage}
                 to={urls.projectHomepage()}
                 sideAction={{
+                    'aria-label': 'switch project',
                     onClick: () => toggleProjectSwitcher(),
                     popup: {
                         visible: isProjectSwitcherShown,
@@ -101,20 +101,22 @@ function Pages(): JSX.Element {
                                         <h5>Pinned dashboards</h5>
                                         <LemonDivider />
                                         {pinnedDashboards.length > 0 ? (
-                                            pinnedDashboards.map((dashboard) => (
-                                                <PageButton
-                                                    key={dashboard.id}
-                                                    title={dashboard.name || <i>Untitled</i>}
-                                                    identifier={dashboard.id}
-                                                    onClick={() => setArePinnedDashboardsShown(false)}
-                                                    to={urls.dashboard(dashboard.id)}
-                                                />
-                                            ))
+                                            <ul>
+                                                {pinnedDashboards.map((dashboard) => (
+                                                    <PageButton
+                                                        key={dashboard.id}
+                                                        title={dashboard.name || <i>Untitled</i>}
+                                                        identifier={dashboard.id}
+                                                        onClick={() => setArePinnedDashboardsShown(false)}
+                                                        to={urls.dashboard(dashboard.id)}
+                                                    />
+                                                ))}
+                                            </ul>
                                         ) : (
                                             <>
-                                                <div className="mb-2 flex items-center gap-2">
+                                                <div className="flex items-center gap-2">
                                                     <IconPin className="text-2xl text-muted-alt" />
-                                                    <span>
+                                                    <div>
                                                         <Link
                                                             onClick={() => setArePinnedDashboardsShown(false)}
                                                             to={urls.dashboards()}
@@ -123,7 +125,7 @@ function Pages(): JSX.Element {
                                                         </Link>
                                                         <br />
                                                         for them to show up here
-                                                    </span>
+                                                    </div>
                                                 </div>
                                             </>
                                         )}
@@ -220,40 +222,7 @@ function Pages(): JSX.Element {
                                 visible: isToolbarLaunchShown,
                                 onClickOutside: () => setIsToolbarLaunchShown(false),
                                 onClickInside: hideSideBarMobile,
-                                overlay: (
-                                    <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">
-                                        <h5>TOOLBAR URLS</h5>
-                                        <LemonDivider />
-                                        {appUrls.map((appUrl, index) => (
-                                            <LemonButton
-                                                className="LaunchToolbarButton"
-                                                status="stealth"
-                                                fullWidth
-                                                key={index}
-                                                onClick={() => setIsToolbarLaunchShown(false)}
-                                                href={launchUrl(appUrl)}
-                                                sideIcon={
-                                                    <Tooltip title="Launch toolbar">
-                                                        <IconOpenInApp />
-                                                    </Tooltip>
-                                                }
-                                            >
-                                                <Typography.Text ellipsis={true} title={appUrl}>
-                                                    {appUrl}
-                                                </Typography.Text>
-                                            </LemonButton>
-                                        ))}
-                                        <LemonButton
-                                            status="stealth"
-                                            data-attr="sidebar-launch-toolbar-add-new-url"
-                                            fullWidth
-                                            to={`${urls.toolbarLaunch()}?addNew=true`}
-                                            onClick={() => setIsToolbarLaunchShown(false)}
-                                        >
-                                            Add toolbar URL
-                                        </LemonButton>
-                                    </div>
-                                ),
+                                overlay: <AppUrls setIsToolbarLaunchShown={setIsToolbarLaunchShown} />,
                             },
                         }}
                     />
@@ -264,7 +233,7 @@ function Pages(): JSX.Element {
                     />
                 </>
             )}
-        </div>
+        </ul>
     )
 }
 
@@ -281,6 +250,53 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
             {children}
+        </div>
+    )
+}
+
+function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state: boolean) => void }): JSX.Element {
+    const { authorizedUrls, launchUrl, suggestionsLoading } = useValues(
+        authorizedUrlListLogic({ type: AuthorizedUrlListType.TOOLBAR_URLS })
+    )
+    return (
+        <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">
+            <h5>TOOLBAR URLS</h5>
+            <LemonDivider />
+            {suggestionsLoading ? (
+                <Spinner />
+            ) : (
+                <>
+                    {authorizedUrls.map((appUrl, index) => (
+                        <LemonButton
+                            className="LaunchToolbarButton"
+                            status="stealth"
+                            fullWidth
+                            key={index}
+                            onClick={() => setIsToolbarLaunchShown(false)}
+                            to={launchUrl(appUrl)}
+                            targetBlank
+                            sideIcon={
+                                <Tooltip title="Launch toolbar">
+                                    <IconOpenInApp />
+                                </Tooltip>
+                            }
+                        >
+                            <Typography.Text ellipsis={true} title={appUrl}>
+                                {appUrl}
+                            </Typography.Text>
+                        </LemonButton>
+                    ))}
+                    <LemonButton
+                        status="stealth"
+                        data-attr="sidebar-launch-toolbar-add-new-url"
+                        fullWidth
+                        to={`${urls.toolbarLaunch()}?addNew=true`}
+                        onClick={() => setIsToolbarLaunchShown(false)}
+                    >
+                        Add toolbar URL
+                    </LemonButton>
+                </>
+            )}
         </div>
     )
 }

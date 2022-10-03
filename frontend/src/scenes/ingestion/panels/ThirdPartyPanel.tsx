@@ -17,9 +17,7 @@ import { Link } from 'lib/components/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function ThirdPartyPanel(): JSX.Element {
-    const { index } = useValues(ingestionLogic)
-    const { setPlatform, setInstructionsModal, setThirdPartySource, openThirdPartyPluginModal } =
-        useActions(ingestionLogic)
+    const { setInstructionsModal, setThirdPartySource, openThirdPartyPluginModal } = useActions(ingestionLogic)
     const { filteredUninstalledPlugins, installedPlugins } = useValues(pluginsLogic)
     const { installPlugin } = useActions(pluginsLogic)
     const {
@@ -29,7 +27,7 @@ export function ThirdPartyPanel(): JSX.Element {
     } = useActions(eventUsageLogic)
 
     return (
-        <CardContainer index={index} showFooter={true} onBack={() => setPlatform(null)}>
+        <CardContainer showFooter>
             <div className="px-6">
                 <h1 className="ingestion-title">Set up apps</h1>
                 {thirdPartySources.map((source, idx) => {
@@ -41,28 +39,21 @@ export function ThirdPartyPanel(): JSX.Element {
                             key={source.name}
                             className="p-4 mb-2"
                             style={{
-                                minWidth: 600,
                                 border: '2px solid var(--border-light)',
                                 borderRadius: 4,
                             }}
                         >
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center">
                                     {source.icon}
-                                    <div className="flex ml-2">
-                                        <h3
-                                            className="mb-0 flex align-center"
-                                            style={{
-                                                fontWeight: 600,
-                                                fontSize: 16,
-                                            }}
-                                        >
+                                    <div className="ml-2">
+                                        <h3 className="mb-0 flex align-center font-semibold text-base">
                                             {source.name} Import
                                             {source.labels?.map((label, labelIdx) => (
                                                 <LemonTag
                                                     key={labelIdx}
                                                     type={label === 'beta' ? 'warning' : 'default'}
-                                                    style={{ marginLeft: 8 }}
+                                                    className="uppercase ml-2"
                                                 >
                                                     {label}
                                                 </LemonTag>
@@ -71,7 +62,7 @@ export function ThirdPartyPanel(): JSX.Element {
                                         <p className="mb-0 text-muted">Send events from {source.name} into PostHog</p>
                                     </div>
                                 </div>
-                                <div>
+                                <div className="flex">
                                     <LemonButton
                                         className="mr-2"
                                         type="secondary"
@@ -156,24 +147,32 @@ export function IntegrationInstructionsModal(): JSX.Element {
                 <>
                     {thirdPartyIntegrationSource?.name && (
                         <LemonModal
-                            width="auto"
-                            style={{ maxWidth: 600 }}
-                            visible={instructionsModalOpen}
-                            onCancel={() => setInstructionsModal(false)}
-                            bodyStyle={{ padding: 40 }}
+                            width={600}
+                            isOpen={instructionsModalOpen}
+                            onClose={() => setInstructionsModal(false)}
+                            title="Configure integration"
+                            footer={
+                                <LemonButton
+                                    fullWidth
+                                    center
+                                    type="primary"
+                                    onClick={() => setInstructionsModal(false)}
+                                >
+                                    Done
+                                </LemonButton>
+                            }
                         >
                             {thirdPartyIntegrationSource.type === ThirdPartySourceType.Integration ? (
                                 <div>
-                                    <p className="text-muted font-medium">Configure integration</p>
-                                    {thirdPartyIntegrationSource.icon}
                                     <h1 className="ingestion-title">
-                                        Integrate with {thirdPartyIntegrationSource.name}{' '}
+                                        {thirdPartyIntegrationSource.icon}
+                                        <span>Integrate with {thirdPartyIntegrationSource.name}</span>
                                     </h1>
                                     <div style={{ borderTop: '2px dashed var(--border)' }}>
                                         <div
                                             className="p-5 mt-6 mb-4 font-medium"
                                             style={{
-                                                backgroundColor: 'var(--bg-side)',
+                                                backgroundColor: 'var(--side)',
                                             }}
                                         >
                                             <p>
@@ -199,12 +198,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                     >
                                         Take me to {thirdPartyIntegrationSource.name}
                                     </LemonButton>
-                                    <div
-                                        className="mb-6 mt-4"
-                                        style={{
-                                            borderBottom: '2px dashed var(--border)',
-                                        }}
-                                    >
+                                    <div className="mb-6 mt-4">
                                         <h4>Steps:</h4>
                                         <ol className="pl-4">
                                             <li>
@@ -223,14 +217,6 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                             </b>
                                         </p>
                                     </div>
-                                    <LemonButton
-                                        fullWidth
-                                        center
-                                        type="primary"
-                                        onClick={() => setInstructionsModal(false)}
-                                    >
-                                        Done
-                                    </LemonButton>
                                 </div>
                             ) : (
                                 <PluginDrawer />

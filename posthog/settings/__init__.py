@@ -17,6 +17,7 @@ from typing import Dict, List
 # :TRICKY: Imported before anything else to support overloads
 from posthog.settings.overrides import *
 
+from posthog.settings.logs import *
 from posthog.settings.base_variables import *
 
 from posthog.settings.access import *
@@ -28,30 +29,24 @@ from posthog.settings.ee import *
 from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
 from posthog.settings.geoip import *
-from posthog.settings.logs import *
 from posthog.settings.sentry import *
 from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *
 from posthog.settings.statsd import *
 from posthog.settings.object_storage import *
-
+from posthog.settings.demo import *
 from posthog.settings.web import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
-CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
+CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 5, type_cast=int)
 
 # Instance configuration preferences
 # https://posthog.com/docs/self-host/configure/environment-variables
-DEMO = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
-SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 debug_queries = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
 disable_paid_fs = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_cast=str_to_bool)
-INSTANCE_PREFERENCES = {
-    "debug_queries": debug_queries,
-    "disable_paid_fs": disable_paid_fs,
-}
+INSTANCE_PREFERENCES = {"debug_queries": debug_queries, "disable_paid_fs": disable_paid_fs}
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
@@ -79,8 +74,9 @@ NPM_TOKEN = os.getenv("NPM_TOKEN", None)
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", True, type_cast=str_to_bool)
-EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = get_from_env(
-    "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_SECONDS", 86400, type_cast=int
+EVENT_PROPERTY_USAGE_INTERVAL_CRON = get_from_env(
+    "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_CRON",
+    "0 */6 * * *",
 )
 
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
@@ -118,15 +114,14 @@ KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
     "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", KAFKA_EVENTS_PLUGIN_INGESTION
 )
 
-# Topic to write recording events to before they are uploaded to object storage
-KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC: str = os.getenv(
-    "KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC", KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION
-)
 
-
-# Schedule to run column materialization on. Follows crontab syntax.
+# Schedule to run asynchronous data deletion on. Follows crontab syntax.
 # Use empty string to prevent this
-CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON = get_from_env("CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON", optional=True)
+CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON = get_from_env(
+    "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+    # Defaults to 5AM UTC on Sunday
+    "0 5 * * SUN",
+)
 
 
 # Extend and override these settings with EE's ones
@@ -134,4 +129,4 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403
 
 # Lastly, cloud settings override and modify all
-from posthog.settings.cloud import *  # noqa: F401
+from posthog.settings.cloud import *  # noqa: F401, E402

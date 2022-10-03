@@ -17,16 +17,12 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
 import { lemonToast } from 'lib/components/lemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export enum ConfigMode {
     View = 'view',
     Edit = 'edit',
     Saving = 'saving',
-}
-export interface MetricRow {
-    metric: string
-    key: string
-    value?: boolean | string | number | null
 }
 
 export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users' | 'kafka_inspector'
@@ -48,8 +44,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_DEFAULT_FROM',
     'EMAIL_REPLY_TO',
     'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
-    'ENABLE_ACTOR_ON_EVENTS_TEAMS',
-    'GEOIP_PROPERTY_OVERRIDES_TEAMS',
+    'PERSON_ON_EVENTS_ENABLED',
     'STRICT_CACHING_TEAMS',
     'SLACK_APP_CLIENT_ID',
     'SLACK_APP_CLIENT_SECRET',
@@ -225,6 +220,7 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
                     await api.update(`api/instance_settings/${key}`, {
                         value,
                     })
+                    eventUsageLogic.actions.reportInstanceSettingChange(key, value)
                     actions.increaseUpdatedInstanceConfigCount()
                 } catch {
                     lemonToast.error('There was an error updating instance settings – please try again')

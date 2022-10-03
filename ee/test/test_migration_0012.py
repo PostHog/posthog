@@ -8,8 +8,8 @@ from posthog.test.base import TestMigrations
 
 
 class TagsTestCase(TestMigrations):
-    migrate_from = "0011_add_tags_back"  # type: ignore
-    migrate_to = "0012_migrate_tags_v2"  # type: ignore
+    migrate_from = "0011_add_tags_back"
+    migrate_to = "0012_migrate_tags_v2"
     assert_snapshots = True
 
     @property
@@ -29,10 +29,10 @@ class TagsTestCase(TestMigrations):
             deprecated_tags=["a", "b", "c", "a", "b", "existing tag", "", "  ", None],
         )
         self.property_definition_with_tags = EnterprisePropertyDefinition.objects.create(
-            team_id=self.team.id, name="property def with tags", deprecated_tags=["c", "d", "d", "existing tag"],
+            team_id=self.team.id, name="property def with tags", deprecated_tags=["c", "d", "d", "existing tag"]
         )
         self.property_definition_without_tags = EnterprisePropertyDefinition.objects.create(
-            team_id=self.team.id, name="property def without tags",
+            team_id=self.team.id, name="property def without tags"
         )
         TaggedItemModel.objects.create(tag=tag, property_definition_id=self.property_definition_with_tags.id)
 
@@ -41,7 +41,7 @@ class TagsTestCase(TestMigrations):
             organization=self.organization,
             api_token="token12345",
             test_account_filters=[
-                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
             ],
         )
         self.team2_total_property_definitions = 1_001
@@ -49,7 +49,7 @@ class TagsTestCase(TestMigrations):
         with transaction.atomic():
             for _tag in range(self.team2_total_property_definitions):
                 EnterprisePropertyDefinition.objects.create(
-                    name=f"batch_prop_{_tag}", team_id=self.team2.id, deprecated_tags=[_tag, "existing tag"],
+                    name=f"batch_prop_{_tag}", team_id=self.team2.id, deprecated_tags=[_tag, "existing tag"]
                 )
         TaggedItemModel.objects.create(
             tag=tag2,

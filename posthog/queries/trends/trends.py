@@ -18,7 +18,13 @@ from dateutil import parser
 from django.db.models.query import Prefetch
 
 from posthog.client import sync_execute
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE, TRENDS_LINEAR
+from posthog.constants import (
+    NON_BREAKDOWN_DISPLAY_TYPES,
+    TREND_FILTER_TYPE_ACTIONS,
+    TRENDS_CUMULATIVE,
+    TRENDS_LIFECYCLE,
+    TRENDS_LINEAR,
+)
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.entity import Entity
@@ -34,7 +40,7 @@ from posthog.utils import generate_cache_key, get_safe_cache
 
 class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity) -> Tuple[str, Dict, Callable]:
-        if filter.breakdown:
+        if filter.breakdown and filter.display not in NON_BREAKDOWN_DISPLAY_TYPES:
             sql, params, parse_function = TrendsBreakdown(
                 entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled
             ).get_query()
@@ -122,7 +128,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         adjusted_filter, cached_result = self.adjusted_filter(filter, team)
         sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
 
-        result = sync_execute(sql, params)
+        result = sync_execute(sql, params, client_query_id=filter.client_query_id, client_query_team_id=team.pk)
         result = parse_function(result)
         serialized_data = self._format_serialized(entity, result)
         merged_results, cached_result = self.merge_results(
@@ -135,8 +141,8 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return merged_results
 
-    def _run_query_for_threading(self, result: List, index: int, sql, params):
-        result[index] = sync_execute(sql, params)
+    def _run_query_for_threading(self, result: List, index: int, sql, params, client_query_id: str, team_id: int):
+        result[index] = sync_execute(sql, params, client_query_id=client_query_id, client_query_team_id=team_id)
 
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         result: List[Union[None, List[Dict[str, Any]]]] = [None] * len(filter.entities)
@@ -148,7 +154,10 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             adjusted_filter, cached_result = self.adjusted_filter(filter, team)
             sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             parse_functions[entity.index] = parse_function
-            thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params),)
+            thread = threading.Thread(
+                target=self._run_query_for_threading,
+                args=(result, entity.index, sql, params, filter.client_query_id, team.pk),
+            )
             jobs.append(thread)
 
         # Start the threads (i.e. calculate the random number lists)

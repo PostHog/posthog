@@ -18,7 +18,7 @@ function NodeSetupSnippet(): JSX.Element {
 
     return (
         <CodeSnippet language={Language.JavaScript}>
-            {`import PostHog from 'posthog-node'
+            {`import { PostHog } from 'posthog-node'
 
 const client = new PostHog(
     '${currentTeam?.api_token}',

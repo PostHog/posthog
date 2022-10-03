@@ -15,6 +15,7 @@ import { imports } from './imports'
 import { transformCode } from './transforms'
 import { upgradeExportEvents } from './upgrades/export-events'
 import { addHistoricalEventsExportCapability } from './upgrades/historical-export/export-historical-events'
+import { addHistoricalEventsExportCapabilityV2 } from './upgrades/historical-export/export-historical-events-v2'
 
 export class TimeoutError extends RetryError {
     name = 'TimeoutError'
@@ -81,7 +82,7 @@ export function createPluginConfigVM(
                 setTimeout(() => {
                     const message = `Script execution timed out after promise waited for ${timeout} second${
                         timeout === 1 ? '' : 's'
-                    }`
+                    } (${pluginConfig.plugin?.name}, name: ${name}, pluginConfigId: ${pluginConfig.id})`
                     reject(new TimeoutError(message, `${name}`, pluginConfig))
                 }, timeout * 1000)
             ),
@@ -230,6 +231,7 @@ export function createPluginConfigVM(
 
         if (hub.HISTORICAL_EXPORTS_ENABLED) {
             addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+            addHistoricalEventsExportCapabilityV2(hub, pluginConfig, vmResponse)
         }
     } else {
         statsdTiming('vm_setup_sync_section')

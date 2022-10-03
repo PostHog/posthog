@@ -6,6 +6,14 @@
     border: 1px solid var(--border);
     overflow: hidden;
     --row-base-height: 3rem;
+    &--xs {
+        --row-base-height: 2rem;
+
+        .LemonTable__content > table > tbody > tr > td {
+            padding-top: 0.25rem;
+            padding-bottom: 0.25rem;
+        }
+    }
     &--small {
         --row-base-height: 2.5rem;
     }
@@ -13,6 +21,11 @@
         border: none;
         border-radius: 0;
         background: none;
+    }
+    &--borderless {
+        tr {
+            border: none !important;
+        }
     }
     .PaginationControl {
         height: var(--row-base-height);
@@ -84,9 +97,10 @@
         > tr {
             &.LemonTable__expansion {
                 position: relative;
-                background: var(--bg-side);
+                background: var(--side);
                 > td {
-                    padding: 0; // Disable padding inside the expansion for better tailored placement of contents
+                    // Disable padding inside the expansion for better tailored placement of contents
+                    padding: 0 !important;
                 }
             }
             &.LemonTable__tr--status-highlighted {
@@ -129,9 +143,6 @@
                 }
             }
         }
-    }
-    .ant-skeleton-title {
-        margin: 0;
     }
 }
 

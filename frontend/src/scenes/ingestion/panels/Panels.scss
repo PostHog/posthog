@@ -2,15 +2,6 @@
     max-width: 400px;
 }
 
-.welcome-panel {
-    max-width: 480px;
-    border-radius: var(--radius);
-    padding: 40px;
-    padding-bottom: 1rem;
-    background-color: white;
-    box-shadow: var(--shadow-elevation);
-}
-
 .bookmarklet-warning {
     border: 2px dashed var(--border);
     padding: 8px;
@@ -37,25 +28,14 @@
     bottom: 0;
 }
 
-.ingestion-card-container {
-    padding: 40px;
-    margin-bottom: 40px;
-    box-shadow: var(--shadow-elevation);
-    max-width: 65vw;
-    border-radius: var(--radius);
-    display: flex;
-    flex-direction: column;
-    background-color: white;
-
-    .ant-card-head-title {
-        padding-bottom: 0;
-    }
-}
-
 .ingestion-title {
     font-size: 28px;
-    font-weight: 800;
-    margin-bottom: 8px;
+    font-weight: 700;
+    line-height: 40px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
 }
 
 .ingestion-listening-for-events {
@@ -64,4 +44,32 @@
     align-items: center;
     text-align: center;
     margin-bottom: 1rem;
+}
+
+.billing-pricing-explanation-box {
+    background-color: var(--mark-color);
+    border-radius: 0.5rem;
+    position: relative;
+    display: flex;
+    flex-direction: row;
+}
+
+.billing-hog {
+    overflow: hidden;
+    position: relative;
+    width: 200px;
+    padding-top: 1rem;
+}
+
+@media screen and (max-width: 767px) {
+    .billing-hog {
+        display: none;
+    }
+}
+
+.billing-hog-img {
+    position: absolute;
+    top: 0;
+    height: 200px;
+    width: 200px;
 }

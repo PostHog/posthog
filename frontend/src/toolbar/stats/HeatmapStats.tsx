@@ -17,25 +17,24 @@ export function HeatmapStats(): JSX.Element {
     const { setWildcardHref } = useActions(currentPageLogic)
 
     return (
-        <div style={{ margin: 8 }}>
+        <div className="m-4">
             {heatmapEnabled ? (
-                <>
-                    <div style={{ marginBottom: 10 }}>
+                <div className="space-y-2">
+                    <div>
                         <LemonInput value={wildcardHref} onChange={setWildcardHref} />
-                        <div style={{ color: '#888' }}>Use * as a wildcard</div>
+                        <div className="text-muted">Use * as a wildcard</div>
                     </div>
-                    <div style={{ marginBottom: 10 }} className="flex items-center">
+                    <div className="flex items-center gap-2">
                         <DateFilter
-                            defaultValue="Last 7 days"
-                            dateFrom={heatmapFilter.date_from}
+                            dateFrom={heatmapFilter.date_from ?? '-7d'}
                             dateTo={heatmapFilter.date_to}
                             onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
                             getPopupContainer={getShadowRootPopupContainer}
                         />
 
-                        {heatmapLoading ? <Spinner size="sm" style={{ marginLeft: 8 }} /> : null}
+                        {!heatmapLoading ? <Spinner /> : null}
                     </div>
-                    <div style={{ marginTop: 20, marginBottom: 10 }}>
+                    <div>
                         Found: {countedElements.length} elements / {clickCount} clicks!
                     </div>
                     <List
@@ -74,7 +73,7 @@ export function HeatmapStats(): JSX.Element {
                             </List.Item>
                         )}
                     />
-                </>
+                </div>
             ) : null}
         </div>
     )

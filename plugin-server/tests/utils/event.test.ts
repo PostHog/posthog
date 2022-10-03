@@ -1,6 +1,8 @@
 import { KafkaMessage } from 'kafkajs'
+import { DateTime } from 'luxon'
 
-import { formPluginEvent, normalizeEvent } from '../../src/utils/event'
+import { ClickHouseTimestamp, RawClickHouseEvent } from '../../src/types'
+import { formPluginEvent, normalizeEvent, parseRawClickHouseEvent } from '../../src/utils/event'
 
 describe('normalizeEvent()', () => {
     describe('distinctId', () => {
@@ -40,6 +42,47 @@ describe('normalizeEvent()', () => {
             key1_once: 'value1',
             key2_once: 'value2',
             key3_once: 'value4',
+        })
+    })
+})
+
+describe('parseRawClickHouseEvent()', () => {
+    it('parses a random event event', () => {
+        const clickhouseEvent: RawClickHouseEvent = {
+            event: '$pageview',
+            properties: JSON.stringify({
+                $ip: '127.0.0.1',
+            }),
+            uuid: 'uuid1',
+            elements_chain: '',
+            timestamp: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
+            team_id: 2,
+            distinct_id: 'my_id',
+            created_at: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
+            person_created_at: '2020-02-23 02:10:00.00' as ClickHouseTimestamp,
+            person_properties: JSON.stringify({ person_prop: 1 }),
+            group0_properties: '',
+            group1_properties: JSON.stringify({ a: 1, b: 2 }),
+        }
+
+        expect(parseRawClickHouseEvent(clickhouseEvent)).toEqual({
+            event: '$pageview',
+            properties: {
+                $ip: '127.0.0.1',
+            },
+            uuid: 'uuid1',
+            timestamp: DateTime.fromISO('2020-02-23T02:15:00.000Z').toUTC(),
+            team_id: 2,
+            distinct_id: 'my_id',
+            created_at: DateTime.fromISO('2020-02-23T02:15:00.000Z').toUTC(),
+            elements_chain: null,
+            group0_properties: {},
+            group1_properties: { a: 1, b: 2 },
+            group2_properties: {},
+            group3_properties: {},
+            group4_properties: {},
+            person_created_at: DateTime.fromISO('2020-02-23T02:10:00.000Z').toUTC(),
+            person_properties: { person_prop: 1 },
         })
     })
 })

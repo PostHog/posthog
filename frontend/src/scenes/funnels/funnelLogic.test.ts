@@ -19,13 +19,16 @@ import {
 } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { useAvailableFeatures } from '~/mocks/features'
 import api from 'lib/api'
+
+jest.mock('scenes/trends/persons-modal/PersonsModal')
+
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 const Insight12 = '12' as InsightShortId
 const Insight123 = '123' as InsightShortId
@@ -173,8 +176,8 @@ describe('funnelLogic', () => {
                 '/api/projects/:team/insights/trend/': { results: ['trends result from api'] },
                 '/api/projects/:team/groups_types/': [],
                 '/some/people/url': { results: [{ people: [] }] },
-                '/api/person/funnel': { results: [], next: null },
-                '/api/person/properties': [
+                '/api/projects/:team/persons/funnel': { results: [], next: null },
+                '/api/projects/:team/persons/properties': [
                     { name: 'some property', count: 20 },
                     { name: 'another property', count: 10 },
                     { name: 'third property', count: 5 },
@@ -480,7 +483,8 @@ describe('funnelLogic', () => {
                 }),
             })
 
-        expect(api.create).toBeCalledWith(
+        expect(api.create).toHaveBeenNthCalledWith(
+            2,
             `api/projects/${MOCK_TEAM_ID}/insights/funnel/`,
             expect.objectContaining({
                 actions: [],
@@ -493,7 +497,8 @@ describe('funnelLogic', () => {
                 breakdown_type: undefined,
                 insight: 'FUNNELS',
                 interval: 'day',
-            })
+            }),
+            expect.anything()
         )
     })
 
@@ -541,42 +546,37 @@ describe('funnelLogic', () => {
         })
     })
 
-    describe('it is connected with personsModalLogic', () => {
+    describe('it opens the PersonsModal', () => {
         const props = { dashboardItemId: Insight123 }
         beforeEach(async () => {
             await initFunnelLogic(props)
         })
 
-        it('setFilters calls personsModalLogic.loadPeople', async () => {
-            personsModalLogic.mount()
+        it('setFilters calls openPersonsModal', async () => {
             await expectLogic().toDispatchActions(preflightLogic, ['loadPreflightSuccess'])
             await expectLogic(() => {
                 router.actions.push(urls.insightEdit(Insight123))
             })
 
-            await expectLogic(logic, () => {
-                logic.actions.openPersonsModalForStep({
-                    step: {
-                        action_id: '$pageview',
-                        average_conversion_time: 0,
-                        median_conversion_time: 0,
-                        count: 1,
-                        name: '$pageview',
-                        order: 0,
-                        type: 'events',
-                        converted_people_url: '/some/people/url',
-                        dropped_people_url: '/some/people/url',
-                    },
-                    converted: true,
-                })
-            }).toDispatchActions([
-                (action) => {
-                    return (
-                        action.type === personsModalLogic.actionTypes.loadPeopleFromUrl &&
-                        action.payload?.label === '$pageview'
-                    )
+            logic.actions.openPersonsModalForStep({
+                step: {
+                    action_id: '$pageview',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    count: 1,
+                    name: '$pageview',
+                    order: 0,
+                    type: 'events',
+                    converted_people_url: '/some/people/url',
+                    dropped_people_url: '/some/people/url',
                 },
-            ])
+                converted: true,
+            })
+
+            expect(openPersonsModal).toHaveBeenCalledWith({
+                title: expect.any(Object),
+                url: '/some/people/url',
+            })
         })
     })
 
@@ -1096,33 +1096,6 @@ describe('funnelLogic', () => {
                 .toNotHaveDispatchedActions([
                     insightLogic({ dashboardItemId: Insight123 }).actionCreators.loadResults(),
                 ])
-        })
-    })
-
-    describe('is modal active', () => {
-        beforeEach(async () => {
-            await initFunnelLogic()
-        })
-        it('modal is inactive when viewed on dashboard', async () => {
-            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-            await router.actions.push(urls.dashboard('1'))
-            await expectLogic(logic).toMatchValues({
-                isModalActive: false,
-            })
-        })
-        it('modal is active when viewing insight', async () => {
-            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-            await router.actions.push(urls.insightView('1' as InsightShortId))
-            await expectLogic(logic).toMatchValues({
-                isModalActive: true,
-            })
-        })
-        it('modal is active when editing insight', async () => {
-            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-            await router.actions.push(urls.insightEdit('1' as InsightShortId))
-            await expectLogic(logic).toMatchValues({
-                isModalActive: true,
-            })
         })
     })
 })

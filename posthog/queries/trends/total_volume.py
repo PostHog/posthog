@@ -20,7 +20,7 @@ from posthog.queries.trends.sql import (
 )
 from posthog.queries.trends.trend_event_query import TrendsEventQuery
 from posthog.queries.trends.util import enumerate_time_range, parse_response, process_math
-from posthog.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch, start_of_week_fix
+from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch, start_of_week_fix
 from posthog.utils import encode_get_request_params
 
 
@@ -76,21 +76,21 @@ class TrendsTotalVolume:
                 # TODO: for groups aggregation as well
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
                 content_sql = VOLUME_SQL.format(
-                    event_query=cumulative_sql, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
+                    event_query=cumulative_sql, start_of_week_fix=start_of_week_fix(filter), **content_sql_params
                 )
             elif entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_VOLUME_SQL.format(
-                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
+                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params
                 )
             else:
                 content_sql = VOLUME_SQL.format(
-                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
+                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params
                 )
 
             null_sql = NULL_SQL.format(
-                trunc_func=trunc_func, interval_func=interval_func, start_of_week_fix=start_of_week_fix(filter),
+                trunc_func=trunc_func, interval_func=interval_func, start_of_week_fix=start_of_week_fix(filter)
             )
             params["interval"] = filter.interval
 
@@ -119,21 +119,19 @@ class TrendsTotalVolume:
     def _parse_total_volume_result(self, filter: Filter, entity: Entity, team: Team) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
-            for _, stats in enumerate(result):
-                parsed_result = parse_response(stats, filter)
-                parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team.pk, stats[0])})
-                parsed_results.append(parsed_result)
-
-                parsed_result.update({"filter": filter.to_dict()})
+            if result is not None:
+                for stats in result:
+                    parsed_result = parse_response(stats, filter)
+                    parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team.pk, stats[0])})
+                    parsed_results.append(parsed_result)
+                    parsed_result.update({"filter": filter.to_dict()})
             return parsed_results
 
         return _parse
 
     def _parse_aggregate_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:
         def _parse(result: List) -> List:
-            _, seconds_in_interval, _ = get_time_diff(
-                filter.interval, filter.date_from, filter.date_to, team_id=team_id
-            )
+            seconds_in_interval = TIME_IN_SECONDS[filter.interval]
             time_range = enumerate_time_range(filter, seconds_in_interval)
             filter_params = filter.to_params()
             extra_params = {
@@ -151,7 +149,7 @@ class TrendsTotalVolume:
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
-                        "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                        "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
                     },
                 }
             ]
@@ -186,7 +184,7 @@ class TrendsTotalVolume:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
                 }
             )
         return persons_url

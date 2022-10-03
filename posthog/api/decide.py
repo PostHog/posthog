@@ -1,7 +1,8 @@
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, List, Optional
 from urllib.parse import urlparse
 
+import structlog
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
@@ -14,27 +15,29 @@ from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
-from posthog.utils import cors_response, get_ip_address, get_js_url, load_data_from_request
+from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 from .utils import get_project_id
 
 
-def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
+def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
     origin = parse_domain(request.headers.get("Origin"))
     referer = parse_domain(request.headers.get("Referer"))
-    return hostname_in_app_urls(team, origin) or hostname_in_app_urls(team, referer)
+    return hostname_in_allowed_url_list(team.recording_domains, origin) or hostname_in_allowed_url_list(
+        team.recording_domains, referer
+    )
 
 
-def hostname_in_app_urls(team: Team, hostname: Optional[str]) -> bool:
+def hostname_in_allowed_url_list(allowed_url_list: Optional[List[str]], hostname: Optional[str]) -> bool:
     if not hostname:
         return False
 
     permitted_domains = ["127.0.0.1", "localhost"]
-
-    for url in team.app_urls:
-        host = parse_domain(url)
-        if host:
-            permitted_domains.append(host)
+    if allowed_url_list:
+        for url in allowed_url_list:
+            host = parse_domain(url)
+            if host:
+                permitted_domains.append(host)
 
     for permitted_domain in permitted_domains:
         if "*" in permitted_domain:
@@ -45,27 +48,6 @@ def hostname_in_app_urls(team: Team, hostname: Optional[str]) -> bool:
             return True
 
     return False
-
-
-def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
-    if request.user.is_anonymous:
-        return {}, False
-
-    team = request.user.team
-    if team and on_permitted_domain(team, request):
-        response: Dict[str, Any] = {"isAuthenticated": True}
-        editor_params = {}
-
-        if request.user.toolbar_mode != "disabled":
-            editor_params["toolbarVersion"] = "toolbar"
-
-        if get_js_url(request):
-            editor_params["jsURL"] = get_js_url(request)
-
-        response["editorParams"] = editor_params
-        return response, not request.user.temporary_token
-    else:
-        return {}, False
 
 
 def parse_domain(url: Any) -> Optional[str]:
@@ -145,6 +127,8 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
+            structlog.contextvars.bind_contextvars(team_id=team.id)
+
             distinct_id = data.get("distinct_id")
             if distinct_id is None:
                 return cors_response(
@@ -158,22 +142,23 @@ def get_decide(request: HttpRequest):
                     ),
                 )
 
-            property_overrides = (
-                get_geoip_properties(get_ip_address(request)) if team.geoip_property_overrides_enabled else {}
-            )
+            property_overrides = get_geoip_properties(get_ip_address(request))
+            all_property_overrides = {**property_overrides, **(data.get("person_properties") or {})}
 
-            feature_flags = get_active_feature_flags(
+            feature_flags, _ = get_active_feature_flags(
                 team.pk,
                 data["distinct_id"],
-                data.get("groups", {}),
+                data.get("groups") or {},
                 hash_key_override=data.get("$anon_distinct_id"),
-                property_value_overrides=property_overrides,
+                property_value_overrides=all_property_overrides,
+                group_property_value_overrides=(data.get("group_properties") or {}),
             )
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 
-            if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
-                response["sessionRecording"] = {"endpoint": "/s/"}
-    statsd.incr(
-        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide",},
-    )
+            if team.session_recording_opt_in and (
+                on_permitted_recording_domain(team, request) or not team.recording_domains
+            ):
+                capture_console_logs = True if team.capture_console_log_opt_in else False
+                response["sessionRecording"] = {"endpoint": "/s/", "consoleLogRecordingEnabled": capture_console_logs}
+    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))

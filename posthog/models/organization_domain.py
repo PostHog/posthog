@@ -112,9 +112,7 @@ class OrganizationDomainManager(models.Manager):
 class OrganizationDomain(UUIDModel):
     objects: OrganizationDomainManager = OrganizationDomainManager()
 
-    organization: models.ForeignKey = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="domains",
-    )
+    organization: models.ForeignKey = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="domains")
     domain: models.CharField = models.CharField(max_length=128, unique=True)
     verification_challenge: models.CharField = models.CharField(max_length=128, default=generate_verification_challenge)
     verified_at: models.DateTimeField = models.DateTimeField(
@@ -171,7 +169,7 @@ class OrganizationDomain(UUIDModel):
         try:
             # TODO: Should we manually validate DNSSEC?
             dns_response = dns.resolver.resolve(f"_posthog-challenge.{self.domain}", "TXT")
-        except dns.resolver.NoAnswer:
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
             pass
         else:
             for item in list(dns_response.response.answer[0]):

@@ -28,20 +28,18 @@ export function loadPostHogJS(): void {
                 persistence: 'localStorage+cookie',
                 _capture_performance: true,
                 enable_recording_console_log: true,
+                bootstrap: !!window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
             })
         )
         // Make sure we have access to the object in window for debugging
         window.posthog = posthog
     } else {
-        posthog.init(
-            'fake token',
-            configWithSentry({
-                autocapture: false,
-                loaded: function (ph) {
-                    ph.opt_out_capturing()
-                },
-            })
-        )
+        posthog.init('fake token', {
+            autocapture: false,
+            loaded: function (ph) {
+                ph.opt_out_capturing()
+            },
+        })
     }
 
     if ((window as any).SENTRY_DSN) {

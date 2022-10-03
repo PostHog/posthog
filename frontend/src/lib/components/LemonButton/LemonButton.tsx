@@ -11,17 +11,24 @@ export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
     closeOnClickInside?: boolean
 }
 export interface LemonButtonPropsBase
-    // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
-    extends Pick<React.ButtonHTMLAttributes<HTMLButtonElement>, 'title' | 'onClick' | 'id' | 'tabIndex' | 'form'> {
+    // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
+    extends Pick<
+        React.ButtonHTMLAttributes<HTMLElement>,
+        'title' | 'onClick' | 'id' | 'tabIndex' | 'form' | 'onMouseDown'
+    > {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
-    status?: 'primary' | 'success' | 'warning' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
+    /** What color scheme the button should follow */
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'stealth'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
     to?: string
+    /** force the "to" link to reload the page */
+    disableClientSideRouting?: boolean
+    /** If set clicking this button will open the page in a new tab. */
+    targetBlank?: boolean
     /** External URL to link to. */
-    href?: string
     className?: string
 
     icon?: React.ReactElement | null
@@ -35,11 +42,10 @@ export interface LemonButtonPropsBase
     center?: boolean
     /** @deprecated Buttons should never be disabled. Work with Design to find an alternative approach. */
     disabled?: boolean
-    /** Special case value for buttons such as compact icon-only buttons */
     noPadding?: boolean
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
-    'data-tooltip'?: string
+    'aria-label'?: string
 }
 
 export interface LemonButtonProps extends LemonButtonPropsBase {
@@ -52,8 +58,6 @@ function LemonButtonInternal(
         children,
         active = false,
         className,
-        to,
-        href,
         disabled,
         loading,
         type = 'tertiary',
@@ -66,21 +70,27 @@ function LemonButtonInternal(
         tooltip,
         htmlType = 'button',
         noPadding,
+        to,
+        targetBlank,
+        disableClientSideRouting,
         ...buttonProps
     }: LemonButtonProps,
-    ref: React.Ref<HTMLButtonElement>
+    ref: React.Ref<HTMLElement>
 ): JSX.Element {
-    // if (popup && (children2 || !buttonProps.icon) && !rowProps.sideIcon) {
-    //     rowProps.sideIcon = <IconArrowDropDown />
-    // }
-
     if (loading) {
-        icon = <Spinner size="sm" />
+        icon = <Spinner monocolor />
     }
+
+    const ButtonComponent = to ? Link : 'button'
+
+    if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
+        buttonProps['aria-label'] = tooltip
+    }
+
     let workingButton = (
-        <button
+        <ButtonComponent
             type={htmlType}
-            ref={ref}
+            ref={ref as any}
             className={clsx(
                 'LemonButton',
                 `LemonButton--${type}`,
@@ -97,27 +107,16 @@ function LemonButtonInternal(
                 className
             )}
             disabled={disabled || loading}
+            to={to}
+            target={targetBlank ? '_blank' : undefined}
+            disableClientSideRouting={disableClientSideRouting}
             {...buttonProps}
         >
-            {icon}
+            {icon ? <span className="LemonButton__icon">{icon}</span> : null}
             {children ? <span className="LemonButton__content flex items-center">{children}</span> : null}
-            {sideIcon}
-        </button>
+            {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
+        </ButtonComponent>
     )
-    if (to) {
-        workingButton = (
-            <Link to={to} style={{ display: 'contents' }}>
-                {workingButton}
-            </Link>
-        )
-    }
-    if (href) {
-        workingButton = (
-            <a href={href} style={{ display: 'contents' }} target="_blank" rel="noopener noreferrer">
-                {workingButton}
-            </a>
-        )
-    }
 
     if (tooltip) {
         workingButton = <Tooltip title={tooltip}>{workingButton}</Tooltip>
@@ -130,7 +129,7 @@ export const LemonButton = React.forwardRef(LemonButtonInternal)
 
 export type SideAction = Pick<
     LemonButtonProps,
-    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr'
+    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label'
 > & {
     popup?: LemonButtonPopup
 }
@@ -173,7 +172,6 @@ export function LemonButtonWithSideAction({
                     // We don't want secondary style as it creates double borders
                     type={buttonProps.type !== 'secondary' ? buttonProps.type : undefined}
                     status={buttonProps.status}
-                    active={buttonProps.active}
                     popup={sidePopup as LemonButtonPopup}
                     noPadding
                     {...sideActionRest}

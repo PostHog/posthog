@@ -1,11 +1,10 @@
-import { Button, Card, Row, Col } from 'antd'
+import { Card } from 'antd'
 import { CommentOutlined } from '@ant-design/icons'
-import TextArea from 'antd/lib/input/TextArea'
 import { useActions, useValues } from 'kea'
 import React, { useRef } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import './FunnelCorrelation.scss'
-import { IconFeedbackWarning } from 'lib/components/icons'
+import { IconClose, IconFeedbackWarning } from 'lib/components/icons'
 import { CloseOutlined } from '@ant-design/icons'
 import { PayCard } from 'lib/components/PayCard/PayCard'
 import { AvailableFeature } from '~/types'
@@ -13,6 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { FunnelCorrelationTable } from './FunnelCorrelationTable'
 import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable'
+import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
@@ -78,17 +78,15 @@ export const FunnelCorrelation = (): JSX.Element | null => {
 
                 {/* Feedback Form */}
                 {!correlationFeedbackHidden && (
-                    <Card className="correlation-feedback">
-                        <Row className="row-initial">
-                            <Col span={14}>
-                                <h4>
-                                    <CommentOutlined style={{ marginRight: 4 }} />
-                                    Was this correlation analysis report useful?
-                                </h4>
-                            </Col>
-                            <Col span={9} style={{ alignContent: 'right' }}>
+                    <div className="border rounded p-4 space-y-2 mt-4">
+                        <div className="flex items-center justify-between">
+                            <h4 className="text-muted-alt">
+                                <CommentOutlined style={{ marginRight: 4 }} />
+                                Was this correlation analysis report useful?
+                            </h4>
+                            <div className="flex items-center gap-2">
                                 {!!correlationFeedbackRating && (
-                                    <i style={{ color: 'var(--success)', marginRight: 8 }}>Thanks for your feedback!</i>
+                                    <i className="text-success mr-2">Thanks for your feedback!</i>
                                 )}
                                 {(
                                     [
@@ -99,16 +97,9 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                                         [1, '👎'],
                                     ] as const
                                 ).map((content, index) => (
-                                    <Button
+                                    <LemonButton
                                         key={index}
-                                        className="emoji-button"
-                                        style={
-                                            correlationFeedbackRating === content[0]
-                                                ? { background: '#5375FF' }
-                                                : correlationFeedbackRating
-                                                ? { display: 'none' }
-                                                : {}
-                                        }
+                                        active={correlationFeedbackRating === content[0]}
                                         onClick={() => {
                                             if (correlationFeedbackRating === content[0]) {
                                                 setCorrelationFeedbackRating(0)
@@ -119,41 +110,40 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                                         }}
                                     >
                                         {content[1]}
-                                    </Button>
+                                    </LemonButton>
                                 ))}
-                            </Col>
-                            <Col span={1}>
-                                <CloseOutlined className="close-button" onClick={hideCorrelationAnalysisFeedback} />
-                            </Col>
-                        </Row>
-
-                        <div style={{ display: correlationDetailedFeedbackVisible ? undefined : 'none' }}>
-                            <form onSubmit={sendCorrelationAnalysisFeedback}>
-                                <TextArea
-                                    onBlur={(e) => setCorrelationDetailedFeedback(e.target.value)}
-                                    placeholder="Optional. Help us by sharing details around your experience..."
-                                    style={{ marginTop: 16 }}
-                                    ref={detailedFeedbackRef}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && e.metaKey) {
+                                <LemonButton
+                                    icon={<IconClose />}
+                                    onClick={hideCorrelationAnalysisFeedback}
+                                    status="stealth"
+                                />
+                            </div>
+                        </div>
+                        {correlationDetailedFeedbackVisible ? (
+                            <>
+                                <form onSubmit={sendCorrelationAnalysisFeedback} className="space-y-2">
+                                    <LemonTextArea
+                                        onBlur={(e) => setCorrelationDetailedFeedback(e.target.value)}
+                                        placeholder="Optional. Help us by sharing details around your experience..."
+                                        ref={detailedFeedbackRef}
+                                        onPressCmdEnter={() => {
                                             detailedFeedbackRef.current?.blur()
                                             sendCorrelationAnalysisFeedback()
-                                        }
-                                    }}
-                                />
-                                <div className="text-right">
-                                    <Button
-                                        className="feedback-button"
-                                        data-attr="correlation-analysis-share-feedback"
-                                        type="primary"
-                                        htmlType="submit"
-                                    >
-                                        Share feedback
-                                    </Button>
-                                </div>
-                            </form>
-                        </div>
-                    </Card>
+                                        }}
+                                    />
+                                    <div className="flex justify-end">
+                                        <LemonButton
+                                            data-attr="correlation-analysis-share-feedback"
+                                            type="primary"
+                                            htmlType="submit"
+                                        >
+                                            Share feedback
+                                        </LemonButton>
+                                    </div>
+                                </form>
+                            </>
+                        ) : null}
+                    </div>
                 )}
 
                 <FunnelPropertyCorrelationTable />

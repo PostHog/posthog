@@ -1,4 +1,4 @@
-import React, { CSSProperties } from 'react'
+import React from 'react'
 import '../../../scenes/actions/Actions.scss'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FilterRow } from '../PropertyFilters/components/FilterRow'
@@ -12,7 +12,6 @@ interface PropertyFiltersProps {
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
-    style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
 }
 
@@ -23,10 +22,9 @@ export function PathCleanFilters({
     pathCleaningFilters,
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
-    style = {},
 }: PropertyFiltersProps): JSX.Element {
     return (
-        <div className="mb-4" style={style}>
+        <div className="flex items-center gap-2 flex-wrap">
             {pathCleaningFilters.length > 0 &&
                 pathCleaningFilters.map((item, index) => {
                     return (

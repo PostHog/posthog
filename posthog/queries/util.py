@@ -1,18 +1,14 @@
 import json
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import pytz
-from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.client import sync_execute
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.models.filters.filter import Filter
-from posthog.models.team import Team
-from posthog.queries.base import TIME_IN_SECONDS
-from posthog.types import FilterType
 
 EARLIEST_TIMESTAMP = "2015-01-01"
 
@@ -20,43 +16,26 @@ GET_EARLIEST_TIMESTAMP_SQL = """
 SELECT timestamp from events WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by timestamp limit 1
 """
 
+TIME_IN_SECONDS: Dict[str, Any] = {
+    "hour": 3600,
+    "day": 3600 * 24,
+    "week": 3600 * 24 * 7,
+    "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
+}
 
-def parse_timestamps(filter: FilterType, team: Team, table: str = "") -> Tuple[str, str, dict]:
-    date_from = None
-    date_to = None
-    params = {}
-    if filter.date_from:
-        date_from = f"AND {table}timestamp >= toDateTime(%(date_from)s)"
-        params.update(
-            {
-                "date_from": format_ch_timestamp(
-                    filter.date_from,
-                    convert_to_timezone=team.timezone if not filter.date_from_has_explicit_time else None,
-                )
-            }
-        )
-    else:
-        try:
-            earliest_date = get_earliest_timestamp(team.pk)
-        except IndexError:
-            date_from = ""
-        else:
-            date_from = f"AND {table}timestamp >= toDateTime(%(date_from)s)"
-            params.update({"date_from": format_ch_timestamp(earliest_date)})
+PERIOD_TO_TRUNC_FUNC: Dict[str, str] = {
+    "hour": "toStartOfHour",
+    "week": "toStartOfWeek",
+    "day": "toStartOfDay",
+    "month": "toStartOfMonth",
+}
 
-    _date_to = filter.date_to
-
-    date_to = f"AND {table}timestamp <= toDateTime(%(date_to)s)"
-    params.update(
-        {
-            "date_to": format_ch_timestamp(
-                _date_to,
-                convert_to_timezone=team.timezone if filter._date_to and not filter.date_to_has_explicit_time else None,
-            )
-        }
-    )
-
-    return date_from or "", date_to or "", params
+PERIOD_TO_INTERVAL_FUNC: Dict[str, str] = {
+    "hour": "toIntervalHour",
+    "week": "toIntervalWeek",
+    "day": "toIntervalDay",
+    "month": "toIntervalMonth",
+}
 
 
 def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] = None):
@@ -79,41 +58,6 @@ def get_earliest_timestamp(team_id: int) -> datetime:
         return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 
-def get_time_diff(
-    interval: str, start_time: Optional[datetime], end_time: Optional[datetime], team_id: int
-) -> Tuple[int, int, bool]:
-
-    _start_time = start_time or get_earliest_timestamp(team_id)
-    _end_time = end_time or timezone.now()
-
-    if interval == "month":
-        rel_delta = relativedelta(_end_time.replace(day=1), _start_time.replace(day=1))
-        return (rel_delta.years * 12) + rel_delta.months + 1, TIME_IN_SECONDS["month"], True
-
-    diff = _end_time - _start_time
-    if interval == "week":
-        round_interval = True
-    else:
-        round_interval = diff.total_seconds() >= TIME_IN_SECONDS[interval] * 2
-
-    return (
-        # NOTE: `int` will simply strip the decimal part. Checking the
-        # extremities, if start_time, end_time are less than an interval apart,
-        # we'll get 0, then add 1, so we'll always get at least one interval
-        int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + 1,
-        TIME_IN_SECONDS[interval],
-        round_interval,
-    )
-
-
-PERIOD_TO_TRUNC_FUNC: Dict[str, str] = {
-    "hour": "toStartOfHour",
-    "week": "toStartOfWeek",
-    "day": "toStartOfDay",
-    "month": "toStartOfMonth",
-}
-
-
 def get_trunc_func_ch(period: Optional[str]) -> str:
     if period is None:
         period = "day"
@@ -123,14 +67,6 @@ def get_trunc_func_ch(period: Optional[str]) -> str:
     return ch_function
 
 
-PERIOD_TO_INTERVAL_FUNC: Dict[str, str] = {
-    "hour": "toIntervalHour",
-    "week": "toIntervalWeek",
-    "day": "toIntervalDay",
-    "month": "toIntervalMonth",
-}
-
-
 def get_interval_func_ch(period: Optional[str]) -> str:
     if period is None:
         period = "day"
@@ -138,22 +74,6 @@ def get_interval_func_ch(period: Optional[str]) -> str:
     if ch_function is None:
         raise ValidationError(f"Interval {period} is unsupported.")
     return ch_function
-
-
-def date_from_clause(interval_annotation: str, round_interval: bool) -> str:
-    if round_interval:
-        # Truncate function in clickhouse will remove the time granularity and leave only the date
-        # Specify that this truncated date is the local timezone target
-        # Convert target to UTC so that stored timestamps can be compared accordingly
-        # Example: `2022-04-05 07:00:00` -> truncated to `2022-04-05` -> 2022-04-05 00:00:00 PST -> 2022-04-05 07:00:00 UTC
-        if interval_annotation == "toStartOfWeek":
-            return "AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime(%(date_from)s), 0), %(timezone)s), 'UTC')"
-
-        return "AND timestamp >= toTimezone(toDateTime({interval}(toDateTime(%(date_from)s)), %(timezone)s), 'UTC')".format(
-            interval=interval_annotation
-        )
-    else:
-        return "AND timestamp >= toDateTime(%(date_from)s)"
 
 
 def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
@@ -171,3 +91,9 @@ def start_of_week_fix(filter: Filter) -> str:
     This function adds mode to the trunc_func, but only if the interval is week
     """
     return "0," if filter.interval == "week" else ""
+
+
+def convert_to_datetime_aware(date_obj):
+    if date_obj.tzinfo is None:
+        date_obj = date_obj.replace(tzinfo=timezone.utc)
+    return date_obj

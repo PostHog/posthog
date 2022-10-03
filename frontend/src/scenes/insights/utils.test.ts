@@ -2,6 +2,7 @@ import { CohortType, Entity, EntityFilter, FilterLogicalOperator, FilterType, In
 import {
     extractObjectDiffKeys,
     formatAggregationValue,
+    formatBreakdownLabel,
     getDisplayNameFromEntityFilter,
     summarizeInsightFilters,
 } from 'scenes/insights/utils'
@@ -513,5 +514,24 @@ describe('formatAggregationValue', () => {
         const noOpFormatProperty = jest.fn((_, y) => String(y))
         const actual = formatAggregationValue('some name', 500, fakeRenderCount, noOpFormatProperty)
         expect(actual).toEqual('8m 20s')
+    })
+})
+
+describe('formatBreakdownLabel()', () => {
+    const identity = (x: any): any => x
+
+    const cohort = {
+        id: 5,
+        name: 'some cohort',
+    }
+
+    it('handles cohort breakdowns', () => {
+        expect(formatBreakdownLabel([cohort as any], identity, cohort.id, [cohort.id], 'cohort')).toEqual(cohort.name)
+        expect(formatBreakdownLabel([], identity, 3, [3], 'cohort')).toEqual('3')
+    })
+
+    it('handles cohort breakdowns with all users', () => {
+        expect(formatBreakdownLabel([], identity, 'all', ['all'], 'cohort')).toEqual('All Users')
+        expect(formatBreakdownLabel([], identity, 0, [0], 'cohort')).toEqual('All Users')
     })
 })

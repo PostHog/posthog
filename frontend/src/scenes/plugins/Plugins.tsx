@@ -23,7 +23,7 @@ export const scene: SceneExport = {
 }
 
 const BetaTag = (): JSX.Element => (
-    <LemonTag type="warning" style={{ verticalAlign: '0.125em', marginLeft: 6 }}>
+    <LemonTag type="warning" className="uppercase" style={{ verticalAlign: '0.125em', marginLeft: 6 }}>
         BETA
     </LemonTag>
 )
@@ -66,7 +66,7 @@ export function Plugins(): JSX.Element | null {
                 }
             />
             <Tabs
-                data-tooltip="apps-tabs"
+                data-attr="apps-tabs"
                 activeKey={pluginTab}
                 onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}
             >

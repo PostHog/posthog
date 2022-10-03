@@ -24,7 +24,9 @@ def forwards(apps, schema_editor):
 
     # Collect event definition tags and taggeditems
     event_definition_paginator = Paginator(
-        EnterpriseEventDefinition.objects.exclude(Q(deprecated_tags__isnull=True) | Q(deprecated_tags=[]),)
+        EnterpriseEventDefinition.objects.exclude(
+            Q(deprecated_tags__isnull=True) | Q(deprecated_tags=[]),
+        )
         .order_by("created_at")
         .values_list("deprecated_tags", "team_id", "id"),
         batch_size,
@@ -46,7 +48,9 @@ def forwards(apps, schema_editor):
 
     # Collect property definition tags and taggeditems
     property_definition_paginator = Paginator(
-        EnterprisePropertyDefinition.objects.exclude(Q(deprecated_tags__isnull=True) | Q(deprecated_tags=[]),)
+        EnterprisePropertyDefinition.objects.exclude(
+            Q(deprecated_tags__isnull=True) | Q(deprecated_tags=[]),
+        )
         .order_by("updated_at")
         .values_list("deprecated_tags", "team_id", "id"),
         batch_size,

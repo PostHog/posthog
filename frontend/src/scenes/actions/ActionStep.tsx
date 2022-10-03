@@ -4,9 +4,10 @@ import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Tooltip } from 'lib/components/Tooltip'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Card, Col, Input, Radio, Typography, Space, RadioChangeEvent } from 'antd'
+import { Card, Col, Radio, Typography, Space, RadioChangeEvent } from 'antd'
 import { ExportOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { ActionStepType } from '~/types'
+import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 const { Text } = Typography
 
@@ -134,10 +135,10 @@ function Option(props: {
     caption?: JSX.Element | string
     extra_options?: JSX.Element | string
 }): JSX.Element {
-    const onOptionChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void =>
+    const onOptionChange = (val: string): void =>
         props.sendStep({
             ...props.step,
-            [props.item]: e.target.value || null, // "" is a valid filter, we don't want it
+            [props.item]: val || null, // "" is a valid filter, we don't want it
         })
 
     return (
@@ -147,14 +148,13 @@ function Option(props: {
             </label>
             {props.caption && <div className="action-step-caption">{props.caption}</div>}
             {props.item === 'selector' ? (
-                <Input.TextArea
-                    allowClear
+                <LemonTextArea
                     onChange={onOptionChange}
                     value={props.step[props.item] || ''}
                     placeholder={props.placeholder}
                 />
             ) : (
-                <Input
+                <LemonInput
                     data-attr="edit-action-url-input"
                     allowClear
                     onChange={onOptionChange}

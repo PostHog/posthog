@@ -15,7 +15,7 @@ def create_plugin_log_entry(
     source: PluginLogEntrySource,
     type: PluginLogEntryType,
     message: str,
-    instance_id: str
+    instance_id: str,
 ):
     from posthog.clickhouse.plugin_log_entries import INSERT_PLUGIN_LOG_ENTRY_SQL
 
@@ -126,7 +126,7 @@ class TestPluginLogEntry(BaseTest):
         )
 
         results = fetch_plugin_log_entries(
-            plugin_config_id=some_plugin_config.pk, type_filter=[PluginLogEntryType.ERROR, PluginLogEntryType.DEBUG],
+            plugin_config_id=some_plugin_config.pk, type_filter=[PluginLogEntryType.ERROR, PluginLogEntryType.DEBUG]
         )
 
         self.assertEqual(len(results), 2)

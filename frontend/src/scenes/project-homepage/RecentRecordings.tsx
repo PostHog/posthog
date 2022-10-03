@@ -10,7 +10,7 @@ import { asDisplay } from 'scenes/persons/PersonHeader'
 import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
 import { urls } from 'scenes/urls'
 import { SessionRecordingType } from '~/types'
-import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { humanFriendlyDuration } from 'lib/utils'
 import { IconPlayCircle } from 'lib/components/icons'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
@@ -29,7 +29,7 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
         <LemonButton
             fullWidth
             onClick={() => {
-                openSessionPlayer(recording.id, RecordingWatchedSource.ProjectHomepage)
+                openSessionPlayer(recording)
                 reportRecordingOpenedFromRecentRecordingList()
             }}
         >
@@ -42,7 +42,7 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
                 </div>
 
                 <span>{humanFriendlyDuration(recording.recording_duration)}</span>
-                <IconPlayCircle className="text-lg ml-2" />
+                <IconPlayCircle className="text-2xl ml-2" />
             </div>
         </LemonButton>
     )
@@ -51,14 +51,11 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
 export function RecentRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ key: 'projectHomepage' })
-    const { sessionRecordingId, sessionRecordings, sessionRecordingsResponseLoading } = useValues(
-        sessionRecordingsTableLogicInstance
-    )
-    const { closeSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
+    const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsTableLogicInstance)
 
     return (
         <>
-            {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeSessionPlayer} />}
+            <SessionPlayerDrawer />
             <CompactList
                 title="Recent recordings"
                 viewAllURL={urls.sessionRecordings()}
@@ -69,7 +66,7 @@ export function RecentRecordings(): JSX.Element {
                               title: 'There are no recordings for this project',
                               description: 'Make sure you have the javascript snippet setup in your website.',
                               buttonText: 'Learn more',
-                              buttonHref: 'https://posthog.com/docs/user-guides/recordings',
+                              buttonTo: 'https://posthog.com/docs/user-guides/recordings',
                           }
                         : {
                               title: 'Recordings are not enabled for this project',

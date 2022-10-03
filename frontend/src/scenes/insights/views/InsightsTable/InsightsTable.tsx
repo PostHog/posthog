@@ -5,7 +5,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { getSeriesColor } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ChartDisplayType, IntervalType, TrendResult } from '~/types'
+import { ChartDisplayType, IntervalType, ItemMode, TrendResult } from '~/types'
 import { average, median, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -28,13 +28,13 @@ import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatAggregationValue, formatBreakdownLabel } from 'scenes/insights/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
     isLegend?: boolean
     /** Whether this is table is embedded in another card or whether it should be a card of its own. Default: false. */
     embedded?: boolean
-    showTotalCount?: boolean
     /** Key for the entityFilterLogic */
     filterKey: string
     canEditSeriesNameInline?: boolean
@@ -57,7 +57,7 @@ export function DashboardInsightsTable(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     return (
         <BindLogic logic={trendsLogic} props={insightProps}>
-            <InsightsTable showTotalCount filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded />
+            <InsightsTable filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded />
         </BindLogic>
     )
 }
@@ -65,13 +65,13 @@ export function DashboardInsightsTable(): JSX.Element {
 export function InsightsTable({
     isLegend = false,
     embedded = false,
-    showTotalCount = false,
     filterKey,
     canEditSeriesNameInline = false,
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
-    const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
+    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
+    const { insightMode } = useValues(insightSceneLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
@@ -82,8 +82,8 @@ export function InsightsTable({
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
-    const logic = insightsTableLogic({ hasMathUniqueFilter })
-    const { calcColumnState } = useValues(logic)
+    const logic = insightsTableLogic({ hasMathUniqueFilter, filters })
+    const { calcColumnState, showTotalCount } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
 
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
@@ -126,7 +126,24 @@ export function InsightsTable({
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
     if (isLegend) {
+        const isAnySeriesChecked = indexedResults.some((series) => !hiddenLegendKeys[series.id])
+        const areAllSeriesChecked = isAnySeriesChecked && indexedResults.every((series) => !hiddenLegendKeys[series.id])
         columns.push({
+            title: (
+                <LemonCheckbox
+                    checked={areAllSeriesChecked || (isAnySeriesChecked ? 'indeterminate' : false)}
+                    onChange={(checked) =>
+                        indexedResults.forEach((i) => {
+                            if (checked && hiddenLegendKeys[i.id]) {
+                                toggleVisibility(i.id)
+                            } else if (!checked && !hiddenLegendKeys[i.id]) {
+                                toggleVisibility(i.id)
+                            }
+                        })
+                    }
+                    disabled={!canCheckUncheckSeries}
+                />
+            ),
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
                     <LemonCheckbox
@@ -236,6 +253,46 @@ export function InsightsTable({
         }
     }
 
+    if (showTotalCount) {
+        columns.push({
+            title: calcColumnMenu ? (
+                <Dropdown overlay={calcColumnMenu}>
+                    <span className="cursor-pointer">
+                        {CALC_COLUMN_LABELS[calcColumnState]}
+                        <DownOutlined className="ml-1" />
+                    </span>
+                </Dropdown>
+            ) : (
+                CALC_COLUMN_LABELS.total
+            ),
+            render: function RenderCalc(_: any, item: IndexedTrendResult) {
+                let value: number | undefined = undefined
+                if (calcColumnState === 'total' || isDisplayModeNonTimeSeries) {
+                    value = item.count ?? item.aggregated_value
+                    if (item.aggregated_value > item.count) {
+                        value = item.aggregated_value
+                    }
+                } else if (calcColumnState === 'average') {
+                    value = average(item.data)
+                } else if (calcColumnState === 'median') {
+                    value = median(item.data)
+                }
+
+                return value !== undefined
+                    ? formatAggregationValue(
+                          item.action?.math_property,
+                          value,
+                          (value) => formatAggregationAxisValue(filters.aggregation_axis_format || 'numeric', value),
+                          formatPropertyValueForDisplay
+                      )
+                    : 'Unknown'
+            },
+            sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
+            dataIndex: 'count',
+            align: 'right',
+        })
+    }
+
     if (indexedResults?.length > 0 && indexedResults[0].data) {
         const previousResult = !!filters.compare
             ? indexedResults.find((r) => r.compare_label === 'previous')
@@ -269,46 +326,11 @@ export function InsightsTable({
         columns.push(...valueColumns)
     }
 
-    if (showTotalCount) {
-        columns.push({
-            title: calcColumnMenu ? (
-                <Dropdown overlay={calcColumnMenu}>
-                    <span className="cursor-pointer">
-                        {CALC_COLUMN_LABELS[calcColumnState]}
-                        <DownOutlined className="ml-1" />
-                    </span>
-                </Dropdown>
-            ) : (
-                CALC_COLUMN_LABELS.total
-            ),
-            render: function RenderCalc(_: any, item: IndexedTrendResult) {
-                let value: number | undefined = undefined
-                if (calcColumnState === 'total' || isDisplayModeNonTimeSeries) {
-                    value = item.count || item.aggregated_value
-                } else if (calcColumnState === 'average') {
-                    value = average(item.data)
-                } else if (calcColumnState === 'median') {
-                    value = median(item.data)
-                }
-
-                return value !== undefined
-                    ? formatAggregationValue(
-                          item.action?.math_property,
-                          value,
-                          (value) => formatAggregationAxisValue(filters.aggregation_axis_format || 'numeric', value),
-                          formatPropertyValueForDisplay
-                      )
-                    : 'Unknown'
-            },
-            sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
-            dataIndex: 'count',
-            align: 'right',
-        })
-    }
+    const useURLForSorting = insightMode !== ItemMode.Edit
 
     return (
         <LemonTable
-            id={isViewedOnDashboard ? insight.short_id : undefined}
+            id={isInDashboardContext ? insight.short_id : undefined}
             dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
             embedded={embedded}
             columns={columns}
@@ -318,6 +340,7 @@ export function InsightsTable({
             emptyState="No insight results"
             data-attr="insights-table-graph"
             className="insights-table"
+            useURLForSorting={useURLForSorting}
         />
     )
 }

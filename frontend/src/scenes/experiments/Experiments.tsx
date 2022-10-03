@@ -118,8 +118,8 @@ export function Experiments(): JSX.Element {
                 title={
                     <div className="flex items-center">
                         Experiments
-                        <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
-                            BETA
+                        <LemonTag type="warning" className="uppercase" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
+                            Beta
                         </LemonTag>
                     </div>
                 }
@@ -164,7 +164,6 @@ export function Experiments(): JSX.Element {
                         pagination={{ pageSize: 100 }}
                         nouns={['experiment', 'experiments']}
                         data-attr="experiment-table"
-                        data-tooltip="experiments-table"
                     />
                 </>
             ) : (

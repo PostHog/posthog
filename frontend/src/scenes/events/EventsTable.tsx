@@ -29,7 +29,7 @@ import { urls } from 'scenes/urls'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { TableCellRepresentation } from 'lib/components/LemonTable/types'
 import { IconExport, IconSync } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { teamLogic } from 'scenes/teamLogic'
@@ -38,6 +38,9 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { EventBufferNotice } from './EventBufferNotice'
+import { LemonDivider } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -63,7 +66,32 @@ interface EventsTable {
     showActionsButton?: boolean
     showPersonColumn?: boolean
     linkPropertiesToFilters?: boolean
-    'data-tooltip'?: string
+    'data-attr'?: string
+}
+
+interface ExportWithConfirmationProps {
+    placement: 'topRight' | 'bottomRight'
+    onConfirm: (e?: React.MouseEvent<HTMLElement>) => void
+    children: React.ReactNode
+}
+
+function ExportWithConfirmation({ placement, onConfirm, children }: ExportWithConfirmationProps): JSX.Element {
+    return (
+        <Popconfirm
+            placement={placement}
+            title={
+                <>
+                    Exporting by csv is limited to 3,500 events.
+                    <br />
+                    To return more, please use <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to
+                    export by CSV?
+                </>
+            }
+            onConfirm={onConfirm}
+        >
+            {children}
+        </Popconfirm>
+    )
 }
 
 export function EventsTable({
@@ -85,7 +113,7 @@ export function EventsTable({
     showActionsButton = true,
     showPersonColumn = true,
     linkPropertiesToFilters = true,
-    'data-tooltip': dataTooltip,
+    'data-attr': dataAttr,
 }: EventsTable): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({
@@ -125,6 +153,9 @@ export function EventsTable({
 
     const { reportEventsTablePollingReactedToPageVisibility } = useActions(eventUsageLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const allowColumnChoice = featureFlags[FEATURE_FLAGS.ALLOW_CSV_EXPORT_COLUMN_CHOICE]
+
     usePageVisibility((pageIsVisible) => {
         setPollingActive(pageIsVisible)
         reportEventsTablePollingReactedToPageVisibility(pageIsVisible)
@@ -150,6 +181,7 @@ export function EventsTable({
             },
         }
     }
+
     const personColumn: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> = {
         title: 'Person',
         key: 'person',
@@ -178,7 +210,17 @@ export function EventsTable({
                         return newEventsRender(item, tableWidth)
                     }
                     const { event } = item
-                    return <PropertyKeyInfo value={autoCaptureEventToDescription(event)} />
+                    const content = <PropertyKeyInfo value={autoCaptureEventToDescription(event)} />
+
+                    const url = event.properties.$sentry_url
+
+                    return url ? (
+                        <Link to={url} target="_blank">
+                            {content}
+                        </Link>
+                    ) : (
+                        content
+                    )
                 },
             },
             {
@@ -393,138 +435,182 @@ export function EventsTable({
         return fixedColumns ? columnsSoFar.concat(fixedColumns) : columnsSoFar
     }, [selectedColumns, tableWidth])
 
-    return (
-        <div data-attr="manage-events-table">
-            <div className="events" data-attr="events-table">
-                {(showEventFilter || showPropertyFilter) && (
-                    <div className="flex py-4 space-x-4 border-t">
-                        {showEventFilter && (
-                            <LemonEventName
-                                value={eventFilter}
-                                onChange={(value: string) => {
-                                    setEventFilter(value || '')
-                                }}
-                            />
-                        )}
-                        {showPropertyFilter && (
-                            <PropertyFilters
-                                propertyFilters={properties}
-                                onChange={setProperties}
-                                pageKey={pageKey}
-                                style={{ marginBottom: 0, marginTop: 0 }}
-                                eventNames={eventFilter ? [eventFilter] : []}
-                            />
-                        )}
-                    </div>
-                )}
+    const showFirstRow = showEventFilter || showPropertyFilter
+    const showSecondRow = showAutoload || showCustomizeColumns || showExport
 
-                {showAutoload || showCustomizeColumns || showExport ? (
-                    <div
-                        className={clsx(
-                            'flex justify-between pt-4 mb-4',
-                            (showEventFilter || showPropertyFilter) && 'border-t'
-                        )}
-                    >
-                        {showAutoload && (
-                            <LemonSwitch
-                                bordered
-                                data-tooltip="live-events-refresh-toggle"
-                                id="autoload-switch"
-                                label="Automatically load new events"
-                                checked={automaticLoadEnabled}
-                                onChange={toggleAutomaticLoad}
+    const exportColumns = useMemo(() => {
+        const columnMapping = {
+            url: ['properties.$current_url', 'properties.$screen_name'],
+            time: 'timestamp',
+            event: 'event',
+            source: 'properties.$lib',
+            person: ['person.distinct_ids.0', 'person.properties.email'],
+        }
+
+        return (selectedColumns === 'DEFAULT' ? defaultColumns.map((e) => e.key || '') : selectedColumns).flatMap(
+            (x) => {
+                return columnMapping[x] || `properties.${x}`
+            }
+        )
+    }, [defaultColumns, selectedColumns])
+
+    return (
+        <div className="events" data-attr="events-table">
+            {showFirstRow && (
+                <div className="flex space-x-4 mb-4">
+                    {showEventFilter && (
+                        <LemonEventName
+                            value={eventFilter}
+                            onChange={(value: string) => {
+                                setEventFilter(value || '')
+                            }}
+                        />
+                    )}
+                    {showPropertyFilter && (
+                        <PropertyFilters
+                            propertyFilters={properties}
+                            onChange={setProperties}
+                            pageKey={pageKey}
+                            style={{ marginBottom: 0, marginTop: 0 }}
+                            eventNames={eventFilter ? [eventFilter] : []}
+                        />
+                    )}
+                </div>
+            )}
+
+            {showFirstRow && showSecondRow ? (
+                <div className="my-4">
+                    <LemonDivider />
+                </div>
+            ) : null}
+
+            {showSecondRow ? (
+                <div className={clsx('flex justify-between items-center mb-4')}>
+                    {showAutoload && (
+                        <LemonSwitch
+                            bordered
+                            data-attr="live-events-refresh-toggle"
+                            id="autoload-switch"
+                            label="Automatically load new events"
+                            checked={automaticLoadEnabled}
+                            onChange={toggleAutomaticLoad}
+                        />
+                    )}
+                    <div className="flex space-x-2">
+                        {showCustomizeColumns && (
+                            <LemonTableConfig
+                                immutableColumns={['event', 'person']}
+                                defaultColumns={defaultColumns.map((e) => e.key || '')}
                             />
                         )}
-                        <div className="flex space-x-2">
-                            {showCustomizeColumns && (
-                                <LemonTableConfig
-                                    immutableColumns={['event', 'person']}
-                                    defaultColumns={defaultColumns.map((e) => e.key || '')}
-                                />
-                            )}
-                            {showExport && (
-                                <Popconfirm
-                                    placement="topRight"
-                                    title={
-                                        <>
-                                            Exporting by csv is limited to 3,500 events.
-                                            <br />
-                                            To return more, please use{' '}
-                                            <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to
-                                            export by CSV?
-                                        </>
-                                    }
-                                    onConfirm={startDownload}
-                                >
-                                    <LemonButton
-                                        type="secondary"
-                                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                                    >
-                                        Export
-                                    </LemonButton>
-                                </Popconfirm>
-                            )}
-                        </div>
-                    </div>
-                ) : null}
-                <EventBufferNotice additionalInfo=" – this helps ensure accuracy of insights grouped by unique users" />
-                <LemonTable
-                    data-tooltip={dataTooltip}
-                    dataSource={eventsFormatted}
-                    loading={isLoading}
-                    columns={columns}
-                    key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
-                    className="ph-no-capture"
-                    loadingSkeletonRows={20}
-                    emptyState={
-                        isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) ||
-                          eventFilter ? (
-                            `No events matching filters found in the last ${months} months!`
+                        {showExport && allowColumnChoice ? (
+                            <LemonButtonWithPopup
+                                popup={{
+                                    sameWidth: false,
+                                    closeOnClickInside: false,
+                                    overlay: [
+                                        <ExportWithConfirmation
+                                            key={1}
+                                            placement={'topRight'}
+                                            onConfirm={() => {
+                                                startDownload(exportColumns)
+                                            }}
+                                        >
+                                            <LemonButton fullWidth={true} status="stealth">
+                                                Export current columns
+                                            </LemonButton>
+                                        </ExportWithConfirmation>,
+                                        <ExportWithConfirmation
+                                            key={0}
+                                            placement={'bottomRight'}
+                                            onConfirm={() => startDownload()}
+                                        >
+                                            <LemonButton fullWidth={true} status="stealth">
+                                                Export all columns
+                                            </LemonButton>
+                                        </ExportWithConfirmation>,
+                                    ],
+                                }}
+                                type="secondary"
+                                icon={<IconExport />}
+                            >
+                                Export
+                            </LemonButtonWithPopup>
                         ) : (
-                            <>
-                                This project doesn't have any events. If you haven't integrated PostHog yet,{' '}
-                                <Link to="/project/settings">
-                                    click here to instrument analytics with PostHog in your product
-                                </Link>
-                                .
-                            </>
-                        )
-                    }
-                    rowKey={(row) =>
-                        row.event ? row.event.id + '-' + row.event.event : row.date_break?.toString() || ''
-                    }
-                    rowClassName={(row) => {
-                        return clsx({
-                            'event-row': row.event,
-                            highlighted: row.event && highlightEvents[row.event.id],
-                            'event-row-is-exception': row.event && row.event.event === '$exception',
-                            'event-row-date-separator': row.date_break,
-                            'event-row-new': row.new_events,
-                        })
-                    }}
-                    expandable={
-                        showRowExpanders
-                            ? {
-                                  expandedRowRender: function renderExpand({ event }) {
-                                      return event && <EventDetails event={event} />
-                                  },
-                                  rowExpandable: ({ event, date_break, new_events }) =>
-                                      date_break || new_events ? -1 : !!event,
-                              }
-                            : undefined
-                    }
-                />
-                {hasNext || isLoadingNext ? (
-                    <LemonButton
-                        type="primary"
-                        onClick={fetchNextEvents}
-                        loading={isLoadingNext}
-                        className="my-8 mx-auto"
-                    >
-                        Load more events
-                    </LemonButton>
-                ) : null}
-            </div>
+                            <Popconfirm
+                                placement="topRight"
+                                title={
+                                    <>
+                                        Exporting by csv is limited to 3,500 events.
+                                        <br />
+                                        To return more, please use{' '}
+                                        <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to export
+                                        by CSV?
+                                    </>
+                                }
+                                onConfirm={() => startDownload()}
+                            >
+                                <LemonButton type="secondary" icon={<IconExport style={{ color: 'var(--primary)' }} />}>
+                                    Export
+                                </LemonButton>
+                            </Popconfirm>
+                        )}
+                    </div>
+                </div>
+            ) : null}
+            <EventBufferNotice
+                additionalInfo=" - this helps ensure accuracy of insights grouped by unique users"
+                className="mb-4"
+            />
+            <LemonTable
+                data-attr={dataAttr}
+                dataSource={eventsFormatted}
+                loading={isLoading}
+                columns={columns}
+                key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
+                className="ph-no-capture"
+                loadingSkeletonRows={20}
+                emptyState={
+                    isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) || eventFilter ? (
+                        `No events matching filters found in the last ${months} months!`
+                    ) : (
+                        <>
+                            This project doesn't have any events. If you haven't integrated PostHog yet,{' '}
+                            <Link to="/project/settings">
+                                click here to instrument analytics with PostHog in your product
+                            </Link>
+                            .
+                        </>
+                    )
+                }
+                rowKey={(row) => (row.event ? row.event.id + '-' + row.event.event : row.date_break?.toString() || '')}
+                rowClassName={(row) => {
+                    return clsx({
+                        'event-row': row.event,
+                        highlighted: row.event && highlightEvents[row.event.id],
+                        'event-row-is-exception': row.event && row.event.event === '$exception',
+                        'event-row-date-separator': row.date_break,
+                        'event-row-new': row.new_events,
+                    })
+                }}
+                expandable={
+                    showRowExpanders
+                        ? {
+                              expandedRowRender: function renderExpand({ event }) {
+                                  return event && <EventDetails event={event} />
+                              },
+                              rowExpandable: ({ event, date_break, new_events }) =>
+                                  date_break || new_events ? -1 : !!event,
+                              noIndent: true,
+                          }
+                        : undefined
+                }
+            />
+            {hasNext || isLoadingNext ? (
+                <LemonButton type="primary" onClick={fetchNextEvents} loading={isLoadingNext} className="my-8 mx-auto">
+                    Load more events
+                </LemonButton>
+            ) : null}
         </div>
     )
 }

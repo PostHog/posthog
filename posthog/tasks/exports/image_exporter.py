@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -12,7 +13,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, configure_scope
 from statshog.defaults.django import statsd
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.utils import ChromeType
@@ -46,7 +47,7 @@ def get_driver() -> webdriver.Chrome:
         return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
 
     return webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM, log_level=logging.ERROR).install()),
+        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE, log_level=logging.ERROR).install()),
         options=options,
     )
 
@@ -113,20 +114,38 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
 
 def _screenshot_asset(
-    image_path: str, url_to_render: str, screenshot_width: ScreenWidth, wait_for_css_selector: CSSSelector,
+    image_path: str, url_to_render: str, screenshot_width: ScreenWidth, wait_for_css_selector: CSSSelector
 ) -> None:
     driver: Optional[webdriver.Chrome] = None
     try:
         driver = get_driver()
         driver.set_window_size(screenshot_width, screenshot_width * 0.5)
         driver.get(url_to_render)
-        WebDriverWait(driver, 10).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
+        WebDriverWait(driver, 30).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
         height = driver.execute_script("return document.body.scrollHeight")
         driver.set_window_size(screenshot_width, height)
         driver.save_screenshot(image_path)
+    except Exception as e:
+        if driver:
+            # To help with debugging, add a screenshot and any chrome logs
+            with configure_scope() as scope:
+                # If we encounter issues getting extra info we should silenty fail rather than creating a new exception
+                try:
+                    all_logs = [x for x in driver.get_log("browser")]
+                    scope.add_attachment(json.dumps(all_logs).encode("utf-8"), "logs.txt")
+                except Exception:
+                    pass
+                try:
+                    driver.save_screenshot(image_path)
+                    scope.add_attachment(None, None, image_path)
+                except Exception:
+                    pass
+                capture_exception(e)
+
+        raise e
     finally:
         if driver:
-            driver.close()
+            driver.quit()
 
 
 @timed("image_exporter")

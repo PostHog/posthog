@@ -5,7 +5,7 @@ import { Divider } from 'antd'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, PropertyDefinition } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
@@ -18,11 +18,13 @@ import {
 import { LemonButton } from 'lib/components/LemonButton'
 import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
-import { humanFriendlyNumber, Loading } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 import { EventsTable } from 'scenes/events'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { NotFound } from 'lib/components/NotFound'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -34,16 +36,29 @@ export const scene: SceneExport = {
 
 export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const logic = definitionLogic(props)
-    const { definition, definitionLoading, singular, mode, isEvent, backDetailUrl, hasTaxonomyFeatures } =
-        useValues(logic)
+    const {
+        definition,
+        definitionLoading,
+        definitionMissing,
+        singular,
+        mode,
+        isEvent,
+        backDetailUrl,
+        hasTaxonomyFeatures,
+    } = useValues(logic)
     const { setPageMode } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
 
+    if (definitionLoading) {
+        return <SpinnerOverlay />
+    }
+
+    if (definitionMissing) {
+        return <NotFound object="event" />
+    }
     return (
         <div className={clsx('definition-page', `definition-${mode}-page`)}>
-            {definitionLoading ? (
-                <Loading />
-            ) : mode === DefinitionPageMode.Edit ? (
+            {mode === DefinitionPageMode.Edit ? (
                 <DefinitionEdit {...props} definition={definition} />
             ) : (
                 <>
@@ -57,7 +72,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 minLength={1}
                                 maxLength={400} // Sync with action model
                                 data-attr="definition-name-view"
-                                className="definition-name"
                             />
                         }
                         caption={
@@ -92,7 +106,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     }
                                 />
                                 <div className="definition-sent-as">
-                                    Raw event name: <pre>{definition.name}</pre>
+                                    Raw {singular} name: <pre>{definition.name}</pre>
                                 </div>
                             </>
                         }
@@ -101,7 +115,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 <>
                                     <LemonButton
                                         data-attr="edit-definition"
-                                        data-tooltip="data-management-event-edit-button"
                                         type="secondary"
                                         onClick={() => {
                                             setPageMode(DefinitionPageMode.Edit)
@@ -115,14 +128,27 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     />
                     <Divider />
                     <DefinitionPopup.Grid cols={2}>
-                        <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(definition.created_at)} />
-                        <DefinitionPopup.Card title="Last seen" value={formatTimeFromNow(definition.last_seen_at)} />
-                        <DefinitionPopup.Card
-                            title={<ThirtyDayVolumeTitle />}
-                            value={
-                                definition.volume_30_day == null ? '-' : humanFriendlyNumber(definition.volume_30_day)
-                            }
-                        />
+                        {isEvent && (
+                            <>
+                                <DefinitionPopup.Card
+                                    title="First seen"
+                                    value={formatTimeFromNow(definition.created_at)}
+                                />
+                                <DefinitionPopup.Card
+                                    title="Last seen"
+                                    value={formatTimeFromNow(definition.last_seen_at)}
+                                />
+                                <DefinitionPopup.Card
+                                    title={<ThirtyDayVolumeTitle />}
+                                    value={
+                                        definition.volume_30_day == null
+                                            ? '-'
+                                            : humanFriendlyNumber(definition.volume_30_day)
+                                    }
+                                />
+                            </>
+                        )}
+
                         <DefinitionPopup.Card
                             title={<ThirtyDayQueryCountTitle />}
                             value={
@@ -131,6 +157,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     : humanFriendlyNumber(definition.query_usage_30_day)
                             }
                         />
+                        {!isEvent && (
+                            <DefinitionPopup.Card
+                                title="Property Type"
+                                value={(definition as PropertyDefinition).property_type ?? '-'}
+                            />
+                        )}
                     </DefinitionPopup.Grid>
                     <Divider />
                     {isEvent && definition.id !== 'new' && (
@@ -142,6 +174,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 <p className="definition-matching-events-subtext">
                                     This is the list of recent events that match this definition.
                                 </p>
+                                <div className="pt-4 border-t" />
                                 <EventsTable
                                     sceneUrl={backDetailUrl}
                                     pageKey={`definition-page-${definition.id}`}

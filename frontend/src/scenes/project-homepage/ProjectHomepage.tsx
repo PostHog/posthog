@@ -6,10 +6,7 @@ import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { DashboardPlacement } from '~/types'
-import { Row, Skeleton, Typography } from 'antd'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { PrimaryDashboardModal } from './PrimaryDashboardModal'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
@@ -20,6 +17,10 @@ import { RecentRecordings } from './RecentRecordings'
 import { RecentInsights } from './RecentInsights'
 import { NewlySeenPersons } from './NewlySeenPersons'
 import useSize from '@react-hook/size'
+import { NewInsightButton } from 'scenes/saved-insights/SavedInsights'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { Link } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogic } = useValues(projectHomepageLogic)
@@ -31,9 +32,8 @@ export function ProjectHomepage(): JSX.Element {
     const [topListContainerWidth] = useSize(topListContainerRef)
 
     const headerButtons = (
-        <div style={{ display: 'flex' }}>
+        <div className="flex">
             <LemonButton
-                data-tooltip="invite-members-button"
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
                     showInviteModal()
@@ -43,16 +43,7 @@ export function ProjectHomepage(): JSX.Element {
             >
                 Invite members
             </LemonButton>
-            <LemonButton
-                data-attr="project-home-new-insight"
-                data-tooltip="project-button"
-                onClick={() => {
-                    router.actions.push(urls.insightNew())
-                }}
-                type="secondary"
-            >
-                New insight
-            </LemonButton>
+            <NewInsightButton dataAttr="project-home-new-insight" />
         </div>
     )
 
@@ -81,15 +72,18 @@ export function ProjectHomepage(): JSX.Element {
             </div>
             {currentTeam?.primary_dashboard ? (
                 <div>
-                    <Row className="homepage-dashboard-header">
+                    <div className="homepage-dashboard-header">
                         <div className="dashboard-title-container">
-                            {!dashboard && <Skeleton active paragraph={false} />}
+                            {!dashboard && <LemonSkeleton className="w-20" />}
                             {dashboard?.name && (
                                 <>
-                                    <IconCottage className="mr-2 text-warning" style={{ fontSize: '1.5rem' }} />
-                                    <Typography.Title className="dashboard-name" level={4}>
+                                    <IconCottage className="mr-2 text-warning text-2xl" />
+                                    <Link
+                                        className="font-semibold text-xl text-default"
+                                        to={urls.dashboard(dashboard.id)}
+                                    >
                                         {dashboard?.name}
-                                    </Typography.Title>
+                                    </Link>
                                 </>
                             )}
                         </div>
@@ -100,8 +94,8 @@ export function ProjectHomepage(): JSX.Element {
                         >
                             Change dashboard
                         </LemonButton>
-                    </Row>
-                    <LemonDivider large />
+                    </div>
+                    <LemonDivider className="my-6" />
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
                         placement={DashboardPlacement.ProjectHomepage}

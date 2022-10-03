@@ -20,7 +20,7 @@ def _deliver_subscription_report(
 
     subscription = (
         Subscription.objects.prefetch_related("dashboard__insights")
-        .select_related("created_by", "insight", "dashboard",)
+        .select_related("created_by", "insight", "dashboard")
         .get(pk=subscription_id)
     )
 
@@ -83,7 +83,12 @@ def schedule_all_subscriptions() -> None:
     all upcoming hourly scheduled subscriptions
     """
     now_with_buffer = datetime.utcnow() + timedelta(minutes=15)
-    subscriptions = Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False).all()
+    subscriptions = (
+        Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
+        .exclude(dashboard__deleted=True)
+        .exclude(insight__deleted=True)
+        .all()
+    )
 
     for subscription in subscriptions:
         deliver_subscription_report.delay(subscription.id)

@@ -1,7 +1,7 @@
 import datetime as dt
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from django.db import connection
 
@@ -15,6 +15,8 @@ COPY_GRAPHILE_JOBS_BETWEEN_TEAMS_SQL = """
         run_at, max_attempts, '{ "team_id": %(target_team_id)s }'::jsonb
     FROM graphile_worker.jobs WHERE (flags->'team_id')::int = %(source_team_id)s"""
 
+ERASE_GRAPHILE_JOBS_OF_TEAM_SQL = """DELETE FROM graphile_worker.jobs WHERE (flags->'team_id')::int = %(team_id)s"""
+
 
 @dataclass
 class GraphileJob:
@@ -23,6 +25,16 @@ class GraphileJob:
     run_at: dt.datetime
     max_attempts: int = field(default=1)
     flags: Optional[Dict[str, Any]] = field(default=None)
+
+
+def _execute_graphile_query(query: str, params: Optional[Union[List[Any], Dict[str, Any]]] = None):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(query, params=params)
+    except Exception as e:
+        if 'relation "graphile_worker.jobs" does not exist' in str(e):
+            raise Exception("The plugin server must be started before trying to save future demo data") from e
+        raise e
 
 
 def bulk_queue_graphile_jobs(jobs: Sequence[GraphileJob]):
@@ -39,8 +51,7 @@ def bulk_queue_graphile_jobs(jobs: Sequence[GraphileJob]):
         params.append(job.run_at.isoformat())
         params.append(job.max_attempts)
         params.append(json.dumps(job.flags) if job.flags else None)
-    with connection.cursor() as cursor:
-        cursor.execute(BULK_INSERT_JOBS_SQL.format(values=", ".join(values)), params=params)
+    _execute_graphile_query(BULK_INSERT_JOBS_SQL.format(values=", ".join(values)), params=params)
 
 
 def copy_graphile_jobs_between_teams(source_team_id: int, target_team_id: int):
@@ -48,7 +59,14 @@ def copy_graphile_jobs_between_teams(source_team_id: int, target_team_id: int):
 
     This is a bit dirty and only intended for demo data, not production.
     """
-    with connection.cursor() as cursor:
-        cursor.execute(
-            COPY_GRAPHILE_JOBS_BETWEEN_TEAMS_SQL, {"target_team_id": target_team_id, "source_team_id": source_team_id},
-        )
+    _execute_graphile_query(
+        COPY_GRAPHILE_JOBS_BETWEEN_TEAMS_SQL, {"target_team_id": target_team_id, "source_team_id": source_team_id}
+    )
+
+
+def erase_graphile_jobs_of_team(team_id: int):
+    """Erase all scheduled demo events of project.
+
+    This is a bit dirty and only intended for demo data, not production.
+    """
+    _execute_graphile_query(ERASE_GRAPHILE_JOBS_OF_TEAM_SQL, {"team_id": team_id})

@@ -1,5 +1,4 @@
 import React, { useState } from 'react'
-import { Input } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
@@ -20,6 +19,9 @@ import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { combineUrl, router } from 'kea-router'
+import { LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
@@ -35,7 +37,10 @@ export function Cohorts(): JSX.Element {
     const { deleteCohort, exportCohortPersons } = useActions(cohortsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const { searchParams } = useValues(router)
-    const [searchTerm, setSearchTerm] = useState<string | false>(false)
+    const [searchTerm, setSearchTerm] = useState<string>('')
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const allowColumnChoice = featureFlags[FEATURE_FLAGS.ALLOW_CSV_EXPORT_COLUMN_CHOICE]
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -59,6 +64,7 @@ export function Cohorts(): JSX.Element {
         },
         {
             title: 'Users in cohort',
+            align: 'right',
             render: function RenderCount(_: any, cohort: CohortType) {
                 return cohort.count?.toLocaleString()
             },
@@ -81,8 +87,8 @@ export function Cohorts(): JSX.Element {
                     return <>N/A</>
                 }
                 return cohort.is_calculating ? (
-                    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                        in progress <Spinner size="sm" style={{ marginLeft: 6 }} />
+                    <span className="flex items-center">
+                        in progress <Spinner className="ml-2" />
                     </span>
                 ) : (
                     dayjs(cohort.last_calculation).fromNow()
@@ -119,13 +125,33 @@ export function Cohorts(): JSX.Element {
                                 >
                                     View session recordings
                                 </LemonButton>
+                                {allowColumnChoice && (
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() =>
+                                            exportCohortPersons(cohort.id, [
+                                                'distinct_ids.0',
+                                                'id',
+                                                'name',
+                                                'properties.email',
+                                            ])
+                                        }
+                                        tooltip="Export specific columns for users belonging to this cohort in CSV format. Includes distinct id, internal id, email, and name"
+                                        fullWidth
+                                    >
+                                        Export important columns for users&nbsp;
+                                        <LemonTag type="warning" className="uppercase">
+                                            Beta
+                                        </LemonTag>
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     status="stealth"
                                     onClick={() => exportCohortPersons(cohort.id)}
                                     tooltip="Export all users belonging to this cohort in CSV format."
                                     fullWidth
                                 >
-                                    Export users
+                                    Export {allowColumnChoice ? ' all columns for ' : ''}users
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton status="danger" onClick={() => deleteCohort(cohort)} fullWidth>
@@ -145,36 +171,30 @@ export function Cohorts(): JSX.Element {
                 title="Cohorts"
                 caption="Create lists of users who have something in common to use in analytics or feature flags."
             />
-            <div>
-                <Input.Search
-                    allowClear
-                    enterButton
+            <div className="flex justify-between items-center mb-4 gap-2">
+                <LemonInput
+                    type="search"
                     placeholder="Search for cohorts"
-                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                    }}
+                    onChange={setSearchTerm}
+                    value={searchTerm}
                 />
-                <div className="mb-4 float-right">
-                    <LemonButton
-                        type="primary"
-                        data-attr="create-cohort"
-                        onClick={() => router.actions.push(urls.cohort('new'))}
-                    >
-                        New Cohort
-                    </LemonButton>
-                </div>
-
-                <LemonTable
-                    columns={columns}
-                    loading={cohortsLoading}
-                    rowKey="id"
-                    pagination={{ pageSize: 100 }}
-                    dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
-                    nouns={['cohort', 'cohorts']}
-                    data-tooltip="cohorts-table"
-                />
+                <LemonButton
+                    type="primary"
+                    data-attr="create-cohort"
+                    onClick={() => router.actions.push(urls.cohort('new'))}
+                >
+                    New Cohort
+                </LemonButton>
             </div>
+            <LemonTable
+                columns={columns}
+                loading={cohortsLoading}
+                rowKey="id"
+                pagination={{ pageSize: 100 }}
+                dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
+                nouns={['cohort', 'cohorts']}
+                data-attr="cohorts-table"
+            />
         </div>
     )
 }

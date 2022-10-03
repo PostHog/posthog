@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, dateFilterToText, Loading } from 'lib/utils'
+import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import {
@@ -53,6 +53,8 @@ import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { AlertMessage } from '../AlertMessage'
 import { UserActivityIndicator } from '../UserActivityIndicator/UserActivityIndicator'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { BoldNumber } from 'scenes/insights/views/BoldNumber'
+import { SpinnerOverlay } from '../Spinner/Spinner'
 
 // TODO: Add support for Retention to InsightDetails
 export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -105,6 +107,10 @@ const displayMap: Record<
     WorldMap: {
         className: 'world-map',
         element: WorldMap,
+    },
+    BoldNumber: {
+        className: 'bold-number',
+        element: BoldNumber,
     },
 }
 
@@ -160,6 +166,7 @@ interface InsightMetaProps
         | 'refresh'
         | 'rename'
         | 'duplicate'
+        | 'dashboardId'
         | 'moveToDashboard'
         | 'showEditingControls'
         | 'showDetailsControls'
@@ -175,6 +182,7 @@ interface InsightMetaProps
 
 function InsightMeta({
     insight,
+    dashboardId,
     updateColor,
     removeFromDashboard,
     deleteWithUndo,
@@ -189,7 +197,7 @@ function InsightMeta({
     showDetailsControls = true,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, description, tags, color, filters, dashboards } = insight
-    const { exporterResourceParams } = useValues(insightLogic)
+    const { exporterResourceParams, insightProps } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
@@ -257,7 +265,7 @@ function InsightMeta({
                                             icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
                                             onClick={() => setAreDetailsShown((state) => !state)}
                                             type="tertiary"
-                                            status="muted-alt"
+                                            status="primary-alt"
                                             size={showDetailsButtonLabel ? 'small' : undefined}
                                         >
                                             {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
@@ -321,6 +329,7 @@ function InsightMeta({
                                                                 placement: 'right-start',
                                                                 fallbackPlacements: ['left-start'],
                                                                 actionable: true,
+                                                                closeParentPopupOnClickInside: true,
                                                             }}
                                                             fullWidth
                                                         >
@@ -346,6 +355,7 @@ function InsightMeta({
                                                                 placement: 'right-start',
                                                                 fallbackPlacements: ['left-start'],
                                                                 actionable: true,
+                                                                closeParentPopupOnClickInside: true,
                                                             }}
                                                             fullWidth
                                                         >
@@ -367,7 +377,16 @@ function InsightMeta({
                                                             Rename
                                                         </LemonButton>
                                                     )}
-                                                    <LemonButton status="stealth" onClick={duplicate} fullWidth>
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        onClick={duplicate}
+                                                        fullWidth
+                                                        data-attr={
+                                                            dashboardId
+                                                                ? 'duplicate-insight-from-dashboard'
+                                                                : 'duplicate-insight-from-card-list-view'
+                                                        }
+                                                    >
                                                         Duplicate
                                                     </LemonButton>
                                                     <LemonDivider />
@@ -378,6 +397,7 @@ function InsightMeta({
                                                                 {
                                                                     export_format: ExporterFormat.PNG,
                                                                     insight: insight.id,
+                                                                    dashboard: insightProps.dashboardId,
                                                                 },
                                                                 {
                                                                     export_format: ExporterFormat.CSV,
@@ -444,11 +464,7 @@ function InsightMeta({
 }
 
 function VizComponentFallback(): JSX.Element {
-    return (
-        <AlertMessage type="warning" style={{ alignSelf: 'center' }}>
-            Unknown insight display type
-        </AlertMessage>
-    )
+    return <AlertMessage type="warning">Unknown insight display type</AlertMessage>
 }
 
 export interface InsightVizProps
@@ -473,6 +489,19 @@ export function InsightViz({
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
 
+    useEffect(() => {
+        // If displaying a BoldNumber Trends insight, we need to fire the window resize event
+        // Without this, the value is only autosized before `metaPrimaryHeight` is determined, so it's wrong
+        // With this, autosizing runs again after `metaPrimaryHeight` is ready
+        if (
+            // `display` should be ignored in non-Trends insight
+            (!!insight.filters.insight || insight.filters.insight === InsightType.TRENDS) &&
+            insight.filters.display === ChartDisplayType.BoldNumber
+        ) {
+            window.dispatchEvent(new Event('resize'))
+        }
+    }, [style?.height])
+
     return (
         <div
             className="InsightViz"
@@ -485,7 +514,7 @@ export function InsightViz({
                     : undefined
             }
         >
-            {loading && !timedOut && <Loading />}
+            {loading && !timedOut && <SpinnerOverlay />}
             {tooFewFunnelSteps ? (
                 <FunnelSingleStepState actionable={false} />
             ) : invalidFunnelExclusion ? (
@@ -574,6 +603,7 @@ function InsightCardInternal(
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightMeta
                     insight={insight}
+                    dashboardId={dashboardId}
                     updateColor={updateColor}
                     removeFromDashboard={removeFromDashboard}
                     deleteWithUndo={deleteWithUndo}

@@ -50,7 +50,6 @@ import {
     getIncompleteConversionWindowStartDate,
     generateBaselineConversionUrl,
 } from './funnelUtils'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -63,6 +62,9 @@ import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
+import { LemonSelectOptions } from 'lib/components/LemonSelect'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 
 /* Chosen via heuristics by eyeballing some values
  * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
@@ -94,8 +96,9 @@ export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
     '$initial_geoip_subdivision_name',
 ]
 
-export type openPersonsModelProps = {
+export type OpenPersonsModelProps = {
     step: FunnelStep
+    stepIndex?: number
     converted: boolean
 }
 
@@ -107,7 +110,7 @@ export const funnelLogic = kea<funnelLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'isViewedOnDashboard', 'hiddenLegendKeys'],
+            ['filters', 'insight', 'insightLoading', 'isInDashboardContext', 'hiddenLegendKeys'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -120,7 +123,7 @@ export const funnelLogic = kea<funnelLogicType>({
             ['groupProperties'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
-        logic: [eventUsageLogic, dashboardsModel, personsModalLogic],
+        logic: [eventUsageLogic, dashboardsModel],
     }),
 
     actions: () => ({
@@ -136,8 +139,9 @@ export const funnelLogic = kea<funnelLogicType>({
             index,
         }),
         saveFunnelInsight: (name: string) => ({ name }),
-        openPersonsModalForStep: ({ step, converted }: openPersonsModelProps) => ({
+        openPersonsModalForStep: ({ step, stepIndex, converted }: OpenPersonsModelProps) => ({
             step,
+            stepIndex,
             converted,
         }),
         openPersonsModalForSeries: ({
@@ -1162,7 +1166,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 return count
             },
         ],
-        isModalActive: [(s) => [s.isViewedOnDashboard], (isViewedOnDashboard) => !isViewedOnDashboard],
         incompletenessOffsetFromEnd: [
             (s) => [s.steps, s.conversionWindow],
             (steps, conversionWindow) => {
@@ -1182,11 +1185,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         breakdownAttributionStepOptions: [
             (s) => [s.steps],
-            (steps) => {
-                const options = {}
-                steps.map((_, idx) => (options[idx] = { label: `Step ${idx + 1}` }))
-                return options
-            },
+            (steps): LemonSelectOptions<number> => steps.map((_, idx) => ({ value: idx, label: `Step ${idx + 1}` })),
         ],
     }),
 
@@ -1251,51 +1250,54 @@ export const funnelLogic = kea<funnelLogicType>({
         clearFunnel: ({}) => {
             actions.setFilters({ new_entity: values.filters.new_entity }, false, true)
         },
-        openPersonsModalForStep: ({ step, converted }) => {
-            // DEPRECATED
-            if (!values.isModalActive) {
+        openPersonsModalForStep: ({ step, stepIndex, converted }) => {
+            if (values.isInDashboardContext) {
                 return
             }
 
-            const funnelStep = converted ? step.order : -step.order - 1
-            const breakdownValues = getBreakdownStepValues(step, funnelStep)
-
-            personsModalLogic.actions.loadPeopleFromUrl({
+            openPersonsModal({
                 url: converted ? step.converted_people_url : step.dropped_people_url,
-                // NOTE: although we have the url that contains all of the info needed
-                // to return people, we currently still need to pass something in for the
-                // purpose of the modal displaying the label.
-                funnelStep: converted ? step.order : -step.order,
-                breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
-                label: step.name,
-                seriesId: step.order,
+                title: funnelTitle({
+                    converted,
+                    // Note - when in a legend the step.order is always 0 so we use stepIndex instead
+                    step: typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1,
+                    label: step.name,
+                    seriesId: step.order,
+                }),
             })
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
+            if (values.isInDashboardContext) {
+                return
+            }
             // Version of openPersonsModalForStep that accurately handles breakdown series
             const breakdownValues = getBreakdownStepValues(series, series.order)
-            personsModalLogic.actions.loadPeopleFromUrl({
+            openPersonsModal({
                 url: converted ? series.converted_people_url : series.dropped_people_url,
-                // NOTE: although we have the url that contains all of the info needed
-                // to return people, we currently still need to pass something in for the
-                // purpose of the modal displaying the label.
-                funnelStep: converted ? step.order + 1 : -(step.order + 1),
-                breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
-                label: step.name,
-                seriesId: step.order,
+                title: funnelTitle({
+                    converted,
+                    step: step.order + 1,
+                    breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
+                    label: step.name,
+                    seriesId: step.order,
+                }),
             })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
+            if (values.isInDashboardContext) {
+                return
+            }
+
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
-                personsModalLogic.actions.loadPeopleFromUrl({
+                openPersonsModal({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
-                    // just display that we either completed the last step, or
-                    // dropped at the second to last step
-                    funnelStep: success ? values.stepsWithCount.length : -2,
-                    label: breakdown,
-                    breakdown_value,
-                    date_from: '',
+                    title: funnelTitle({
+                        converted: success,
+                        step: values.stepsWithCount.length,
+                        breakdown_value,
+                        label: breakdown,
+                    }),
                 })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(
@@ -1306,11 +1308,13 @@ export const funnelLogic = kea<funnelLogicType>({
             } else {
                 const { name, properties } = parseEventAndProperty(correlation.event)
 
-                personsModalLogic.actions.loadPeopleFromUrl({
+                openPersonsModal({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
-                    funnelStep: success ? values.stepsWithCount.length : -2,
-                    label: name,
-                    date_from: '',
+                    title: funnelTitle({
+                        converted: success,
+                        step: values.stepsWithCount.length,
+                        label: name,
+                    }),
                 })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {

@@ -127,7 +127,7 @@ class EmailMessage:
         reply_to: Optional[str] = None,
     ):
         if not is_email_available():
-            raise exceptions.ImproperlyConfigured("Email is not enabled in this instance.",)
+            raise exceptions.ImproperlyConfigured("Email is not enabled in this instance.")
 
         if "utm_tags" not in template_context:
             template_context.update({"utm_tags": f"utm_source=posthog&utm_medium=email&utm_campaign={template_name}"})

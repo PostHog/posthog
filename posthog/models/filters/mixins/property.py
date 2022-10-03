@@ -82,7 +82,7 @@ class PropertyMixin(BaseParamMixin):
             key_split = key.split("__")
             ret.append(
                 Property(
-                    key=key_split[0], value=value, operator=key_split[1] if len(key_split) > 1 else None, type="event",
+                    key=key_split[0], value=value, operator=key_split[1] if len(key_split) > 1 else None, type="event"
                 )
             )
         return ret

@@ -23,7 +23,12 @@ from posthog.models.cohort.sql import (
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
 )
-from posthog.models.person.sql import GET_PERSON_IDS_BY_FILTER, INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
+from posthog.models.person.sql import (
+    GET_LATEST_PERSON_SQL,
+    GET_PERSON_IDS_BY_FILTER,
+    INSERT_PERSON_STATIC_COHORT,
+    PERSON_STATIC_COHORT_TABLE,
+)
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
@@ -33,79 +38,35 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 logger = structlog.get_logger(__name__)
 
 
-def format_person_query(
-    cohort: Cohort, index: int, *, custom_match_field: str = "person_id"
-) -> Tuple[str, Dict[str, Any]]:
+def format_person_query(cohort: Cohort, index: int) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
-        return format_static_cohort_query(cohort.pk, index, prepend="", custom_match_field=custom_match_field)
+        return format_static_cohort_query(cohort.pk, index, prepend="")
 
     if not cohort.properties.values:
         # No person can match an empty cohort
-        return "0 = 19", {}
+        return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
 
     from posthog.queries.cohort_query import CohortQuery
 
-    query, params = CohortQuery(
-        Filter(data={"properties": cohort.properties}, team=cohort.team), cohort.team, cohort_pk=cohort.pk,
-    ).get_query()
+    query_builder = CohortQuery(
+        Filter(data={"properties": cohort.properties}, team=cohort.team), cohort.team, cohort_pk=cohort.pk
+    )
 
-    return f"{custom_match_field} IN ({query})", params
+    query, params = query_builder.get_query()
+
+    return query, params
 
 
-def format_static_cohort_query(
-    cohort_id: int, index: int, prepend: str, custom_match_field: str, negate: bool = False
-) -> Tuple[str, Dict[str, Any]]:
+def format_static_cohort_query(cohort_id: int, index: int, prepend: str) -> Tuple[str, Dict[str, Any]]:
     return (
-        f"{custom_match_field} {'NOT' if negate else ''} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s)",
+        f"SELECT person_id as id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s",
         {f"{prepend}_cohort_id_{index}": cohort_id},
     )
 
 
-def format_precalculated_cohort_query(
-    cohort_id: int, index: int, prepend: str = "", custom_match_field="person_id"
-) -> Tuple[str, Dict[str, Any]]:
+def format_precalculated_cohort_query(cohort_id: int, index: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
     filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
-    return (
-        f"""
-        {custom_match_field} IN ({filter_query})
-        """,
-        {f"{prepend}_cohort_id_{index}": cohort_id},
-    )
-
-
-def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int) -> Tuple[str, Dict[str, Any]]:
-    from posthog.models.property.util import prop_filter_json_extract
-
-    filter = Filter(data=cohort_group)
-    params: Dict[str, Any] = {}
-
-    query_parts = []
-    # Cohorts don't yet support OR filters
-    for idx, prop in enumerate(filter.property_groups.flat):
-        if prop.type == "cohort":
-            try:
-                prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=cohort.team_id)
-            except Cohort.DoesNotExist:
-                return "0 = 14", {}
-            if prop_cohort.pk == cohort.pk:
-                # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort),
-                # we treat it as satisfied for all persons
-                query_parts.append("AND 11 = 11")
-            else:
-                person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id")
-                params.update(cohort_filter_params)
-                query_parts.append(f"AND person.id IN ({person_id_query})")
-        else:
-            filter_query, filter_params = prop_filter_json_extract(
-                prop=prop,
-                idx=idx,
-                prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx),
-                allow_denormalized_props=False,
-            )
-            params.update(filter_params)
-            query_parts.append(filter_query)
-
-    return "\n".join(query_parts).replace("AND ", "", 1), params
+    return (filter_query, {f"{prepend}_cohort_id_{index}": cohort_id})
 
 
 def get_entity_cohort_subquery(
@@ -141,7 +102,7 @@ def get_entity_cohort_subquery(
 
         return f"{'NOT' if is_negation else ''} {custom_match_field} IN ({extract_person})", params
     else:
-        extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query,)
+        extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query)
         return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
 
 
@@ -238,24 +199,26 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
 
 def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="person_id") -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
-    person_query, params = (
-        format_precalculated_cohort_query(cohort.pk, index, custom_match_field=custom_match_field)
-        if is_precalculated
-        else format_person_query(cohort, index, custom_match_field=custom_match_field)
-    )
+    if is_precalculated:
+        query, params = format_precalculated_cohort_query(cohort.pk, index)
+    else:
+        query, params = format_person_query(cohort, index)
+
+    person_query = f"{custom_match_field} IN ({query})"
     return person_query, params
 
 
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int] = None, offset: Optional[int] = None):
     from posthog.models.property.util import parse_prop_grouped_clauses
 
-    filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
+    filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]})
     filter_query, filter_params = parse_prop_grouped_clauses(
         team_id=team.pk, property_group=filters.property_groups, table_name="pdi"
     )
 
     results = sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
+            person_query=GET_LATEST_PERSON_SQL,
             distinct_query=filter_query,
             query="",
             GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.pk),
@@ -284,30 +247,20 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
-    cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id")
+    cohort_query, cohort_params = format_person_query(cohort, 0)
 
     before_count = get_cohort_size(cohort.pk, cohort.team_id)
 
     if before_count:
         logger.info(
-            "Recalculating cohortpeople starting",
-            team_id=cohort.team_id,
-            cohort_id=cohort.pk,
-            size_before=before_count,
+            "Recalculating cohortpeople starting", team_id=cohort.team_id, cohort_id=cohort.pk, size_before=before_count
         )
 
-    cohort_filter = GET_PERSON_IDS_BY_FILTER.format(
-        distinct_query="AND " + cohort_filter,
-        query="",
-        offset="",
-        limit="",
-        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
-    )
+    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_filter)
     sync_execute(
         recalcluate_cohortpeople_sql,
-        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version,},
+        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version},
     )
 
     count = get_cohort_size(cohort.pk, cohort.team_id)

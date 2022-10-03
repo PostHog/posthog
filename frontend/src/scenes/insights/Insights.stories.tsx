@@ -9,8 +9,8 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/person/retention': sampleRetentionPeopleResponse,
-                '/api/person/properties': samplePersonProperties,
+                '/api/projects/:team_id/persons/retention': sampleRetentionPeopleResponse,
+                '/api/projects/:team_id/persons/properties': samplePersonProperties,
             },
             post: {
                 '/api/projects/:projectId/cohorts/': { id: 1 },
@@ -24,13 +24,14 @@ export const TrendsLine = createInsightScene(require('./__mocks__/trendsLine.jso
 export const TrendsLineBreakdown = createInsightScene(require('./__mocks__/trendsLineBreakdown.json'))
 export const TrendsBar = createInsightScene(require('./__mocks__/trendsBar.json'))
 export const TrendsBarBreakdown = createInsightScene(require('./__mocks__/trendsBarBreakdown.json'))
-export const TrendsWorldMap = createInsightScene(require('./__mocks__/trendsWorldMap.json'))
 export const TrendsValue = createInsightScene(require('./__mocks__/trendsValue.json'))
 export const TrendsValueBreakdown = createInsightScene(require('./__mocks__/trendsValueBreakdown.json'))
+export const TrendsNumber = createInsightScene(require('./__mocks__/trendsNumber.json'))
 export const TrendsTable = createInsightScene(require('./__mocks__/trendsTable.json'))
 export const TrendsTableBreakdown = createInsightScene(require('./__mocks__/trendsTableBreakdown.json'))
 export const TrendsPie = createInsightScene(require('./__mocks__/trendsPie.json'))
 export const TrendsPieBreakdown = createInsightScene(require('./__mocks__/trendsPieBreakdown.json'))
+export const TrendsWorldMap = createInsightScene(require('./__mocks__/trendsWorldMap.json'))
 
 export const FunnelLeftToRight = createInsightScene(require('./__mocks__/funnelLeftToRight.json'))
 export const FunnelLeftToRightBreakdown = createInsightScene(require('./__mocks__/funnelLeftToRightBreakdown.json'))

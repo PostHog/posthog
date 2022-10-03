@@ -10,7 +10,7 @@ import { Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { UUIDT } from '../../utils/utils'
+import { NoRowsUpdatedError, UUIDT } from '../../utils/utils'
 import { LazyPersonContainer } from './lazy-person-container'
 import { PersonManager } from './person-manager'
 
@@ -31,7 +31,7 @@ const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
     'false',
 ])
 
-const CASE_SENSITIVE_ILLEGAL_IDS = new Set(['[object Object]', 'NaN', 'None', 'none', 'null', '0'])
+const CASE_SENSITIVE_ILLEGAL_IDS = new Set(['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined'])
 
 const isDistinctIdIllegal = (id: string): boolean => {
     return id.trim() === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
@@ -188,7 +188,22 @@ export class PersonState {
         )
     }
 
-    private async updatePersonProperties(): Promise<Person> {
+    private async updatePersonProperties(): Promise<Person | null> {
+        try {
+            return await this.tryUpdatePerson()
+        } catch (error) {
+            // :TRICKY: Handle race where user might have been merged between start of processing and now
+            //      As we only allow anonymous -> identified merges, only need to do this once.
+            if (error instanceof NoRowsUpdatedError) {
+                this.personContainer = this.personContainer.reset()
+                return await this.tryUpdatePerson()
+            } else {
+                throw error
+            }
+        }
+    }
+
+    private async tryUpdatePerson(): Promise<Person | null> {
         // Note: In majority of cases person has been found already here!
         const personFound = await this.personContainer.get()
         if (!personFound) {
@@ -197,6 +212,7 @@ export class PersonState {
                 `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
             )
         }
+
         const update: Partial<Person> = {}
         const updatedProperties = this.updatedPersonProperties(personFound.properties || {})
 
@@ -211,7 +227,7 @@ export class PersonState {
             const [updatedPerson] = await this.db.updatePersonDeprecated(personFound, update)
             return updatedPerson
         } else {
-            return personFound
+            return null
         }
     }
 
@@ -244,18 +260,19 @@ export class PersonState {
     // Alias & merge
 
     async handleIdentifyOrAlias(): Promise<void> {
-        if (isDistinctIdIllegal(this.distinctId)) {
-            this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId: this.distinctId })
-            return
-        }
-
         const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
         try {
-            if (this.event.event === '$create_alias') {
-                await this.merge(this.eventProperties['alias'], this.distinctId, this.teamId, this.timestamp, false)
+            if (this.event.event === '$create_alias' && this.eventProperties['alias']) {
+                await this.merge(
+                    String(this.eventProperties['alias']),
+                    this.distinctId,
+                    this.teamId,
+                    this.timestamp,
+                    false
+                )
             } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
                 await this.merge(
-                    this.eventProperties['$anon_distinct_id'],
+                    String(this.eventProperties['$anon_distinct_id']),
                     this.distinctId,
                     this.teamId,
                     this.timestamp,
@@ -278,6 +295,14 @@ export class PersonState {
     ): Promise<void> {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (distinctId === previousDistinctId) {
+            return
+        }
+        if (isDistinctIdIllegal(distinctId)) {
+            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: distinctId })
+            return
+        }
+        if (isDistinctIdIllegal(previousDistinctId)) {
+            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: previousDistinctId })
             return
         }
         await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall)
@@ -373,6 +398,11 @@ export class PersonState {
             // $create_alias is an explicit call to merge 2 users, so we'll merge anything
             // for $identify, we'll not merge a user who's already identified into anyone else
             const isIdentifyCallToMergeAnIdentifiedUser = shouldIdentifyPerson && oldPerson.is_identified
+
+            this.statsd?.increment('merge_two_identified_users', {
+                call: isIdentifyCallToMergeAnIdentifiedUser ? 'identify' : 'alias',
+                teamId: newPerson.team_id.toString(),
+            })
 
             if (isIdentifyCallToMergeAnIdentifiedUser) {
                 status.warn('🤔', 'refused to merge an already identified user via an $identify call')

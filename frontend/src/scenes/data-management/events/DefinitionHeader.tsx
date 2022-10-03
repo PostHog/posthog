@@ -1,7 +1,6 @@
 import React from 'react'
-import { ActionType, CombinedEvent, EventDefinition, PropertyDefinition } from '~/types'
+import { EventDefinition, PropertyDefinition } from '~/types'
 import {
-    ActionEvent,
     IconAutocapture,
     IconPageleave,
     IconPageview,
@@ -21,8 +20,6 @@ import {
     eventTaxonomicGroupProps,
     propertyTaxonomicGroupProps,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { actionsModel } from '~/models/actionsModel'
-import { isActionEvent } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
     if (!!keyMapping.event[definition.name]) {
@@ -39,14 +36,7 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     )
 }
 
-export function getEventDefinitionIcon(definition: CombinedEvent): JSX.Element {
-    if (isActionEvent(definition)) {
-        return (
-            <Tooltip title="Calculated event">
-                <ActionEvent className="taxonomy-icon taxonomy-icon-muted" />
-            </Tooltip>
-        )
-    }
+export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element {
     // Rest are events
     if (definition.name === '$pageview') {
         return (
@@ -87,7 +77,6 @@ interface SharedDefinitionHeaderProps {
     hideIcon?: boolean
     hideText?: boolean
     asLink?: boolean
-    shouldSimplifyActions?: boolean
 }
 
 function RawDefinitionHeader({
@@ -96,9 +85,8 @@ function RawDefinitionHeader({
     hideIcon = false,
     hideText = false,
     asLink = false,
-    shouldSimplifyActions = false,
 }: {
-    definition: CombinedEvent | PropertyDefinition
+    definition: EventDefinition | PropertyDefinition
     group: TaxonomicFilterGroup
 } & SharedDefinitionHeaderProps): JSX.Element {
     const fullDetailUrl = group.getFullDetailUrl?.(definition)
@@ -106,15 +94,9 @@ function RawDefinitionHeader({
     const isLink = asLink && fullDetailUrl
 
     const innerContent = (
-        <PropertyKeyInfo
-            value={definition.name ?? ''}
-            disablePopover
-            disableIcon
-            className={clsx('definition-column-name-content-title', asLink && 'text-primary')}
-            style={{
-                cursor: isLink ? 'pointer' : 'text',
-            }}
-        />
+        <span className={clsx('definition-column-name-content-title', asLink && 'text-primary cursor-pointer')}>
+            <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon />
+        </span>
     )
     const linkedInnerContent = isLink ? (
         <Link to={fullDetailUrl} preventClick={!fullDetailUrl}>
@@ -131,9 +113,7 @@ function RawDefinitionHeader({
                 <div className="definition-column-name-content">
                     <div>{linkedInnerContent}</div>
                     <div className="definition-column-name-content-description">
-                        {definition.description || (
-                            <i>Add a description for this {getSingularType(group.type, shouldSimplifyActions)}</i>
-                        )}
+                        {definition.description || <i>Add a description for this {getSingularType(group.type)}</i>}
                     </div>
                 </div>
             )}
@@ -141,38 +121,11 @@ function RawDefinitionHeader({
     )
 }
 
-export function ActionHeader({
-    definition,
-    ...props
-}: { definition: ActionType } & SharedDefinitionHeaderProps): JSX.Element {
-    return (
-        <RawDefinitionHeader
-            definition={definition}
-            group={{
-                name: 'Calculated events',
-                searchPlaceholder: 'calculated events',
-                type: TaxonomicFilterGroupType.Actions,
-                logic: actionsModel,
-                value: 'actions',
-                getName: (action: ActionType) => action.name || '',
-                getValue: (action: ActionType) => action.name || '',
-                getFullDetailUrl: (action: ActionType) => (action.action_id ? urls.action(action.action_id) : ''),
-                getPopupHeader: () => 'calculated event',
-                getIcon: getEventDefinitionIcon,
-            }}
-            shouldSimplifyActions
-            {...props}
-        />
-    )
-}
-
 export function EventDefinitionHeader({
     definition,
-    shouldSimplifyActions = false,
     ...props
 }: {
     definition: EventDefinition
-    shouldSimplifyActions?: boolean
 } & SharedDefinitionHeaderProps): JSX.Element {
     return (
         <RawDefinitionHeader
@@ -186,7 +139,6 @@ export function EventDefinitionHeader({
                 getFullDetailUrl: (eventDefinition: EventDefinition) => urls.eventDefinition(eventDefinition.id),
                 ...eventTaxonomicGroupProps,
             }}
-            shouldSimplifyActions={shouldSimplifyActions}
             {...props}
         />
     )

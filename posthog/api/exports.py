@@ -1,6 +1,7 @@
 from typing import Any, Dict
 
 import celery
+import requests.exceptions
 import structlog
 from django.http import HttpResponse
 from rest_framework import mixins, serializers, viewsets
@@ -68,15 +69,16 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         except celery.exceptions.TimeoutError:
             # If the rendering times out - fine, the frontend will poll instead for the response
             pass
+        except requests.exceptions.MissingSchema:
+            # regression test see https://github.com/PostHog/posthog/issues/11204
+            pass
         except NotImplementedError as ex:
-            logger.error("exporters.unsupported_export_type", exception=ex)
+            logger.error("exporters.unsupported_export_type", exception=ex, exc_info=True)
             raise serializers.ValidationError(
                 {"export_format": ["This type of export is not supported for this resource."]}
             )
 
-        report_user_action(
-            request.user, "export created", instance.get_analytics_metadata(),
-        )
+        report_user_action(request.user, "export created", instance.get_analytics_metadata())
 
         instance.refresh_from_db()
 
@@ -115,11 +117,7 @@ class ExportedAssetViewSet(
     queryset = ExportedAsset.objects.order_by("-created_at")
     serializer_class = ExportedAssetSerializer
 
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        SessionAuthentication,
-        BasicAuthentication,
-    ]
+    authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint

@@ -4,14 +4,14 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { useValues } from 'kea'
 import './ActivityLog.scss'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { Skeleton } from 'antd'
 import { ActivityScope, Describer } from 'lib/components/ActivityLog/humanizeActivity'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
+import { LemonSkeleton } from '../LemonSkeleton'
 
 export interface ActivityLogProps {
     scope: ActivityScope
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
-    id?: number
+    id?: number | string
     describer?: Describer
     startingPage?: number
     caption?: string | JSX.Element
@@ -43,10 +43,11 @@ const Empty = ({ scope, idExists }: { scope: string; idExists: boolean }): JSX.E
 
 const SkeletonLog = (): JSX.Element => {
     return (
-        <div className="activity-log-row">
-            <Skeleton.Avatar active={true} size={40} />
-            <div className="details">
-                <Skeleton paragraph={{ rows: 1 }} />
+        <div className="activity-log-row items-start">
+            <LemonSkeleton.Circle />
+            <div className="details space-y-4 mt-2">
+                <LemonSkeleton className="w-1/2" />
+                <LemonSkeleton />
             </div>
         </div>
     )

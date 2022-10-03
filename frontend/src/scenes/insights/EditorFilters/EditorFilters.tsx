@@ -9,7 +9,7 @@ import {
 } from '~/types'
 import { CSSTransition } from 'react-transition-group'
 import { TrendsSteps } from 'scenes/insights/EditorFilters/TrendsSteps'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { TrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/TrendsGlobalAndOrFilters'
 import { TrendsFormula } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { TrendsBreakdown } from 'scenes/insights/EditorFilters/TrendsBreakdown'
@@ -64,17 +64,14 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const isTrendsLike = isTrends || isLifecycle || isStickiness
 
     const hasBreakdown =
-        isTrends ||
+        (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(filters.display || ChartDisplayType.ActionsLineGraph)) ||
         (isRetention &&
             featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
             filters.display !== ChartDisplayType.ActionsLineGraph) ||
         (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
-    const hasAttribution =
-        isFunnels &&
-        filters.funnel_viz_type === FunnelVizType.Steps &&
-        featureFlags[FEATURE_FLAGS.BREAKDOWN_ATTRIBUTION]
+    const hasAttribution = isFunnels && filters.funnel_viz_type === FunnelVizType.Steps
 
     const advancedOptionsCount = advancedOptionsUsedCount + (filters.formula ? 1 : 0)
     const advancedOptionsExpanded = !!advancedOptionsCount
@@ -104,7 +101,8 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           },
                           hasPathsAdvanced && {
                               key: 'wildcard-groups',
-                              label: 'Wildcard Groups (optional)',
+                              label: 'Wildcard Groups',
+                              showOptional: true,
                               component: PathsWildcardGroups,
                               tooltip: (
                                   <>
@@ -208,7 +206,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           tooltip: (
                               <div>
                                   Attribution type determines which property value to use for the entire funnel.
-                                  <ul style={{ paddingLeft: '1.2rem' }}>
+                                  <ul className="list-disc pl-4">
                                       <li>First step: the first property value seen from all steps is chosen.</li>
                                       <li>Last step: last property value seen from all steps is chosen.</li>
                                       <li>Specific step: the property value seen at that specific step is chosen.</li>

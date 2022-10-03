@@ -1,16 +1,23 @@
-import React, { MutableRefObject, useEffect, useRef } from 'react'
+import React, { MutableRefObject, Ref, useEffect, useRef } from 'react'
 import { Handler, viewportResizeDimension } from 'rrweb/typings/types'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState } from '~/types'
+import { SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
 import { IconError, IconPlay } from 'scenes/session-recordings/player/icons'
+import useSize from '@react-hook/size'
 
-export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrameInner(_, ref): JSX.Element {
+export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
+    { sessionRecordingId, playerKey }: SessionRecordingPlayerProps,
+    ref: Ref<HTMLDivElement>
+): JSX.Element {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const { currentPlayerState, player } = useValues(sessionRecordingPlayerLogic)
-    const { togglePlayPause, setScale } = useActions(sessionRecordingPlayerLogic)
+    const { currentPlayerState, player } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const { togglePlayPause, setScale } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const frameRef = ref as MutableRefObject<HTMLDivElement>
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    const containerDimensions = useSize(containerRef)
 
+    // Recalculate the player size when the recording changes dimensions
     useEffect(() => {
         if (!player) {
             return
@@ -22,25 +29,31 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
         return () => window.removeEventListener('resize', windowResize)
     }, [player?.replayer])
 
+    // Recalculate the player size when the player changes dimensions
+    useEffect(() => {
+        windowResize()
+    }, [containerDimensions])
+
     const windowResize = (): void => {
         updatePlayerDimensions(replayDimensionRef.current)
     }
 
-    // :TRICKY: Scale down the iframe and try to position it vertically
     const updatePlayerDimensions = (replayDimensions: viewportResizeDimension | undefined): void => {
         if (!replayDimensions || !frameRef?.current?.parentElement || !player?.replayer) {
             return
         }
 
         replayDimensionRef.current = replayDimensions
-        const { width, height } = frameRef.current.parentElement.getBoundingClientRect()
 
-        const scale = Math.min(width / replayDimensions.width, height / replayDimensions.height, 1)
+        const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
+
+        const scale = Math.min(
+            parentDimensions.width / replayDimensions.width,
+            parentDimensions.height / replayDimensions.height,
+            1
+        )
 
         player.replayer.wrapper.style.transform = `scale(${scale})`
-        frameRef.current.style.paddingLeft = `${(width - replayDimensions.width * scale) / 2}px`
-        frameRef.current.style.paddingTop = `${(height - replayDimensions.height * scale) / 2}px`
-        frameRef.current.style.marginBottom = `-${height - replayDimensions.height * scale}px`
 
         setScale(scale)
     }
@@ -70,8 +83,8 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
     }
 
     return (
-        <div className="rrweb-player" onClick={togglePlayPause}>
-            <div ref={ref} />
+        <div ref={containerRef} className="rrweb-player" onClick={togglePlayPause}>
+            <div className="player-frame" ref={ref} style={{ position: 'absolute' }} />
             <div className="rrweb-overlay-container">{renderPlayerState()}</div>
         </div>
     )

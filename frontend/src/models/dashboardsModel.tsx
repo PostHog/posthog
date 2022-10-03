@@ -19,11 +19,12 @@ export const dashboardsModel = kea<dashboardsModelType>({
         addDashboardSuccess: (dashboard: DashboardType) => ({ dashboard }),
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
-        // can provide dashboard ids if not all listeners will choose to respond to this action
-        // not providing a dashboard id is a signal that all listeners should respond
-        updateDashboardItem: (item: InsightModel, dashboardIds?: Array<DashboardType['id']>) => ({
+        // can provide extra dashboard ids if not all listeners will choose to respond to this action
+        // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
+        // specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
+        updateDashboardInsight: (item: InsightModel, extraDashboardIds?: number[]) => ({
             item,
-            dashboardIds,
+            extraDashboardIds,
         }),
         // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
         // to dashboard items in dashboards
@@ -45,7 +46,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             show: show || false,
         }),
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         rawDashboards: [
             {} as Record<string, DashboardType>,
             {
@@ -73,11 +74,14 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
             __default: null as null | DashboardType,
-            updateDashboard: async ({ id, ...payload }, breakpoint) => {
+            updateDashboard: async ({ id, allowUndo, ...payload }, breakpoint) => {
                 if (!Object.entries(payload).length) {
                     return
                 }
-                await breakpoint(700)
+                breakpoint()
+
+                const beforeChange = { ...values.rawDashboards[id] }
+
                 const response = (await api.update(
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
@@ -89,6 +93,21 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
                         payload[updatedAttribute].length
                     )
+                }
+                if (allowUndo) {
+                    lemonToast.success('Dashboard updated', {
+                        button: {
+                            label: 'Undo',
+                            action: async () => {
+                                const reverted = (await api.update(
+                                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                                    beforeChange
+                                )) as DashboardType
+                                actions.updateDashboardSuccess(reverted)
+                                lemonToast.success('Dashboard change reverted')
+                            },
+                        },
+                    })
                 }
                 return response
             },

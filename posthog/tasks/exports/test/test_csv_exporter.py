@@ -1,8 +1,10 @@
+from typing import Any, Dict, Optional
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from boto3 import resource
 from botocore.client import Config
+from django.test import override_settings
 
 from posthog.models import ExportedAsset
 from posthog.settings import (
@@ -14,11 +16,17 @@ from posthog.settings import (
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
+from posthog.tasks.exports.csv_exporter import add_query_params
 from posthog.test.base import APIBaseTest
+from posthog.utils import absolute_uri
 
 TEST_BUCKET = "Test-Exports"
 
+# see GitHub issue #11204
+regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%22product%20viewed%22%2C%22name%22%3A%22product%20viewed%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&display=ActionsTable&insight=TRENDS&interval=day&breakdown=productName&new_entity=%5B%5D&properties=%5B%5D&step_limit=5&funnel_filter=%7B%7D&breakdown_type=event&exclude_events=%5B%5D&path_groupings=%5B%5D&include_event_types=%5B%22%24pageview%22%5D&filter_test_accounts=false&local_path_cleaning_filters=%5B%5D&date_from=-14d&offset=50"
 
+
+@override_settings(SITE_URL="http://testserver")
 class TestCSVExporter(APIBaseTest):
     @pytest.fixture(autouse=True)
     def patched_request(self):
@@ -76,11 +84,14 @@ class TestCSVExporter(APIBaseTest):
             patched_request.return_value = mock_response
             yield patched_request
 
-    def _create_asset(self) -> ExportedAsset:
+    def _create_asset(self, extra_context: Optional[Dict] = None) -> ExportedAsset:
+        if extra_context is None:
+            extra_context = {}
+
         asset = ExportedAsset(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.CSV,
-            export_context={"path": "/api/literally/anything"},
+            export_context={"path": "/api/literally/anything", **extra_context},
         )
         asset.save()
         return asset
@@ -148,6 +159,63 @@ class TestCSVExporter(APIBaseTest):
                 == b"distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
             )
 
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
+    def test_csv_exporter_does_not_filter_columns_on_empty_param(
+        self, mocked_object_storage_write, mocked_uuidt
+    ) -> None:
+        exported_asset = self._create_asset({"columns": []})
+        mocked_uuidt.return_value = "a-guid"
+        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_csv(exported_asset)
+
+            assert exported_asset.content_location is None
+
+            assert (
+                exported_asset.content
+                == b"distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
+            )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
+    def test_csv_exporter_does_filter_columns(self, mocked_object_storage_write, mocked_uuidt) -> None:
+        # NB these columns are not in the "natural" order
+        exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event"]})
+        mocked_uuidt.return_value = "a-guid"
+        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_csv(exported_asset)
+
+            assert exported_asset.content_location is None
+
+            assert (
+                exported_asset.content
+                == b"distinct_id,properties.$browser,event\r\n2,Safari,event_name\r\n2,Safari,event_name\r\n2,Safari,event_name\r\n"
+            )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
+    def test_csv_exporter_does_filter_columns_and_can_handle_unexpected_columns(
+        self, mocked_object_storage_write, mocked_uuidt
+    ) -> None:
+        # NB these columns are not in the "natural" order
+        exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event", "tomato"]})
+        mocked_uuidt.return_value = "a-guid"
+        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_csv(exported_asset)
+
+            assert exported_asset.content_location is None
+
+            assert (
+                exported_asset.content
+                == b"distinct_id,properties.$browser,event,tomato\r\n2,Safari,event_name,\r\n2,Safari,event_name,\r\n2,Safari,event_name,\r\n"
+            )
+
     @patch("posthog.tasks.exports.csv_exporter.logger")
     @patch("posthog.tasks.exports.csv_exporter.statsd")
     def test_failing_export_api_is_reported(self, mock_statsd, mock_logger) -> None:
@@ -160,3 +228,24 @@ class TestCSVExporter(APIBaseTest):
 
             with pytest.raises(Exception, match="export API call failed with status_code: 403"):
                 csv_exporter.export_csv(exported_asset)
+
+    def test_limiting_query_as_expected(self) -> None:
+
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            modified_url = add_query_params(absolute_uri(regression_11204), {"limit": "3500"})
+            actual_bits = self._split_to_dict(modified_url)
+            expected_bits = {**self._split_to_dict(regression_11204), **{"limit": "3500"}}
+            assert expected_bits == actual_bits
+
+    def test_limiting_existing_limit_query_as_expected(self) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            url_with_existing_limit = regression_11204 + "&limit=100000"
+            modified_url = add_query_params(absolute_uri(url_with_existing_limit), {"limit": "3500"})
+            actual_bits = self._split_to_dict(modified_url)
+            expected_bits = {**self._split_to_dict(regression_11204), **{"limit": "3500"}}
+            assert expected_bits == actual_bits
+
+    def _split_to_dict(self, url: str) -> Dict[str, Any]:
+        first_split_parts = url.split("?")
+        assert len(first_split_parts) == 2
+        return {bits[0]: bits[1] for bits in [param.split("=") for param in first_split_parts[1].split("&")]}

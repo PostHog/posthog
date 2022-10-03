@@ -30,40 +30,46 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
 
     const buttonStatus = isActive ? 'primary' : 'stealth'
 
-    return sideAction ? (
-        <LemonButtonWithSideAction
-            fullWidth
-            status={buttonStatus}
-            active={isActive}
-            onClick={hideSideBarMobile}
-            sideAction={{
-                ...sideAction,
-                'data-attr': sideAction.identifier ? `menu-item-${sideAction.identifier.toLowerCase()}` : undefined,
-            }}
-            data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
-            {...buttonProps}
-        >
-            <span className="text-default">{title || sceneConfigurations[identifier].name}</span>
-        </LemonButtonWithSideAction>
-    ) : (
-        <LemonButton
-            fullWidth
-            status={buttonStatus}
-            active={isActive}
-            data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
-            onClick={hideSideBarMobile}
-            {...buttonProps}
-        >
-            <span className="text-default grow">{title || sceneConfigurations[identifier].name}</span>
-            {highlight === 'beta' ? (
-                <LemonTag type="warning" className="ml-1 float-right">
-                    Beta
-                </LemonTag>
-            ) : highlight === 'new' ? (
-                <LemonTag type="success" className="ml-1 float-right">
-                    New
-                </LemonTag>
-            ) : null}
-        </LemonButton>
+    return (
+        <li>
+            {sideAction ? (
+                <LemonButtonWithSideAction
+                    fullWidth
+                    status={buttonStatus}
+                    active={isActive}
+                    onClick={hideSideBarMobile}
+                    sideAction={{
+                        ...sideAction,
+                        'data-attr': sideAction.identifier
+                            ? `menu-item-${sideAction.identifier.toLowerCase()}`
+                            : undefined,
+                    }}
+                    data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
+                    {...buttonProps}
+                >
+                    <span className="text-default">{title || sceneConfigurations[identifier].name}</span>
+                </LemonButtonWithSideAction>
+            ) : (
+                <LemonButton
+                    fullWidth
+                    status={buttonStatus}
+                    active={isActive}
+                    data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
+                    onClick={hideSideBarMobile}
+                    {...buttonProps}
+                >
+                    <span className="text-default grow">{title || sceneConfigurations[identifier].name}</span>
+                    {highlight === 'beta' ? (
+                        <LemonTag type="warning" className="ml-1 float-right uppercase">
+                            Beta
+                        </LemonTag>
+                    ) : highlight === 'new' ? (
+                        <LemonTag type="success" className="ml-1 float-right uppercase">
+                            New
+                        </LemonTag>
+                    ) : null}
+                </LemonButton>
+            )}
+        </li>
     )
 }

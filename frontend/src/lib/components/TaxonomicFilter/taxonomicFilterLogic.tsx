@@ -2,19 +2,19 @@ import React from 'react'
 import { BuiltLogic, kea } from 'kea'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
+    ListStorage,
     SimpleOption,
-    TaxonomicFilterGroupType,
     TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
-    ListStorage,
 } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import {
     ActionType,
     CohortType,
-    CombinedEventType,
+    EventDefinitionType,
     DashboardType,
     EventDefinition,
     Experiment,
@@ -28,7 +28,6 @@ import {
 } from '~/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
@@ -44,7 +43,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
@@ -151,38 +150,35 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 selectors.groupAnalyticsTaxonomicGroupNames,
                 selectors.eventNames,
                 selectors.excludedProperties,
-                selectors.featureFlags,
             ],
             (
                 teamId,
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
-                excludedProperties,
-                featureFlags
+                excludedProperties
             ): TaxonomicFilterGroup[] => {
-                const shouldSimplifyActions = !!featureFlags?.[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
                 return [
                     {
                         name: 'Events',
                         searchPlaceholder: 'events',
                         type: TaxonomicFilterGroupType.Events,
                         endpoint: combineUrl(`api/projects/${teamId}/event_definitions`, {
-                            event_type: CombinedEventType.Event,
+                            event_type: EventDefinitionType.Event,
                         }).url,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
                         ...eventTaxonomicGroupProps,
                     },
                     {
-                        name: shouldSimplifyActions ? 'Calculated events' : 'Actions',
-                        searchPlaceholder: shouldSimplifyActions ? 'calculated events' : 'actions',
+                        name: 'Actions',
+                        searchPlaceholder: 'actions',
                         type: TaxonomicFilterGroupType.Actions,
                         logic: actionsModel,
                         value: 'actions',
                         getName: (action: ActionType) => action.name || '',
                         getValue: (action: ActionType) => action.id,
-                        getPopupHeader: () => (shouldSimplifyActions ? 'Calculated event' : 'Action'),
+                        getPopupHeader: () => 'Action',
                         getIcon: getEventDefinitionIcon,
                     },
                     {
@@ -200,14 +196,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         name: 'Event properties',
                         searchPlaceholder: 'event properties',
                         type: TaxonomicFilterGroupType.EventProperties,
-                        endpoint: combineUrl(
-                            `api/projects/${teamId}/property_definitions`,
-                            eventNames.length > 0 ? { event_names: eventNames } : {}
-                        ).url,
+                        endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                            is_feature_flag: false,
+                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
+                        }).url,
                         scopedEndpoint:
                             eventNames.length > 0
                                 ? combineUrl(`api/projects/${teamId}/property_definitions`, {
                                       event_names: eventNames,
+                                      is_feature_flag: false,
                                       is_event_property: true,
                                   }).url
                                 : undefined,
@@ -221,6 +218,34 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventProperties],
+                        ...propertyTaxonomicGroupProps(),
+                    },
+                    {
+                        name: 'Feature flags',
+                        searchPlaceholder: 'feature flags',
+                        type: TaxonomicFilterGroupType.EventFeatureFlags,
+                        endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                            is_feature_flag: true,
+                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
+                        }).url,
+                        scopedEndpoint:
+                            eventNames.length > 0
+                                ? combineUrl(`api/projects/${teamId}/property_definitions`, {
+                                      event_names: eventNames,
+                                      is_feature_flag: true,
+                                      is_event_property: true,
+                                  }).url
+                                : undefined,
+                        expandLabel: ({ count, expandedCount }) =>
+                            `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
+                                eventNames.length,
+                                'has',
+                                'have',
+                                false
+                            )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
+                        getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                        getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                        excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventFeatureFlags],
                         ...propertyTaxonomicGroupProps(),
                     },
                     {
@@ -295,8 +320,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         name: 'Custom Events',
                         searchPlaceholder: 'custom events',
                         type: TaxonomicFilterGroupType.CustomEvents,
-                        logic: eventDefinitionsModel,
-                        value: 'customEvents',
+                        endpoint: combineUrl(`api/projects/${teamId}/event_definitions`, {
+                            event_type: EventDefinitionType.EventCustom,
+                        }).url,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
                         ...eventTaxonomicGroupProps,
@@ -429,7 +455,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                             key,
                             group_type_index: type.group_type_index,
                         })}`,
-                    getName: () => capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular),
+                    getName: (group) => group.name,
                     getValue: (group) => group.name,
                     getPopupHeader: () => `Property`,
                     getIcon: getPropertyDefinitionIcon,
@@ -573,6 +599,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             // Open the next tab if no results on an active tab.
             if (groupType === values.activeTab && !results.count && !results.expandedCount) {
                 actions.tabRight()
+            }
+
+            // Update app-wide cached property metadata
+            if (
+                results.count > 0 &&
+                (groupType === TaxonomicFilterGroupType.EventProperties ||
+                    groupType === TaxonomicFilterGroupType.NumericalEventProperties)
+            ) {
+                updatePropertyDefinitions(results.results as PropertyDefinition[])
             }
         },
     }),

@@ -6,27 +6,28 @@ import './LemonSnack.scss'
 
 export interface LemonSnackProps {
     children?: React.ReactNode
-    disabled?: boolean
     onClose?: () => void
+    title?: string
+    wrap?: boolean
     'data-attr'?: string
 }
 
-export function LemonSnack({ children, disabled, onClose }: LemonSnackProps): JSX.Element {
+export function LemonSnack({ children, wrap, onClose, title }: LemonSnackProps): JSX.Element {
     return (
         <span
             className={clsx('LemonSnack', {
-                'LemonSnack--disabled': disabled,
+                'LemonSnack--wrap': wrap,
             })}
         >
-            <span className="LemonSnack__inner">
+            <span className="LemonSnack__inner" title={title ?? (typeof children === 'string' ? children : undefined)}>
                 {children}
-
-                {onClose ? (
-                    <span className="LemonSnack__close">
-                        <LemonButton status="stealth" size="small" icon={<IconClose />} onClick={onClose} />
-                    </span>
-                ) : undefined}
             </span>
+
+            {onClose ? (
+                <span className="LemonSnack__close">
+                    <LemonButton status="stealth" size="small" noPadding icon={<IconClose />} onClick={onClose} />
+                </span>
+            ) : undefined}
         </span>
     )
 }

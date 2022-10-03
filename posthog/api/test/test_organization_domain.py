@@ -13,12 +13,12 @@ from posthog.models import Organization, OrganizationDomain, OrganizationMembers
 from posthog.test.base import APIBaseTest, BaseTest
 
 
-class FakeAnswer(object):
+class FakeAnswer:
     def __init__(self, answer):
         self.answer = answer
 
 
-class FakeDNSResponse(object):
+class FakeDNSResponse:
     def __init__(self, answer):
         self.response = FakeAnswer(answer)
 
@@ -127,17 +127,13 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
         self.assertEqual(response_data["domain"], "the.posthog.com")
-        self.assertEqual(
-            response_data["verified_at"], "2021-08-08T20:20:08Z",
-        )
+        self.assertEqual(response_data["verified_at"], "2021-08-08T20:20:08Z")
         self.assertEqual(response_data["jit_provisioning_enabled"], False)
         self.assertRegex(response_data["verification_challenge"], r"[0-9A-Za-z_-]{32}")
 
         instance = OrganizationDomain.objects.get(id=response_data["id"])
         self.assertEqual(instance.domain, "the.posthog.com")
-        self.assertEqual(
-            instance.verified_at, datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=pytz.UTC),
-        )
+        self.assertEqual(instance.verified_at, datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=pytz.UTC))
         self.assertEqual(instance.last_verification_retry, None)
         self.assertEqual(instance.sso_enforcement, "")
 
@@ -147,7 +143,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        response = self.client.post("/api/organizations/@current/domains/", {"domain": "i-registered-first.com"},)
+        response = self.client.post("/api/organizations/@current/domains/", {"domain": "i-registered-first.com"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -168,7 +164,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         invalid_domains = ["test@posthog.com", "🦔🦔🦔.com", "one.two.c", "--alpha.com", "javascript: alert(1)"]
 
         for _domain in invalid_domains:
-            response = self.client.post("/api/organizations/@current/domains/", {"domain": _domain,},)
+            response = self.client.post("/api/organizations/@current/domains/", {"domain": _domain})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(
                 response.json(),
@@ -190,9 +186,9 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         mock_dns_query.return_value = FakeDNSResponse(
             [
                 dns.rrset.from_text(
-                    "_posthog-challenge.myposthog.com.", 3600, "IN", "TXT", self.domain.verification_challenge,
+                    "_posthog-challenge.myposthog.com.", 3600, "IN", "TXT", self.domain.verification_challenge
                 )
-            ],
+            ]
         )
 
         with freeze_time("2021-08-08T20:20:08Z"):
@@ -201,14 +197,10 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         response_data = response.json()
         self.domain.refresh_from_db()
         self.assertEqual(response_data["domain"], "myposthog.com")
-        self.assertEqual(
-            response_data["verified_at"], self.domain.verified_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        )
+        self.assertEqual(response_data["verified_at"], self.domain.verified_at.strftime("%Y-%m-%dT%H:%M:%SZ"))
         self.assertEqual(response_data["is_verified"], True)
 
-        self.assertEqual(
-            self.domain.verified_at, datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=pytz.UTC),
-        )
+        self.assertEqual(self.domain.verified_at, datetime.datetime(2021, 8, 8, 20, 20, 8, tzinfo=pytz.UTC))
         self.assertEqual(self.domain.is_verified, True)
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
@@ -228,7 +220,27 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response_data["verified_at"], None)
         self.assertEqual(self.domain.verified_at, None)
         self.assertEqual(
-            self.domain.last_verification_retry, datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=pytz.UTC),
+            self.domain.last_verification_retry, datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=pytz.UTC)
+        )
+
+    @patch("posthog.models.organization_domain.dns.resolver.resolve")
+    def test_domain_is_not_verified_with_missing_domain(self, mock_dns_query):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        mock_dns_query.side_effect = dns.resolver.NXDOMAIN()
+
+        with freeze_time("2021-10-10T10:10:10Z"):
+            with self.settings(MULTI_TENANCY=True):
+                response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.domain.refresh_from_db()
+        self.assertEqual(response_data["domain"], "myposthog.com")
+        self.assertEqual(response_data["verified_at"], None)
+        self.assertEqual(self.domain.verified_at, None)
+        self.assertEqual(
+            self.domain.last_verification_retry, datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=pytz.UTC)
         )
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
@@ -237,7 +249,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.organization_membership.save()
 
         mock_dns_query.return_value = FakeDNSResponse(
-            [dns.rrset.from_text("_posthog-challenge.myposthog.com.", 3600, "IN", "TXT", "incorrect_challenge",)],
+            [dns.rrset.from_text("_posthog-challenge.myposthog.com.", 3600, "IN", "TXT", "incorrect_challenge")]
         )
 
         with freeze_time("2021-10-10T10:10:10Z"):
@@ -250,7 +262,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response_data["verified_at"], None)
         self.assertEqual(self.domain.verified_at, None)
         self.assertEqual(
-            self.domain.last_verification_retry, datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=pytz.UTC),
+            self.domain.last_verification_retry, datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=pytz.UTC)
         )
 
     def test_cannot_request_verification_for_verified_domains(self):
@@ -276,7 +288,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         response = self.client.post("/api/organizations/@current/domains/", {"domain": "evil.posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response.json(), self.permission_denied_response("Your organization access level is insufficient."),
+            response.json(), self.permission_denied_response("Your organization access level is insufficient.")
         )
 
         self.assertEqual(OrganizationDomain.objects.count(), count)
@@ -285,7 +297,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response.json(), self.permission_denied_response("Your organization access level is insufficient."),
+            response.json(), self.permission_denied_response("Your organization access level is insufficient.")
         )
 
         self.domain.refresh_from_db()
@@ -317,7 +329,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         # SSO Enforcement
         response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/", {"sso_enforcement": "google-oauth2"},
+            f"/api/organizations/@current/domains/{self.domain.id}/", {"sso_enforcement": "google-oauth2"}
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -334,7 +346,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         # JIT Provisioning
         response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/", {"jit_provisioning_enabled": True},
+            f"/api/organizations/@current/domains/{self.domain.id}/", {"jit_provisioning_enabled": True}
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -371,7 +383,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response.json(), self.permission_denied_response("Your organization access level is insufficient."),
+            response.json(), self.permission_denied_response("Your organization access level is insufficient.")
         )
         self.domain.refresh_from_db()
         self.assertEqual(self.domain.jit_provisioning_enabled, False)
@@ -409,7 +421,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         response = self.client.delete(f"/api/organizations/@current/domains/{self.domain.id}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response.json(), self.permission_denied_response("Your organization access level is insufficient."),
+            response.json(), self.permission_denied_response("Your organization access level is insufficient.")
         )
         self.domain.refresh_from_db()
 

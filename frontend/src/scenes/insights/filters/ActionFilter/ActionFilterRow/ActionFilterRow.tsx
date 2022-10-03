@@ -1,6 +1,5 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Button, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import {
     ActionFilter as ActionFilterType,
@@ -11,17 +10,14 @@ import {
     PropertyFilterValue,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { DownOutlined } from '@ant-design/icons'
-import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
+import { entityFilterLogic } from '../entityFilterLogic'
 import { getEventNamesForAction } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './ActionFilterRow.scss'
-import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { apiValueToMathType, mathsLogic, mathTypeToApiValues } from 'scenes/trends/mathsLogic'
-import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
@@ -29,7 +25,8 @@ import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/c
 
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
+import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -109,7 +106,7 @@ export function ActionFilterRow({
     readOnly = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
-    const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
+    const { selectedFilter, entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
         selectFilter,
@@ -124,7 +121,7 @@ export function ActionFilterRow({
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
-    let entity: BareEntity, name: string | null | undefined, value: PropertyFilterValue
+    let name: string | null | undefined, value: PropertyFilterValue
     const { math, math_property: mathProperty, math_group_type_index: mathGroupTypeIndex } = filter
 
     const onClose = (): void => {
@@ -161,10 +158,13 @@ export function ActionFilterRow({
     if (filter.type === EntityTypes.NEW_ENTITY) {
         name = null
         value = null
+    } else if (filter.type === EntityTypes.ACTIONS) {
+        const action = actions.find((action) => action.id === filter.id)
+        name = action?.name || filter.name
+        value = action?.id || filter.id
     } else {
-        entity = (entities[filter.type] as BareEntity[])?.filter((action) => action.id === filter.id)[0] || {}
-        name = entity.name || filter.name
-        value = entity.id || filter.id
+        name = filter.name || String(filter.id)
+        value = filter.name || filter.id
     }
 
     const orLabel = <div className="stateful-badge or width-locked">OR</div>
@@ -176,52 +176,46 @@ export function ActionFilterRow({
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
     const filterElement = (
-        <Popup
-            overlay={
-                <TaxonomicFilter
-                    groupType={
-                        filter.type === EntityTypes.NEW_ENTITY
-                            ? TaxonomicFilterGroupType.Events
-                            : (filter.type as TaxonomicFilterGroupType)
-                    }
-                    value={
-                        filter.type === 'actions' && typeof value === 'string' ? parseInt(value) : value || undefined
-                    }
-                    onChange={(taxonomicGroup, changedValue, item) => {
-                        updateFilter({
-                            type: taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type) || undefined,
-                            id: `${changedValue}`,
-                            name: item?.name,
-                            index,
-                        })
-                    }}
-                    onClose={() => selectFilter(null)}
-                    taxonomicGroupTypes={actionsTaxonomicGroupTypes}
-                />
-            }
-            visible={dropDownCondition}
-            onClickOutside={() => selectFilter(null)}
+        <LemonButtonWithPopup
+            data-attr={'trend-element-subject-' + index}
+            fullWidth
+            popup={{
+                overlay: (
+                    <TaxonomicFilter
+                        groupType={
+                            filter.type === EntityTypes.NEW_ENTITY
+                                ? TaxonomicFilterGroupType.Events
+                                : (filter.type as TaxonomicFilterGroupType)
+                        }
+                        value={
+                            filter.type === 'actions' && typeof value === 'string'
+                                ? parseInt(value)
+                                : value || undefined
+                        }
+                        onChange={(taxonomicGroup, changedValue, item) => {
+                            updateFilter({
+                                type: taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type) || undefined,
+                                id: `${changedValue}`,
+                                name: item?.name,
+                                index,
+                            })
+                        }}
+                        onClose={() => selectFilter(null)}
+                        taxonomicGroupTypes={actionsTaxonomicGroupTypes}
+                    />
+                ),
+                visible: dropDownCondition,
+                onClickOutside: () => selectFilter(null),
+            }}
+            type="secondary"
+            status="stealth"
+            onClick={onClick}
+            disabled={disabled || readOnly}
         >
-            <Button
-                data-attr={'trend-element-subject-' + index}
-                onClick={onClick}
-                block
-                disabled={disabled || readOnly}
-                style={{
-                    maxWidth: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    borderColor: selectedFilter && selectedFilter.index === index ? 'var(--primary-light)' : '',
-                    borderWidth: selectedFilter && selectedFilter.index === index ? '1.5px' : '1px',
-                }}
-            >
-                <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                    <EntityFilterInfo filter={filter} />
-                </span>
-                <DownOutlined style={{ fontSize: 10 }} />
-            </Button>
-        </Popup>
+            <span className="text-overflow" style={{ maxWidth: '100%' }}>
+                <EntityFilterInfo filter={filter} />
+            </span>
+        </LemonButtonWithPopup>
     )
 
     const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ filter, index, onClose }) : customRowSuffix
@@ -297,28 +291,26 @@ export function ActionFilterRow({
                 ) : (
                     <>
                         {/* left section fixed */}
-                        <div className="row-start">
+                        <div className="ActionFilterRow__start">
                             {sortable && filterCount > 1 ? <DragHandle /> : null}
-                            {showSeriesIndicator && <div className="col series-indicator">{seriesIndicator}</div>}
+                            {showSeriesIndicator && <div>{seriesIndicator}</div>}
                         </div>
                         {/* central section flexible */}
-                        <div className="row-center">
-                            <div className="col flex-auto">{filterElement}</div>
-                            {customRowSuffix !== undefined && <div className="col">{suffix}</div>}
+                        <div className="ActionFilterRow__center">
+                            <div className="flex-auto overflow-hidden">{filterElement}</div>
+                            {customRowSuffix !== undefined && <>{suffix}</>}
                             {mathAvailability !== MathAvailability.None && (
                                 <>
-                                    <div className="col">
-                                        <MathSelector
-                                            math={math}
-                                            mathGroupTypeIndex={mathGroupTypeIndex}
-                                            index={index}
-                                            onMathSelect={onMathSelect}
-                                            style={{ maxWidth: '100%', width: 'initial' }}
-                                            mathAvailability={mathAvailability}
-                                        />
-                                    </div>
+                                    <MathSelector
+                                        math={math}
+                                        mathGroupTypeIndex={mathGroupTypeIndex}
+                                        index={index}
+                                        onMathSelect={onMathSelect}
+                                        style={{ maxWidth: '100%', width: 'initial' }}
+                                        mathAvailability={mathAvailability}
+                                    />
                                     {mathDefinitions[math || '']?.onProperty && (
-                                        <div className="col">
+                                        <div className="flex-auto overflow-hidden">
                                             <TaxonomicStringPopup
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 groupTypes={[
@@ -357,7 +349,7 @@ export function ActionFilterRow({
                             )}
                         </div>
                         {/* right section fixed */}
-                        <div className="row-end">
+                        <div className="ActionFilterRow__end">
                             {!readOnly ? (
                                 <>
                                     {!hideFilter && propertyFiltersButton}
@@ -404,23 +396,36 @@ interface MathSelectorProps {
     style?: React.CSSProperties
 }
 
-const NUMERICAL_REQUIREMENT_NOTICE =
-    'This can only be used on properties that have at least one number type occurence in your events.'
-
 function MathSelector({
     math,
     mathGroupTypeIndex,
     mathAvailability,
     index,
     onMathSelect,
-    style,
 }: MathSelectorProps): JSX.Element {
-    const { mathDefinitions, eventMathEntries, propertyMathEntries } = useValues(mathsLogic)
+    const { mathDefinitions, selectFormattedOptions } = useValues(mathsLogic)
 
-    let relevantEventMathEntries = eventMathEntries
+    let relevantEventMathEntries: LemonSelectSection<string>[] = []
+
     if (mathAvailability === MathAvailability.ActorsOnly) {
-        relevantEventMathEntries = relevantEventMathEntries.filter(([, definition]) => definition.actor)
+        selectFormattedOptions.forEach((section) => {
+            const newSection = { ...section }
+            newSection.options = section.options.filter(
+                (option) => option.value && mathDefinitions[option.value]?.actor
+            )
+            if (newSection.options.length > 0) {
+                relevantEventMathEntries.push(newSection)
+            }
+        })
+    } else {
+        relevantEventMathEntries = selectFormattedOptions
     }
+
+    // add data-attr dynamically
+    relevantEventMathEntries = relevantEventMathEntries.map((section) => ({
+        ...section,
+        options: section.options.map((option) => ({ ...option, 'data-attr': `math-${option.value}-${index}` })),
+    }))
 
     let mathType = apiValueToMathType(math, mathGroupTypeIndex)
     if (mathAvailability === MathAvailability.ActorsOnly && !mathDefinitions[mathType]?.actor) {
@@ -430,78 +435,14 @@ function MathSelector({
     }
 
     return (
-        <Select
-            style={{ width: 150, ...style }}
+        <LemonSelect
             value={mathType}
+            options={relevantEventMathEntries}
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
             dropdownMatchSelectWidth={false}
-            dropdownStyle={{ maxWidth: 320 }}
-            listHeight={280}
-        >
-            <Select.OptGroup key="event aggregates" label="Event aggregation">
-                {relevantEventMathEntries.map(([key, { name, description, onProperty }]) => {
-                    return (
-                        <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`}>
-                            <Tooltip
-                                title={
-                                    onProperty ? (
-                                        <>
-                                            {description}
-                                            <br />
-                                            {NUMERICAL_REQUIREMENT_NOTICE}
-                                        </>
-                                    ) : (
-                                        description
-                                    )
-                                }
-                                placement="right"
-                            >
-                                <div
-                                    style={{
-                                        height: '100%',
-                                        width: '100%',
-                                        paddingRight: 8,
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                    }}
-                                >
-                                    {name}
-                                </div>
-                            </Tooltip>
-                        </Select.Option>
-                    )
-                })}
-                {/* :KLUDGE: Select only allows Select.Option as children, so render groups option directly rather than as a child */}
-                {GroupsIntroductionOption({ value: '' })}
-            </Select.OptGroup>
-            {mathAvailability !== MathAvailability.ActorsOnly && (
-                <Select.OptGroup key="property aggregates" label="Property aggregation">
-                    {propertyMathEntries.map(([key, { name, description, onProperty }]) => {
-                        return (
-                            <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`}>
-                                <Tooltip
-                                    title={
-                                        onProperty ? (
-                                            <>
-                                                {description}
-                                                <br />
-                                                {NUMERICAL_REQUIREMENT_NOTICE}
-                                            </>
-                                        ) : (
-                                            description
-                                        )
-                                    }
-                                    placement="right"
-                                >
-                                    <div style={{ height: '100%', width: '100%' }}>{name}</div>
-                                </Tooltip>
-                            </Select.Option>
-                        )
-                    })}
-                </Select.OptGroup>
-            )}
-        </Select>
+            dropdownPlacement={'bottom-start'}
+        />
     )
 }
 

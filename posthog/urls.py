@@ -2,6 +2,7 @@ from typing import Any, Callable, List, Optional, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.contrib import admin
 from django.http import HttpRequest, HttpResponse
 from django.urls import URLPattern, include, path, re_path
 from django.views.decorators import csrf
@@ -23,7 +24,7 @@ from posthog.api import (
     unsubscribe,
     user,
 )
-from posthog.api.decide import hostname_in_app_urls
+from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.demo import demo_route
 from posthog.models import User
 
@@ -48,6 +49,13 @@ except ImportError:
 else:
     extend_api_router_cloud(router, organizations_router=organizations_router, projects_router=projects_router)
 
+# The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
+admin_urlpatterns = (
+    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
+    if settings.MULTI_TENANCY or settings.DEMO
+    else []
+)
+
 
 @csrf.ensure_csrf_cookie
 def home(request, *args, **kwargs):
@@ -64,7 +72,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
 
-    if not current_team or not hostname_in_app_urls(current_team, redirect_url.hostname):
+    if not current_team or not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname):
         return HttpResponse(f"Can only redirect to a permitted domain.", status=400)
 
     if referer_url.hostname != redirect_url.hostname:
@@ -88,7 +96,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
     # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
-    return re_path(fr"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
+    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
 
 
 urlpatterns = [
@@ -105,6 +113,8 @@ urlpatterns = [
     opt_slash_path("_preflight", preflight_check),
     # ee
     *ee_urlpatterns,
+    # admin
+    *admin_urlpatterns,
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),

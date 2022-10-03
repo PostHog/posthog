@@ -8,9 +8,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ToggleButtonChartFilter } from '../views/Funnels/ToggleButtonChartFilter'
 import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { EditorFilterItemTitle } from './EditorFilterItemTitle'
 import { AggregationSelect } from '../filters/AggregationSelect'
 import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
+import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
@@ -23,20 +23,11 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     // TODO: Sort out title offset
     return (
         <>
-            <div className="mb-2 flex justify-between items-center">
-                <EditorFilterItemTitle label={'Query Steps'} />
+            <div className="flex justify-between items-center">
+                <LemonLabel>Query Steps</LemonLabel>
 
-                <div className="flex items-center">
-                    <span
-                        style={{
-                            marginRight: 6,
-                            textTransform: 'none',
-                            fontWeight: 'normal',
-                            color: 'var(--muted)',
-                        }}
-                    >
-                        Graph type
-                    </span>
+                <div className="flex items-center gap-2">
+                    <span className="text-muted">Graph type</span>
                     <ToggleButtonChartFilter simpleMode />
                 </div>
             </div>
@@ -57,24 +48,23 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 propertiesTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
                     ...groupsTaxonomicTypes,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
                 ]}
             />
-            <div className="mb-2" />
-
             <div className="mt-4 space-y-4">
                 {showGroupsOptions && (
-                    <div className="flex items-center w-full">
-                        <span className="text-muted mr-2">Aggregating by </span>
+                    <div className="flex items-center w-full gap-2">
+                        <span>Aggregating by</span>
                         <AggregationSelect
                             aggregationGroupTypeIndex={filters.aggregation_group_type_index}
                             onChange={(newValue) => setFilters({ aggregation_group_type_index: newValue })}
                         />
                     </div>
                 )}
-                <FunnelConversionWindowFilter horizontal />
+                <FunnelConversionWindowFilter />
             </div>
         </>
     )

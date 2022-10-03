@@ -590,8 +590,146 @@ describe('PersonState.update()', () => {
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 
+    it('updates person properties when other thread merges the user', async () => {
+        const cachedPerson = await hub.db.createPerson(
+            timestamp,
+            { a: 1, b: 2 },
+            {},
+            {},
+            2,
+            null,
+            false,
+            uuid.toString(),
+            ['old-user']
+        )
+        await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid2.toString(), ['new-user'])
+        const mergedPersonContainer = await personState({
+            event: '$identify',
+            distinct_id: 'new-user',
+            properties: {
+                $anon_distinct_id: 'old-user',
+            },
+        }).update()
+        const mergedPerson = await mergedPersonContainer.get()
+        // Prerequisite for the test - UUID changes
+        expect(mergedPerson!.uuid).not.toEqual(cachedPerson.uuid)
+
+        console.log('---')
+        jest.mocked(hub.db.fetchPerson).mockClear() // Reset counter
+
+        const personContainer = await personState(
+            {
+                event: '$pageview',
+                distinct_id: 'new-user',
+                properties: {
+                    $set_once: { c: 3, e: 4 },
+                    $set: { b: 4 },
+                },
+            },
+            cachedPerson
+        ).update()
+
+        await hub.db.kafkaProducer.flush()
+
+        expect(await personContainer.get()).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: mergedPerson!.uuid,
+                is_identified: true,
+                properties: { a: 1, b: 4, c: 3, e: 4 },
+                created_at: timestamp,
+                version: 2,
+            })
+        )
+
+        const clickhousePersons = await delayUntilEventIngested(fetchPersonsRows)
+        expect(clickhousePersons.length).toEqual(2)
+        expect(clickhousePersons).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: uuid.toString(),
+                    properties: JSON.stringify({ a: 1, b: 2 }),
+                    is_deleted: 1,
+                    version: 100,
+                }),
+                expect.objectContaining({
+                    id: mergedPerson!.uuid,
+                    properties: JSON.stringify({ a: 1, b: 4, c: 3, e: 4 }),
+                    is_deleted: 0,
+                    is_identified: 1,
+                    created_at: '2020-01-01 12:00:05.000',
+                    version: 2,
+                }),
+            ])
+        )
+
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // It does a single reset after failing once
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+    })
+
+    describe('illegal aliasing', () => {
+        beforeEach(() => {
+            hub.statsd = { increment: jest.fn() } as any
+        })
+
+        it('stops $identify if current distinct_id is illegal', async () => {
+            await personState({
+                event: '$identify',
+                distinct_id: '[object Object]',
+                properties: {
+                    $anon_distinct_id: 'anonymous_id',
+                },
+            }).update()
+
+            const persons = await hub.db.fetchPersons()
+            expect(persons.length).toEqual(1)
+
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining(['[object Object]']))
+            expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
+                distinctId: '[object Object]',
+            })
+        })
+
+        it('stops $identify if $anon_distinct_id is illegal', async () => {
+            await personState({
+                event: '$identify',
+                distinct_id: 'some_distinct_id',
+                properties: {
+                    $anon_distinct_id: 'undefined',
+                },
+            }).update()
+
+            const persons = await hub.db.fetchPersons()
+            expect(persons.length).toEqual(1)
+
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining(['some_distinct_id']))
+            expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
+                distinctId: 'undefined',
+            })
+        })
+
+        it('stops $identify if $alias is illegal', async () => {
+            await personState({
+                event: '$create_alias',
+                distinct_id: 'some_distinct_id',
+                properties: {
+                    alias: 'null',
+                },
+            }).update()
+
+            const persons = await hub.db.fetchPersons()
+            expect(persons.length).toEqual(1)
+
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining(['some_distinct_id']))
+            expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', { distinctId: 'null' })
+        })
+    })
+
     describe('foreign key updates in other tables', () => {
-        test('feature flag hash key overrides with no conflicts', async () => {
+        it('handles feature flag hash key overrides with no conflicts', async () => {
             const anonPerson = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), [
                 'anonymous_id',
             ])
@@ -659,7 +797,7 @@ describe('PersonState.update()', () => {
             )
         })
 
-        test('feature flag hash key overrides with some conflicts handled gracefully', async () => {
+        it('handles feature flag hash key overrides with some conflicts handled gracefully', async () => {
             const anonPerson = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), [
                 'anonymous_id',
             ])
@@ -734,7 +872,7 @@ describe('PersonState.update()', () => {
             )
         })
 
-        test('feature flag hash key overrides with no old overrides but existing new person overrides', async () => {
+        it('handles feature flag hash key overrides with no old overrides but existing new person overrides', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['anonymous_id'])
             const identifiedPerson = await hub.db.createPerson(
                 timestamp,

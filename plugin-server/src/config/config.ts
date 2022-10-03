@@ -83,13 +83,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
-        CONVERSION_BUFFER_ENABLED: false,
+        CONVERSION_BUFFER_ENABLED: !isTestEnv(),
         CONVERSION_BUFFER_ENABLED_TEAMS: '',
         BUFFER_CONVERSION_SECONDS: 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
         PERSON_INFO_TO_REDIS_TEAMS: '',
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
-        HISTORICAL_EXPORTS_ENABLED: true,
         OBJECT_STORAGE_ENABLED: false,
         OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
         OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
@@ -98,6 +97,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
         KAFKAJS_LOG_LEVEL: 'WARN',
+        HISTORICAL_EXPORTS_ENABLED: true,
+        HISTORICAL_EXPORTS_MAX_RETRY_COUNT: 15,
+        HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: 10 * 60 * 1000,
+        HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: 1.5,
     }
 }
 
@@ -178,6 +181,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         OBJECT_STORAGE_SESSION_RECORDING_FOLDER:
             'the top level folder for storing session recordings inside the storage bucket',
         OBJECT_STORAGE_BUCKET: 'the object storage bucket name',
+        HISTORICAL_EXPORTS_ENABLED: 'enables historical exports for export apps',
     }
 }
 

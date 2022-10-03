@@ -1,6 +1,8 @@
+import datetime
 import re
 from typing import Any, Callable, Dict, List, Union, cast
 
+from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.db.models import Exists, OuterRef, Q
 from rest_framework.exceptions import ValidationError
@@ -10,6 +12,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property
 from posthog.models.team import Team
+from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates, is_valid_regex
 
 
@@ -57,19 +60,11 @@ def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
         compared_filter = determine_compared_filter(filter)
         compared_trend_entity = func(filter=compared_filter, team=team, **kwargs)
 
-        compared_trend_entity = convert_to_comparison(compared_trend_entity, compared_filter, "previous",)
+        compared_trend_entity = convert_to_comparison(compared_trend_entity, compared_filter, "previous")
         entities_list.extend(compared_trend_entity)
     else:
         entities_list.extend(trend_entity)
     return entities_list
-
-
-TIME_IN_SECONDS: Dict[str, Any] = {
-    "hour": 3600,
-    "day": 3600 * 24,
-    "week": 3600 * 24 * 7,
-    "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
-}
 
 
 def match_property(property: Property, override_property_values: Dict[str, Any]) -> bool:
@@ -124,6 +119,35 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
     if operator == "lte":
         return type(override_value) == type(value) and override_value <= value
 
+    if operator in ["is_date_before", "is_date_after"]:
+        try:
+            parsed_date = parser.parse(str(value))
+            parsed_date = convert_to_datetime_aware(parsed_date)
+        except Exception:
+            return False
+
+        if isinstance(override_value, datetime.datetime):
+            override_date = convert_to_datetime_aware(override_value)
+            if operator == "is_date_before":
+                return override_date < parsed_date
+            else:
+                return override_date > parsed_date
+        elif isinstance(override_value, datetime.date):
+            if operator == "is_date_before":
+                return override_value < parsed_date.date()
+            else:
+                return override_value > parsed_date.date()
+        elif isinstance(override_value, str):
+            try:
+                override_date = parser.parse(override_value)
+                override_date = convert_to_datetime_aware(override_date)
+                if operator == "is_date_before":
+                    return override_date < parsed_date
+                else:
+                    return override_date > parsed_date
+            except Exception:
+                return False
+
     return False
 
 
@@ -167,7 +191,7 @@ def properties_to_Q(
             else:
                 person_Q &= property.property_to_Q()
 
-        filters &= Q(Exists(Person.objects.filter(person_Q, id=OuterRef("person_id"),).only("pk")))
+        filters &= Q(Exists(Person.objects.filter(person_Q, id=OuterRef("person_id")).only("pk")))
 
     event_properties = [prop for prop in properties if prop.type == "event"]
     if len(event_properties) > 0:
@@ -186,14 +210,21 @@ def properties_to_Q(
         for item in cohort_properties:
             if item.key == "id":
                 cohort_id = int(cast(Union[str, int], item.value))
-                cohort = Cohort.objects.get(pk=cohort_id)
-                filters &= Q(
-                    Exists(
-                        CohortPeople.objects.filter(
-                            cohort_id=cohort.pk, person_id=OuterRef("person_id"), version=cohort.version
-                        ).only("id")
+                cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+                if cohort.is_static:
+                    filters &= Q(
+                        Exists(
+                            CohortPeople.objects.filter(cohort_id=cohort.pk, person_id=OuterRef("person_id")).only("id")
+                        )
                     )
-                )
+                else:
+                    filters &= Q(
+                        Exists(
+                            CohortPeople.objects.filter(
+                                cohort_id=cohort.pk, person_id=OuterRef("person_id"), version=cohort.version
+                            ).only("id")
+                        )
+                    )
 
     if len([prop for prop in properties if prop.type == "group"]):
         raise ValueError("Group properties are not supported for indirect filtering via postgres")

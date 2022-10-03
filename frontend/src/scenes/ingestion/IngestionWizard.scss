@@ -52,38 +52,40 @@
     }
 }
 
+.IngestionSidebar {
+    background: white;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    align-items: center;
+    width: 250px;
+}
+
+.IngestionSidebar__content {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%;
+    flex: 1;
+    padding: 1rem;
+    position: fixed;
+    width: 250px;
+}
+
 .IngestionSidebar__help {
     display: flex;
     flex-direction: column;
     font-weight: 500;
     color: var(--primary);
     margin-top: 1rem;
-    padding-bottom: 4rem;
 }
 
 .IngestionSidebar__steps {
     color: var(--muted-alt);
     font-size: 14px;
-    margin-top: 1.5rem;
 
     .LemonButton {
         font-weight: 600;
         margin-bottom: 0.5rem;
     }
-}
-
-.IngestionSidebar {
-    background: white;
-    width: 300px;
-    display: flex;
-    flex-direction: column;
-    position: relative;
-    align-items: center;
-}
-
-.IngestionSidebar__content {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    position: fixed;
 }

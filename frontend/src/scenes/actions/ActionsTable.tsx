@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
-import { Input, Radio } from 'antd'
+import { Radio } from 'antd'
 import { CheckOutlined } from '@ant-design/icons'
 import { deleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
@@ -24,6 +24,8 @@ import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { PageHeader } from 'lib/components/PageHeader'
+import { LemonInput } from '@posthog/lemon-ui'
+import { actionsLogic } from 'scenes/actions/actionsLogic'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -36,6 +38,7 @@ const searchActions = (sources: ActionType[], search: string): ActionType[] => {
 
 export const scene: SceneExport = {
     component: ActionsTable,
+    logic: actionsLogic,
 }
 
 export function ActionsTable(): JSX.Element {
@@ -208,23 +211,20 @@ export function ActionsTable(): JSX.Element {
                 title="Data Management"
                 caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
                 tabbedPage
+                buttons={<NewActionButton />}
             />
             <DataManagementPageTabs tab={DataManagementTab.Actions} />
-            <Input.Search
-                placeholder="Search for actions"
-                allowClear
-                enterButton
-                style={{ maxWidth: 600, width: 'initial', flexGrow: 1, marginRight: 12 }}
-                onChange={(e) => {
-                    setSearchTerm(e.target.value)
-                }}
-            />
-            <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
-                <Radio.Button value={false}>All actions</Radio.Button>
-                <Radio.Button value={true}>My actions</Radio.Button>
-            </Radio.Group>
-            <div className="mb-4 float-right">
-                <NewActionButton />
+            <div className="flex items-center justify-between gap-2 mb-4">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for actions"
+                    onChange={setSearchTerm}
+                    value={searchTerm}
+                />
+                <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
+                    <Radio.Button value={false}>All actions</Radio.Button>
+                    <Radio.Button value={true}>My actions</Radio.Button>
+                </Radio.Group>
             </div>
             <LemonTable
                 columns={columns}

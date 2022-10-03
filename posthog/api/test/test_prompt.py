@@ -23,7 +23,7 @@ class TestPrompt(APIBaseTest):
         self.client.force_login(distinct_id_user)
 
         # receive only the one sequence which doesn't have prerequisites
-        response = self.client.patch(f"/api/prompts/my_prompts", {}, format="json",)
+        response = self.client.patch(f"/api/prompts/my_prompts", {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
         self.assertEqual(len(json_response["sequences"]), 1)
@@ -39,7 +39,7 @@ class TestPrompt(APIBaseTest):
                 "dismissed": False,
             }
         }
-        response = self.client.patch(f"/api/prompts/my_prompts", local_state, format="json",)
+        response = self.client.patch(f"/api/prompts/my_prompts", local_state, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
         # we now also receive the other sequences
@@ -63,7 +63,7 @@ class TestPrompt(APIBaseTest):
                 "dismissed": False,
             }
         }
-        response = self.client.patch(f"/api/prompts/my_prompts", local_state, format="json",)
+        response = self.client.patch(f"/api/prompts/my_prompts", local_state, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
         self.assertEqual(json_response["state"]["start-flow"]["step"], 0)

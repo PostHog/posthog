@@ -74,6 +74,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
+    [Scene.IngestionWarnings]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
     [Scene.WebPerformance]: {
         projectBased: true,
         name: 'Web Performance',
@@ -139,7 +143,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.ProjectSettings]: {
         projectBased: true,
-        hideDemoWarnings: true,
+        hideProjectNotice: true,
         name: 'Project settings',
     },
     [Scene.IntegrationsRedirect]: {
@@ -151,7 +155,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
-        name: 'Toolbar',
+        name: 'Launch Toolbar',
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
@@ -179,10 +183,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         onlyUnauthenticated: true,
     },
     [Scene.PasswordReset]: {
-        allowUnauthenticated: true,
+        onlyUnauthenticated: true,
     },
     [Scene.PasswordResetComplete]: {
-        allowUnauthenticated: true,
+        onlyUnauthenticated: true,
     },
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
@@ -208,7 +212,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     // Cloud-only routes
     [Scene.Billing]: {
-        hideDemoWarnings: true,
+        hideProjectNotice: true,
         organizationBased: true,
     },
     [Scene.BillingSubscribed]: {
@@ -250,6 +254,7 @@ export const routes: Record<string, Scene> = {
     [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
+    [urls.ingestionWarnings()]: Scene.IngestionWarnings,
     [urls.insightNew()]: Scene.Insight,
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
@@ -295,6 +300,8 @@ export const routes: Record<string, Scene> = {
     [urls.instanceKafkaInspector()]: Scene.SystemStatus,
     [urls.instanceMetrics()]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
+    [urls.asyncMigrationsFuture()]: Scene.AsyncMigrations,
+    [urls.asyncMigrationsSettings()]: Scene.AsyncMigrations,
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,

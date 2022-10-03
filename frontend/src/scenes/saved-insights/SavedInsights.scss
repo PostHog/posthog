@@ -8,7 +8,7 @@
     > .LemonTable td {
         padding-bottom: 0.75rem !important;
         padding-top: 0.75rem !important;
-        &.icon-column .ant-skeleton-title {
+        &.icon-column .LemonSkeleton {
             height: 2rem;
             width: 2rem;
         }
@@ -32,14 +32,6 @@
 
     .star-outlined {
         color: var(--border-dark);
-    }
-
-    .list-or-card-layout {
-        color: var(--muted-alt);
-        padding: 1rem 0;
-        border-top: 1px solid var(--border);
-        justify-content: space-between;
-        align-items: center;
     }
 
     .saved-insight-empty-state {
@@ -86,9 +78,6 @@
     max-width: 18rem;
 }
 
-.insight-type-icon-dropdown {
-    vertical-align: middle;
-}
 .insight-type-icon-wrapper {
     display: flex;
     align-items: center;
@@ -113,8 +102,5 @@
     }
     @include screen($xxl) {
         grid-template-columns: repeat(3, 1fr);
-    }
-    .loading-overlay {
-        min-height: 30rem;
     }
 }

@@ -7,7 +7,7 @@ import { FunnelExclusionsFilter } from '../filters/FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
 import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { EditorFilterItemTitle } from './EditorFilterItemTitle'
+import { PureField } from 'lib/forms/Field'
 
 export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): JSX.Element {
     const { aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
@@ -16,32 +16,33 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
 
     return (
         <div className="space-y-4">
-            <EditorFilterItemTitle
+            <PureField
                 label="Step order"
-                tooltip={
-                    <ul style={{ paddingLeft: '1.2rem' }}>
+                info={
+                    <ul className="list-disc pl-4">
                         <li>
                             <b>Sequential</b> - Step B must happen after Step A, but any number events can happen
                             between A and B.
                         </li>
                         <li>
-                            <b>Strict Order</b> - Step B must happen directly after Step A without any events in
+                            <b>Strict order</b> - Step B must happen directly after Step A without any events in
                             between.
                         </li>
                         <li>
-                            <b>Any Order</b> - Steps can be completed in any sequence.
+                            <b>Any order</b> - Steps can be completed in any sequence.
                         </li>
                     </ul>
                 }
-            />
-            <FunnelStepOrderPicker />
+            >
+                <FunnelStepOrderPicker />
+            </PureField>
+            <PureField label="Conversion rate calculation">
+                <FunnelStepReferencePicker />
+            </PureField>
 
-            <EditorFilterItemTitle label="Conversion rate calculation" />
-            <FunnelStepReferencePicker bordered />
-
-            <EditorFilterItemTitle
+            <PureField
                 label="Exclusion steps"
-                tooltip={
+                info={
                     <>
                         Exclude {aggregationTargetLabel.plural}{' '}
                         {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} completed the specified
@@ -49,8 +50,9 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
                         <b>completely excluded from the entire funnel</b>.
                     </>
                 }
-            />
-            <FunnelExclusionsFilter />
+            >
+                <FunnelExclusionsFilter />
+            </PureField>
 
             {!!advancedOptionsUsedCount && (
                 <div className="mt-4">

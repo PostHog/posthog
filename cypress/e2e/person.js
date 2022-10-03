@@ -4,7 +4,7 @@ describe('Person Visualization Check', () => {
         cy.location('pathname').should('eq', '/persons')
         cy.get('.ant-spin-spinning').should('not.exist') // Wait until initial table load to be able to use the search
         cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
-        cy.get('.ant-input-search-button').click()
+        cy.contains('deborah.fernandez@gmail.com').should('not.exist')
         cy.contains('deborah.fernandez@gmail.com').click()
         cy.wait(1000)
     })
@@ -27,7 +27,7 @@ describe('Merge person', () => {
     beforeEach(() => {
         cy.clickNavMenu('persons')
         cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
-        cy.get('.ant-input-search-button').click()
+        cy.contains('deborah.fernandez@gmail.com').should('not.exist')
         cy.contains('deborah.fernandez@gmail.com').click()
         cy.wait(1000)
     })
@@ -36,8 +36,8 @@ describe('Merge person', () => {
         cy.get('[role="tab"]').contains('Events').click()
         cy.get('.extra-ids').should('not.exist') // No extra IDs
         cy.contains('$create_alias').should('not.exist')
-        cy.get('span.property-key-info:contains(Pageview)').should('have.length', 1)
-        cy.get('span.property-key-info:contains(clicked)').should('have.length', 1)
+        cy.get('.PropertyKeyInfo:contains(Pageview)').should('have.length', 1)
+        cy.get('.PropertyKeyInfo:contains(clicked)').should('have.length', 1)
 
         // Merge people
         cy.get('[data-attr=merge-person-button]').click()

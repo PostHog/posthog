@@ -4,7 +4,7 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import DefaultDict, Dict, Generator, List, Optional
+from typing import DefaultDict, Dict, Generator, List, Optional, TypedDict, Union
 
 from sentry_sdk.api import capture_exception, capture_message
 
@@ -16,19 +16,26 @@ Event = Dict
 SnapshotData = Dict
 WindowId = Optional[str]
 
+# List of properties from the event payload we care about for our uncompressed `events_summary`
+# NOTE: We should keep this as minimal as possible
+EVENT_SUMMARY_DATA_INCLUSIONS = [
+    "type",
+    "source",
+    "tag",
+    "plugin",
+    "href",
+    "width",
+    "height",
+    "payload.href",
+    "payload.level",
+]
 
-@dataclasses.dataclass
-class ChunkedRecordingEvent:
-    unix_timestamp: int
-    recording_event_id: str
-    session_id: str
-    distinct_id: str
-    chunk_count: int
-    chunk_index: int
-    recording_event_data_chunk: str
-    recording_event_source: Optional[int] = None
-    recording_event_type: Optional[int] = None
-    window_id: Optional[str] = None
+# NOTE: EventSummary is a minimal version of full events, containing only some of the "data" content - strings and numbers
+class SessionRecordingEventSummary(TypedDict):
+    timestamp: int
+    type: int
+    # keys of this object should be any of EVENT_SUMMARY_DATA_INCLUSIONS
+    data: Dict[str, Union[int, str]]
 
 
 @dataclasses.dataclass
@@ -98,6 +105,8 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
                     "data": chunk,
                     "compression": "gzip-base64",
                     "has_full_snapshot": has_full_snapshot,
+                    # We only store this field on the first chunk as it contains all events, not just this chunk
+                    "events_summary": get_events_summary_from_snapshot_data(data_list) if index == 0 else None,
                 },
             },
         }
@@ -252,7 +261,7 @@ def get_active_segments_from_event_list(
             if current_active_segment:
                 active_recording_segments.append(current_active_segment)
             current_active_segment = RecordingSegment(
-                start_time=current_timestamp, end_time=current_timestamp, window_id=window_id, is_active=True,
+                start_time=current_timestamp, end_time=current_timestamp, window_id=window_id, is_active=True
             )
 
     # Add the active last segment if it hasn't already been added
@@ -262,6 +271,46 @@ def get_active_segments_from_event_list(
         active_recording_segments.append(current_active_segment)
 
     return active_recording_segments
+
+
+def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> List[SessionRecordingEventSummary]:
+    """
+    Extract a minimal representation of the snapshot data events for easier querying.
+    'data' and 'data.payload' values are included as long as they are strings or numbers
+    and in the inclusion list to keep the payload minimal
+    """
+    events_summary = []
+
+    for event in snapshot_data:
+        if "timestamp" not in event or "type" not in event:
+            continue
+
+        # Get all top level data values
+        data = {
+            key: value
+            for key, value in event.get("data", {}).items()
+            if type(value) in [str, int] and key in EVENT_SUMMARY_DATA_INCLUSIONS
+        }
+        # Some events have a payload, some values of which we want
+        if event.get("data", {}).get("payload"):
+            data["payload"] = {
+                key: value
+                for key, value in event["data"]["payload"].items()
+                if type(value) in [str, int] and f"payload.{key}" in EVENT_SUMMARY_DATA_INCLUSIONS
+            }
+
+        events_summary.append(
+            SessionRecordingEventSummary(
+                timestamp=event["timestamp"],
+                type=event["type"],
+                data=data,
+            )
+        )
+
+    # No guarantees are made about order so we sort here to be sure
+    events_summary.sort(key=lambda x: x["timestamp"])
+
+    return events_summary
 
 
 def generate_inactive_segments_for_range(
@@ -298,7 +347,7 @@ def generate_inactive_segments_for_range(
             segment_end_time = min(window_end_time, range_end_time)
             inactive_segments.append(
                 RecordingSegment(
-                    start_time=segment_start_time, end_time=segment_end_time, window_id=window_id, is_active=False,
+                    start_time=segment_start_time, end_time=segment_end_time, window_id=window_id, is_active=False
                 )
             )
             current_time = min(segment_end_time, window_end_time)
@@ -333,53 +382,3 @@ def paginate_list(list_to_paginate: List, limit: Optional[int], offset: int) -> 
         has_next = False
         paginated_list = list_to_paginate[offset:]
     return PaginatedList(has_next=has_next, paginated_list=paginated_list)
-
-
-def get_session_recording_events_for_object_storage(
-    events: List[Event], chunk_size=512 * 1024
-) -> List[ChunkedRecordingEvent]:
-    recording_events_for_object_storage = []
-    for event in events:
-        if is_unchunked_snapshot(event):
-            required_properties = ["distinct_id", "$session_id", "$snapshot_data"]
-            for required_property in required_properties:
-                if required_property not in event["properties"]:
-                    e = ValueError(f'$snapshot events must contain property "{required_property}"')
-                    capture_exception(e)
-                    raise e
-
-            required_snapshot_properties = ["timestamp", "type"]
-            for required_snapshot_property in required_snapshot_properties:
-                if required_snapshot_property not in event["properties"]["$snapshot_data"]:
-                    e = ValueError(f'$snapshot events must contain snapshot data with "{required_snapshot_property}"')
-                    capture_exception(e)
-                    raise e
-            distinct_id = event["properties"]["distinct_id"]
-            session_id = event["properties"]["$session_id"]
-            window_id = event["properties"].get("$window_id")
-            recording_event_type = event["properties"]["$snapshot_data"].get("type")
-            unix_timestamp = event["properties"]["$snapshot_data"]["timestamp"]
-            recording_event_source = event["properties"]["$snapshot_data"].get("data", {}).get("source")
-            # We need to add the window_id to the $snapshot_data because the $snapshot_data is the only raw data
-            # sent to the client for playback, and the window_id is needed for playback
-            event["properties"]["$snapshot_data"]["$window_id"] = window_id
-            recording_event_string = json.dumps(event["properties"]["$snapshot_data"])
-            chunked_recording_event_string = chunk_string(recording_event_string, chunk_size)
-            recording_event_id = str(utils.UUIDT())
-            chunk_count = len(chunked_recording_event_string)
-            for chunk_index, chunk in enumerate(chunked_recording_event_string):
-                recording_events_for_object_storage.append(
-                    ChunkedRecordingEvent(
-                        recording_event_id=recording_event_id,
-                        distinct_id=distinct_id,
-                        session_id=session_id,
-                        window_id=window_id,
-                        recording_event_type=recording_event_type,
-                        recording_event_source=recording_event_source,
-                        recording_event_data_chunk=chunk,
-                        chunk_count=chunk_count,
-                        chunk_index=chunk_index,
-                        unix_timestamp=unix_timestamp,
-                    )
-                )
-    return recording_events_for_object_storage

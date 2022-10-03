@@ -65,8 +65,41 @@ class TestSubscriptionsTasks(APIBaseTest):
 
         assert mock_deliver_task.delay.mock_calls == [call(subscriptions[0].id), call(subscriptions[1].id)]
 
+    @patch("ee.tasks.subscriptions.deliver_subscription_report")
+    def test_does_not_schedule_subscription_if_item_is_deleted(
+        self,
+        mock_deliver_task: MagicMock,
+        mock_gen_assets: MagicMock,
+        mock_send_email: MagicMock,
+        mock_send_slack: MagicMock,
+    ) -> None:
+        create_subscription(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C12345|#test-channel",
+        )
+
+        create_subscription(
+            team=self.team,
+            dashboard=self.dashboard,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C12345|#test-channel",
+        )
+
+        self.insight.deleted = True
+        self.insight.save()
+        self.dashboard.deleted = True
+        self.dashboard.save()
+
+        schedule_all_subscriptions()
+
+        assert mock_deliver_task.delay.call_count == 0
+
     def test_deliver_subscription_report_email(
-        self, mock_gen_assets: MagicMock, mock_send_email: MagicMock, mock_send_slack: MagicMock,
+        self, mock_gen_assets: MagicMock, mock_send_email: MagicMock, mock_send_slack: MagicMock
     ) -> None:
         subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
         mock_gen_assets.return_value = [self.insight], [self.asset]
@@ -81,7 +114,7 @@ class TestSubscriptionsTasks(APIBaseTest):
         ]
 
     def test_handle_subscription_value_change_email(
-        self, mock_gen_assets: MagicMock, mock_send_email: MagicMock, mock_send_slack: MagicMock,
+        self, mock_gen_assets: MagicMock, mock_send_email: MagicMock, mock_send_slack: MagicMock
     ) -> None:
         subscription = create_subscription(
             team=self.team,
@@ -104,11 +137,11 @@ class TestSubscriptionsTasks(APIBaseTest):
                 [self.asset],
                 invite_message="My invite message",
                 total_asset_count=1,
-            ),
+            )
         ]
 
     def test_deliver_subscription_report_slack(
-        self, mock_gen_assets: MagicMock, mock_send_email: MagicMock, mock_send_slack: MagicMock,
+        self, mock_gen_assets: MagicMock, mock_send_email: MagicMock, mock_send_slack: MagicMock
     ) -> None:
         subscription = create_subscription(
             team=self.team,
@@ -123,5 +156,5 @@ class TestSubscriptionsTasks(APIBaseTest):
 
         assert mock_send_slack.call_count == 1
         assert mock_send_slack.call_args_list == [
-            call(subscription, [self.asset], total_asset_count=1, is_new_subscription=False),
+            call(subscription, [self.asset], total_asset_count=1, is_new_subscription=False)
         ]

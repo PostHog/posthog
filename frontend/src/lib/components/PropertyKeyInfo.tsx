@@ -1,9 +1,10 @@
 import './PropertyKeyInfo.scss'
 import React from 'react'
-import { Popover, Typography } from 'antd'
+import { Popover } from 'antd'
 import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { TooltipPlacement } from 'antd/lib/tooltip'
+import clsx from 'clsx'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -93,16 +94,6 @@ export const keyMapping: KeyMappingInterface = {
             description: 'Version of the library used to send the event. Used in combination with Library.',
             examples: ['1.0.3'],
         },
-        $initial_referrer: {
-            label: 'Initial Referrer URL',
-            description: 'URL of where the user initially came from (first-touch).',
-            examples: ['https://google.com/search?q=posthog&rlz=1C...'],
-        },
-        $initial_referring_domain: {
-            label: 'Initial Referring Domain',
-            description: 'Domain of where the user initially came from (first-touch).',
-            examples: ['google.com', 'facebook.com'],
-        },
         $referrer: {
             label: 'Referrer URL',
             description: 'URL of where the user came from most recently (last-touch).',
@@ -158,10 +149,6 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Active Feature Flags',
             description: 'Keys of the feature flags that were active while this event was sent.',
             examples: ['beta-feature'],
-        },
-        $enabled_feature_flags: {
-            label: 'Enabled Feature Flags',
-            description: 'Object of the feature flags that were active while this event was sent.',
         },
         $feature_flag_response: {
             label: 'Feature Flag Response',
@@ -234,6 +221,10 @@ export const keyMapping: KeyMappingInterface = {
         $identify: {
             label: 'Identify',
             description: 'A user has been identified with properties',
+        },
+        $create_alias: {
+            label: 'Alias',
+            description: 'An alias ID has been added to a user',
         },
         $groupidentify: {
             label: 'Group Identify',
@@ -359,6 +350,16 @@ export const keyMapping: KeyMappingInterface = {
             description: 'UTM campaign tag (last-touch).',
             examples: ['feature launch', 'discount'],
         },
+        utm_name: {
+            label: 'UTM Name',
+            description: 'UTM campaign tag, sent via Segment (last-touch).',
+            examples: ['feature launch', 'discount'],
+        },
+        $initial_utm_name: {
+            label: 'Initial UTM Name',
+            description: 'UTM campaign tag, sent via Segment (first-touch).',
+            examples: ['feature launch', 'discount'],
+        },
         $initial_utm_campaign: {
             label: 'Initial UTM Campaign',
             description: 'UTM campaign tag (first-touch).',
@@ -411,6 +412,17 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Sentry exception',
             description: 'Raw Sentry exception data',
             hide: true,
+        },
+        $sentry_exception_message: {
+            label: 'Sentry exception message',
+        },
+        $sentry_exception_type: {
+            label: 'Sentry exception type',
+            description: 'Class name of the exception object',
+        },
+        $sentry_tags: {
+            label: 'Sentry tags',
+            description: 'Tags sent to Sentry along with the exception',
         },
         $ce_version: {
             label: '$ce_version',
@@ -588,6 +600,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Touch Y',
             description: 'The location of a Touch event on the Y axis',
         },
+        $exception: {
+            label: 'Exception',
+            description: 'Automatically captured exceptions from the client Sentry integration',
+        },
     },
     element: {
         tag_name: {
@@ -632,7 +648,6 @@ export function isPostHogProp(key: string): boolean {
 interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
-    style?: React.CSSProperties
     tooltipPlacement?: TooltipPlacement
     disablePopover?: boolean
     disableIcon?: boolean
@@ -640,16 +655,16 @@ interface PropertyKeyInfoInterface {
     className?: string
 }
 
-export function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
+function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
     return (
-        <span>
-            <span className="property-key-info-logo" />
+        <span className="PropertyKeyInfo">
+            <span className="PropertyKeyInfoLogo" />
             {data.label}
         </span>
     )
 }
 
-export function PropertyKeyDescription({
+function PropertyKeyDescription({
     data,
     value,
     propertyType,
@@ -721,7 +736,6 @@ export function getPropertyLabel(
 export function PropertyKeyInfo({
     value,
     type = 'event',
-    style,
     tooltipPlacement = undefined,
     disablePopover = false,
     disableIcon = false,
@@ -736,21 +750,14 @@ export function PropertyKeyInfo({
 
     // By this point, property is a PH defined property
     const innerContent = (
-        <span className="property-key-info">
-            {!disableIcon && !!data && <span className="property-key-info-logo" />}
-            <Typography.Text
-                ellipsis={ellipsis}
-                style={{
-                    color: 'inherit',
-                    maxWidth: 400,
-                    display: 'inline', // NOTE: This important and stops the whole thing from only showing "..."
-                    ...style,
-                }}
+        <span className={clsx('PropertyKeyInfo', className)}>
+            {!disableIcon && !!data && <span className="PropertyKeyInfoLogo" />}
+            <span
+                className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--elipsis')}
                 title={baseValue}
-                className={className}
             >
                 {baseValueNode}
-            </Typography.Text>
+            </span>
         </span>
     )
 
@@ -773,7 +780,7 @@ export function PropertyKeyInfo({
     return (
         <Popover
             overlayStyle={{ zIndex: 99999 }}
-            overlayClassName={`property-key-info-tooltip ${className || ''}`}
+            overlayClassName={`PropertyKeyInfoTooltip ${className || ''}`}
             title={popoverTitle}
             content={popoverContent}
             {...popoverProps}

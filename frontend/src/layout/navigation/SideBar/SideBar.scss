@@ -14,7 +14,7 @@
     flex-shrink: 0;
     height: 100%;
     width: 15.5rem;
-    background: var(--bg-side);
+    background: var(--side);
     border-right: 1px solid var(--border);
 
     .SideBar--hidden & {
@@ -54,9 +54,12 @@
     width: 100%;
     max-height: calc(100vh - 3.5rem);
     overflow: auto;
-    padding: 0.5rem;
-    > div {
-        margin: 0.5rem 0;
+    padding: 1rem 0.5rem;
+
+    > ul {
+        li {
+            margin-top: 1px;
+        }
     }
 }
 

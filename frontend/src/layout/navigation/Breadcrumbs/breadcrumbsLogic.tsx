@@ -151,14 +151,14 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             },
         ],
         documentTitle: [
-            (s) => [s.sceneBreadcrumbs],
-            (sceneBreadcrumbs): string =>
+            (s) => [s.sceneBreadcrumbs, s.preflight],
+            (sceneBreadcrumbs, preflight): string =>
                 [
                     ...sceneBreadcrumbs
                         .filter((breadcrumb) => !!breadcrumb.name)
                         .map((breadcrumb) => breadcrumb.name as string)
                         .reverse(),
-                    'PostHog',
+                    preflight?.demo ? 'PostHog Demo' : 'PostHog',
                 ].join(' • '),
         ],
     })),

@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { Button, Card, Divider, Input, Skeleton } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { SessionRecording } from './SessionRecording'
@@ -29,12 +28,15 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { CorrelationConfig } from './CorrelationConfig'
 import { urls } from 'scenes/urls'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { AuthorizedUrls } from 'scenes/toolbar-launch/AuthorizedUrls'
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
 import { IconInfo, IconRefresh } from 'lib/components/icons'
 import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SlackIntegration } from './SlackIntegration'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -55,32 +57,22 @@ function DisplayName(): JSX.Element {
     }
 
     return (
-        <div>
-            <Input
-                value={name}
-                onChange={(event) => {
-                    setName(event.target.value)
-                }}
-                style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
-                disabled={currentTeamLoading}
-            />
-            <Button
+        <div className="space-y-4" style={{ maxWidth: '40rem' }}>
+            <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
+            <LemonButton
                 type="primary"
-                onClick={(e) => {
-                    e.preventDefault()
-                    updateCurrentTeam({ name })
-                }}
+                onClick={() => updateCurrentTeam({ name })}
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
             >
                 Rename Project
-            </Button>
+            </LemonButton>
         </div>
     )
 }
 
 export function ProjectSettings(): JSX.Element {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
     const { user, hasAvailableFeature } = useValues(userLogic)
@@ -88,22 +80,27 @@ export function ProjectSettings(): JSX.Element {
 
     useAnchor(location.hash)
 
-    const loadingComponent = <Skeleton active />
+    const loadingComponent = (
+        <div className="space-y-4">
+            <LemonSkeleton className="w-1/2" />
+            <LemonSkeleton repeat={3} />
+        </div>
+    )
 
     return (
-        <div style={{ marginBottom: 128 }}>
+        <div>
             <PageHeader
                 title="Project settings"
                 caption={`Organize your analytics within the project. These settings only apply to ${
                     currentTeam?.name ?? 'the current project'
                 }.`}
             />
-            <Card>
-                <h2 id="name" className="subtitle">
+            <div className="border rounded p-6">
+                <h2 id="name" className="subtitle mt-0">
                     Display name
                 </h2>
                 {currentTeamLoading && !currentTeam ? loadingComponent : <DisplayName />}
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 id="snippet" className="subtitle">
                     Website event autocapture
                 </h2>
@@ -125,14 +122,14 @@ export function ProjectSettings(): JSX.Element {
                     <br />
                 </p>
                 <div>{currentTeam && <JSBookmarklet team={currentTeam} />}</div>
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 id="custom-events" className="subtitle">
                     Send custom events
                 </h2>
                 To send custom events <a href="https://posthog.com/docs/integrations">visit PostHog Docs</a> and
                 integrate the library for the specific language or platform you're using. We support Python, Ruby, Node,
                 Go, PHP, iOS, Android, and more.
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 id="project-variables" className="subtitle mb-4">
                     Project Variables
                 </h2>
@@ -144,24 +141,28 @@ export function ProjectSettings(): JSX.Element {
                     <a href="https://posthog.com/docs/integrations">our libraries</a>.
                 </p>
                 <CodeSnippet
-                    actions={[
-                        {
-                            icon: <IconRefresh />,
-                            title: 'Reset project API key',
-                            popconfirmProps: {
-                                title: (
-                                    <>
-                                        Reset the project's API key?{' '}
-                                        <b>This will invalidate the current API key and cannot be undone.</b>
-                                    </>
-                                ),
-                                okText: 'Reset key',
-                                okType: 'danger',
-                                placement: 'left',
-                            },
-                            callback: resetToken,
-                        },
-                    ]}
+                    actions={
+                        isTeamTokenResetAvailable
+                            ? [
+                                  {
+                                      icon: <IconRefresh />,
+                                      title: 'Reset project API key',
+                                      popconfirmProps: {
+                                          title: (
+                                              <>
+                                                  Reset the project's API key?{' '}
+                                                  <b>This will invalidate the current API key and cannot be undone.</b>
+                                              </>
+                                          ),
+                                          okText: 'Reset key',
+                                          okType: 'danger',
+                                          placement: 'left',
+                                      },
+                                      callback: resetToken,
+                                  },
+                              ]
+                            : []
+                    }
                     copyDescription="project API key"
                 >
                     {currentTeam?.api_token || ''}
@@ -177,7 +178,7 @@ export function ProjectSettings(): JSX.Element {
                     You can use this ID to reference your project in our <a href="https://posthog.com/docs/api">API</a>.
                 </p>
                 <CodeSnippet copyDescription="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="timezone">
                     Timezone
                 </h2>
@@ -185,8 +186,10 @@ export function ProjectSettings(): JSX.Element {
                     Set the timezone for your project. All charts will be based on this timezone, including how PostHog
                     buckets data in day/week/month intervals.
                 </p>
-                <TimezoneConfig />
-                <Divider />
+                <div style={{ maxWidth: '40rem' }}>
+                    <TimezoneConfig />
+                </div>
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="internal-users-filtering">
                     Filter out internal and test users{' '}
                     <Tooltip title='Events will still be ingested and saved, but they will be excluded from any queries where the "Filter out internal and test users" toggle is set.'>
@@ -202,7 +205,7 @@ export function ProjectSettings(): JSX.Element {
                     So, if you apply a cohort, it means you will only match users in that cohort.
                 </p>
                 <strong>Example filters</strong>
-                <ul>
+                <ul className="list-disc pl-4 mb-2">
                     <li>
                         "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all events
                         from your company's team members.
@@ -213,14 +216,14 @@ export function ProjectSettings(): JSX.Element {
                     </li>
                 </ul>
                 <TestAccountFiltersConfig />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <CorrelationConfig />
                 {hasAdvancedPaths && (
                     <>
-                        <Divider />
+                        <LemonDivider className="my-6" />
                         <h2 className="subtitle" id="path_cleaning_filtering">
                             Path cleaning rules
-                            <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                            <LemonTag type="warning" className="uppercase" style={{ marginLeft: 8 }}>
                                 Beta
                             </LemonTag>
                         </h2>
@@ -247,7 +250,7 @@ export function ProjectSettings(): JSX.Element {
                         <PathCleaningFiltersConfig />
                     </>
                 )}
-                <Divider />
+                <LemonDivider className="my-6" />
                 <div id="permitted-domains" /> {/** DEPRECATED: Remove after Jun 1, 2022 */}
                 <div id="authorized-urls" />
                 <h2 className="subtitle" id="urls">
@@ -264,73 +267,51 @@ export function ProjectSettings(): JSX.Element {
                     <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
                     However, wildcarded top-level domains cannot be used (for security reasons).
                 </p>
-                <AuthorizedUrls />
-                <Divider />
+                <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="attributes">
                     Data attributes
                 </h2>
                 <DataAttributes />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="person-display-name">
                     Person Display Name
                 </h2>
                 <PersonDisplayNameProperties />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="webhook">
                     Webhook integration
                 </h2>
                 <WebhookIntegration />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <>
                     <h2 className="subtitle" id="slack">
                         Slack integration
                     </h2>
                     <SlackIntegration />
-                    <Divider />
+                    <LemonDivider className="my-6" />
                 </>
                 <h2 className="subtitle" id="datacapture">
                     Data capture configuration
                 </h2>
                 <IPCapture />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle">PostHog Toolbar</h2>
+                <p>
+                    Enable PostHog Toolbar, which gives access to heatmaps, stats and allows you to create actions,
+                    right there on your website!
+                </p>
                 <ToolbarSettings />
-                <Divider />
-                <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
-                    Recordings
-                </h2>
-                <p>
-                    Watch recordings of how users interact with your web app to see what can be improved. Recordings are
-                    found in the <Link to={urls.sessionRecordings()}>recordings page</Link>.
-                </p>
-                <p>
-                    Please note <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the
-                    latest version of{' '}
-                    <a
-                        href="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
-                        target="_blank"
-                    >
-                        posthog-js
-                    </a>{' '}
-                    <b>directly</b> installed, and the domains you wish to record must be set in{' '}
-                    <a href="#authorized-urls">Authorized URLs</a>. For more details, check out our{' '}
-                    <a
-                        href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
-                        target="_blank"
-                    >
-                        docs
-                    </a>
-                    .
-                </p>
+                <LemonDivider className="my-6" />
                 <SessionRecording />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <GroupAnalytics />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
-                <Divider />
+                <LemonDivider className="my-6" />
                 {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
                     <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
                         {user && <TeamMembers user={user} team={currentTeam} />}
-                        <Divider />
+                        <LemonDivider className="my-6" />
                     </BindLogic>
                 )}
                 <RestrictedArea
@@ -338,7 +319,7 @@ export function ProjectSettings(): JSX.Element {
                     minimumAccessLevel={OrganizationMembershipLevel.Admin}
                     scope={RestrictionScope.Project}
                 />
-            </Card>
+            </div>
         </div>
     )
 }
