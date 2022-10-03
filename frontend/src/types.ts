@@ -96,6 +96,7 @@ export interface UserBasicType extends UserBaseType {
 export interface UserType extends UserBaseType {
     date_joined: string
     email_opt_in: boolean
+    notifications_plugin_disabled: boolean
     events_column_config: ColumnConfig
     anonymize_data: boolean
     toolbar_mode: 'disabled' | 'toolbar'
@@ -144,7 +145,6 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     is_member_join_email_enabled: boolean
     metadata?: OrganizationMetadata
-    members_to_send_plugin_alerts?: string[]
 }
 
 export interface OrganizationDomainType {

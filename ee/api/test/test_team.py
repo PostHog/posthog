@@ -385,11 +385,10 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         with self.assertNumQueries(9):
             projects_response = self.client.get(f"/api/projects/")
 
-        # 9 (above) + 3 below:
+        # 9 (above) + 2 below:
         # Used for `metadata`.`taxonomy_set_events_count`: SELECT COUNT(*) FROM "ee_enterpriseeventdefinition" WHERE ...
         #  Used for `metadata`.`taxonomy_set_properties_count`: SELECT COUNT(*) FROM "ee_enterprisepropertydefinition" WHERE ...
-        # Return UUIDs for send_plugin_alerts
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, HTTP_200_OK)

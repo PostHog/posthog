@@ -111,6 +111,7 @@ class User(AbstractUser, UUIDClassicModel):
 
     # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    notifications_plugin_disabled: models.BooleanField = models.BooleanField(default=True, null=True, blank=True)
     anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
@@ -223,6 +224,7 @@ class User(AbstractUser, UUIDClassicModel):
         return {
             "realm": get_instance_realm(),
             "email_opt_in": self.email_opt_in,
+            "notifications_plugin_disabled": self.notifications_plugin_disabled,
             "anonymize_data": self.anonymize_data,
             "email": self.email if not self.anonymize_data else None,
             "is_signed_up": True,

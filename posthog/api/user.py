@@ -58,6 +58,7 @@ class UserSerializer(serializers.ModelSerializer):
             "first_name",
             "email",
             "email_opt_in",
+            "notifications_plugin_disabled",
             "anonymize_data",
             "toolbar_mode",
             "has_password",

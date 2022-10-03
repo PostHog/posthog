@@ -12,10 +12,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { VerifiedDomains } from './VerifiedDomains/VerifiedDomains'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
-import { membersLogic } from './membersLogic'
-import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
-import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
-import { OrganizationMemberType } from '~/types'
 
 export const scene: SceneExport = {
     component: OrganizationSettings,
@@ -74,38 +70,6 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
     )
 }
 
-function PluginAlertPreference({ isRestricted }: RestrictedComponentProps): JSX.Element {
-    const { members, membersLoading } = useValues(membersLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const { updateOrganization } = useActions(organizationLogic)
-
-    return (
-        <div>
-            <h2 id="plugin-notification-preferences" className="subtitle">
-                Sending plugin alerts
-            </h2>
-            <div>
-                Select members of your team who should receive alerts if a plugin gets disabled. If no-one is selected,
-                everyone will get these emails.
-                <LemonSelectMultiple
-                    mode="multiple"
-                    onChange={function We(user) {
-                        updateOrganization({ members_to_send_plugin_alerts: user })
-                    }}
-                    disabled={isRestricted}
-                    loading={membersLoading}
-                    options={usersLemonSelectOptions(
-                        members.map((x: OrganizationMemberType) => x.user),
-                        'uuid'
-                    )}
-                    placeholder="Pick users to notify"
-                    value={currentOrganization?.members_to_send_plugin_alerts || []}
-                />
-            </div>
-        </div>
-    )
-}
-
 export function OrganizationSettings(): JSX.Element {
     const { user } = useValues(userLogic)
     useAnchor(location.hash)
@@ -126,11 +90,6 @@ export function OrganizationSettings(): JSX.Element {
                 <RestrictedArea Component={VerifiedDomains} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />
                 <RestrictedArea Component={EmailPreferences} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
-                <LemonDivider className="my-6" />
-                <RestrictedArea
-                    Component={PluginAlertPreference}
-                    minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                />
                 <LemonDivider className="my-6" />
                 <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Owner} />
             </div>

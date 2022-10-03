@@ -103,41 +103,6 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertNotEqual(self.organization.name, "ASDFG")
 
-    def test_plugin_alerts_list(self):
-        self.organization_membership.level = OrganizationMembership.Level.OWNER
-        self.organization_membership.save()
-        user2 = self._create_user("user2@posthog.com")
-        user3 = self._create_user("user3@posthog.com")
-
-        response = self.client.patch(
-            f"/api/organizations/{self.organization.id}",
-            {"members_to_send_plugin_alerts": [self.user.uuid, user2.uuid]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["members_to_send_plugin_alerts"], [str(self.user.uuid), str(user2.uuid)])
-        self.organization_membership.refresh_from_db()
-        self.assertEqual(self.organization_membership.send_plugin_alerts, True)
-        self.assertEqual(user2.organization_memberships.get().send_plugin_alerts, True)
-        self.assertEqual(user3.organization_memberships.get().send_plugin_alerts, False)
-
-        response = self.client.patch(
-            f"/api/organizations/{self.organization.id}", {"members_to_send_plugin_alerts": [user3.uuid]}
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.organization_membership.refresh_from_db()
-        self.assertEqual(self.organization_membership.send_plugin_alerts, False)
-        self.assertEqual(user2.organization_memberships.get().send_plugin_alerts, False)
-        self.assertEqual(user3.organization_memberships.get().send_plugin_alerts, True)
-
-        response = self.client.patch(
-            f"/api/organizations/{self.organization.id}", {"members_to_send_plugin_alerts": []}
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.organization_membership.refresh_from_db()
-        self.assertEqual(self.organization_membership.send_plugin_alerts, False)
-        self.assertEqual(user2.organization_memberships.get().send_plugin_alerts, False)
-        self.assertEqual(user3.organization_memberships.get().send_plugin_alerts, False)
-
 
 def create_organization(name: str) -> Organization:
     """

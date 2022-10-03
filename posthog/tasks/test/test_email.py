@@ -103,18 +103,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         plugin = Plugin.objects.create(organization=self.organization)
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
         self._create_user("test2@posthog.com")
-        membership = self.user.organization_memberships.get()
-        membership.send_plugin_alerts = True
-        membership.save()
+        self.user.notifications_plugin_disabled = False
+        self.user.save()
 
         send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
 
         # Should only be sent to user2
         assert len(mocked_email_messages[0].to) == 1
 
-        membership.send_plugin_alerts = False
-        membership.save()
-
+        self.user.notifications_plugin_disabled = True
+        self.user.save()
         send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
         # should be sent to both
         assert len(mocked_email_messages[1].to) == 2
