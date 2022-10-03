@@ -2,14 +2,14 @@ import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { prompt } from 'lib/logic/prompt'
-import { InsightModel } from '~/types'
+import { DashboardTile, InsightModel } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import type { insightsModelType } from './insightsModelType'
 import { lemonToast } from 'lib/components/lemonToast'
-import { router } from 'kea-router'
+// import { router } from 'kea-router'
 
 export const insightsModel = kea<insightsModelType>({
     path: ['models', 'insightsModel'],
@@ -17,17 +17,23 @@ export const insightsModel = kea<insightsModelType>({
     actions: () => ({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
+        /** duplicate an insight from the insight page */
         duplicateInsight: (item: InsightModel, dashboardId?: number) => ({
             item,
             dashboardId,
         }),
-        moveToDashboard: (item: InsightModel, fromDashboard: number, toDashboard: number, toDashboardName: string) => ({
-            item,
+        moveToDashboard: (
+            tile: DashboardTile,
+            fromDashboard: number,
+            toDashboard: number,
+            toDashboardName: string
+        ) => ({
+            tile,
             fromDashboard,
             toDashboard,
             toDashboardName,
         }),
-        duplicateInsightSuccess: (item: InsightModel) => ({ item }),
+        duplicateInsightSuccess: (tile: DashboardTile) => ({ tile }),
     }),
     listeners: ({ actions }) => ({
         renameInsight: async ({ item }) => {
@@ -52,18 +58,25 @@ export const insightsModel = kea<insightsModelType>({
                 },
             })
         },
-        moveToDashboard: async ({ item, fromDashboard, toDashboard, toDashboardName }) => {
-            if (!item) {
+        moveToDashboard: async ({ tile, fromDashboard, toDashboard, toDashboardName }) => {
+            if (!tile || !tile.insight) {
                 return
             }
 
-            const originalDashboards = item.dashboards || []
+            const originalDashboards = tile.insight.dashboards || []
             const dashboards = [...originalDashboards.filter((d: number) => d !== fromDashboard), toDashboard]
 
-            const updatedItem = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`, {
-                dashboards,
-            })
-            dashboardsModel.actions.updateDashboardInsight(updatedItem, [fromDashboard])
+            const updatedInsight = await api.update(
+                `api/projects/${teamLogic.values.currentTeamId}/insights/${tile.insight.id}`,
+                {
+                    dashboards,
+                }
+            )
+            const updatedTile = {
+                ...tile,
+                insight: updatedInsight,
+            }
+            dashboardsModel.actions.updateDashboardInsight(updatedTile, [fromDashboard])
 
             lemonToast.success(
                 <>
@@ -77,13 +90,17 @@ export const insightsModel = kea<insightsModelType>({
                         label: 'Undo',
                         action: async () => {
                             const restoredItem = await api.update(
-                                `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
+                                `api/projects/${teamLogic.values.currentTeamId}/insights/${tile.insight.id}`,
                                 {
                                     dashboards: originalDashboards,
                                 }
                             )
+                            const restoredTile = {
+                                ...tile,
+                                insight: restoredItem,
+                            }
                             lemonToast.success('Panel move reverted')
-                            dashboardsModel.actions.updateDashboardInsight(restoredItem, [toDashboard])
+                            dashboardsModel.actions.updateDashboardInsight(restoredTile, [toDashboard])
                         },
                     },
                 }
@@ -94,28 +111,30 @@ export const insightsModel = kea<insightsModelType>({
                 return
             }
 
-            const layouts: Record<string, any> = {}
-            Object.entries(item.layouts || {}).forEach(([size, { w, h }]) => {
-                layouts[size] = { w, h }
-            })
+            // TODO insight only has layouts in dashboard context -
+            // const layouts: Record<string, any> = {}
+            // Object.entries(item.layouts || {}).forEach(([size, { w, h }]) => {
+            //     layouts[size] = { w, h }
+            // })
 
-            const { id: _discard, short_id: __discard, ...rest } = item
-            const newItem = dashboardId ? { ...rest, dashboards: [dashboardId], layouts } : { ...rest, layouts }
-            const addedItem = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, newItem)
-
-            const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
-
-            if (dashboardId && dashboard) {
-                lemonToast.success('Insight copied', {
-                    button: {
-                        label: `View ${dashboard.name}`,
-                        action: () => router.actions.push(urls.dashboard(dashboard.id)),
-                    },
-                })
-            } else {
-                actions.duplicateInsightSuccess(addedItem)
-                lemonToast.success('Insight duplicated')
-            }
+            // const { id: _discard, short_id: __discard, ...rest } = item
+            // const newItem = dashboardId ? { ...rest, dashboards: [dashboardId], layouts } : { ...rest, layouts }
+            // const addedItem = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, newItem)
+            //
+            // const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
+            //
+            // if (dashboardId && dashboard) {
+            //     lemonToast.success('Insight copied', {
+            //         button: {
+            //             label: `View ${dashboard.name}`,
+            //             action: () => router.actions.push(urls.dashboard(dashboard.id)),
+            //         },
+            //     })
+            // } else {
+            //     actions.duplicateInsightSuccess(addedItem)
+            //     lemonToast.success('Insight duplicated')
+            // }
+            lemonToast.error('Insight duplication not yet implemented ' + dashboardId)
         },
     }),
 })

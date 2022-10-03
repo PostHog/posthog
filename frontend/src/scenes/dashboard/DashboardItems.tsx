@@ -4,7 +4,7 @@ import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 
-import { InsightModel, DashboardMode, DashboardType, DashboardPlacement } from '~/types'
+import { DashboardMode, DashboardType, DashboardPlacement, DashboardTile } from '~/types'
 import { insightsModel } from '~/models/insightsModel'
 import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
 import clsx from 'clsx'
@@ -12,7 +12,7 @@ import { InsightCard } from 'lib/components/InsightCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 export function DashboardItems(): JSX.Element {
-    const { dashboard, items, layouts, dashboardMode, placement, isRefreshing, highlightedInsightId, refreshStatus } =
+    const { dashboard, tiles, layouts, dashboardMode, placement, isRefreshing, highlightedInsightId, refreshStatus } =
         useValues(dashboardLogic)
     const { updateLayouts, updateContainerWidth, updateItemColor, removeItem, refreshAllDashboardItems } =
         useActions(dashboardLogic)
@@ -77,34 +77,37 @@ export function DashboardItems(): JSX.Element {
                 }}
                 draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popup"
             >
-                {items?.map((item: InsightModel) => (
-                    <InsightCard
-                        key={item.short_id}
-                        insight={item}
-                        dashboardId={dashboard?.id}
-                        loading={isRefreshing(item.short_id)}
-                        apiErrored={refreshStatus[item.short_id]?.error || false}
-                        highlighted={highlightedInsightId && item.short_id === highlightedInsightId}
-                        showResizeHandles={dashboardMode === DashboardMode.Edit}
-                        canResizeWidth={canResizeWidth}
-                        updateColor={(color) => updateItemColor(item.id, color)}
-                        removeFromDashboard={() => removeItem(item)}
-                        refresh={() => refreshAllDashboardItems([item])}
-                        rename={() => renameInsight(item)}
-                        duplicate={() => duplicateInsight(item)}
-                        moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
-                            if (!dashboard) {
-                                throw new Error('must be on a dashboard to move an insight')
-                            }
-                            moveToDashboard(item, dashboard.id, id, name)
-                        }}
-                        showEditingControls={[
-                            DashboardPlacement.Dashboard,
-                            DashboardPlacement.ProjectHomepage,
-                        ].includes(placement)}
-                        showDetailsControls={placement != DashboardPlacement.Export}
-                    />
-                ))}
+                {tiles?.map((tile: DashboardTile) => {
+                    const item = tile.insight
+                    return (
+                        <InsightCard
+                            key={item.short_id}
+                            insight={item}
+                            dashboardId={dashboard?.id}
+                            loading={isRefreshing(item.short_id)}
+                            apiErrored={refreshStatus[item.short_id]?.error || false}
+                            highlighted={highlightedInsightId && item.short_id === highlightedInsightId}
+                            showResizeHandles={dashboardMode === DashboardMode.Edit}
+                            canResizeWidth={canResizeWidth}
+                            updateColor={(color) => updateItemColor(item.id, color)}
+                            removeFromDashboard={() => removeItem(item)}
+                            refresh={() => refreshAllDashboardItems([item])}
+                            rename={() => renameInsight(item)}
+                            duplicate={() => duplicateInsight(item)}
+                            moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                                if (!dashboard) {
+                                    throw new Error('must be on a dashboard to move an insight')
+                                }
+                                moveToDashboard(tile, dashboard.id, id, name)
+                            }}
+                            showEditingControls={[
+                                DashboardPlacement.Dashboard,
+                                DashboardPlacement.ProjectHomepage,
+                            ].includes(placement)}
+                            showDetailsControls={placement != DashboardPlacement.Export}
+                        />
+                    )
+                })}
             </ReactGridLayout>
         </div>
     )

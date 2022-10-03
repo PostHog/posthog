@@ -16,6 +16,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     ChartDisplayType,
     ChartParams,
+    DashboardTile,
     DashboardType,
     ExporterFormat,
     FilterType,
@@ -147,7 +148,7 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     showDetailsControls?: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
-    updateColor?: (newColor: InsightModel['color']) => void
+    updateColor?: (newColor: DashboardTile['color']) => void
     removeFromDashboard?: () => void
     deleteWithUndo?: () => void
     refresh?: () => void

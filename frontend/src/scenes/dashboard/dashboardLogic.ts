@@ -179,7 +179,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                         return {
                             ...values.allItems,
-                            items: values.allItems?.items.filter((i) => i.id !== insight.id),
+                            tiles: values.allItems?.tiles.filter((t) => t.insight.id !== insight.id),
                         } as DashboardType
                     } catch (e) {
                         lemonToast.error('Could not remove item: ' + e)
@@ -215,8 +215,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
             null as DashboardType | null,
             {
                 loadExportedDashboard: (_, { dashboard }) => dashboard,
-                [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
-                    const targetDashboards = (item.dashboards || []).concat(extraDashboardIds || [])
+                [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { tile, extraDashboardIds }) => {
+                    const targetDashboards = (tile.insight.dashboards || []).concat(extraDashboardIds || [])
                     if (!props.id) {
                         // what are we even updating?
                         return state
@@ -227,22 +227,22 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     }
 
                     if (state) {
-                        const itemIndex = state.items.findIndex((i) => i.short_id === item.short_id)
-                        const newItems = state.items.slice(0)
+                        const itemIndex = state.tiles.findIndex((t) => t.insight.short_id === tile.insight.short_id)
+                        const newItems = state.tiles.slice(0)
 
                         if (itemIndex >= 0) {
-                            if (item.dashboards?.includes(props.id)) {
-                                newItems[itemIndex] = { ...newItems[itemIndex], ...item }
+                            if (tile.insight.dashboards?.includes(props.id)) {
+                                newItems[itemIndex] = { ...newItems[itemIndex], ...tile }
                             } else {
                                 newItems.splice(itemIndex, 1)
                             }
                         } else {
-                            newItems.push(item)
+                            newItems.push(tile)
                         }
 
                         return {
                             ...state,
-                            items: newItems.filter((i) => !i.deleted),
+                            tiles: newItems.filter((t) => !t.insight.deleted),
                         } as DashboardType
                     }
 
@@ -261,24 +261,24 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     }
                     return {
                         ...state,
-                        items: state?.items.map((i) =>
-                            i.short_id === shortId
+                        items: state?.tiles.map((t) =>
+                            t.insight.short_id === shortId
                                 ? {
-                                      ...i,
+                                      ...t,
                                       ...(refreshing != null ? { refreshing } : {}),
                                       ...(last_refresh != null ? { last_refresh } : {}),
                                   }
-                                : i
+                                : t
                         ),
                     } as DashboardType
                 },
-                [insightsModel.actionTypes.duplicateInsightSuccess]: (state, { item }): DashboardType => {
+                [insightsModel.actionTypes.duplicateInsightSuccess]: (state, { tile }): DashboardType => {
                     return {
                         ...state,
-                        items:
-                            props.id && item.dashboards?.includes(parseInt(props.id.toString()))
-                                ? [...(state?.items || []), item]
-                                : state?.items,
+                        tiles:
+                            props.id && tile.insight.dashboards?.includes(parseInt(props.id.toString()))
+                                ? [...(state?.tiles || []), tile]
+                                : state?.tiles,
                     } as DashboardType
                 },
             },
