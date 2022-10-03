@@ -2,7 +2,7 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
-import { KafkaJSProtocolError } from 'kafkajs'
+import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
@@ -21,6 +21,7 @@ import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
@@ -60,6 +61,7 @@ export async function startPluginsServer(
     let piscina: Piscina | undefined
     let queue: KafkaQueue | undefined | null // ingestion queue
     let jobQueueConsumer: JobQueueConsumerControl | undefined
+    let bufferConsumer: Consumer | undefined
     let closeHub: () => Promise<void> | undefined
     let pluginScheduleControl: PluginScheduleControl | undefined
     let mmdbServer: net.Server | undefined
@@ -75,6 +77,7 @@ export async function startPluginsServer(
         await queue?.stop()
         await pubSub?.stop()
         await jobQueueConsumer?.stop()
+        await bufferConsumer?.stop()
         await pluginScheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
@@ -161,6 +164,8 @@ export async function startPluginsServer(
         }
 
         const queues = await startQueues(hub, piscina)
+
+        bufferConsumer = startAnonymousEventBufferConsumer(hub)
 
         // `queue` refers to the ingestion queue.
         queue = queues.ingestion

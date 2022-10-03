@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, IngestionPersonData, JobName, TeamId } from '../../../types'
+import { Hub, IngestionPersonData, TeamId } from '../../../types'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
 
@@ -23,13 +23,15 @@ export async function emitToBufferStep(
     const person = await personContainer.get()
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
-        const job = {
-            eventPayload: event,
-            timestamp: processEventAt,
-        }
-        await runner.hub.jobQueueManager.enqueue(JobName.BUFFER_JOB, job, {
-            key: 'team_id',
-            tag: event.team_id.toString(),
+        await runner.hub.kafka.producer().send({
+            topic: 'anonymous_events_buffer',
+            messages: [
+                {
+                    key: event.team_id.toString(),
+                    value: JSON.stringify(event),
+                    headers: { processEventAt: processEventAt.toString() },
+                },
+            ],
         })
         runner.hub.statsd?.increment('events_sent_to_buffer')
         return null
