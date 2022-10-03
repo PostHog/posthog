@@ -242,6 +242,7 @@ export interface TeamType extends TeamBasicType {
     recording_domains: string[]
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
+    capture_console_log_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
     path_cleaning_filters: Record<string, any>[]

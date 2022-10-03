@@ -158,6 +158,7 @@ def get_decide(request: HttpRequest):
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):
-                response["sessionRecording"] = {"endpoint": "/s/"}
+                capture_console_logs = True if team.capture_console_log_opt_in else False
+                response["sessionRecording"] = {"endpoint": "/s/", "consoleLogRecordingEnabled": capture_console_logs}
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))

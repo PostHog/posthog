@@ -311,6 +311,10 @@ export function addHistoricalEventsExportCapabilityV2(
             }
 
             if (dateStatus && shouldResume(dateStatus, now)) {
+                // :TODO: Temporary debugging code
+                createLog(`toResume found: now=${now}, dateStatus=${JSON.stringify(dateStatus)}`, {
+                    type: PluginLogEntryType.Debug,
+                })
                 hasChanges = true
                 toResume.push(dateStatus)
             }
@@ -377,20 +381,20 @@ export function addHistoricalEventsExportCapabilityV2(
                 type: PluginLogEntryType.Debug,
             })
             await meta.storage.set(payload.statusKey, {
+                ...payload,
                 done: true,
                 progress: 1,
                 statusTime: Date.now(),
-                ...payload,
             } as ExportChunkStatus)
 
             return
         }
 
         await meta.storage.set(payload.statusKey, {
+            ...payload,
             done: false,
             progress: (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime),
             statusTime: Date.now(),
-            ...payload,
         } as ExportChunkStatus)
 
         let events: PluginEvent[] = []
