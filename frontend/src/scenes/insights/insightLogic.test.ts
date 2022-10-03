@@ -120,13 +120,17 @@ describe('insightLogic', () => {
                 '/api/projects/:team/dashboards/33/': {
                     id: 33,
                     filters: {},
-                    items: [
+                    tiles: [
                         {
-                            id: 42,
-                            short_id: Insight42,
-                            result: 'result!',
-                            filters: { insight: InsightType.TRENDS, interval: 'month' },
-                            tags: ['bla'],
+                            layouts: {},
+                            color: null,
+                            insight: {
+                                id: 42,
+                                short_id: Insight42,
+                                result: 'result!',
+                                filters: { insight: InsightType.TRENDS, interval: 'month' },
+                                tags: ['bla'],
+                            },
                         },
                     ],
                 },
