@@ -32,7 +32,7 @@ class TriggerSerializer(serializers.Serializer):
 
 class DetailSerializer(serializers.Serializer):
     id = serializers.CharField(read_only=True)
-    changes = ChangeSerializer(many=True)
+    changes = ChangeSerializer(many=True, required=False)
     merge = MergeSerializer(required=False)
     trigger = TriggerSerializer(required=False)
     name = serializers.CharField(read_only=True)
