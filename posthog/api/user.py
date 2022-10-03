@@ -24,6 +24,7 @@ from posthog.auth import authenticate_secondarily
 from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
+from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.tasks import user_identify
 from posthog.utils import get_js_url
 
@@ -48,6 +49,7 @@ class UserSerializer(serializers.ModelSerializer):
     set_current_organization = serializers.CharField(write_only=True, required=False)
     set_current_team = serializers.CharField(write_only=True, required=False)
     current_password = serializers.CharField(write_only=True, required=False)
+    notification_settings = serializers.DictField(required=False)
 
     class Meta:
         model = User
@@ -58,7 +60,7 @@ class UserSerializer(serializers.ModelSerializer):
             "first_name",
             "email",
             "email_opt_in",
-            "notifications_plugin_disabled",
+            "notification_settings",
             "anonymize_data",
             "toolbar_mode",
             "has_password",
@@ -102,6 +104,17 @@ class UserSerializer(serializers.ModelSerializer):
             pass
 
         raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
+
+    def validate_notification_settings(self, notification_settings: Notifications) -> Notifications:
+        for key, value in notification_settings.items():
+            if key not in Notifications.__annotations__:
+                raise serializers.ValidationError(f"Key {key} is not valid as a key for notification settings")
+
+            if not isinstance(value, Notifications.__annotations__[key]):
+                raise serializers.ValidationError(
+                    f"{value} is not a valid type for notification settings, should be {Notifications.__annotations__[key]}"
+                )
+        return {**NOTIFICATION_DEFAULTS, **notification_settings}
 
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
@@ -153,6 +166,9 @@ class UserSerializer(serializers.ModelSerializer):
         password = self.validate_password_change(
             cast(User, instance), current_password, validated_data.pop("password", None)
         )
+
+        if validated_data.get("notification_settings"):
+            validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
 
         updated_attrs = list(validated_data.keys())
         instance = cast(User, super().update(instance, validated_data))

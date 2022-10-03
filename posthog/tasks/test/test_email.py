@@ -103,7 +103,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         plugin = Plugin.objects.create(organization=self.organization)
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
         self._create_user("test2@posthog.com")
-        self.user.notifications_plugin_disabled = False
+        self.user.partial_notification_settings = {"plugin_disabled": False}
         self.user.save()
 
         send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
@@ -111,7 +111,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Should only be sent to user2
         assert len(mocked_email_messages[0].to) == 1
 
-        self.user.notifications_plugin_disabled = True
+        self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
         send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
         # should be sent to both

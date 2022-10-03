@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypedDict
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -14,6 +14,13 @@ from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey, hash_key_value
 from .team import Team
 from .utils import UUIDClassicModel, generate_random_token, sane_repr
+
+
+class Notifications(TypedDict, total=False):
+    plugin_disabled: bool
+
+
+NOTIFICATION_DEFAULTS: Notifications = {"plugin_disabled": True}
 
 
 class UserManager(BaseUserManager):
@@ -111,7 +118,8 @@ class User(AbstractUser, UUIDClassicModel):
 
     # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
-    notifications_plugin_disabled: models.BooleanField = models.BooleanField(default=True, null=True, blank=True)
+    # These override the notification settings
+    partial_notification_settings: models.JSONField = models.JSONField(null=True, blank=True)
     anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
@@ -195,6 +203,13 @@ class User(AbstractUser, UUIDClassicModel):
             self.save()
             return membership
 
+    @property
+    def notification_settings(self) -> Notifications:
+        return {
+            **NOTIFICATION_DEFAULTS,  # type: ignore
+            **(self.partial_notification_settings if self.partial_notification_settings else {}),
+        }
+
     def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
         if membership.level == OrganizationMembership.Level.OWNER:
@@ -224,7 +239,7 @@ class User(AbstractUser, UUIDClassicModel):
         return {
             "realm": get_instance_realm(),
             "email_opt_in": self.email_opt_in,
-            "notifications_plugin_disabled": self.notifications_plugin_disabled,
+            "notification_settings": self.notification_settings,
             "anonymize_data": self.anonymize_data,
             "email": self.email if not self.anonymize_data else None,
             "is_signed_up": True,

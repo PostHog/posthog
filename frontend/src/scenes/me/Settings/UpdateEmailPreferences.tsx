@@ -14,7 +14,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                 onChange={() => {
                     updateUser({ email_opt_in: !user?.email_opt_in })
                 }}
-                checked={user?.email_opt_in}
+                checked={user?.email_opt_in || false}
                 disabled={userLoading}
                 label="Receive security and feature updates via email. You can easily unsubscribe at any time."
                 fullWidth
@@ -26,9 +26,14 @@ export function UpdateEmailPreferences(): JSX.Element {
                 id="plugin-disabled"
                 data-attr="plugin_disabled"
                 onChange={() => {
-                    updateUser({ notifications_plugin_disabled: !user?.notifications_plugin_disabled })
+                    updateUser({
+                        notification_settings: {
+                            ...user.notification_settings,
+                            plugin_disabled: !user?.notification_settings.plugin_disabled,
+                        },
+                    })
                 }}
-                checked={user?.notifications_plugin_disabled}
+                checked={user?.notification_settings.plugin_disabled || false}
                 disabled={userLoading}
                 fullWidth
                 bordered
