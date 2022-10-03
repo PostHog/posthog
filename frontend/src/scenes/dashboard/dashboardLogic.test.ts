@@ -5,7 +5,7 @@ import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { InsightModel, DashboardType, InsightShortId } from '~/types'
+import { DashboardType, InsightColor, InsightModel, InsightShortId } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dayjs, now } from 'lib/dayjs'
@@ -386,15 +386,21 @@ describe('dashboardLogic', () => {
         })
 
         it('can respond to external insight rename', async () => {
+            expect(logic.values.allItems?.items[0].color).toEqual(null)
+
             const copiedInsight = insight800()
             insightsModel.actions.renameInsightSuccess({
                 ...copiedInsight,
                 name: 'renamed',
+                last_modified_at: '2021-04-01 12:00:00',
+                color: InsightColor.Blue, // this should be ignored
             })
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.allItems?.items).toHaveLength(1)
             expect(logic.values.allItems?.items[0].name).toEqual('renamed')
+            expect(logic.values.allItems?.items[0].last_modified_at).toEqual('2021-04-01 12:00:00')
+            expect(logic.values.allItems?.items[0].color).toEqual(null)
         })
     })
 
