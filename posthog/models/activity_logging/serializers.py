@@ -34,7 +34,7 @@ class DetailSerializer(serializers.Serializer):
     id = serializers.CharField(read_only=True)
     changes = ChangeSerializer(many=True)
     merge = MergeSerializer(required=False)
-    trigger = TriggerSerializer(required=True)
+    trigger = TriggerSerializer(required=False)
     name = serializers.CharField(read_only=True)
     short_id = serializers.CharField(read_only=True)
 
