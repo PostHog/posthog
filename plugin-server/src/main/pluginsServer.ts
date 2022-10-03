@@ -165,7 +165,7 @@ export async function startPluginsServer(
 
         const queues = await startQueues(hub, piscina)
 
-        bufferConsumer = startAnonymousEventBufferConsumer(hub)
+        bufferConsumer = startAnonymousEventBufferConsumer(hub.kafka, hub.jobQueueManager)
 
         // `queue` refers to the ingestion queue.
         queue = queues.ingestion
