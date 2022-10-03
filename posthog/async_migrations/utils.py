@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Any, Callable, List, Optional, Tuple
 
 import posthoganalytics
 import structlog
@@ -74,12 +74,15 @@ def execute_op_clickhouse(
     client._request_information = None
 
 
-def execute_on_each_shard(sql: str, args=None, settings=None) -> None:
+# returns the results of all tasks in an list where l[x] = rows per shard, l[x][y] = row in shard, l[x][y][z] = column in row in shard
+def execute_on_each_shard(sql: str, args=None, settings=None) -> List[List[Tuple[Any]]]:
     """
     Executes query on each shard separately (if enabled) or on the cluster as a whole (if not enabled).
 
     Note that the shard selection is stable - subsequent queries are guaranteed to hit the same shards!
     """
+
+    results = []
 
     if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
         sql = sql.format(on_cluster_clause="")
@@ -88,20 +91,23 @@ def execute_on_each_shard(sql: str, args=None, settings=None) -> None:
 
     async def run_on_all_shards():
         tasks = []
-        for _, _, connection_pool in _get_all_shard_connections():
+        for _, _, connection_pool in get_all_shard_connections():
             tasks.append(run_on_connection(connection_pool))
 
-        await asyncio.gather(*tasks)
+        task_results = await asyncio.gather(*tasks)
+        results.extend(task_results)
 
     async def run_on_connection(connection_pool):
         await asyncio.sleep(0)  # returning control to event loop to make parallelism possible
         with connection_pool.get_client() as connection:
-            connection.execute(sql, args, settings=settings)
+            return connection.execute(sql, args, settings=settings)
 
     asyncio.run(run_on_all_shards())
 
+    return results
 
-def _get_all_shard_connections():
+
+def get_all_shard_connections():
     from posthog.client import ch_pool as default_ch_pool
 
     if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:

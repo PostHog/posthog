@@ -84,6 +84,9 @@ class TestUtils(AsyncMigrationBaseTest):
         self.assertEqual(errors.count(), 0)
 
     def test_execute_on_each_shard(self):
-        execute_on_each_shard("SELECT 1")
+        result = execute_on_each_shard("SELECT * FROM system.numbers LIMIT 3")
+        self.assertEqual(result[0][0][0], 0)
+        self.assertEqual(result[0][1][0], 1)
+        self.assertEqual(result[0][2][0], 2)
         with self.assertRaises(Exception):
             execute_on_each_shard("SELECT fail")

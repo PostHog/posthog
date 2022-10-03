@@ -10,7 +10,12 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperationSQL,
 )
 from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_for_table
-from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table, sleep_until_finished
+from posthog.async_migrations.utils import (
+    execute_op_clickhouse,
+    get_all_shard_connections,
+    run_optimize_table,
+    sleep_until_finished,
+)
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
@@ -305,8 +310,7 @@ class Migration(AsyncMigrationDefinition):
         # To check if groups data was not backfilled, we check for:
         # 1. groupX_properties = '' (because the backfill sets group properties to '{}' if the group doesn't exist)
         # 2. groupX_created_at != created_at column of groups table via dictionary lookup (because we can't just look for groups with toDateTime(0) as that's the default)
-        incomplete_groups_data_ratio = sync_execute(
-            f"""
+        query_string = f"""
             SELECT countIf(
                 group0_properties = '' OR
                 group0_created_at != dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 0, $group_0)) OR
@@ -321,9 +325,15 @@ class Migration(AsyncMigrationDefinition):
             ) / count() FROM events
             SAMPLE 10000000
             {where_clause}
-            """,
-            where_clause_params,
-        )[0][0]
+        """
+
+        # if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION=True, we need to ensure we run this query on a node that has the groups dictionary set up
+        if settings.CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
+            _, _, connection_pool = get_all_shard_connections().__next__()
+            with connection_pool.get_client() as connection:
+                incomplete_groups_data_ratio = connection.execute(query_string, where_clause_params)[0][0]
+        else:
+            incomplete_groups_data_ratio = sync_execute(query_string, where_clause_params)[0][0]
 
         if incomplete_groups_data_ratio > threshold:
             incomplete_events_percentage = incomplete_groups_data_ratio * 100

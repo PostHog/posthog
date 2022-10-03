@@ -63,7 +63,7 @@ def query_events() -> List[Dict]:
 
 
 @pytest.mark.async_migrations
-class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, ClickhouseTestMixin):
+class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
         MIGRATION_DEFINITION.parameters["TEAM_ID"] = (None, "", int)
 
@@ -572,5 +572,34 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         )
 
         self.assertTrue(run_migration())
+
+        with self.settings(CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION=False):
+            self.assertTrue(run_migration())
+
+        MIGRATION_DEFINITION.operations[-4].fn = old_fn
+
+    def test_check_groups_data_success_per_shard_execution(self):
+
+        # don't run the backfill so we can test the postcheck based only on the data we create
+        old_fn = MIGRATION_DEFINITION.operations[-4].fn
+        MIGRATION_DEFINITION.operations[-4].fn = lambda *args: None
+
+        create_event(
+            event_uuid=UUIDT(),
+            team=self.team,
+            distinct_id="1",
+            event="$pageview",
+            person_id=UUIDT(),
+            person_created_at="2021-02-02T00:00:00Z",
+            person_properties={},
+            group0_properties={},
+            group1_properties={},
+            group2_properties={},
+            group3_properties={},
+            group4_properties={},
+        )
+
+        with self.settings(CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION=True):
+            self.assertTrue(run_migration())
 
         MIGRATION_DEFINITION.operations[-4].fn = old_fn
