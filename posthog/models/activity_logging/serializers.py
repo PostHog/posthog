@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from posthog.models import User
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 
 class UserMinimalSerializer(serializers.ModelSerializer):
@@ -43,9 +44,15 @@ class ActivityLogSerializer(serializers.Serializer):
     class Meta:
         exclude = ["team_id, organization_id"]
 
-    user = UserMinimalSerializer(read_only=True)
+    user = serializers.SerializerMethodField()
     activity = serializers.CharField(read_only=True)
     scope = serializers.CharField(read_only=True)
     item_id = serializers.CharField(read_only=True)
     detail = DetailSerializer(required=False)
     created_at = serializers.DateTimeField(read_only=True)
+
+    def get_user(self, activity_log: ActivityLog):
+        if activity_log.is_system:
+            return {"first_name": "System", "email": None, "is_system": True}
+        else:
+            return UserMinimalSerializer(activity_log.user).data
