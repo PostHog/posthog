@@ -144,7 +144,6 @@ class TestExports(APIBaseTest):
                                 "type": "Insight",
                             }
                         ],
-                        "merge": None,
                         "name": self.insight.name,
                         "short_id": self.insight.short_id,
                     },

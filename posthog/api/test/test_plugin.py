@@ -81,7 +81,7 @@ class TestPluginAPI(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Plugin",
                     "item_id": str(response.json()["id"]),
-                    "detail": {"name": "helloworldplugin", "changes": None, "merge": None, "short_id": None},
+                    "detail": {"name": "helloworldplugin", "changes": None, "short_id": None},
                 }
             ]
         )
@@ -286,7 +286,7 @@ class TestPluginAPI(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Plugin",
                     "item_id": str(plugin_id),
-                    "detail": {"name": "helloworldplugin", "changes": None, "merge": None, "short_id": None},
+                    "detail": {"name": "helloworldplugin", "changes": None, "short_id": None},
                 },
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com"},
@@ -294,7 +294,7 @@ class TestPluginAPI(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Plugin",
                     "item_id": str(plugin_id),
-                    "detail": {"name": "helloworldplugin", "changes": None, "merge": None, "short_id": None},
+                    "detail": {"name": "helloworldplugin", "changes": None, "short_id": None},
                 },
             ]
         )
@@ -1099,7 +1099,7 @@ class TestPluginAPI(APIBaseTest):
                 {
                     "activity": "installed",
                     "created_at": "2021-08-25T22:09:14.252000Z",
-                    "detail": {"changes": None, "merge": None, "name": "helloworldplugin", "short_id": None},
+                    "detail": {"changes": None, "name": "helloworldplugin", "short_id": None},
                     "item_id": str(plugin_id),
                     "scope": "Plugin",
                     "user": {"email": "user1@posthog.com", "first_name": ""},
@@ -1107,7 +1107,7 @@ class TestPluginAPI(APIBaseTest):
                 {
                     "activity": "enabled",
                     "created_at": "2021-08-25T22:09:14.252000Z",
-                    "detail": {"changes": [], "merge": None, "name": "helloworldplugin", "short_id": None},
+                    "detail": {"changes": [], "name": "helloworldplugin", "short_id": None},
                     "item_id": str(plugin_config_id),
                     "scope": "PluginConfig",
                     "user": {"email": "user1@posthog.com", "first_name": ""},
