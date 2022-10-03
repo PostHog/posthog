@@ -289,13 +289,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const params = toParams({
                         recording_start_time: props.recordingStartTime,
                     })
-                    console.log('NEXTURL', nextUrl)
-                    if (
-                        nextUrl ===
-                        'http://localhost:8000/api/projects/1/session_recordings/18384c7ea482b27-0fa2078b912c6c-1a525635-16a7f0-18384c7ea492139/snapshots?recording_start_time=2022-09-28T15%3A47%3A18.124000Z&offset=40&limit=20'
-                    ) {
-                        throw new Error('FORCE ERROR')
-                    }
                     const apiUrl =
                         nextUrl ||
                         `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
