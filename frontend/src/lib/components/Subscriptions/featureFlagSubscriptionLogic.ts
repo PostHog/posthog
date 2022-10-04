@@ -7,6 +7,8 @@ import { loaders } from 'kea-loaders'
 import { dayjs } from 'lib/dayjs'
 import { userLogic } from 'scenes/userLogic'
 
+import type { featureFlagSubscriptionLogicType } from './featureFlagSubscriptionLogicType'
+
 export const NEW_FEATURE_FLAG_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'on_change',
     interval: 0,
@@ -16,13 +18,13 @@ export const NEW_FEATURE_FLAG_SUBSCRIPTION: Partial<SubscriptionType> = {
 }
 
 export interface FeatureFlagSubscriptionsLogicProps {
-    featureFlagId?: number
+    featureFlagId?: string | number
 }
 
-export const featureFlagSubscriptionLogic = kea([
+export const featureFlagSubscriptionLogic = kea<featureFlagSubscriptionLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionLogic']),
     props({} as FeatureFlagSubscriptionsLogicProps),
-    key(({ id, featureFlagId }) => `${featureFlagId}-${id ?? 'new'}`),
+    key(({ featureFlagId }) => `feature-flag-subscription-${featureFlagId}`),
     connect(() => ({
         values: [userLogic, ['user']],
     })),
@@ -30,9 +32,9 @@ export const featureFlagSubscriptionLogic = kea([
         subscription: {
             __default: null as SubscriptionType | null,
             loadSubscription: async () => {
-                if (props.featureFlagId) {
+                if (props.featureFlagId && values.user) {
                     const candidateMatches = await api.subscriptions.list({
-                        featureFlagId: props.featureFlagId,
+                        featureFlagId: Number(props.featureFlagId),
                         createdById: values.user.uuid,
                     })
                     return candidateMatches.results[0] || null
@@ -42,11 +44,13 @@ export const featureFlagSubscriptionLogic = kea([
             createSubscription: async () => {
                 return await api.subscriptions.create({
                     ...NEW_FEATURE_FLAG_SUBSCRIPTION,
-                    feature_flag: props.featureFlagId,
+                    feature_flag: Number(props.featureFlagId),
                 })
             },
             deleteSubscription: async () => {
-                return await api.subscriptions.update(values.subscription.id, { deleted: true })
+                if (values.subscription?.id !== undefined) {
+                    return await api.subscriptions.update(values.subscription.id, { deleted: true })
+                }
             },
         },
     })),

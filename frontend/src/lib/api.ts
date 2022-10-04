@@ -793,7 +793,7 @@ const api = {
             insightId?: number
             dashboardId?: number
             featureFlagId?: number
-            createdById?: number
+            createdById?: string
         }): Promise<PaginatedResponse<SubscriptionType>> {
             return await new ApiRequest()
                 .subscriptions()
