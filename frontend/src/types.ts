@@ -849,6 +849,8 @@ export interface InsightModel extends DashboardTile {
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
+    /** Only used in the frontend to toggle showing Baseline in funnels or not */
+    disable_baseline?: boolean
 }
 
 export interface DashboardType {

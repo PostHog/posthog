@@ -48,10 +48,17 @@ export function InsightContainer(
         disableHeader,
         disableTable,
         disableCorrelationTable,
-    }: { disableHeader?: boolean; disableTable?: boolean; disableCorrelationTable?: boolean } = {
+        disableLastComputation,
+    }: {
+        disableHeader?: boolean
+        disableTable?: boolean
+        disableCorrelationTable?: boolean
+        disableLastComputation?: boolean
+    } = {
         disableHeader: false,
         disableTable: false,
         disableCorrelationTable: false,
+        disableLastComputation: false,
     }
 ): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -203,9 +210,11 @@ export function InsightContainer(
                         justify="space-between"
                     >
                         {/*Don't add more than two columns in this row.*/}
-                        <Col>
-                            <ComputationTimeWithRefresh />
-                        </Col>
+                        {!disableLastComputation && (
+                            <Col>
+                                <ComputationTimeWithRefresh />
+                            </Col>
+                        )}
                         <Col>
                             {activeView === InsightType.FUNNELS ? <FunnelCanvasLabel /> : null}
                             {activeView === InsightType.PATHS ? <PathCanvasLabel /> : null}
