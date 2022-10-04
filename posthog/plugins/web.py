@@ -3,7 +3,7 @@ from typing import List, Optional
 
 
 @dataclass
-class WebSource:
+class WebJsSource:
     id: int
     source: str
     token: str
@@ -11,7 +11,13 @@ class WebSource:
     config: dict
 
 
-def get_transpiled_web_source(id: int, token: str) -> Optional[WebSource]:
+@dataclass
+class WebJsUrl:
+    id: int
+    url: str
+
+
+def get_transpiled_web_source(id: int, token: str) -> Optional[WebJsSource]:
     from posthog.models import PluginConfig, PluginSourceFile
 
     response = (
@@ -29,7 +35,7 @@ def get_transpiled_web_source(id: int, token: str) -> Optional[WebSource]:
     if not response:
         return None
 
-    return WebSource(*(list(response)))  # type: ignore
+    return WebJsSource(*(list(response)))  # type: ignore
 
 
 def get_decide_web_js_inject(team) -> List[dict]:
@@ -48,13 +54,7 @@ def get_decide_web_js_inject(team) -> List[dict]:
         .values_list("id", "web_token")
         .all()
     )
-    return [
-        {
-            "id": source[0],
-            "url": f"/web_js/{source[0]}/{source[1]}/",
-        }
-        for source in sources
-    ]
+    return [WebJsUrl(source[0], f"/web_js/{source[0]}/{source[1]}/") for source in sources]
 
 
 def get_web_config_from_schema(config_schema: Optional[List[dict]], config: Optional[dict]):
