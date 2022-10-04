@@ -753,44 +753,74 @@ export const pluginsLogic = kea<pluginsLogicType>([
             }
         },
     })),
-    actionToUrl(({ values }) => ({
-        setPluginTab: () => {
-            const searchParams = {
-                ...router.values.searchParams,
-            }
+    actionToUrl(({ values }) => {
+        function getUrl(): string {
+            return values.showingLogsPluginId
+                ? urls.projectAppLogs(values.showingLogsPluginId)
+                : values.editingPluginId
+                ? values.editingSource
+                    ? urls.projectAppSource(values.editingPluginId)
+                    : urls.projectApp(values.editingPluginId)
+                : urls.projectApps()
+        }
+        return {
+            setPluginTab: () => {
+                const searchParams = {
+                    ...router.values.searchParams,
+                }
 
-            let replace = false // set a page in history
-            if (!searchParams['tab'] && values.pluginTab === PluginTab.Installed) {
-                // we are on the Installed page, and have clicked the Installed tab, don't set history
-                replace = true
-            }
-            searchParams['tab'] = values.pluginTab
+                let replace = false // set a page in history
+                if (!searchParams['tab'] && values.pluginTab === PluginTab.Installed) {
+                    // we are on the Installed page, and have clicked the Installed tab, don't set history
+                    replace = true
+                }
+                searchParams['tab'] = values.pluginTab
 
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
-        },
-        editPlugin: () => {
-            return [values.editingPluginId ? urls.projectApp(values.editingPluginId) : urls.projectApps()]
-        },
-    })),
-    urlToAction(({ actions, values }) => ({
-        [urls.projectApps()]: (_, { tab, name }) => {
-            if (values.editingPluginId) {
-                actions.editPlugin(null)
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
+            },
+            editPlugin: () => [getUrl()],
+            setEditingSource: () => [getUrl()],
+            hidePluginLogs: () => [getUrl()],
+            showPluginLogs: () => [getUrl()],
+        }
+    }),
+    urlToAction(({ actions, values }) => {
+        function runActions(editingId: number | null, editingSource: boolean, logsId: number | null): void {
+            if (values.editingPluginId !== editingId) {
+                actions.editPlugin(editingId)
             }
-            if (tab) {
-                actions.setPluginTab(tab as PluginTab)
+            if (values.showingLogsPluginId !== logsId) {
+                if (logsId) {
+                    actions.showPluginLogs(logsId)
+                } else {
+                    actions.hidePluginLogs()
+                }
             }
-
-            if (name && [PluginTab.Repository, PluginTab.Installed].includes(values.pluginTab)) {
-                actions.setSearchTerm(name)
+            if (editingSource !== values.editingSource) {
+                actions.setEditingSource(editingSource)
             }
-        },
-        [urls.projectApp(':id')]: ({ id }) => {
-            if (id && values.editingPluginId !== parseInt(id)) {
-                actions.editPlugin(parseInt(id))
-            }
-        },
-    })),
+        }
+        return {
+            [urls.projectApps()]: (_, { tab, name }) => {
+                if (tab) {
+                    actions.setPluginTab(tab as PluginTab)
+                }
+                if (name && [PluginTab.Repository, PluginTab.Installed].includes(values.pluginTab)) {
+                    actions.setSearchTerm(name)
+                }
+                runActions(null, false, null)
+            },
+            [urls.projectApp(':id')]: ({ id }) => {
+                runActions(id ? parseInt(id) : null, false, null)
+            },
+            [urls.projectAppSource(':id')]: ({ id }) => {
+                runActions(id ? parseInt(id) : null, true, null)
+            },
+            [urls.projectAppLogs(':id')]: ({ id }) => {
+                runActions(null, false, id ? parseInt(id) : null)
+            },
+        }
+    }),
 
     afterMount(({ actions }) => {
         actions.loadPlugins()

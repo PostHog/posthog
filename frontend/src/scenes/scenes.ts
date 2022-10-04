@@ -286,6 +286,8 @@ export const routes: Record<string, Scene> = {
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.projectApps()]: Scene.Plugins,
     [urls.projectApp(':id')]: Scene.Plugins,
+    [urls.projectAppLogs(':id')]: Scene.Plugins,
+    [urls.projectAppSource(':id')]: Scene.Plugins,
     [urls.frontendApp(':id')]: Scene.FrontendAppScene,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,
