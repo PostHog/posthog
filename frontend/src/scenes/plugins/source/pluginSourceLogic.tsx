@@ -10,7 +10,6 @@ import React from 'react'
 import { FormErrors } from 'lib/forms/Errors'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { formatSource } from 'scenes/plugins/source/formatSource'
 
@@ -32,13 +31,26 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
         closePluginSource: true,
         addFilePrompt: true,
         addSourceFile: (file: string) => ({ file }),
+        removeSourceFile: (file: string) => ({ file }),
     }),
 
     reducers({
-        currentFile: ['plugin.json', { setCurrentFile: (_, { currentFile }) => currentFile }],
+        currentFile: [
+            'plugin.json',
+            {
+                setCurrentFile: (_, { currentFile }) => currentFile,
+                removeSourceFile: (state, { file }) => (state === file ? 'plugin.json' : state),
+            },
+        ],
         pluginSource: [
             {} as Record<string, string>,
-            { addSourceFile: (state, { file }) => ({ ...state, [file]: '' }) },
+            {
+                addSourceFile: (state, { file }) => ({ ...state, [file]: '' }),
+                removeSourceFile: (state, { file }) => {
+                    const { [file]: _discard, ...rest } = state
+                    return rest
+                },
+            },
         ],
     }),
 
@@ -114,16 +126,9 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
             },
         ],
         fileNames: [
-            (s) => [s.featureFlags, s.pluginSource],
-            (featureFlags, pluginSource): string[] => {
-                return Array.from(
-                    new Set([
-                        ...(featureFlags[FEATURE_FLAGS.FRONTEND_APPS]
-                            ? ['plugin.json', 'index.ts', 'frontend.tsx']
-                            : ['plugin.json', 'index.ts']),
-                        ...Object.keys(pluginSource),
-                    ])
-                )
+            (s) => [s.pluginSource],
+            (pluginSource): string[] => {
+                return Array.from(new Set(['plugin.json', ...Object.keys(pluginSource)]))
             },
         ],
     }),
@@ -165,6 +170,9 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
                 file = window.prompt('Enter filename:')
                 if (file && !file.endsWith('.ts') && !file.endsWith('.tsx')) {
                     window.alert('Files must end with .ts or .tsx')
+                    file = null
+                } else if (file && values.fileNames.includes(file)) {
+                    window.alert(`The file "${file}" already exists`)
                     file = null
                 } else if (file) {
                     actions.addSourceFile(file)
