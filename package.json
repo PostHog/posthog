@@ -196,7 +196,7 @@
         "less": "^3.12.2",
         "less-loader": "^7.0.2",
         "lint-staged": "~10.2.13",
-        "msw": "^0.47.0",
+        "msw": "^0.47.3",
         "path-browserify": "^1.0.1",
         "pixelmatch": "^5.3.0",
         "pngjs": "^6.0.0",
