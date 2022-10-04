@@ -1,5 +1,8 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 
 @dataclass
@@ -38,10 +41,7 @@ def get_transpiled_web_source(id: int, token: str) -> Optional[WebJsSource]:
     return WebJsSource(*(list(response)))  # type: ignore
 
 
-def get_decide_web_js_inject(team) -> List[dict]:
-    """
-    :type team: posthog.models.Team
-    """
+def get_decide_web_js_inject(team: "Team") -> List[dict]:
     from posthog.models import PluginConfig, PluginSourceFile
 
     sources = (
