@@ -114,7 +114,7 @@ class UserSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"{value} is not a valid type for notification settings, should be {Notifications.__annotations__[key]}"
                 )
-        return {**NOTIFICATION_DEFAULTS, **notification_settings}
+        return {**NOTIFICATION_DEFAULTS, **notification_settings}  # type: ignore
 
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
