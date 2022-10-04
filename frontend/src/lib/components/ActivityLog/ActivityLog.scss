@@ -38,9 +38,10 @@
 
     .activity-log-row {
         display: flex;
-        margin-top: 1rem;
+        margin-top: 0.5rem;
         line-height: 24px;
         max-width: 50rem;
+        padding: 0.5rem;
 
         &.unread {
             background-color: var(--primary-highlight);
