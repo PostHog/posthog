@@ -38,7 +38,6 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { FeatureFlagsTabs } from './featureFlagsLogic'
-import { flagActivityDescriber } from './activityDescriptions'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopup/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
@@ -373,11 +372,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </Tabs.TabPane>
                                         {featureFlag.id && (
                                             <Tabs.TabPane tab="History" key="history">
-                                                <ActivityLog
-                                                    scope={ActivityScope.FEATURE_FLAG}
-                                                    describer={flagActivityDescriber}
-                                                    id={featureFlag.id}
-                                                />
+                                                <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
                                             </Tabs.TabPane>
                                         )}
                                     </Tabs>

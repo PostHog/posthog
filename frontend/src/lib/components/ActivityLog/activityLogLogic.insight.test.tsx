@@ -3,14 +3,12 @@ import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import React from 'react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
 
 describe('the activity log logic', () => {
     describe('humanizing insights', () => {
         const insightTestSetup = makeTestSetup(
             ActivityScope.INSIGHT,
-            insightActivityDescriber,
             `/api/projects/${MOCK_TEAM_ID}/insights/activity/`
         )
 
