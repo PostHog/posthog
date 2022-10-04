@@ -109,12 +109,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
             tile: DashboardTile,
             fromDashboard: number,
             toDashboard: number,
-            toDashboardName: string
+            toDashboardName: string,
+            allowUndo?: boolean
         ) => ({
             tile,
             fromDashboard,
             toDashboard,
             toDashboardName,
+            allowUndo: allowUndo === undefined ? true : allowUndo,
         }),
     },
 
@@ -716,7 +718,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 return
             }
 
-            dashboardLogic.findMounted({ id: payload?.toDashboard })?.actions.loadDashboardItems()
+            const targetDashboard = dashboardLogic.findMounted({ id: payload?.toDashboard })
+            targetDashboard?.actions.loadDashboardItems()
 
             lemonToast.success(
                 <>
@@ -726,17 +729,20 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     </b>
                 </>,
                 {
-                    button: {
-                        label: 'Undo',
-                        action: async () => {
-                            actions.moveToDashboard(
-                                payload?.tile,
-                                payload?.toDashboard,
-                                payload?.fromDashboard,
-                                props.dashboard?.name || ' dashboard'
-                            )
-                        },
-                    },
+                    button: payload?.allowUndo
+                        ? {
+                              label: 'Undo',
+                              action: async () => {
+                                  targetDashboard?.actions.moveToDashboard(
+                                      payload?.tile,
+                                      payload?.toDashboard,
+                                      payload?.fromDashboard,
+                                      values.allItems?.name || ' dashboard',
+                                      false
+                                  )
+                              },
+                          }
+                        : undefined,
                 }
             )
         },
