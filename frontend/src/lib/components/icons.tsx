@@ -2,12 +2,12 @@
 import clsx from 'clsx'
 import React, { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
 import './icons.scss'
-import { LemonBadge } from './LemonBadge/LemonBadge'
+import { LemonBadge, LemonBadgeProps } from './LemonBadge/LemonBadge'
 
 interface IconWithCountProps {
     count: number
     showZero?: boolean
-    status?: 'primary' | 'danger'
+    status?: LemonBadgeProps['status']
 }
 
 export function IconWithCount({
