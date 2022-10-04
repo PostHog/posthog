@@ -317,7 +317,7 @@ export function SavedInsights(): JSX.Element {
                                 <LemonButton
                                     status="stealth"
                                     onClick={() => duplicateInsight(insight)}
-                                    data-attr={`insight-item-${insight.short_id}-dropdown-duplicate`}
+                                    data-attr={`duplicate-insight-from-list-view`}
                                     fullWidth
                                 >
                                     Duplicate

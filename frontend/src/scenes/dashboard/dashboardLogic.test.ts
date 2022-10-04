@@ -5,7 +5,7 @@ import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { InsightModel, DashboardType, InsightShortId } from '~/types'
+import { DashboardType, InsightColor, InsightModel, InsightShortId } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dayjs, now } from 'lib/dayjs'
@@ -361,16 +361,18 @@ describe('dashboardLogic', () => {
     })
 
     describe('external updates', () => {
-        it('can respond to external filter update', async () => {
+        beforeEach(async () => {
             logic = dashboardLogic({ id: 9 })
             logic.mount()
-
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.allItems?.items).toHaveLength(1)
             expect(logic.values.allItems?.items[0].short_id).toEqual('800')
             expect(logic.values.allItems?.items[0].filters.date_from).toBeUndefined()
             expect(logic.values.allItems?.items[0].filters.interval).toEqual('day')
+            expect(logic.values.allItems?.items[0].name).toEqual('pageviews')
+        })
 
+        it('can respond to external filter update', async () => {
             const copiedInsight = insight800()
             dashboardsModel.actions.updateDashboardInsight({
                 ...copiedInsight,
@@ -379,9 +381,26 @@ describe('dashboardLogic', () => {
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.allItems?.items).toHaveLength(1)
-            expect(logic.values.allItems?.items[0].short_id).toEqual('800')
             expect(logic.values.allItems?.items[0].filters.date_from).toEqual('-1d')
             expect(logic.values.allItems?.items[0].filters.interval).toEqual('hour')
+        })
+
+        it('can respond to external insight rename', async () => {
+            expect(logic.values.allItems?.items[0].color).toEqual(null)
+
+            const copiedInsight = insight800()
+            insightsModel.actions.renameInsightSuccess({
+                ...copiedInsight,
+                name: 'renamed',
+                last_modified_at: '2021-04-01 12:00:00',
+                color: InsightColor.Blue, // this should be ignored
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.allItems?.items).toHaveLength(1)
+            expect(logic.values.allItems?.items[0].name).toEqual('renamed')
+            expect(logic.values.allItems?.items[0].last_modified_at).toEqual('2021-04-01 12:00:00')
+            expect(logic.values.allItems?.items[0].color).toEqual(null)
         })
     })
 

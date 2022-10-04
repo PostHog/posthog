@@ -8,8 +8,8 @@ from posthog.test.base import TestMigrations
 
 
 class TagsTestCase(TestMigrations):
-    migrate_from = "0011_add_tags_back"  # type: ignore
-    migrate_to = "0012_migrate_tags_v2"  # type: ignore
+    migrate_from = "0011_add_tags_back"
+    migrate_to = "0012_migrate_tags_v2"
     assert_snapshots = True
 
     @property

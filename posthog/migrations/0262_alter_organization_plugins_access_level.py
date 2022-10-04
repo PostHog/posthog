@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0259_backfill_team_recording_domains"),
+        ("posthog", "0261_team_capture_console_log_opt_in"),
     ]
 
     operations = [

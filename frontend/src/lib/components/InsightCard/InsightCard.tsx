@@ -166,6 +166,7 @@ interface InsightMetaProps
         | 'refresh'
         | 'rename'
         | 'duplicate'
+        | 'dashboardId'
         | 'moveToDashboard'
         | 'showEditingControls'
         | 'showDetailsControls'
@@ -181,6 +182,7 @@ interface InsightMetaProps
 
 function InsightMeta({
     insight,
+    dashboardId,
     updateColor,
     removeFromDashboard,
     deleteWithUndo,
@@ -375,7 +377,16 @@ function InsightMeta({
                                                             Rename
                                                         </LemonButton>
                                                     )}
-                                                    <LemonButton status="stealth" onClick={duplicate} fullWidth>
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        onClick={duplicate}
+                                                        fullWidth
+                                                        data-attr={
+                                                            dashboardId
+                                                                ? 'duplicate-insight-from-dashboard'
+                                                                : 'duplicate-insight-from-card-list-view'
+                                                        }
+                                                    >
                                                         Duplicate
                                                     </LemonButton>
                                                     <LemonDivider />
@@ -592,6 +603,7 @@ function InsightCardInternal(
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightMeta
                     insight={insight}
+                    dashboardId={dashboardId}
                     updateColor={updateColor}
                     removeFromDashboard={removeFromDashboard}
                     deleteWithUndo={deleteWithUndo}
