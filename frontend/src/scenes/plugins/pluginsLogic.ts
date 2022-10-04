@@ -768,15 +768,26 @@ export const pluginsLogic = kea<pluginsLogicType>([
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
         },
+        editPlugin: () => {
+            return [values.editingPluginId ? urls.projectApp(values.editingPluginId) : urls.projectApps()]
+        },
     })),
     urlToAction(({ actions, values }) => ({
         [urls.projectApps()]: (_, { tab, name }) => {
+            if (values.editingPluginId) {
+                actions.editPlugin(null)
+            }
             if (tab) {
                 actions.setPluginTab(tab as PluginTab)
             }
 
             if (name && [PluginTab.Repository, PluginTab.Installed].includes(values.pluginTab)) {
                 actions.setSearchTerm(name)
+            }
+        },
+        [urls.projectApp(':id')]: ({ id }) => {
+            if (id && values.editingPluginId !== parseInt(id)) {
+                actions.editPlugin(parseInt(id))
             }
         },
     })),
