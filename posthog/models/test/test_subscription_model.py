@@ -9,6 +9,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.jwt import PosthogJwtAudience
+from posthog.models import FeatureFlag
 from posthog.models.insight import Insight
 from posthog.models.subscription import (
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
@@ -196,3 +197,21 @@ class TestSubscription(BaseTest):
             interval=1, frequency="monthly", byweekday=["monday"], bysetpos=10
         )
         assert subscription.summary == "sent on a schedule"
+
+    def test_subscribe_to_feature_flag_changes(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, name="test-flag", key="test-flag", created_by=self.user)
+
+        subscription = Subscription.objects.create(
+            team=self.team,
+            title="My Subscription",
+            feature_flag=flag,
+            target_type=Subscription.SubscriptionTarget.IN_APP_NOTIFICATION,
+            target_value="",
+            frequency=Subscription.SubscriptionFrequency.ON_CHANGE,
+            interval=0,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, 0).replace(tzinfo=pytz.UTC),
+            created_by=self.user,
+        )
+
+        assert subscription.summary == "sent on change"
+        assert subscription.next_delivery_date is None

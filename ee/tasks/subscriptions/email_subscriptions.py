@@ -32,6 +32,10 @@ def send_email_subscription_report(
     if not resource_info:
         raise NotImplementedError("This type of subscription resource is not supported")
 
+    if resource_info.kind == "FeatureFlag":
+        # Don't report on subscriptions to feature flags. They only support in-app notification subscriptions
+        return
+
     subject = f"PostHog {resource_info.kind} report - {resource_info.name}"
     campaign_key = f"{resource_info.kind.lower()}_subscription_report_{subscription.next_delivery_date.isoformat()}"
 

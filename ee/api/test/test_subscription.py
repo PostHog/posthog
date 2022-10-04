@@ -4,6 +4,7 @@ import pytest
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from posthog.models import FeatureFlag
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
@@ -15,6 +16,7 @@ class TestSubscription(APILicensedTest):
     subscription: Subscription = None  # type: ignore
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
+    feature_flag: FeatureFlag = None  # type: ignore
 
     insight_filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
 
@@ -26,6 +28,7 @@ class TestSubscription(APILicensedTest):
         cls.insight = Insight.objects.create(
             filters=Filter(data=cls.insight_filter_dict).to_dict(), team=cls.team, created_by=cls.user
         )
+        cls.feature_flag = FeatureFlag.objects.create(team=cls.team, key="test-flag", created_by=cls.user)
 
     def _create_subscription(self, **kwargs):
         payload = {
@@ -58,6 +61,7 @@ class TestSubscription(APILicensedTest):
             "id": data["id"],
             "dashboard": None,
             "insight": self.insight.id,
+            "feature_flag": None,
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
@@ -74,6 +78,52 @@ class TestSubscription(APILicensedTest):
             "next_delivery_date": data["next_delivery_date"],
             "invite_message": None,
             "summary": "sent every week",
+        }
+
+        mock_subscription_tasks.handle_subscription_value_change.delay.assert_called_once_with(
+            data["id"], "", "hey there!"
+        )
+
+    def test_cannot_create_new_insight_subscription_with_blank_target_value(self, _mock_subscription_tasks):
+        response = self._create_subscription(target_value="")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cannot_create_new_dashboard_subscription_with_blank_target_value(self, _mock_subscription_tasks):
+        response = self._create_subscription(target_value="", insight=None, dashboard=self.dashboard.id)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_can_create_new_in_app_feature_flag_subscription(self, mock_subscription_tasks):
+        response = self._create_subscription(
+            target_type="in_app_notification",
+            insight=None,
+            feature_flag=self.feature_flag.id,
+            target_value="",
+            interval=0,
+            frequency="on_change",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        data = response.json()
+        assert data == {
+            "id": data["id"],
+            "dashboard": None,
+            "insight": None,
+            "feature_flag": self.feature_flag.id,
+            "target_type": "in_app_notification",
+            "target_value": "",
+            "frequency": "on_change",
+            "interval": 0,
+            "byweekday": None,
+            "bysetpos": None,
+            "count": None,
+            "start_date": "2022-01-01T00:00:00Z",
+            "until_date": None,
+            "created_at": data["created_at"],
+            "created_by": data["created_by"],
+            "deleted": False,
+            "title": "My Subscription",
+            "next_delivery_date": None,
+            "invite_message": None,
+            "summary": "sent on change",
         }
 
         mock_subscription_tasks.handle_subscription_value_change.delay.assert_called_once_with(

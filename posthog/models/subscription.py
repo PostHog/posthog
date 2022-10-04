@@ -57,8 +57,10 @@ class Subscription(models.Model):
         EMAIL = "email"
         SLACK = "slack"
         WEBHOOK = "webhook"
+        IN_APP_NOTIFICATION = "in_app_notification"
 
     class SubscriptionFrequency(models.TextChoices):
+        ON_CHANGE = "on_change"
         DAILY = "daily"
         WEEKLY = "weekly"
         MONTHLY = "monthly"
@@ -81,11 +83,12 @@ class Subscription(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
+    feature_flag = models.ForeignKey("posthog.FeatureFlag", on_delete=models.CASCADE, null=True)
 
     # Subscription type (email, slack etc.)
     title: models.CharField = models.CharField(max_length=100, null=True, blank=True)
-    target_type: models.CharField = models.CharField(max_length=10, choices=SubscriptionTarget.choices)
-    target_value: models.TextField = models.TextField()
+    target_type: models.CharField = models.CharField(max_length=20, choices=SubscriptionTarget.choices)
+    target_value: models.TextField = models.TextField(blank=True)
 
     # Subscription delivery (related to rrule)
     frequency: models.CharField = models.CharField(max_length=10, choices=SubscriptionFrequency.choices)
@@ -107,7 +110,10 @@ class Subscription(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
 
     @property
-    def rrule(self):
+    def rrule(self) -> Optional[rrule]:
+        if self.frequency == Subscription.SubscriptionFrequency.ON_CHANGE:
+            return None
+
         freq = FREQNAMES.index(self.frequency.upper())
 
         return rrule(
@@ -121,11 +127,12 @@ class Subscription(models.Model):
         )
 
     def set_next_delivery_date(self, from_dt=None):
-        self.next_delivery_date = self.rrule.after(dt=from_dt or timezone.now(), inc=False)
+        if self.rrule:
+            self.next_delivery_date = self.rrule.after(dt=from_dt or timezone.now(), inc=False)
 
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
-        if not self.id or str(self._rrule) != str(self.rrule):
+        if not self.id or (self.rrule and str(self._rrule) != str(self.rrule)):
             self.set_next_delivery_date()
         super(Subscription, self).save(*args, **kwargs)
 
@@ -145,12 +152,17 @@ class Subscription(models.Model):
             )
         elif self.dashboard:
             return SubscriptionResourceInfo("Dashboard", self.dashboard.name, self.dashboard.url)
+        elif self.feature_flag:
+            return SubscriptionResourceInfo("FeatureFlag", self.feature_flag.key, "")
 
         return None
 
     @property
     def summary(self):
         try:
+            if self.rrule is None and self.frequency == Subscription.SubscriptionFrequency.ON_CHANGE:
+                return "sent on change"
+
             human_frequency = {"daily": "day", "weekly": "week", "monthly": "month", "yearly": "year"}[self.frequency]
             if self.interval > 1:
                 human_frequency = f"{human_frequency}s"

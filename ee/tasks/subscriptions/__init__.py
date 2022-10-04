@@ -67,10 +67,12 @@ def _deliver_subscription_report(
         except Exception as e:
             incr("subscription_slack_send_failure")
             logger.error(e)
+    elif subscription.target_type == "in_app_notification":
+        incr("subscription_in_app_notification_success")
     else:
         raise NotImplementedError(f"{subscription.target_type} is not supported")
 
-    if not is_new_subscription_target:
+    if not is_new_subscription_target and subscription.target_type != "in_app_notification":
         subscription.set_next_delivery_date(subscription.next_delivery_date)
         subscription.save()
 
@@ -84,7 +86,8 @@ def schedule_all_subscriptions() -> None:
     """
     now_with_buffer = datetime.utcnow() + timedelta(minutes=15)
     subscriptions = (
-        Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
+        Subscription.objects.filter(feature_flag=None)
+        .filter(next_delivery_date__lte=now_with_buffer, deleted=False)
         .exclude(dashboard__deleted=True)
         .exclude(insight__deleted=True)
         .all()

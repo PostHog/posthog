@@ -35,6 +35,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "id",
             "dashboard",
             "insight",
+            "feature_flag",
             "target_type",
             "target_value",
             "frequency",
@@ -63,14 +64,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if not self.initial_data:
             # Create
-            if not attrs.get("dashboard") and not attrs.get("insight"):
-                raise ValidationError("Either dashboard or insight is required for an export.")
+            if not attrs.get("dashboard") and not attrs.get("insight") and not attrs.get("feature_flag"):
+                raise ValidationError("Either dashboard, insight, or feature flag is required for an export.")
 
         if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
             raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
 
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
+
+        if attrs.get("feature_flag") and attrs["feature_flag"].team.id != self.context["team_id"]:
+            raise ValidationError({"feature_flag": ["This feature flag does not belong to your team."]})
+
+        if attrs.get("dashboard") or attrs.get("insight"):
+            if attrs.get("target_value") == "":
+                # target_value must be provided if dashboard or insight is provided
+                raise ValidationError({"target_value": ["This field may not be blank."]}, code="blank")
 
         return attrs
 
@@ -125,6 +134,8 @@ class SubscriptionViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.M
                 queryset = queryset.filter(insight_id=filters["insight"])
             if key == "dashboard":
                 queryset = queryset.filter(dashboard_id=filters["dashboard"])
+            if key == "feature_flag":
+                queryset = queryset.filter(feature_flag_id=filters["feature_flag"])
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(filters["deleted"]))
 
