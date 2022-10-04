@@ -13,9 +13,9 @@ import { status } from '../../utils/status'
 import { NoRowsUpdatedError, UUIDT } from '../../utils/utils'
 import { LazyPersonContainer } from './lazy-person-container'
 import { PersonManager } from './person-manager'
+import { captureIngestionWarning } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
-
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
 const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
@@ -299,10 +299,18 @@ export class PersonState {
         }
         if (isDistinctIdIllegal(distinctId)) {
             this.statsd?.increment('illegal_distinct_ids.total', { distinctId: distinctId })
+            captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
+                illegalDistinctId: distinctId,
+                otherDistinctId: previousDistinctId,
+            })
             return
         }
         if (isDistinctIdIllegal(previousDistinctId)) {
             this.statsd?.increment('illegal_distinct_ids.total', { distinctId: previousDistinctId })
+            captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
+                illegalDistinctId: previousDistinctId,
+                otherDistinctId: distinctId,
+            })
             return
         }
         await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall)
@@ -406,6 +414,10 @@ export class PersonState {
 
             if (isIdentifyCallToMergeAnIdentifiedUser) {
                 status.warn('🤔', 'refused to merge an already identified user via an $identify call')
+                captureIngestionWarning(this.db, teamId, 'cannot_merge_already_identified', {
+                    sourcePersonDistinctId: previousDistinctId,
+                    targetPersonDistinctId: distinctId,
+                })
                 this.updateIsIdentified = shouldIdentifyPerson
             } else {
                 await this.mergePeople({
