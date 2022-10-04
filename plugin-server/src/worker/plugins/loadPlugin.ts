@@ -40,65 +40,61 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             }
         }
 
-        // transpile "frontend" app if needed
-        const frontendFilename = 'frontend.tsx'
-        const pluginFrontend = isLocalPlugin
-            ? readFileIfExists(hub.BASE_DIR, plugin, frontendFilename)
-            : plugin.source__frontend_tsx
-        if (pluginFrontend) {
-            if (await hub.db.getPluginTranspilationLock(plugin.id, frontendFilename)) {
-                status.info('🔌', `Transpiling ${pluginDigest(plugin)}`)
-                const transpilationStartTimer = new Date()
-                try {
-                    const transpiled = transpileFrontend(pluginFrontend)
-                    await hub.db.setPluginTranspiled(plugin.id, frontendFilename, transpiled)
-                } catch (error: any) {
-                    await processError(hub, pluginConfig, error)
-                    await hub.db.setPluginTranspiledError(
-                        plugin.id,
-                        frontendFilename,
-                        typeof error === 'string' ? error : [error.message, error.stack].filter((a) => !!a).join('\n')
-                    )
-                    hub.statsd?.increment(`transpile_frontend.ERROR`, {
+        const transpileIfNeeded = async ({
+            type,
+            filename,
+            pluginKey,
+            transpile,
+        }: {
+            type: 'frontend' | 'web'
+            filename: 'frontend.tsx' | 'web.ts'
+            pluginKey: 'source__frontend_tsx' | 'source__web_ts'
+            transpile: (source: string) => string
+        }): Promise<boolean> => {
+            const source = isLocalPlugin ? readFileIfExists(hub.BASE_DIR, plugin, filename) : plugin[pluginKey]
+            if (source) {
+                if (await hub.db.getPluginTranspilationLock(plugin.id, filename)) {
+                    status.info('🔌', `Transpiling ${pluginDigest(plugin)}`)
+                    const transpilationStartTimer = new Date()
+                    try {
+                        const transpiled = transpile(source)
+                        await hub.db.setPluginTranspiled(plugin.id, filename, transpiled)
+                    } catch (error: any) {
+                        await processError(hub, pluginConfig, error)
+                        await hub.db.setPluginTranspiledError(
+                            plugin.id,
+                            filename,
+                            typeof error === 'string'
+                                ? error
+                                : [error.message, error.stack].filter((a) => !!a).join('\n')
+                        )
+                        hub.statsd?.increment(`transpile_${type}.ERROR`, {
+                            plugin: plugin.name ?? '?',
+                            pluginId: `${plugin.id ?? '?'}`,
+                        })
+                    }
+                    hub.statsd?.timing(`transpile_${type}`, transpilationStartTimer, {
                         plugin: plugin.name ?? '?',
                         pluginId: `${plugin.id ?? '?'}`,
                     })
                 }
-                hub.statsd?.timing(`transpile_frontend`, transpilationStartTimer, {
-                    plugin: plugin.name ?? '?',
-                    pluginId: `${plugin.id ?? '?'}`,
-                })
             }
+            return !!source
         }
 
-        // transpile "web" app if needed
-        const webFilename = 'web.ts'
-        const pluginWeb = isLocalPlugin ? readFileIfExists(hub.BASE_DIR, plugin, webFilename) : plugin.source__web_ts
-        if (pluginWeb) {
-            if (await hub.db.getPluginTranspilationLock(plugin.id, webFilename)) {
-                status.info('🔌', `Transpiling ${pluginDigest(plugin)}`)
-                const transpilationStartTimer = new Date()
-                try {
-                    const transpiled = transpileWeb(pluginWeb)
-                    await hub.db.setPluginTranspiled(plugin.id, webFilename, transpiled)
-                } catch (error: any) {
-                    await processError(hub, pluginConfig, error)
-                    await hub.db.setPluginTranspiledError(
-                        plugin.id,
-                        webFilename,
-                        typeof error === 'string' ? error : [error.message, error.stack].filter((a) => !!a).join('\n')
-                    )
-                    hub.statsd?.increment(`transpile_web.ERROR`, {
-                        plugin: plugin.name ?? '?',
-                        pluginId: `${plugin.id ?? '?'}`,
-                    })
-                }
-                hub.statsd?.timing(`transpile_web`, transpilationStartTimer, {
-                    plugin: plugin.name ?? '?',
-                    pluginId: `${plugin.id ?? '?'}`,
-                })
-            }
-        }
+        const hasFrontend = await transpileIfNeeded({
+            type: 'frontend',
+            filename: 'frontend.tsx',
+            pluginKey: 'source__frontend_tsx',
+            transpile: transpileFrontend,
+        })
+
+        const hasWeb = await transpileIfNeeded({
+            type: 'web',
+            filename: 'web.ts',
+            pluginKey: 'source__web_ts',
+            transpile: transpileWeb,
+        })
 
         // setup "backend" app
         const pluginSource = isLocalPlugin
@@ -115,7 +111,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             pluginConfig.vm?.failInitialization!()
 
             // if we transpiled a frontend app, don't save an error if no backend app
-            if (!pluginFrontend && !pluginWeb) {
+            if (!hasFrontend && !hasWeb) {
                 await processError(
                     hub,
                     pluginConfig,
