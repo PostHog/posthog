@@ -2,6 +2,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
@@ -81,6 +82,58 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             "Insight",
         ]
         assert [c["unread"] for c in changes.json()] == [True] * 10
+
+    def test_can_get_top_ten_important_changes_including_subscribed_feature_flags(self) -> None:
+        # user one has created 10 insights and 2 flags
+        # user two has edited them all
+        self._create_and_edit_things()
+
+        # user two creates a flag
+        self.client.force_login(self.other_user)
+        flag_three = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/", _feature_flag_json_payload("three")
+        ).json()["id"]
+
+        # user one subscribes to the flag
+        self.client.force_login(self.user)
+        self.organization.available_features = [AvailableFeature.SUBSCRIPTIONS]
+        self.organization.save()
+        create_subscription_response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {
+                "target_type": "in_app_notification",
+                "feature_flag": flag_three,
+                "target_value": "",
+                "interval": 0,
+                "frequency": "on_change",
+                "start_date": "2021-01-01T00:00:00",
+            },
+        )
+
+        assert create_subscription_response.status_code == status.HTTP_201_CREATED
+
+        # other user edits that flag
+        self.client.force_login(self.other_user)
+        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag_three}", {"name": "three"})
+
+        # user one is shown the most recent 10 of those changes
+        self.client.force_login(self.user)
+        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
+        assert changes.status_code == status.HTTP_200_OK
+        assert len(changes.json()) == 10
+
+        assert [c["scope"] for c in changes.json()] == [
+            "FeatureFlag",  # included because we show created and updated for subscribed flag
+            "FeatureFlag",
+            "FeatureFlag",
+            "FeatureFlag",
+            "Insight",
+            "Insight",
+            "Insight",
+            "Insight",
+            "Insight",
+            "Insight",
+        ]
 
     def test_reading_notifications_marks_them_unread(self):
         # user one has created 10 insights and 2 flags

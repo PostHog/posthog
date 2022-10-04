@@ -9,7 +9,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import ActivityLog, FeatureFlag, Insight, NotificationViewed, User
+from posthog.models import ActivityLog, FeatureFlag, Insight, NotificationViewed, Subscription, User
 
 
 class ActivityLogSerializer(serializers.ModelSerializer):
@@ -52,12 +52,20 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         my_insights = list(Insight.objects.filter(created_by=user).values_list("id", flat=True))
         my_feature_flags = list(FeatureFlag.objects.filter(created_by=user).values_list("id", flat=True))
+        subscribed_feature_flags = list(
+            Subscription.objects.exclude(feature_flag=None)
+            .filter(created_by_id=user.id)
+            .values_list("feature_flag", flat=True)
+        )
         other_peoples_changes = (
             self.queryset.filter(scope__in=["FeatureFlag", "Insight"])
             .exclude(user=user)
             .filter(
                 Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags))
                 | Q(Q(scope="Insight") & Q(item_id__in=my_insights))
+                | Q(
+                    Q(scope="FeatureFlag") & Q(item_id__in=subscribed_feature_flags)
+                )  # should filter here for subscription age
             )
             .order_by("-created_at")
         )[:10]
