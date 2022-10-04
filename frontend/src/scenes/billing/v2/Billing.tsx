@@ -118,8 +118,10 @@ export function BillingV2(): JSX.Element {
     )
 }
 
-const summarizeUsage = (usage: number): string => {
-    if (usage < 1000) {
+const summarizeUsage = (usage: number | null): string => {
+    if (usage === null) {
+        return ''
+    } else if (usage < 1000) {
         return `${usage} events`
     } else if (Math.round(usage / 1000) < 1000) {
         return `${Math.round(usage / 1000)} thousand`
@@ -133,17 +135,19 @@ const BillingProduct = ({
     customLimitUsd,
 }: {
     product: BillingProductV2Type
-    customLimitUsd?: string
+    customLimitUsd?: string | null
 }): JSX.Element => {
     const { billingLoading } = useValues(billingLogic)
     const { updateBillingLimits } = useActions(billingLogic)
 
     const [showBillingLimit, setShowBillingLimit] = useState(false)
-    const [billingLimit, setBillingLimit] = useState(100)
+    const [billingLimit, setBillingLimit] = useState<number | undefined>(100)
 
-    const updateBillingLimit = (value: number | null): any => {
+    const updateBillingLimit = (value: number | undefined): any => {
+        const parsedValue = typeof value === 'number' ? `${value}` : null
+
         updateBillingLimits({
-            [product.type]: `${value}`,
+            [product.type]: parsedValue,
         })
     }
 
@@ -165,7 +169,7 @@ const BillingProduct = ({
                 'Your predicted usage is above your current billing limit which is likely to result in a bill. Are you sure you want to remove the limit?',
             primaryButton: {
                 children: 'Yes, remove the limit',
-                onClick: () => updateBillingLimit(null),
+                onClick: () => updateBillingLimit(undefined),
             },
             secondaryButton: {
                 children: 'I changed my mind',
@@ -188,7 +192,7 @@ const BillingProduct = ({
                             onChange={onBillingLimitToggle}
                         />
                         {showBillingLimit ? (
-                            <div className="flex items-center gap-2" style={{ width: 200 }}>
+                            <div className="flex items-center gap-2" style={{ width: 250 }}>
                                 <LemonInput
                                     type="number"
                                     fullWidth={false}
@@ -254,7 +258,7 @@ const BillingProduct = ({
                                     ? `${summarizeUsage(product.tiers[i - 1].up_to)} - ${summarizeUsage(tier.up_to)}`
                                     : `> ${summarizeUsage(product.tiers[i - 1].up_to)}`}
                             </span>
-                            <b>{tier.unit_amount_usd !== 0 ? `$${tier.unit_amount_usd.toPrecision(3)}` : 'Free'}</b>
+                            <b>{tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free'}</b>
                         </li>
                     ))}
                 </ul>

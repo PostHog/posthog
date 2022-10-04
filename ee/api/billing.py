@@ -78,7 +78,7 @@ class BillingViewset(viewsets.GenericViewSet):
         res = requests.patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
             headers={"Authorization": f"Bearer {billing_service_token}"},
-            data={"custom_limits_usd": request.data.get("custom_limits_usd")},
+            json={"custom_limits_usd": request.data.get("custom_limits_usd")},
         )
 
         if res.status_code == 200:

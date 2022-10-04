@@ -791,8 +791,8 @@ export interface BillingProductV2Type {
     description: string
     free_allocation: number
     tiers: {
-        unit_amount_usd: number
-        up_to: number
+        unit_amount_usd: string
+        up_to: number | null
     }[]
     // These are only returned if the user has a subscription
     current_usage?: number // 12000
@@ -805,7 +805,7 @@ export interface BillingV2Type {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
-        [key: string]: string | null
+        [key: string]: string | null | undefined
     }
     billing_period?: {
         current_period_start: Dayjs
