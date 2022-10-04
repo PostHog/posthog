@@ -40,7 +40,7 @@ export function NotificationBell(): JSX.Element {
                 onClick={toggleNotificationsPopover}
                 data-attr="notifications-button"
             >
-                <IconWithCount count={unreadCount} showZero={true} status={hasUnread ? 'danger' : 'primary'}>
+                <IconWithCount count={unreadCount} showZero={true} status={hasUnread ? 'primary' : 'muted'}>
                     <IconNotification />
                 </IconWithCount>
                 <IconArrowDropDown />

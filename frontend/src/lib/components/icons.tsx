@@ -7,7 +7,7 @@ import { LemonBadge } from './LemonBadge/LemonBadge'
 interface IconWithCountProps {
     count: number
     showZero?: boolean
-    status?: 'primary' | 'danger'
+    status?: 'primary' | 'danger' | 'muted'
 }
 
 export function IconWithCount({
