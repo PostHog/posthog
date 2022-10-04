@@ -182,6 +182,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             {localFilters.map((filter, index) => (
                                 <SortableActionFilterRow
                                     key={index}
+                                    typeKey={typeKey}
                                     filter={filter as ActionFilterType}
                                     index={index}
                                     filterIndex={index}
