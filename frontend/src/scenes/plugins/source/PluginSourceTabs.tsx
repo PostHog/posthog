@@ -6,7 +6,7 @@ import { IconDelete, IconPlus } from 'lib/components/icons'
 
 export function PluginSourceTabs({ logic }: { logic: BuiltLogic<pluginSourceLogicType> }): JSX.Element {
     const { setCurrentFile, addFilePrompt, removeSourceFile } = useActions(logic)
-    const { currentFile, fileNames, pluginSourceAllErrors } = useValues(logic)
+    const { hasAllFiles, currentFile, fileNames, pluginSourceAllErrors } = useValues(logic)
 
     return (
         <div className="flex items-center justify-between mb-2 space-x-2 w-full">
@@ -25,9 +25,11 @@ export function PluginSourceTabs({ logic }: { logic: BuiltLogic<pluginSourceLogi
                 ))}
             </div>
             <div className="flex items-center space-x-2">
-                <LemonButton onClick={addFilePrompt} icon={<IconPlus />} size="small">
-                    Add new file
-                </LemonButton>
+                {!hasAllFiles ? (
+                    <LemonButton onClick={addFilePrompt} icon={<IconPlus />} size="small">
+                        Add new file
+                    </LemonButton>
+                ) : null}
                 {currentFile !== 'plugin.json' ? (
                     <LemonButton
                         onClick={() => removeSourceFile(currentFile)}

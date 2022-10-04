@@ -19,6 +19,8 @@ export interface PluginSourceProps {
     onClose?: () => void
 }
 
+const ALLOWED_FILES = ['plugin.json', 'index.ts', 'frontend.tsx', 'web.ts']
+
 export const pluginSourceLogic = kea<pluginSourceLogicType>([
     path(['scenes', 'plugins', 'edit', 'pluginSourceLogic']),
     props({} as PluginSourceProps),
@@ -131,6 +133,7 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
                 return Array.from(new Set(['plugin.json', ...Object.keys(pluginSource)]))
             },
         ],
+        hasAllFiles: [(s) => [s.fileNames], (fileNames) => !ALLOWED_FILES.find((file) => !fileNames.includes(file))],
     }),
 
     listeners(({ props, values, actions }) => ({
@@ -168,8 +171,8 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
             let file: string | null = null
             while (!file) {
                 file = window.prompt('Enter filename:')
-                if (file && !file.endsWith('.ts') && !file.endsWith('.tsx')) {
-                    window.alert('Files must end with .ts or .tsx')
+                if (file && !ALLOWED_FILES.includes(file)) {
+                    window.alert(`File must be one of: ${ALLOWED_FILES.join(', ')}`)
                     file = null
                 } else if (file && values.fileNames.includes(file)) {
                     window.alert(`The file "${file}" already exists`)
