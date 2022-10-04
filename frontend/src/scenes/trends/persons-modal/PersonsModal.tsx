@@ -297,7 +297,15 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                                                           fullWidth
                                                           onClick={() => {
                                                               recording.session_id &&
-                                                                  onOpenRecording({ id: recording.session_id })
+                                                                  onOpenRecording({
+                                                                      id: recording.session_id,
+                                                                      matching_events: [
+                                                                          {
+                                                                              events: recording.events,
+                                                                              session_id: recording.session_id,
+                                                                          },
+                                                                      ],
+                                                                  })
                                                           }}
                                                       >
                                                           <div className="flex flex-1 justify-between gap-2 items-center">
