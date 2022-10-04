@@ -2,7 +2,6 @@ import {
     ActivityChange,
     ActivityLogItem,
     ActivityScope,
-    Describer,
     PersonMerge,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { useMocks } from '~/mocks/jest'
@@ -34,7 +33,6 @@ const makeAPIItem = ({ name, activity, changes = null, scope, merge = null }: AP
 async function testSetup(
     activityLogItem: ActivityLogItem,
     scope: ActivityScope,
-    describer: Describer,
     url: string
 ): Promise<ReturnType<typeof activityLogLogic.build>> {
     useMocks({
@@ -45,14 +43,14 @@ async function testSetup(
         },
     })
     initKeaTests()
-    const logic = activityLogLogic({ scope, id: 7, describer })
+    const logic = activityLogLogic({ scope, id: 7 })
     logic.mount()
 
     await expectLogic(logic).toFinishAllListeners()
     return logic
 }
 
-export const makeTestSetup = (scope: ActivityScope, describer: Describer, url: string) => {
+export const makeTestSetup = (scope: ActivityScope, url: string) => {
     return async (
         name: string,
         activity: string,
@@ -60,6 +58,6 @@ export const makeTestSetup = (scope: ActivityScope, describer: Describer, url: s
         merge?: PersonMerge
     ): Promise<ReturnType<typeof activityLogLogic.build>> => {
         const activityLogItem = makeAPIItem({ scope, name, activity, changes, merge })
-        return await testSetup(activityLogItem, scope, describer, url)
+        return await testSetup(activityLogItem, scope, url)
     }
 }

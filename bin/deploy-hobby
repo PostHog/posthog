@@ -16,6 +16,11 @@ echo ""
 echo "Power user or aspiring power user?"
 echo "Check out our docs on hobby deploy! https://posthog.com/docs/self-host/deploy/hobby"
 echo ""
+
+if ! [ -z "$1" ]
+then
+export POSTHOG_APP_TAG=$1
+else
 echo "What version of PostHog would you like to install? (We default to 'latest-release')"
 echo "You can check out available versions here: https://hub.docker.com/r/posthog/posthog/tags"
 read -r POSTHOG_APP_TAG_READ
@@ -26,13 +31,19 @@ else
     export POSTHOG_APP_TAG=$POSTHOG_APP_TAG_READ
     echo "Using provided tag: $POSTHOG_APP_TAG"
 fi
+fi
 echo ""
+if ! [ -z "$2" ]
+then
+export DOMAIN=$2
+else
 echo "Let's get the exact domain PostHog will be installed on"
 echo "Make sure that you have a Host A DNS record pointing to this instance!"
 echo "This will be used for TLS 🔐"
 echo "ie: test.posthog.net (NOT an IP address)"
 read -r DOMAIN
 export DOMAIN=$DOMAIN
+fi
 echo "Ok we'll set up certs for https://$DOMAIN"
 echo ""
 echo "We will need sudo access so the next question is for you to give us superuser access"

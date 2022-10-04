@@ -1,6 +1,7 @@
 from .action import Action
 from .action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
+from .activity_logging.notification_viewed import NotificationViewed
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
@@ -72,6 +73,7 @@ __all__ = [
     "Integration",
     "MessagingRecord",
     "MigrationStatus",
+    "NotificationViewed",
     "Organization",
     "OrganizationDomain",
     "OrganizationInvite",
