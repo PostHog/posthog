@@ -110,6 +110,7 @@ class Team(UUIDClassicModel):
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
+    # This is not a manual setting. It's updated automatically to reflect if the team uses web-inject plugins or not.
     inject_web_apps: models.BooleanField = models.BooleanField(null=True)
 
     test_account_filters: models.JSONField = models.JSONField(default=list)
