@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { billingLogic } from './billingLogic'
-import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { Spinner, SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
@@ -181,7 +181,7 @@ const BillingProduct = ({
 }): JSX.Element => {
     const { billingLoading } = useValues(billingLogic)
     const { updateBillingLimits } = useActions(billingLogic)
-
+    const [tierAmountType, setTierAmountType] = useState<'individual' | 'total'>('individual')
     const [showBillingLimit, setShowBillingLimit] = useState(false)
     const [billingLimit, setBillingLimit] = useState<number | undefined>(100)
     const billingLimitInputChanged = parseInt(customLimitUsd || '-1') !== billingLimit
@@ -229,14 +229,14 @@ const BillingProduct = ({
                 </div>
 
                 {product.current_amount_usd ? (
-                    <div className="flex justify-between gap-8 text-right">
-                        <div>
+                    <div className="flex justify-between gap-8">
+                        <div className="space-y-2">
                             <LemonLabel info={'This is the current amount you have been billed for this month so far.'}>
                                 Current bill
                             </LemonLabel>
                             <div className="font-bold text-4xl">${product.current_amount_usd}</div>
                         </div>
-                        <div>
+                        <div className="space-y-2">
                             <LemonLabel
                                 info={
                                     'This is roughly caculated based on your current bill and the remaining time left in this billing period.'
@@ -249,7 +249,7 @@ const BillingProduct = ({
                             </div>
                         </div>
                         <div className="flex-1" />
-                        <div className="space-y-2">
+                        <div className="space-y-2 text-right">
                             <LemonLabel
                                 info={`Billing limits can help you control the maximum you wish to pay in a given period. 
                                     As you approach the billing limit you will be notified and given the option to increase it.
@@ -284,6 +284,8 @@ const BillingProduct = ({
                                     >
                                         Save
                                     </LemonButton>
+                                ) : billingLoading ? (
+                                    <Spinner className="text-lg" />
                                 ) : (
                                     <LemonSwitch
                                         className="my-2"
@@ -302,9 +304,11 @@ const BillingProduct = ({
                     </div>
                 </div>
 
-                <div className="flex justify-between items-center">
-                    <div>hard_coded_free_limit: 10000</div>
+                <div className="rounded h-2 overflow-hidden"></div>
+
+                <div className="flex justify-between items-center flex-wrap gap-2">
                     <div>free_allocation: {product.free_allocation}</div>
+                    <div>paid_free_allocation: {product.tiers?.[0]?.up_to}</div>
                     <div>current_usage: {product.current_usage}</div>
                     <div>projected_usage: {projectUsage(product.current_usage, billingPeriod)}</div>
                     <div>usage_limit: {product.usage_limit}</div>
@@ -314,17 +318,33 @@ const BillingProduct = ({
             <LemonDivider vertical dashed />
 
             <div className="p-4 space-y-2 text-xs" style={{ width: '20rem' }}>
-                <b>Pricing breakdown - pay per {product.type.toLowerCase()}</b>
-
                 {product.price_description ? (
-                    <AlertMessage type="info">{product.price_description}</AlertMessage>
+                    <AlertMessage type="info">
+                        <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
+                    </AlertMessage>
                 ) : null}
+                <div className="flex justify-between items-center">
+                    <b>Pricing breakdown</b>
+
+                    <LemonSelect
+                        size="small"
+                        value={tierAmountType}
+                        options={[
+                            { label: `Per ${product.type.toLowerCase()}`, value: 'individual' },
+                            { label: `My bill`, value: 'total' },
+                        ]}
+                        dropdownMatchSelectWidth={false}
+                        onChange={(val: any) => setTierAmountType(val)}
+                    />
+                </div>
+
                 <ul>
                     {product.tiers.map((tier, i) => (
                         <li
                             key={i}
                             className={clsx('flex justify-between py-2', {
                                 'border-t border-dashed': i > 0,
+                                'font-bold': tier.current_amount_usd !== null,
                             })}
                         >
                             <span>
@@ -334,7 +354,13 @@ const BillingProduct = ({
                                     ? `${summarizeUsage(product.tiers[i - 1].up_to)} - ${summarizeUsage(tier.up_to)}`
                                     : `> ${summarizeUsage(product.tiers[i - 1].up_to)}`}
                             </span>
-                            <b>{tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free'}</b>
+                            <b>
+                                {tierAmountType === 'individual' ? (
+                                    <>{tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free'}</>
+                                ) : (
+                                    <>${tier.current_amount_usd || '0.00'}</>
+                                )}
+                            </b>
                         </li>
                     ))}
                 </ul>

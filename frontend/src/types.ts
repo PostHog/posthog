@@ -793,6 +793,7 @@ export interface BillingProductV2Type {
     free_allocation: number
     tiers: {
         unit_amount_usd: string
+        current_amount_usd: string
         up_to: number | null
     }[]
     // These are only returned if the user has a subscription
