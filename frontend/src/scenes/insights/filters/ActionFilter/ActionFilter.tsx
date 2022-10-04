@@ -197,6 +197,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                 filter={filter as ActionFilterType}
                                 index={index}
                                 key={index}
+                                typeKey={typeKey}
                                 singleFilter={singleFilter}
                                 hideFilter={hideFilter || readOnly}
                                 filterCount={localFilters.length}
