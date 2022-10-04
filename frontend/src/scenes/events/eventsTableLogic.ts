@@ -333,6 +333,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                     after: after,
                     ...nextParams,
                 })
+                console.log('URL', url)
                 return api.get(url)
             }
 

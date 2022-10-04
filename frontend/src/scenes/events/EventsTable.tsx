@@ -50,7 +50,7 @@ export interface FixedFilters {
     properties?: AnyPropertyFilter[]
 }
 
-interface EventsTable {
+interface EventsTableProps {
     pageKey: string
     fixedFilters?: FixedFilters
     fixedColumns?: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined>[]
@@ -114,7 +114,7 @@ export function EventsTable({
     showPersonColumn = true,
     linkPropertiesToFilters = true,
     'data-attr': dataAttr,
-}: EventsTable): JSX.Element {
+}: EventsTableProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({
         fixedFilters,
@@ -348,6 +348,7 @@ export function EventsTable({
             columnsSoFar.push({
                 key: 'actions',
                 width: 0,
+                sticky: true,
                 render: function renderActions(_, { event }: EventsTableRowItem) {
                     if (!event) {
                         return { props: { colSpan: 0 } }
