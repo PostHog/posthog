@@ -491,6 +491,7 @@ export enum SessionPlayerState {
     PAUSE = 'pause',
     SCRUB = 'scrub',
     SKIP = 'skip',
+    ERROR = 'error',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -855,6 +856,8 @@ export interface InsightModel extends Cacheable {
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
+    /** Only used in the frontend to toggle showing Baseline in funnels or not */
+    disable_baseline?: boolean
     filters: Partial<FilterType>
 }
 
@@ -863,7 +866,6 @@ export interface DashboardType {
     name: string
     description: string
     pinned: boolean
-    // items: InsightModel[]
     tiles: DashboardTile[]
     created_at: string
     created_by: UserBasicType | null

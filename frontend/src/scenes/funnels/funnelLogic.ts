@@ -810,8 +810,12 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         flattenedStepsByBreakdown: [
-            () => [selectors.stepsWithConversionMetrics, selectors.barGraphLayout],
-            (steps, layout): FlattenedFunnelStepByBreakdown[] => {
+            () => [
+                selectors.stepsWithConversionMetrics,
+                selectors.barGraphLayout,
+                selectors.disableFunnelBreakdownBaseline,
+            ],
+            (steps, layout, disableBaseline): FlattenedFunnelStepByBreakdown[] => {
                 // Initialize with two rows for rendering graph and header
                 const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = [
                     { rowKey: 'steps-meta' },
@@ -825,7 +829,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         !baseStep.breakdown ||
                         (layout === FunnelLayout.vertical && (baseStep.nested_breakdown?.length ?? 0) > 1)
                     // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
-                    if (hasBaseline) {
+                    if (hasBaseline && !disableBaseline) {
                         flattenedStepsByBreakdown.push({
                             ...getBreakdownStepValues(baseStep, 0, true),
                             isBaseline: true,
@@ -1030,6 +1034,10 @@ export const funnelLogic = kea<funnelLogicType>({
         correlationPropKey: [
             () => [(_, props) => props],
             (props): string => `correlation-${keyForInsightLogicProps('insight_funnel')(props)}`,
+        ],
+        disableFunnelBreakdownBaseline: [
+            () => [(_, props) => props],
+            (props: InsightLogicProps): boolean => !!props.cachedInsight?.disable_baseline,
         ],
 
         isPropertyExcludedFromProject: [
