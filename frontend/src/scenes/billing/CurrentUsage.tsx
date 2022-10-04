@@ -150,7 +150,7 @@ export function CurrentUsage(): JSX.Element | null {
                             <LemonInput
                                 type="number"
                                 onChange={(value): void => {
-                                    setbillingLimitValue(value)
+                                    setbillingLimitValue(value || 0)
                                 }}
                                 value={billingLimitValue}
                                 min={0}

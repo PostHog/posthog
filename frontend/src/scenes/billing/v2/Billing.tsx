@@ -9,6 +9,8 @@ import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { LemonDialog } from 'lib/components/LemonDialog'
 import { BillingProductV2Type } from '~/types'
+import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { dayjs } from 'lib/dayjs'
 
 export function BillingV2(): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
@@ -33,11 +35,17 @@ export function BillingV2(): JSX.Element {
                         <p>Paying is good because money is good 👍</p>
 
                         {billing?.billing_period ? (
-                            <p>
-                                Your current billing period is from{' '}
-                                <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
-                                <b>{billing.billing_period.current_period_end.format('LL')}</b>
-                            </p>
+                            <>
+                                <p>
+                                    Your current billing period is from{' '}
+                                    <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
+                                    <b>{billing.billing_period.current_period_end.format('LL')}</b>
+                                </p>
+                                <p>
+                                    <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b>{' '}
+                                    remaining in your billing period.
+                                </p>
+                            </>
                         ) : null}
                     </div>
 
@@ -177,6 +185,8 @@ const BillingProduct = ({
         })
     }
 
+    const billingLimitInputChanged = parseInt(customLimitUsd || '-1') !== billingLimit
+
     return (
         <div className="flex">
             <div className="flex-1 py-4 pr-2 space-y-4">
@@ -185,52 +195,79 @@ const BillingProduct = ({
                         <h3>{product.name}</h3>
                         <p>{product.description}</p>
                     </div>
-                    <div className="space-y-2 flex flex-col items-end">
-                        <LemonSwitch
-                            checked={showBillingLimit}
-                            label="Set billing limit"
-                            onChange={onBillingLimitToggle}
-                        />
-                        {showBillingLimit ? (
-                            <div className="flex items-center gap-2" style={{ width: 250 }}>
-                                <LemonInput
-                                    type="number"
-                                    fullWidth={false}
-                                    value={billingLimit}
-                                    onChange={setBillingLimit}
-                                    prefix={<b>$</b>}
-                                    disabled={billingLoading}
-                                    suffix={
-                                        <>
-                                            /month
-                                            <LemonButton
-                                                onClick={() => updateBillingLimit(billingLimit)}
-                                                size="small"
-                                                disabled={parseInt(customLimitUsd || '-1') === billingLimit}
-                                                loading={billingLoading}
-                                            >
-                                                Save
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                            </div>
-                        ) : null}
-                    </div>
                 </div>
 
-                {product.current_amount_usd ? (
-                    <div>
-                        <div className="flex gap-2">
-                            <span>Current bill:</span>
-                            <span className="font-bold">${product.current_amount_usd}</span>
-                        </div>
-                        <div className="flex gap-2">
-                            <span>Predicted bill:</span>
-                            <span className="font-bold">${parseFloat(product.current_amount_usd) * 100}</span>
+                <div className="flex justify-between gap-8 text-right">
+                    {product.current_amount_usd ? (
+                        <>
+                            <div>
+                                <LemonLabel
+                                    info={'This is the current amount you have been billed for this month so far.'}
+                                >
+                                    Current bill
+                                </LemonLabel>
+                                <div className="font-bold text-4xl">${product.current_amount_usd}</div>
+                            </div>
+                            <div>
+                                <LemonLabel
+                                    info={
+                                        'This is roughly caculated based on your current bill and the remaining time left in this billing period.'
+                                    }
+                                >
+                                    Predicted bill
+                                </LemonLabel>
+                                <div className="font-bold text-muted text-2xl">
+                                    ${parseFloat(product.current_amount_usd) * 100}
+                                </div>
+                            </div>
+                        </>
+                    ) : null}
+                    <div className="flex-1" />
+                    <div className="space-y-2">
+                        <LemonLabel
+                            info={`Billing limits can help you control the maximum you wish to pay in a given period. 
+                                As you approach the billing limit you will be notified and given the option to increase it.
+                                If you exceed the limit you will not be billed but you will be locked out from using certain areas of the product and incoming data may be lost.`}
+                        >
+                            Billing limit
+                        </LemonLabel>
+                        <div className="flex justify-end gap-2 items-center">
+                            {showBillingLimit ? (
+                                <div style={{ maxWidth: 180 }}>
+                                    <LemonInput
+                                        type="number"
+                                        fullWidth={false}
+                                        value={billingLimit}
+                                        onChange={setBillingLimit}
+                                        prefix={<b>$</b>}
+                                        disabled={billingLoading}
+                                        min={0}
+                                        step={10}
+                                        suffix={<>/month</>}
+                                    />
+                                </div>
+                            ) : (
+                                <span className="text-muted">No limit set</span>
+                            )}
+
+                            {showBillingLimit && billingLimitInputChanged ? (
+                                <LemonButton
+                                    onClick={() => updateBillingLimit(billingLimit)}
+                                    loading={billingLoading}
+                                    type="secondary"
+                                >
+                                    Save
+                                </LemonButton>
+                            ) : (
+                                <LemonSwitch
+                                    className="my-2"
+                                    checked={showBillingLimit}
+                                    onChange={onBillingLimitToggle}
+                                />
+                            )}
                         </div>
                     </div>
-                ) : null}
+                </div>
 
                 <div className="">
                     <div className="rounded-lg bg-border-light h-2">
