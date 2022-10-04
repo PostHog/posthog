@@ -10,7 +10,7 @@ export interface LemonBadgeProps {
     showZero?: boolean
     borderless?: boolean
     className?: string
-    status?: 'primary' | 'danger'
+    status?: 'primary' | 'danger' | 'muted'
     style?: React.CSSProperties
 }
 

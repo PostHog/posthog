@@ -32,6 +32,10 @@
         background: var(--danger);
     }
 
+    &.LemonBadge--muted {
+        background: var(--muted);
+    }
+
     &.LemonBadge--position-none {
         position: relative;
     }
