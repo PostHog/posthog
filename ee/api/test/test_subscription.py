@@ -4,7 +4,7 @@ import pytest
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from posthog.models import FeatureFlag
+from posthog.models import FeatureFlag, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
@@ -129,6 +129,47 @@ class TestSubscription(APILicensedTest):
         mock_subscription_tasks.handle_subscription_value_change.delay.assert_called_once_with(
             data["id"], "", "hey there!"
         )
+
+    def test_can_create_list_own_in_app_feature_flag_subscription(self, mock_subscription_tasks):
+        response = self._create_subscription(
+            target_type="in_app_notification",
+            insight=None,
+            feature_flag=self.feature_flag.id,
+            target_value="",
+            interval=0,
+            frequency="on_change",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+        other_user = User.objects.create_and_join(self.organization, email="other@posthog.com", password="")
+        self.client.force_login(other_user)
+
+        response = self._create_subscription(
+            target_type="in_app_notification",
+            insight=None,
+            feature_flag=self.feature_flag.id,
+            target_value="",
+            interval=0,
+            frequency="on_change",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+        self.client.force_login(self.user)
+
+        self._create_subscription()
+
+        all_response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/")
+        assert all_response.json()["count"] == 3
+
+        all_flags_response = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/?feature_flag={self.feature_flag.id}"
+        )
+        assert all_flags_response.json()["count"] == 2
+
+        user_flags_response = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/?feature_flag={self.feature_flag.id}&created_by={self.user.uuid}"
+        )
+        assert user_flags_response.json()["count"] == 1
 
     def test_can_create_new_subscription_without_invite_message(self, mock_subscription_tasks):
         response = self._create_subscription(invite_message=None)

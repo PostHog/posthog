@@ -123,7 +123,7 @@ class SubscriptionViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.M
     premium_feature = AvailableFeature.SUBSCRIPTIONS
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().select_related("created_by")
         filters = self.request.GET.dict()
 
         if self.action == "list" and "deleted" not in filters:
@@ -138,6 +138,8 @@ class SubscriptionViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.M
                 queryset = queryset.filter(feature_flag_id=filters["feature_flag"])
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(filters["deleted"]))
+            elif key == "created_by":
+                queryset = queryset.filter(created_by__uuid=filters["created_by"])
 
         return queryset
 

@@ -1975,9 +1975,10 @@ export interface SubscriptionType {
     id: number
     insight?: number
     dashboard?: number
+    feature_flag?: number
     target_type: string
     target_value: string
-    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
+    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'on_change'
     interval: number
     byweekday: WeekdayType[] | null
     bysetpos: number | null

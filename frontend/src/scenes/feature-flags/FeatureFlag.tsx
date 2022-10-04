@@ -9,7 +9,16 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconCopy, IconDelete, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/components/icons'
+import {
+    IconOpenInNew,
+    IconCopy,
+    IconDelete,
+    IconPlus,
+    IconPlusMini,
+    IconSubArrowRight,
+    IconNotification,
+    IconSubscribed,
+} from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -42,6 +51,7 @@ import { allOperatorsToHumanName } from 'lib/components/DefinitionPopup/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
+import { featureFlagSubscriptionLogic } from 'lib/components/Subscriptions/featureFlagSubscriptionLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -59,6 +69,10 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
+    const featureFlagSubLogic = featureFlagSubscriptionLogic({ featureFlagId: id })
+    const { createSubscription, deleteSubscription } = useActions(featureFlagSubLogic)
+    const { isSubscribed } = useValues(featureFlagSubLogic)
+
     const { featureFlags } = useValues(featureFlagLibLogic)
     const {
         props,
@@ -297,6 +311,34 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     <PageHeader
                                         title={
                                             <div className="flex items-center gap-2 mb-2">
+                                                {!!featureFlags[FEATURE_FLAGS.HOG_BOOK] && (
+                                                    <Tooltip
+                                                        title={
+                                                            isSubscribed
+                                                                ? "You're subscribed to notifications of changes to this feature flag"
+                                                                : 'Subscribe for notifications when this flag is changed'
+                                                        }
+                                                    >
+                                                        <LemonButton
+                                                            size="small"
+                                                            icon={
+                                                                isSubscribed ? <IconSubscribed /> : <IconNotification />
+                                                            }
+                                                            type="secondary"
+                                                            status="primary-alt"
+                                                            aria-label={
+                                                                isSubscribed
+                                                                    ? 'Stop receiving notifications when this flag changes'
+                                                                    : 'Subscribe for notifications when this flag is changed'
+                                                            }
+                                                            onClick={() => {
+                                                                isSubscribed
+                                                                    ? deleteSubscription()
+                                                                    : createSubscription()
+                                                            }}
+                                                        />
+                                                    </Tooltip>
+                                                )}
                                                 {featureFlag.key || 'Untitled'}
                                                 <CopyToClipboardInline
                                                     explicitValue={featureFlag.key}
