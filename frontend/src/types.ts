@@ -789,6 +789,7 @@ export interface BillingProductV2Type {
     type: 'EVENTS' | 'RECORDINGS'
     name: string
     description: string
+    price_description: string
     free_allocation: number
     tiers: {
         unit_amount_usd: string
