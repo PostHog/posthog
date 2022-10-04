@@ -1,4 +1,7 @@
 .activity-log {
+    &.notifications-menu {
+        max-width: 25rem;
+    }
     .empty {
         text-align: center;
 
@@ -38,6 +41,10 @@
         margin-top: 1rem;
         line-height: 24px;
         max-width: 50rem;
+
+        &.unread {
+            background-color: var(--primary-highlight);
+        }
 
         &:first-of-type {
             margin-top: 0.5rem;

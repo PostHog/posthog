@@ -169,6 +169,7 @@ interface InsightMetaProps
         | 'refresh'
         | 'rename'
         | 'duplicate'
+        | 'dashboardId'
         | 'moveToDashboard'
         | 'showEditingControls'
         | 'showDetailsControls'
@@ -185,6 +186,7 @@ interface InsightMetaProps
 function InsightMeta({
     insight,
     cardColor,
+    dashboardId,
     updateColor,
     removeFromDashboard,
     deleteWithUndo,
@@ -379,7 +381,16 @@ function InsightMeta({
                                                             Rename
                                                         </LemonButton>
                                                     )}
-                                                    <LemonButton status="stealth" onClick={duplicate} fullWidth>
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        onClick={duplicate}
+                                                        fullWidth
+                                                        data-attr={
+                                                            dashboardId
+                                                                ? 'duplicate-insight-from-dashboard'
+                                                                : 'duplicate-insight-from-card-list-view'
+                                                        }
+                                                    >
                                                         Duplicate
                                                     </LemonButton>
                                                     <LemonDivider />
@@ -598,6 +609,7 @@ function InsightCardInternal(
                 <InsightMeta
                     insight={insight}
                     cardColor={cardColor}
+                    dashboardId={dashboardId}
                     updateColor={updateColor}
                     removeFromDashboard={removeFromDashboard}
                     deleteWithUndo={deleteWithUndo}

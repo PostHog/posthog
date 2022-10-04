@@ -372,6 +372,25 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         tiles,
                     } as DashboardType
                 },
+                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }): DashboardType | null => {
+                    const insightIndex = state?.items.findIndex((i) => i.short_id === item.short_id)
+                    const insights = state?.items.slice(0)
+
+                    if (insightIndex === undefined || insightIndex === -1 || !insights) {
+                        return state
+                    }
+
+                    insights[insightIndex] = {
+                        ...insights[insightIndex],
+                        name: item.name,
+                        last_modified_at: item.last_modified_at,
+                    }
+
+                    return {
+                        ...state,
+                        items: insights,
+                    } as DashboardType
+                },
             },
         ],
         loadTimer: [null as Date | null, { loadDashboardItems: () => new Date() }],

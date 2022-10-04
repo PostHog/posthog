@@ -188,7 +188,7 @@ const featureFlagActionsMapping: Record<
     experiment_set: () => null,
 }
 
-export function flagActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'FeatureFlag') {
         console.error('feature flag describer received a non-feature flag activity')
         return { description: null }
@@ -200,11 +200,23 @@ export function flagActivityDescriber(logItem: ActivityLogItem): HumanizedChange
         }
     }
     if (logItem.activity == 'deleted') {
-        return { description: <>deleted {logItem.detail.name}</> }
+        return {
+            description: (
+                <>
+                    deleted {asNotification && ' your flag '}
+                    {logItem.detail.name}
+                </>
+            ),
+        }
     }
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
-        let changeSuffix: Description = <>on {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>
+        let changeSuffix: Description = (
+            <>
+                on {asNotification && ' your flag '}
+                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+            </>
+        )
 
         for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
