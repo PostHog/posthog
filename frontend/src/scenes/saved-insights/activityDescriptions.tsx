@@ -198,6 +198,7 @@ const insightActionsMapping: Record<
     timezone: () => null,
     effective_restriction_level: () => null, // read from dashboards
     effective_privilege_level: () => null, // read from dashboards
+    disable_baseline: () => null,
 }
 
 export function insightActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
