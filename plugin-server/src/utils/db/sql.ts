@@ -58,6 +58,7 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
             posthog_plugin.public_jobs,
             posthog_plugin.is_stateless,
             posthog_plugin.log_level,
+            posthog_plugin.updated_at,
             psf__plugin_json.source as source__plugin_json,
             psf__index_ts.source as source__index_ts,
             psf__frontend_tsx.source as source__frontend_tsx,
