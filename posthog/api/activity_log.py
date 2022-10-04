@@ -55,7 +55,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         subscribed_feature_flags = list(
             Subscription.objects.exclude(feature_flag=None)
             .filter(created_by_id=user.id)
-            .values_list("feature_flag", flat=True)
+            .values("feature_flag", "start_date")
         )
         other_peoples_changes = (
             self.queryset.filter(scope__in=["FeatureFlag", "Insight"])
@@ -63,9 +63,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             .filter(
                 Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags))
                 | Q(Q(scope="Insight") & Q(item_id__in=my_insights))
-                | Q(
-                    Q(scope="FeatureFlag") & Q(item_id__in=subscribed_feature_flags)
-                )  # should filter here for subscription age
+                | Q(Q(scope="FeatureFlag") & Q(item_id__in=subscribed_feature_flags))
             )
             .order_by("-created_at")
         )[:10]
