@@ -79,7 +79,7 @@ describe('dashboardLogic', () => {
      *               /     \
      *             i666    i999
      */
-    let dashboards = {}
+    let dashboards: Record<number, DashboardType> = {}
 
     beforeEach(() => {
         const insights: Record<number, InsightModel> = {
@@ -156,6 +156,31 @@ describe('dashboardLogic', () => {
                 },
             },
             patch: {
+                '/api/projects/:team/dashboards/:id/move_tile/': async (req) => {
+                    // backend updates the two dashboards and the insight
+                    const jsonPayload = await req.json()
+                    const { toDashboard, tile: tileToUpdate } = jsonPayload
+                    const from = dashboards[Number(req.params.id)]
+                    // remove the tile from the source dashboard
+                    const fromIndex = from.tiles.findIndex((tile) => tile.insight.id === tileToUpdate.insight.id)
+                    const [removedTile] = from.tiles.splice(fromIndex, 1)
+
+                    // update the insight
+                    const insightId = tileToUpdate.insight.id
+                    const insight = insights[insightId]
+                    insight.dashboards?.splice(
+                        insight.dashboards?.findIndex((d) => d === from.id),
+                        1
+                    )
+                    insight.dashboards?.push(toDashboard)
+
+                    // add the tile to the target dashboard
+                    removedTile.insight = insight
+                    const targetDashboard = dashboards[toDashboard]
+                    targetDashboard.tiles.push(removedTile)
+
+                    return [200, { ...from }]
+                },
                 '/api/projects/:team/insights/:id/': async (req) => {
                     try {
                         const updates = await req.json()
@@ -199,23 +224,49 @@ describe('dashboardLogic', () => {
         })
 
         it('only replaces the source dashboard with the target', async () => {
+            const dashboardEightlogic = dashboardLogic({ id: 8 })
+            dashboardEightlogic.mount()
+
             // insight 800 starts on dashboard 9 and 10
             // dashboard 9 has only that 1 insight
+            // so moving insight 800 to dashboard 8 means dashboard 9 has no insights
+            // and that insight800 is on dashboard 8 and 10
             const startingDashboard = dashboards['9']
-            // moving insight 800 to dashboard 8 means dashboard 9 has no insights
-            const expectedDashboard = dashboardResult(9, [])
 
             const tiles = startingDashboard.tiles
             const sourceTile = tiles[0]
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    allItems: truth(({ tiles }) => {
+                        return tiles.length === 1 && tiles[0].insight.id === 800
+                    }),
+                })
+
+            await expectLogic(dashboardEightlogic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    allItems: truth(({ tiles }) => tiles.length === 1 && tiles[0].insight.id === 1001),
+                })
 
             await expectLogic(logic, () => {
                 logic.actions.moveToDashboard(sourceTile, 9, 8, 'targetDashboard')
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    allItems: expectedDashboard,
+                    allItems: truth(({ tiles }) => {
+                        return tiles.length === 0
+                    }),
                 })
-            // todo assert that the insight is also on dashboard 8
+
+            await expectLogic(dashboardEightlogic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    allItems: truth(
+                        ({ tiles }) => tiles.length === 2 && tiles[0].insight.id === 1001 && tiles[1].insight.id === 800
+                    ),
+                })
         })
     })
 
