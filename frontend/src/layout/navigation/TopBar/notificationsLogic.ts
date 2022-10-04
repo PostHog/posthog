@@ -8,7 +8,7 @@ import type { notificationsLogicType } from './notificationsLogicType'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 
 const POLL_TIMEOUT = 5000
-const MARK_READ_TIMEOUT = 15000
+const MARK_READ_TIMEOUT = 10000
 
 export const notificationsLogic = kea<notificationsLogicType>([
     path(['layout', 'navigation', 'TopBar', 'notificationsLogic']),
