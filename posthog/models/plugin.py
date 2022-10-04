@@ -444,11 +444,10 @@ def plugin_reload_needed(sender, instance, created=None, **kwargs):
 @mutable_receiver([post_save, post_delete], sender=PluginConfig)
 def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()
+    sync_team_inject_web_apps(instance.team)
 
 
-@mutable_receiver([post_save, post_delete], sender=PluginConfig)
-def sync_team_inject_web_apps(sender, instance, created=None, **kwargs):
-    team = instance.team
+def sync_team_inject_web_apps(team: Optional[Team]):
     if not team:
         return
     inject_web_apps = len(get_decide_web_js_inject(team)) > 0
