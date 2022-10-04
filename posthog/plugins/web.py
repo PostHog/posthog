@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
@@ -54,7 +54,7 @@ def get_decide_web_js_inject(team: "Team") -> List[dict]:
         .values_list("id", "web_token")
         .all()
     )
-    return [WebJsUrl(source[0], f"/web_js/{source[0]}/{source[1]}/") for source in sources]
+    return [asdict(WebJsUrl(source[0], f"/web_js/{source[0]}/{source[1]}/")) for source in sources]
 
 
 def get_web_config_from_schema(config_schema: Optional[List[dict]], config: Optional[dict]):

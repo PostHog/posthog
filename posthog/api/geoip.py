@@ -41,6 +41,7 @@ def get_geoip_properties(ip_address: Optional[str]) -> Dict[str, str]:
         $geoip_time_zone
     """
     if not ip_address or not geoip or ip_address == "127.0.0.1":
+        # "127.0.0.1" would throw "The address 127.0.0.1 is not in the database." below
         return {}
 
     try:
