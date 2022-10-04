@@ -545,20 +545,6 @@ export function Experiment(): JSX.Element {
                                                     ]}
                                                 />
                                             )}
-                                            <Col className="secondary-metrics">
-                                                <div>
-                                                    <b>Secondary metrics</b>
-                                                    <span className="text-muted ml-2">(optional)</span>
-                                                </div>
-                                                <div className="text-muted" style={{ marginTop: 4 }}>
-                                                    Use secondary metrics to monitor metrics related to your experiment
-                                                    goal. You can add up to three secondary metrics.{' '}
-                                                </div>
-                                                <SecondaryMetrics
-                                                    onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
-                                                    initialMetrics={parsedSecondaryMetrics}
-                                                />
-                                            </Col>
                                         </Col>
                                         <Col span={12} className="pl-4">
                                             <div className="card-secondary mb-4" data-attr="experiment-preview">
@@ -570,6 +556,22 @@ export function Experiment(): JSX.Element {
                                                 disableCorrelationTable={true}
                                             />
                                         </Col>
+                                    </Row>
+                                    <Row className="secondary-metrics">
+                                        <div className="flex flex-col">
+                                            <div>
+                                                <b>Secondary metrics</b>
+                                                <span className="text-muted ml-2">(optional)</span>
+                                            </div>
+                                            <div className="text-muted" style={{ marginTop: 4 }}>
+                                                Use secondary metrics to monitor metrics related to your experiment
+                                                goal. You can add up to three secondary metrics.{' '}
+                                            </div>
+                                            <SecondaryMetrics
+                                                onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                                initialMetrics={parsedSecondaryMetrics}
+                                            />
+                                        </div>
                                     </Row>
                                 </Row>
                                 <Row>
