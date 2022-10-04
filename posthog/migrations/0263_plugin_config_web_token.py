@@ -7,10 +7,10 @@ from posthog.models.utils import generate_random_token
 
 def forwards_func(apps, schema_editor):
     PluginConfig = apps.get_model("posthog", "PluginConfig")
-    users = PluginConfig.objects.all()
-    for user in users:
-        user.web_token = generate_random_token()
-        user.save()
+    plugin_configs = PluginConfig.objects.all()
+    for plugin_config in plugin_configs:
+        plugin_config.web_token = generate_random_token()
+        plugin_config.save()
 
 
 def reverse_func(apps, schema_editor):
