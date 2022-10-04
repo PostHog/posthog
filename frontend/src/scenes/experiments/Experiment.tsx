@@ -1060,6 +1060,7 @@ export function Experiment(): JSX.Element {
                                             }),
                                         },
                                         result: experimentResults.insight,
+                                        disable_baseline: true,
                                     },
                                     doNotLoad: true,
                                 }}
@@ -1068,6 +1069,7 @@ export function Experiment(): JSX.Element {
                                     <InsightContainer
                                         disableHeader={true}
                                         disableCorrelationTable={experimentInsightType === InsightType.FUNNELS}
+                                        disableLastComputation={true}
                                     />
                                 </div>
                             </BindLogic>
