@@ -140,14 +140,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(response["items"][0]["result"][0]["count"], 0)
 
-    def _get_dashboard_counting_queries(self, dashboard_id: int) -> Tuple[int, List[Dict[str, str]]]:
-        with capture_db_queries() as capture_query_context:
-            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            query_count = len(capture_query_context.captured_queries)
-            return query_count, capture_query_context.captured_queries
-
     @snapshot_postgres_queries
     def test_adding_insights_is_not_nplus1_for_gets(self):
         dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
@@ -707,6 +699,33 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code, status.HTTP_200_OK
         )
 
+    def test_can_move_tile_between_dashboards(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_one_id, _ = self._create_dashboard({"name": "dashboard one"})
+        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard two"})
+        insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_one_id]})
+
+        dashboard_one = self._get_dashboard(dashboard_one_id)
+        assert len(dashboard_one["tiles"]) == 1
+        dashboard_two = self._get_dashboard(dashboard_two_id)
+        assert len(dashboard_two["tiles"]) == 0
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/move_tile",
+            {"tile": dashboard_one["tiles"][0], "toDashboard": dashboard_two_id},
+        )
+        assert patch_response.status_code == status.HTTP_200_OK
+        assert patch_response.json()["tiles"] == []
+
+        dashboard_two = self._get_dashboard(dashboard_two_id)
+        assert len(dashboard_two["tiles"]) == 1
+        assert dashboard_two["tiles"][0]["insight"]["id"] == insight_id
+
     def _soft_delete(
         self,
         model_id: int,
@@ -753,3 +772,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         response_json = response.json()
         return response_json.get("id", None), response_json
+
+    def _get_dashboard(self, dashboard_id: int) -> Dict:
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()
+
+    def _get_dashboard_counting_queries(self, dashboard_id: int) -> Tuple[int, List[Dict[str, str]]]:
+        with capture_db_queries() as capture_query_context:
+            self._get_dashboard(dashboard_id)
+
+            query_count = len(capture_query_context.captured_queries)
+            return query_count, capture_query_context.captured_queries

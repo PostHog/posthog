@@ -5,6 +5,7 @@ from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, response, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -306,6 +307,21 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
+        return response.Response(serializer.data)
+
+    @action(methods=["PATCH"], detail=True)
+    def move_tile(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        tile = request.data["tile"]
+        from_dashboard = kwargs["pk"]
+        to_dashboard = request.data["toDashboard"]
+        insight_id = tile["insight"]["id"]
+
+        DashboardTile.objects.get(dashboard_id=from_dashboard, insight_id=insight_id).delete()
+        DashboardTile.objects.create(dashboard_id=to_dashboard, insight_id=insight_id, layouts={}, color=tile["color"])
+
+        serializer = DashboardSerializer(
+            Dashboard.objects.get(id=from_dashboard), context={"view": self, "request": request}
+        )
         return response.Response(serializer.data)
 
 

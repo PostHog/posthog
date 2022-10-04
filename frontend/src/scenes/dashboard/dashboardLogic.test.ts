@@ -209,12 +209,13 @@ describe('dashboardLogic', () => {
             const sourceTile = tiles[0]
 
             await expectLogic(logic, () => {
-                insightsModel.actions.moveToDashboard(sourceTile, 9, 8, 'targetDashboard')
+                logic.actions.moveToDashboard(sourceTile, 9, 8, 'targetDashboard')
             })
                 .toFinishAllListeners()
                 .toMatchValues({
                     allItems: expectedDashboard,
                 })
+            // todo assert that the insight is also on dashboard 8
         })
     })
 

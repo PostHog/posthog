@@ -28,6 +28,8 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
+import { Link } from 'lib/components/Link'
+import React from 'react'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -103,6 +105,17 @@ export const dashboardLogic = kea<dashboardLogicType>({
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
+        moveToDashboard: (
+            tile: DashboardTile,
+            fromDashboard: number,
+            toDashboard: number,
+            toDashboardName: string
+        ) => ({
+            tile,
+            fromDashboard,
+            toDashboard,
+            toDashboardName,
+        }),
     },
 
     loaders: ({ actions, props, values }) => ({
@@ -185,6 +198,23 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     } catch (e) {
                         lemonToast.error('Could not remove item: ' + e)
                         return values.allItems
+                    }
+                },
+                moveToDashboard: async ({ tile, fromDashboard, toDashboard }) => {
+                    if (!tile || !tile.insight || fromDashboard === toDashboard) {
+                        return
+                    }
+
+                    if (fromDashboard !== props.id) {
+                        return values.allItems
+                    } else {
+                        return await api.update(
+                            `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
+                            {
+                                tile,
+                                toDashboard,
+                            }
+                        )
                     }
                 },
             },
@@ -681,6 +711,35 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
         loadDashboardItemsFailure: sharedListeners.reportLoadTiming,
+        moveToDashboardSuccess: ({ payload }) => {
+            if (payload?.toDashboard === undefined || payload?.tile === undefined) {
+                return
+            }
+
+            dashboardLogic.findMounted({ id: payload?.toDashboard })?.actions.loadDashboardItems()
+
+            lemonToast.success(
+                <>
+                    Insight moved to{' '}
+                    <b>
+                        <Link to={urls.dashboard(payload?.toDashboard)}>{payload?.toDashboardName}</Link>
+                    </b>
+                </>,
+                {
+                    button: {
+                        label: 'Undo',
+                        action: async () => {
+                            actions.moveToDashboard(
+                                payload?.tile,
+                                payload?.toDashboard,
+                                payload?.fromDashboard,
+                                props.dashboard?.name || ' dashboard'
+                            )
+                        },
+                    },
+                }
+            )
+        },
         triggerDashboardUpdate: ({ payload }) => {
             if (values.dashboard) {
                 dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })

@@ -14,9 +14,15 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 export function DashboardItems(): JSX.Element {
     const { dashboard, tiles, layouts, dashboardMode, placement, isRefreshing, highlightedInsightId, refreshStatus } =
         useValues(dashboardLogic)
-    const { updateLayouts, updateContainerWidth, updateItemColor, removeItem, refreshAllDashboardItems } =
-        useActions(dashboardLogic)
-    const { duplicateInsight, renameInsight, moveToDashboard } = useActions(insightsModel)
+    const {
+        updateLayouts,
+        updateContainerWidth,
+        updateItemColor,
+        removeItem,
+        refreshAllDashboardItems,
+        moveToDashboard,
+    } = useActions(dashboardLogic)
+    const { duplicateInsight, renameInsight } = useActions(insightsModel)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 

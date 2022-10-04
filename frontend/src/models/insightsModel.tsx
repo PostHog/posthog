@@ -2,10 +2,7 @@ import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { prompt } from 'lib/logic/prompt'
-import { DashboardTile, InsightModel } from '~/types'
-import { dashboardsModel } from './dashboardsModel'
-import { Link } from 'lib/components/Link'
-import { urls } from 'scenes/urls'
+import { InsightModel } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import type { insightsModelType } from './insightsModelType'
 import { lemonToast } from 'lib/components/lemonToast'
@@ -19,17 +16,6 @@ export const insightsModel = kea<insightsModelType>({
         duplicateInsight: (item: InsightModel, dashboardId?: number) => ({
             item,
             dashboardId,
-        }),
-        moveToDashboard: (
-            tile: DashboardTile,
-            fromDashboard: number,
-            toDashboard: number,
-            toDashboardName: string
-        ) => ({
-            tile,
-            fromDashboard,
-            toDashboard,
-            toDashboardName,
         }),
         duplicateInsightSuccess: (item: InsightModel) => ({ item }),
     }),
@@ -55,54 +41,6 @@ export const insightsModel = kea<insightsModelType>({
                     actions.renameInsightSuccess(updatedItem)
                 },
             })
-        },
-        moveToDashboard: async ({ tile, fromDashboard, toDashboard, toDashboardName }) => {
-            if (!tile || !tile.insight) {
-                return
-            }
-
-            const originalDashboards = tile.insight.dashboards || []
-            const dashboards = [...originalDashboards.filter((d: number) => d !== fromDashboard), toDashboard]
-
-            const updatedInsight = await api.update(
-                `api/projects/${teamLogic.values.currentTeamId}/insights/${tile.insight.id}`,
-                {
-                    dashboards,
-                }
-            )
-            const updatedTile = {
-                ...tile,
-                insight: updatedInsight,
-            }
-            dashboardsModel.actions.updateDashboardTile(updatedTile, [fromDashboard])
-
-            lemonToast.success(
-                <>
-                    Insight moved to{' '}
-                    <b>
-                        <Link to={urls.dashboard(toDashboard)}>{toDashboardName}</Link>
-                    </b>
-                </>,
-                {
-                    button: {
-                        label: 'Undo',
-                        action: async () => {
-                            const restoredItem = await api.update(
-                                `api/projects/${teamLogic.values.currentTeamId}/insights/${tile.insight.id}`,
-                                {
-                                    dashboards: originalDashboards,
-                                }
-                            )
-                            const restoredTile = {
-                                ...tile,
-                                insight: restoredItem,
-                            }
-                            lemonToast.success('Panel move reverted')
-                            dashboardsModel.actions.updateDashboardTile(restoredTile, [toDashboard])
-                        },
-                    },
-                }
-            )
         },
         duplicateInsight: async ({ item }) => {
             if (!item) {
