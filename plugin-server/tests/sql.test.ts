@@ -98,6 +98,7 @@ describe('sql', () => {
                 source__frontend_tsx: null,
                 source__web_ts: null,
                 tag: '0.0.2',
+                updated_at: expect.any(String),
                 url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
                 capabilities: {},
             },
