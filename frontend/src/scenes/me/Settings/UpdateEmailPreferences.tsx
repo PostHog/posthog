@@ -26,10 +26,10 @@ export function UpdateEmailPreferences(): JSX.Element {
                 id="plugin-disabled"
                 data-attr="plugin_disabled"
                 onChange={() => {
-                    user.notification_settings &&
+                    user?.notification_settings &&
                         updateUser({
                             notification_settings: {
-                                ...user.notification_settings,
+                                ...user?.notification_settings,
                                 plugin_disabled: !user?.notification_settings.plugin_disabled,
                             },
                         })
