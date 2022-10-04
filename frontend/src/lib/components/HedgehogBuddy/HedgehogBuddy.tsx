@@ -232,6 +232,7 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
+                        imageRendering: 'pixelated',
                         width: size,
                         height: size,
                         backgroundImage: `url(${animation.img})`,
