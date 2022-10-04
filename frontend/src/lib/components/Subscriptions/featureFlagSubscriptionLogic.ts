@@ -32,9 +32,11 @@ export const featureFlagSubscriptionLogic = kea<featureFlagSubscriptionLogicType
         subscription: {
             __default: null as SubscriptionType | null,
             loadSubscription: async () => {
-                if (props.featureFlagId && values.user) {
+                const featureFlagId: number = Number(props.featureFlagId)
+
+                if (featureFlagId && !isNaN(featureFlagId) && values.user) {
                     const candidateMatches = await api.subscriptions.list({
-                        featureFlagId: Number(props.featureFlagId),
+                        featureFlagId: featureFlagId,
                         createdById: values.user.uuid,
                     })
                     return candidateMatches.results[0] || null

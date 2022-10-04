@@ -7,6 +7,7 @@ import {
     featureFlagSubscriptionLogic,
     NEW_FEATURE_FLAG_SUBSCRIPTION,
 } from 'lib/components/Subscriptions/featureFlagSubscriptionLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export const fixtureFeatureFlagSubscriptionResponse = (
     id: number,
@@ -31,17 +32,17 @@ describe('featureFlagSubscriptionLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/subscriptions/1': fixtureFeatureFlagSubscriptionResponse(1),
-                '/api/projects/:team/subscriptions': subscriptions,
+                '/api/projects/:team/subscriptions': { count: subscriptions.length, results: subscriptions },
             },
         })
         initKeaTests()
+        userLogic.mount()
+        await expectLogic(userLogic).toFinishAllListeners()
         newLogic = featureFlagSubscriptionLogic({
-            featureFlagId: 1,
-            id: 'new',
+            featureFlagId: 'new',
         })
         existingLogic = featureFlagSubscriptionLogic({
             featureFlagId: 1,
-            id: subscriptions[0].id,
         })
         newLogic.mount()
         existingLogic.mount()
@@ -60,10 +61,8 @@ describe('featureFlagSubscriptionLogic', () => {
     })
 
     it('has defaults for new feature flag subscription', async () => {
-        await expectLogic(newLogic)
-            .toFinishAllListeners()
-            .toMatchValues({
-                subscription: { ...NEW_FEATURE_FLAG_SUBSCRIPTION },
-            })
+        await expectLogic(newLogic).toFinishAllListeners().toMatchValues({
+            subscription: null,
+        })
     })
 })
