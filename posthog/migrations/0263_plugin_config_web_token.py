@@ -10,11 +10,7 @@ def forwards_func(apps, schema_editor):
     plugin_configs = PluginConfig.objects.all()
     for plugin_config in plugin_configs:
         plugin_config.web_token = generate_random_token()
-        plugin_config.save()
-
-
-def reverse_func(apps, schema_editor):
-    pass
+    PluginConfig.objects.bulk_update(plugin_configs, fields=["web_token"])
 
 
 class Migration(migrations.Migration):
@@ -37,7 +33,7 @@ class Migration(migrations.Migration):
             model_name="pluginconfig",
             index=models.Index(fields=["enabled"], name="posthog_plu_enabled_f5ed94_idx"),
         ),
-        migrations.RunPython(forwards_func, reverse_func),
+        migrations.RunPython(forwards_func, migrations.RunPython.noop),
         migrations.AddField(
             model_name="team",
             name="inject_web_apps",
