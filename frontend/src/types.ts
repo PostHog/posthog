@@ -827,7 +827,16 @@ export interface Tileable {
 }
 
 export interface DashboardTile extends Tileable, Cacheable {
+    id: number
     insight: InsightModel
+}
+
+export interface DashboardTextTile extends Tileable {
+    id: number
+    body: string
+    created_by?: UserBasicType
+    last_modified_by?: UserBasicType
+    last_modified_at: string
 }
 
 export interface InsightModel extends Cacheable {
@@ -866,7 +875,7 @@ export interface DashboardType {
     name: string
     description: string
     pinned: boolean
-    tiles: DashboardTile[]
+    tiles: (DashboardTile | DashboardTextTile)[]
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
