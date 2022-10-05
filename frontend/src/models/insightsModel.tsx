@@ -48,7 +48,6 @@ export const insightsModel = kea<insightsModelType>({
             }
 
             const { id: _discard, short_id: __discard, ...rest } = item
-            debugger
             const newItem = { ...rest, name: (rest.name || rest.derived_name) + ' (copy)' }
             const addedItem = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, newItem)
 
