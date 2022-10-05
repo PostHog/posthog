@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { formatSource } from 'scenes/plugins/source/formatSource'
+import { beforeUnload } from 'kea-router'
 
 export interface PluginSourceProps {
     pluginId: number
@@ -20,16 +21,19 @@ export interface PluginSourceProps {
     onClose?: () => void
 }
 
+const LEAVE_WARNING = 'You have unsaved changes in your plugin. Are you sure you want to exit?'
+
 export const pluginSourceLogic = kea<pluginSourceLogicType>([
     path(['scenes', 'plugins', 'edit', 'pluginSourceLogic']),
     props({} as PluginSourceProps),
     key((props) => props.pluginConfigId ?? `plugin-${props.pluginId}`),
 
-    connect({ values: [featureFlagLogic, ['featureFlags']] }),
+    connect({ values: [featureFlagLogic, ['featureFlags']], logic: [pluginsLogic] }),
 
     actions({
         setCurrentFile: (currentFile: string) => ({ currentFile }),
         closePluginSource: true,
+        resetAndClose: true,
     }),
 
     reducers({
@@ -115,23 +119,30 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
                     : ['plugin.json', 'index.ts'],
         ],
     }),
-
-    listeners(({ props, values }) => ({
+    beforeUnload(({ actions, values }) => ({
+        enabled: () => values.pluginSourceChanged,
+        message: LEAVE_WARNING,
+        onConfirm: () => actions.resetAndClose(),
+    })),
+    listeners(({ actions, props, values }) => ({
+        resetAndClose: () => {
+            actions.resetPluginSource()
+            props.onClose?.()
+        },
         closePluginSource: () => {
-            const close = (): void => props.onClose?.()
             if (values.pluginSourceChanged) {
-                if (confirm('You have unsaved changes in your plugin. Are you sure you want to exit?')) {
-                    close()
+                if (confirm(LEAVE_WARNING)) {
+                    actions.resetAndClose()
                 }
             } else {
-                close()
+                actions.resetAndClose()
             }
         },
         submitPluginSourceSuccess: () => {
             lemonToast.success('App saved!', {
                 button: {
                     label: 'Close drawer',
-                    action: () => props.onClose?.(),
+                    action: actions.closePluginSource,
                 },
                 position: 'top-right',
                 toastId: `submit-plugin-${props.pluginConfigId}`,
@@ -147,9 +158,16 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
                 { position: 'top-right' }
             )
         },
+        [pluginsLogic.actionTypes.setEditingSource]: () => {
+            // reset if re-opening drawer and pluginSourceLogic remained mounted
+            if (pluginsLogic.values.editingPluginId === props.pluginId) {
+                actions.resetPluginSource()
+                actions.fetchPluginSource()
+            }
+        },
     })),
-
     afterMount(({ actions }) => {
+        actions.resetPluginSource()
         actions.fetchPluginSource()
     }),
 ])
