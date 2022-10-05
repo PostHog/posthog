@@ -16,6 +16,7 @@ import {
     DashboardTile,
     DashboardType,
     FilterType,
+    InsightColor,
     InsightModel,
     InsightShortId,
     InsightType,
@@ -183,9 +184,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         return
                     }
 
-                    return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                    await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                         colors: [{ id: insightNumericId, color }],
                     })
+                    const matchingTile = values.allItems?.tiles.find((tile) => tile.insight.id === insightNumericId)
+                    if (matchingTile) {
+                        matchingTile.color = color as InsightColor
+                    }
+                    return values.allItems
                 },
                 removeItem: async ({ insight }) => {
                     try {

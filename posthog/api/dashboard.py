@@ -206,6 +206,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         serialized_tiles = []
         for tile in dashboard.tiles.filter(insight__deleted=False).all():
+            if isinstance(tile.layouts, str):
+                tile.layouts = json.loads(tile.layouts)
             self.context.update({"filters_hash": tile.filters_hash})
             tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
             serialized_tiles.append(tile_data)
