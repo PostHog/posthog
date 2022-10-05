@@ -241,17 +241,19 @@ const BillingProduct = ({
                     top: false,
                     // Foreground
                 },
-                {
-                    tooltip: (
-                        <>
-                            <b>Projected</b>
-                        </>
-                    ),
-                    color: 'border',
-                    value: projectedUsage || 0,
-                    top: false,
-                    // Background
-                },
+                projectedUsage && projectedUsage > (product.current_usage || 0)
+                    ? {
+                          tooltip: (
+                              <>
+                                  <b>Projected</b>
+                              </>
+                          ),
+                          color: 'border',
+                          value: projectedUsage || 0,
+                          top: false,
+                          // Background
+                      }
+                    : undefined,
                 billingLimitAsUsage
                     ? {
                           tooltip: (
@@ -295,7 +297,7 @@ const BillingProduct = ({
                                 Predicted bill
                             </LemonLabel>
                             <div className="font-bold text-muted text-2xl">
-                                ${projectedUsage ? convertUsageToAmount(projectedUsage, product.tiers) : '??.??'}
+                                ${projectedUsage ? convertUsageToAmount(projectedUsage, product.tiers) : '0.00'}
                             </div>
                         </div>
                         <div className="flex-1" />
