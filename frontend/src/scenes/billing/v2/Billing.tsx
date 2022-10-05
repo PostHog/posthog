@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { billingLogic } from './billingLogic'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
@@ -12,6 +12,8 @@ import { BillingProductV2Type, BillingV2Type } from '~/types'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
+import { BillingGuage, BillingGuageProps } from './BillingGuage'
+import { convertAmountToUsage, convertUsageToAmount, projectUsage, summarizeUsage } from './billing-utils'
 
 export function BillingV2(): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
@@ -149,36 +151,6 @@ export function BillingV2(): JSX.Element {
     )
 }
 
-const summarizeUsage = (usage: number | null): string => {
-    if (usage === null) {
-        return ''
-    } else if (usage < 1000) {
-        return `${usage} events`
-    } else if (Math.round(usage / 1000) < 1000) {
-        return `${Math.round(usage / 1000)} thousand`
-    } else {
-        return `${Math.round(usage / 1000000)} million`
-    }
-}
-
-const projectUsage = (
-    usage: number | string | undefined,
-    period: BillingV2Type['billing_period']
-): number | string | undefined => {
-    if (typeof usage === 'undefined') {
-        return usage
-    }
-    const multiplier = period ? period.current_period_end.diff(period.current_period_start, 'days') / 30 : 1
-
-    const value = Math.round((typeof usage === 'string' ? parseFloat(usage) : usage) * multiplier)
-
-    if (typeof usage === 'number') {
-        return value
-    } else {
-        return `${value.toFixed(2)}`
-    }
-}
-
 const BillingProduct = ({
     product,
     billingPeriod,
@@ -188,12 +160,14 @@ const BillingProduct = ({
     billingPeriod?: BillingV2Type['billing_period']
     customLimitUsd?: string | null
 }): JSX.Element => {
-    const { billingLoading } = useValues(billingLogic)
+    const { billing, billingLoading } = useValues(billingLogic)
     const { updateBillingLimits } = useActions(billingLogic)
     const [tierAmountType, setTierAmountType] = useState<'individual' | 'total'>('individual')
     const [showBillingLimit, setShowBillingLimit] = useState(false)
     const [billingLimit, setBillingLimit] = useState<number | undefined>(100)
     const billingLimitInputChanged = parseInt(customLimitUsd || '-1') !== billingLimit
+    const billingLimitAsUsage = convertAmountToUsage(`${billingLimit}`, product.tiers)
+    const projectedUsage = projectUsage(product.current_usage, billingPeriod)
 
     const updateBillingLimit = (value: number | undefined): any => {
         updateBillingLimits({
@@ -227,6 +201,73 @@ const BillingProduct = ({
         })
     }
 
+    const billingGuageItems: BillingGuageProps['items'] = useMemo(
+        () =>
+            [
+                !billing?.stripe_portal_url
+                    ? {
+                          tooltip: (
+                              <>
+                                  <b>Free tier limit</b>
+                                  <div>Without subscription</div>
+                              </>
+                          ),
+                          color: 'success',
+                          value: product.free_allocation,
+                          top: true,
+                          // Background
+                      }
+                    : (undefined as any),
+                {
+                    tooltip: (
+                        <>
+                            <b>Free tier limit</b>
+                            <div>With subscription</div>
+                        </>
+                    ),
+                    color: 'success-light',
+                    value: product.tiers?.[0]?.up_to || 0,
+                    top: true,
+                    // Background
+                },
+                {
+                    tooltip: (
+                        <>
+                            <b>Current</b>
+                        </>
+                    ),
+                    color: 'success',
+                    value: product.current_usage || 0,
+                    top: false,
+                    // Foreground
+                },
+                {
+                    tooltip: (
+                        <>
+                            <b>Projected</b>
+                        </>
+                    ),
+                    color: 'border',
+                    value: projectedUsage || 0,
+                    top: false,
+                    // Background
+                },
+                billingLimitAsUsage
+                    ? {
+                          tooltip: (
+                              <>
+                                  <b>Billing limit</b>
+                              </>
+                          ),
+                          color: 'primary-alt-light',
+                          top: true,
+                          value: billingLimitAsUsage || 0,
+                      }
+                    : (undefined as any),
+            ].filter(Boolean),
+        [product]
+    )
+
     return (
         <div className="flex">
             <div className="flex-1 py-4 pr-2 space-y-4">
@@ -254,7 +295,7 @@ const BillingProduct = ({
                                 Predicted bill
                             </LemonLabel>
                             <div className="font-bold text-muted text-2xl">
-                                ${projectUsage(product.current_amount_usd, billingPeriod)}
+                                ${projectedUsage ? convertUsageToAmount(projectedUsage, product.tiers) : '??.??'}
                             </div>
                         </div>
                         <div className="flex-1" />
@@ -307,13 +348,7 @@ const BillingProduct = ({
                     </div>
                 ) : null}
 
-                <div className="">
-                    <div className="rounded-lg bg-border-light h-2">
-                        <div className="rounded-lg bg-success h-2 w-1/3" />
-                    </div>
-                </div>
-
-                <div className="rounded h-2 overflow-hidden"></div>
+                <BillingGuage items={billingGuageItems} />
 
                 <div className="flex justify-between items-center flex-wrap gap-2">
                     <div>free_allocation: {product.free_allocation}</div>
@@ -340,7 +375,7 @@ const BillingProduct = ({
                         value={tierAmountType}
                         options={[
                             { label: `Per ${product.type.toLowerCase()}`, value: 'individual' },
-                            { label: `My bill`, value: 'total' },
+                            { label: `Current bill`, value: 'total' },
                         ]}
                         dropdownMatchSelectWidth={false}
                         onChange={(val: any) => setTierAmountType(val)}
