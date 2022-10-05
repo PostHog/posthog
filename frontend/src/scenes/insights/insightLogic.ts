@@ -37,6 +37,7 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
+import { insightsModel } from '~/models/insightsModel'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -423,6 +424,12 @@ export const insightLogic = kea<insightLogicType>({
                 } else {
                     return state
                 }
+            },
+            [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
+                if (item.id === state.id) {
+                    return { ...state, name: item.name }
+                }
+                return state
             },
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
