@@ -1,5 +1,5 @@
 import { connect, events, kea, key, path, props, selectors } from 'kea'
-import { SubscriptionType } from '~/types'
+import { AvailableFeature, SubscriptionType } from '~/types'
 
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
@@ -26,7 +26,7 @@ export const featureFlagSubscriptionLogic = kea<featureFlagSubscriptionLogicType
     props({} as FeatureFlagSubscriptionsLogicProps),
     key(({ featureFlagId }) => `feature-flag-subscription-${featureFlagId}`),
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user', 'hasAvailableFeature']],
     })),
     loaders(({ props, values }) => ({
         subscription: {
@@ -57,9 +57,11 @@ export const featureFlagSubscriptionLogic = kea<featureFlagSubscriptionLogicType
         },
     })),
     selectors({ isSubscribed: [(s) => [s.subscription], (subscription) => !!subscription && !subscription.deleted] }),
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount() {
-            actions.loadSubscription()
+            if (values.hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)) {
+                actions.loadSubscription()
+            }
         },
     })),
 ])

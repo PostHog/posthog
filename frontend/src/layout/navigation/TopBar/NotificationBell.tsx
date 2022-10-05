@@ -33,10 +33,13 @@ export function NotificationBell(): JSX.Element {
                         </LemonTag>
                     </h5>
                     <p className={'mx-2 text-muted'}>
-                        <IconInfo /> Notifications is in beta. Right now it only shows you changes other users make to
-                        Insights and Feature Flags that you created. Come join{' '}
-                        <Link to={'https://posthog.com/slack'}>our community slack</Link> and tell us what else should
-                        be here!
+                        <IconInfo /> Notifications is in beta. Right now it shows you:
+                        <ul className="list-disc pl-6 my-1">
+                            <li>changes other users make to Insights and Feature Flags that you created.</li>
+                            <li>changes to Feature Flags you subscribe to</li>
+                        </ul>
+                        Come join <Link to={'https://posthog.com/slack'}>our community slack</Link> and tell us what
+                        else should be here!
                     </p>
                     <LemonDivider />
                     {hasImportantChanges ? (

@@ -52,6 +52,7 @@ import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
 import { featureFlagSubscriptionLogic } from 'lib/components/Subscriptions/featureFlagSubscriptionLogic'
+import { More } from 'lib/components/LemonButton/More'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -311,39 +312,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     <PageHeader
                                         title={
                                             <div className="flex items-center gap-2 mb-2">
-                                                {hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS) &&
-                                                    !!featureFlags[FEATURE_FLAGS.HOG_BOOK] && (
-                                                        <Tooltip
-                                                            title={
-                                                                isSubscribed
-                                                                    ? "You're subscribed to notifications of changes to this feature flag"
-                                                                    : 'Subscribe for notifications when this flag is changed'
-                                                            }
-                                                        >
-                                                            <LemonButton
-                                                                size="small"
-                                                                icon={
-                                                                    isSubscribed ? (
-                                                                        <IconSubscribed />
-                                                                    ) : (
-                                                                        <IconNotification />
-                                                                    )
-                                                                }
-                                                                type="secondary"
-                                                                status="primary-alt"
-                                                                aria-label={
-                                                                    isSubscribed
-                                                                        ? 'Stop receiving notifications when this flag changes'
-                                                                        : 'Subscribe for notifications when this flag is changed'
-                                                                }
-                                                                onClick={() => {
-                                                                    isSubscribed
-                                                                        ? deleteSubscription()
-                                                                        : createSubscription()
-                                                                }}
-                                                            />
-                                                        </Tooltip>
-                                                    )}
                                                 {featureFlag.key || 'Untitled'}
                                                 <CopyToClipboardInline
                                                     explicitValue={featureFlag.key}
@@ -373,6 +341,46 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         }
                                         buttons={
                                             <div className="flex items-center gap-2 mb-2">
+                                                {hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS) &&
+                                                    !!featureFlags[FEATURE_FLAGS.HOG_BOOK] && (
+                                                        <More
+                                                            data-attr="feature-flag-three-dots-options-menu"
+                                                            overlay={
+                                                                <Tooltip
+                                                                    title={
+                                                                        isSubscribed
+                                                                            ? "You're subscribed to notifications of changes to this feature flag"
+                                                                            : 'Subscribe for notifications when this flag is changed'
+                                                                    }
+                                                                >
+                                                                    <LemonButton
+                                                                        size="small"
+                                                                        icon={
+                                                                            isSubscribed ? (
+                                                                                <IconSubscribed />
+                                                                            ) : (
+                                                                                <IconNotification />
+                                                                            )
+                                                                        }
+                                                                        type="tertiary"
+                                                                        status="stealth"
+                                                                        aria-label={
+                                                                            isSubscribed
+                                                                                ? 'Stop receiving notifications when this flag changes'
+                                                                                : 'Subscribe for notifications when this flag is changed'
+                                                                        }
+                                                                        onClick={() => {
+                                                                            isSubscribed
+                                                                                ? deleteSubscription()
+                                                                                : createSubscription()
+                                                                        }}
+                                                                    >
+                                                                        {isSubscribed ? 'Subscribed' : 'Subscribe'}
+                                                                    </LemonButton>
+                                                                </Tooltip>
+                                                            }
+                                                        />
+                                                    )}
                                                 <LemonButton
                                                     data-attr="delete-feature-flag"
                                                     status="danger"

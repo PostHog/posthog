@@ -1,13 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { useMocks } from '~/mocks/jest'
-import { SubscriptionType } from '~/types'
+import { AvailableFeature, SubscriptionType } from '~/types'
 
 import {
     featureFlagSubscriptionLogic,
     NEW_FEATURE_FLAG_SUBSCRIPTION,
 } from 'lib/components/Subscriptions/featureFlagSubscriptionLogic'
 import { userLogic } from 'scenes/userLogic'
+import { useAvailableFeatures } from '~/mocks/features'
 
 export const fixtureFeatureFlagSubscriptionResponse = (
     id: number,
@@ -28,6 +29,7 @@ describe('featureFlagSubscriptionLogic', () => {
     let existingLogic: ReturnType<typeof featureFlagSubscriptionLogic.build>
     let subscriptions: SubscriptionType[] = []
     beforeEach(async () => {
+        useAvailableFeatures([AvailableFeature.SUBSCRIPTIONS])
         subscriptions = [fixtureFeatureFlagSubscriptionResponse(1), fixtureFeatureFlagSubscriptionResponse(2)]
         useMocks({
             get: {
