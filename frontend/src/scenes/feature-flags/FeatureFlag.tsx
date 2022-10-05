@@ -73,8 +73,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { createSubscription, deleteSubscription } = useActions(featureFlagSubLogic)
     const { isSubscribed } = useValues(featureFlagSubLogic)
 
-    const { hasAvailableFeature } = useValues(userLogic)
-
     const { featureFlags } = useValues(featureFlagLibLogic)
     const {
         props,
