@@ -31,6 +31,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -223,7 +224,7 @@ export function PluginCard({
                                                 disabled={rearranging}
                                                 data-attr="app-metrics"
                                             >
-                                                <Link to={'todo'}>
+                                                <Link to={urls.appMetrics(pluginId)}>
                                                     <LineChartOutlined />
                                                 </Link>
                                             </Button>
