@@ -141,7 +141,7 @@ export function isValidBreakdownParameter(
     )
 }
 
-export function getVisibilityKey(breakdownValue?: Array<string | number>): string {
+export function getVisibilityKey(breakdownValue?: BreakdownKeyType): string {
     const breakdownValues = getBreakdownStepValues(
         { breakdown: breakdownValue, breakdown_value: breakdownValue },
         -1
