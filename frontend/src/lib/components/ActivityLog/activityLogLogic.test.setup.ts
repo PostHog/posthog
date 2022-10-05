@@ -3,6 +3,7 @@ import {
     ActivityLogItem,
     ActivityScope,
     PersonMerge,
+    Trigger,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -15,9 +16,17 @@ interface APIMockSetup {
     changes?: ActivityChange[] | null
     scope: ActivityScope
     merge?: PersonMerge | null
+    trigger?: Trigger | null
 }
 
-const makeAPIItem = ({ name, activity, changes = null, scope, merge = null }: APIMockSetup): ActivityLogItem => ({
+const makeAPIItem = ({
+    name,
+    activity,
+    changes = null,
+    scope,
+    merge = null,
+    trigger = null,
+}: APIMockSetup): ActivityLogItem => ({
     user: { first_name: 'peter', email: 'peter@posthog.com' },
     activity,
     scope,
@@ -26,6 +35,7 @@ const makeAPIItem = ({ name, activity, changes = null, scope, merge = null }: AP
         changes,
         merge,
         name,
+        trigger,
     },
     created_at: '2022-02-05T16:28:39.594Z',
 })

@@ -105,7 +105,7 @@ export interface ExportHistoricalEventsJobPayload {
     retriesPerformedSoFar: number
 
     // used for ensuring only one "export task" is running if the server restarts
-    exportId: number
+    exportId: string | number
 
     // Time frame to fetch events for.
     fetchTimeInterval: number
@@ -119,10 +119,12 @@ type OffsetParams = Pick<ExportHistoricalEventsJobPayload, 'timestampCursor' | '
 export interface ExportHistoricalEventsUIPayload {
     dateRange: [string, string]
     parallelism?: number
+    // API-generated token
+    $job_id?: string
 }
 
 export interface ExportParams {
-    id: number
+    id: string | number
     parallelism: number
     dateFrom: ISOTimestamp
     dateTo: ISOTimestamp
@@ -188,7 +190,7 @@ export function addHistoricalEventsExportCapabilityV2(
             // Clear old (conflicting) storage
             await meta.storage.del(EXPORT_COORDINATION_KEY)
 
-            const id = Math.floor(Math.random() * 10000 + 1)
+            const id = payload.$job_id || String(Math.floor(Math.random() * 10000 + 1))
             const parallelism = Number(payload.parallelism ?? 1)
             const [dateFrom, dateTo] = getTimestampBoundaries(payload)
 
