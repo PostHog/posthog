@@ -753,12 +753,8 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         visibleStepsWithConversionMetrics: [
-            () => [
-                selectors.stepsWithConversionMetrics,
-                selectors.hiddenLegendKeys,
-                selectors.flattenedStepsByBreakdown,
-            ],
-            (steps, hiddenLegendKeys, flattenedStepsByBreakdown): FunnelStepWithConversionMetrics[] => {
+            (s) => [s.stepsWithConversionMetrics, s.hiddenLegendKeys, s.flattenedStepsByBreakdown, s.isOnlySeries],
+            (steps, hiddenLegendKeys, flattenedStepsByBreakdown, isOnlySeries): FunnelStepWithConversionMetrics[] => {
                 const baseLineSteps = flattenedStepsByBreakdown.find((b) => b.isBaseline)
                 return steps.map((step, stepIndex) => ({
                     ...step,
@@ -770,9 +766,7 @@ export const funnelLogic = kea<funnelLogicType>({
                             ...b,
                             order: breakdownIndex,
                         }))
-                        ?.filter((b) => {
-                            return !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]
-                        }),
+                        ?.filter((b) => isOnlySeries || !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]),
                 }))
             },
         ],
@@ -878,6 +872,10 @@ export const funnelLogic = kea<funnelLogicType>({
             (breakdowns): FlattenedFunnelStepByBreakdown[] => {
                 return breakdowns.filter((b) => b.breakdown)
             },
+        ],
+        isOnlySeries: [
+            (s) => [s.flattenedBreakdowns],
+            (flattenedBreakdowns): boolean => flattenedBreakdowns.length <= 1,
         ],
         numericBinCount: [
             () => [selectors.filters, selectors.timeConversionResults],

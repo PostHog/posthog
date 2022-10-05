@@ -21,13 +21,19 @@ import { formatBreakdownLabel } from 'scenes/insights/utils'
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { insightLoading, filters, steps, flattenedBreakdowns, hiddenLegendKeys, visibleStepsWithConversionMetrics } =
-        useValues(logic)
+    const {
+        insightLoading,
+        filters,
+        steps,
+        flattenedBreakdowns,
+        hiddenLegendKeys,
+        visibleStepsWithConversionMetrics,
+        isOnlySeries,
+    } = useValues(logic)
     const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForSeries } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const isOnlySeries = flattenedBreakdowns.length === 1
     const allChecked = flattenedBreakdowns?.every((b) => !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)])
 
     const columnsGrouped = [
