@@ -164,19 +164,6 @@ export function EventsTable({
         reportEventsTablePollingReactedToPageVisibility(pageIsVisible)
     })
 
-    console.log(
-        'REFRESH EVENTS TABLE',
-        properties,
-        eventsFormatted,
-        isLoading,
-        hasNext,
-        isLoadingNext,
-        eventFilter,
-        automaticLoadEnabled,
-        highlightEvents,
-        months
-    )
-
     const newEventsRender = (
         { date_break, new_events }: EventsTableRowItem,
         colSpan: number
