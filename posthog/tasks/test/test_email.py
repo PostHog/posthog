@@ -109,7 +109,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
 
         # Should only be sent to user2
-        assert len(mocked_email_messages[0].to) == 1
+        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
 
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
