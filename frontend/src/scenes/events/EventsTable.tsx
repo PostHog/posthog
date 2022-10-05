@@ -423,7 +423,6 @@ export function EventsTable({
                                         <LemonButton
                                             status="stealth"
                                             onClick={() => {
-                                                console.log('EVENT ONCLICK', event)
                                                 event.matched_recordings[0].session_id &&
                                                     openSessionPlayer({
                                                         id: event.matched_recordings[0].session_id,

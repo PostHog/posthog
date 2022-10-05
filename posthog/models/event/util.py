@@ -329,7 +329,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
                     ],
                 }
             ]
-            if event["session_id"]
+            if event.get("session_id", None)
             else []
         )
 
