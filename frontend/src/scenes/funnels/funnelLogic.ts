@@ -42,7 +42,7 @@ import {
     getLastFilledStep,
     getMeanAndStandardDeviation,
     getReferenceStep,
-    getVisibilityIndex,
+    getVisibilityKey,
     isBreakdownFunnelResults,
     isStepsEmpty,
     isValidBreakdownParameter,
@@ -771,7 +771,7 @@ export const funnelLogic = kea<funnelLogicType>({
                             order: breakdownIndex,
                         }))
                         ?.filter((b) => {
-                            return !hiddenLegendKeys[getVisibilityIndex(b.breakdown_value)]
+                            return !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]
                         }),
                 }))
             },
@@ -787,7 +787,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         rowKey: step.order,
                         nestedRowKeys: step.nested_breakdown
                             ? step.nested_breakdown.map((breakdownStep) =>
-                                  getVisibilityIndex(breakdownStep.breakdown_value)
+                                  getVisibilityKey(breakdownStep.breakdown_value)
                               )
                             : [],
                         isBreakdownParent,
@@ -800,7 +800,7 @@ export const funnelLogic = kea<funnelLogicType>({
                                 ...breakdownStep,
                                 order: step.order,
                                 breakdownIndex: i,
-                                rowKey: getVisibilityIndex(breakdownStep.breakdown_value),
+                                rowKey: getVisibilityKey(breakdownStep.breakdown_value),
                                 isBreakdownParent: false,
                             })
                         })
@@ -1199,7 +1199,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
     listeners: ({ actions, values, props }) => ({
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
-            const key = getVisibilityIndex(breakdownValue)
+            const key = getVisibilityKey(breakdownValue)
             const currentIsHidden = !!values.hiddenLegendKeys?.[key]
             actions.setHiddenById({ [key]: !currentIsHidden })
         },

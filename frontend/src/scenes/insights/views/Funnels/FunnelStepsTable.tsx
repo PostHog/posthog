@@ -5,7 +5,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/components/LemonTable'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { getVisibilityIndex } from 'scenes/funnels/funnelUtils'
+import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 import { cohortsModel } from '~/models/cohortsModel'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
@@ -28,7 +28,7 @@ export function FunnelStepsTable(): JSX.Element | null {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const isOnlySeries = flattenedBreakdowns.length === 1
-    const allChecked = flattenedBreakdowns?.every((b) => !hiddenLegendKeys[getVisibilityIndex(b.breakdown_value)])
+    const allChecked = flattenedBreakdowns?.every((b) => !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)])
 
     const columnsGrouped = [
         {
@@ -41,7 +41,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                             checked={
                                 allChecked ||
                                 (flattenedBreakdowns?.some(
-                                    (b) => !hiddenLegendKeys[getVisibilityIndex(b.breakdown_value)]
+                                    (b) => !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]
                                 )
                                     ? 'indeterminate'
                                     : false)
@@ -52,7 +52,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                     Object.fromEntries(
                                         visibleStepsWithConversionMetrics.flatMap(() =>
                                             flattenedBreakdowns.map((b) => [
-                                                getVisibilityIndex(b.breakdown_value),
+                                                getVisibilityKey(b.breakdown_value),
                                                 allChecked,
                                             ])
                                         )
@@ -85,7 +85,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                             <span className="font-medium">{label}</span>
                         ) : (
                             <LemonCheckbox
-                                checked={!hiddenLegendKeys[getVisibilityIndex(breakdown.breakdown_value)]}
+                                checked={!hiddenLegendKeys[getVisibilityKey(breakdown.breakdown_value)]}
                                 onChange={() => toggleVisibilityByBreakdown(breakdown.breakdown_value)}
                                 label={label}
                             />
