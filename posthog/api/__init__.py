@@ -30,6 +30,7 @@ from . import (
     sharing,
     team,
     user,
+    web_js,
 )
 
 

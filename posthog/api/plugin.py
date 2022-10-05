@@ -33,7 +33,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginSourceFile, update_validated_data_from_url, validate_plugin_job_payload
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, generate_random_token
 from posthog.permissions import (
     OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
@@ -466,6 +466,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         if existing_config.exists():
             return self.update(existing_config.first(), validated_data)  # type: ignore
 
+        validated_data["web_token"] = generate_random_token()
         plugin_config = super().create(validated_data)
         log_enabled_change_activity(
             new_plugin_config=plugin_config,
