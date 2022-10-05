@@ -379,7 +379,6 @@ LEFT JOIN
     FROM session_recording_events
     where team_id = %(team_id)s
     {conditions}
-    {filters}
 ) AS session_recording_events
 ON events.session_id = session_recording_events.session_id
 """
