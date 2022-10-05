@@ -4,7 +4,7 @@ import { status } from '../../utils/status'
 import { ServerInstance } from '../pluginsServer'
 import { Hub } from './../../types'
 
-export const HTTP_SERVER_PORT = 6739
+export const HTTP_SERVER_PORT = 6738
 
 export function createHttpServer(hub: Hub, serverInstance: ServerInstance): Server {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
