@@ -86,7 +86,7 @@ class ActivityLog(UUIDModel):
     # but 72 may be useful to avoid a migration in future
     item_id = models.fields.CharField(max_length=72, null=True)
     # e.g. FeatureFlags - this will often be the name of a model class
-    scope = models.fields.CharField(max_length=79, null=False)
+    scope = models.fields.CharField(max_length=79, null=False, db_index=True)
     detail = models.JSONField(encoder=ActivityDetailEncoder, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
