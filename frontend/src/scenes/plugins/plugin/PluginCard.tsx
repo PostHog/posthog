@@ -217,14 +217,14 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
-                                    {shouldShowAppMetrics ? (
+                                    {shouldShowAppMetrics && pluginConfig?.id ? (
                                         <Tooltip title="App metrics">
                                             <Button
                                                 className="padding-under-500"
                                                 disabled={rearranging}
                                                 data-attr="app-metrics"
                                             >
-                                                <Link to={urls.appMetrics(pluginId)}>
+                                                <Link to={urls.appMetrics(pluginConfig.id)}>
                                                     <LineChartOutlined />
                                                 </Link>
                                             </Button>
