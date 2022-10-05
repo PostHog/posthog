@@ -166,7 +166,7 @@ const BillingProduct = ({
     const [showBillingLimit, setShowBillingLimit] = useState(false)
     const [billingLimit, setBillingLimit] = useState<number | undefined>(100)
     const billingLimitInputChanged = parseInt(customLimitUsd || '-1') !== billingLimit
-    const billingLimitAsUsage = convertAmountToUsage(`${billingLimit}`, product.tiers)
+    const billingLimitAsUsage = showBillingLimit ? convertAmountToUsage(`${billingLimit}`, product.tiers) : 0
     const projectedUsage = projectUsage(product.current_usage, billingPeriod)
 
     const updateBillingLimit = (value: number | undefined): any => {
@@ -351,14 +351,6 @@ const BillingProduct = ({
                 ) : null}
 
                 <BillingGuage items={billingGuageItems} />
-
-                <div className="flex justify-between items-center flex-wrap gap-2">
-                    <div>free_allocation: {product.free_allocation}</div>
-                    <div>paid_free_allocation: {product.tiers?.[0]?.up_to}</div>
-                    <div>current_usage: {product.current_usage}</div>
-                    <div>projected_usage: {projectUsage(product.current_usage, billingPeriod)}</div>
-                    <div>usage_limit: {product.usage_limit}</div>
-                </div>
             </div>
 
             <LemonDivider vertical dashed />
