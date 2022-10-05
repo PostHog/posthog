@@ -12,14 +12,13 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { formatSource } from 'scenes/plugins/source/formatSource'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface PluginSourceProps {
     pluginId: number
     pluginConfigId?: number
     onClose?: () => void
 }
-
-const ALLOWED_FILES = ['plugin.json', 'index.ts', 'frontend.tsx', 'web.ts']
 
 export const pluginSourceLogic = kea<pluginSourceLogicType>([
     path(['scenes', 'plugins', 'edit', 'pluginSourceLogic']),
@@ -31,9 +30,6 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
     actions({
         setCurrentFile: (currentFile: string) => ({ currentFile }),
         closePluginSource: true,
-        addFilePrompt: true,
-        addSourceFile: (file: string) => ({ file }),
-        removeSourceFile: (file: string) => ({ file }),
     }),
 
     reducers({
@@ -41,17 +37,6 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
             'plugin.json',
             {
                 setCurrentFile: (_, { currentFile }) => currentFile,
-                removeSourceFile: (state, { file }) => (state === file ? 'plugin.json' : state),
-            },
-        ],
-        pluginSource: [
-            {} as Record<string, string>,
-            {
-                addSourceFile: (state, { file }) => ({ ...state, [file]: '' }),
-                removeSourceFile: (state, { file }) => {
-                    const { [file]: _discard, ...rest } = state
-                    return rest
-                },
             },
         ],
     }),
@@ -128,15 +113,21 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
             },
         ],
         fileNames: [
-            (s) => [s.pluginSource],
-            (pluginSource): string[] => {
-                return Array.from(new Set(['plugin.json', ...Object.keys(pluginSource)]))
+            (s) => [s.featureFlags],
+            (featureFlags): string[] => {
+                return Array.from(
+                    new Set([
+                        'plugin.json',
+                        'index.ts',
+                        'web.ts',
+                        ...(featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? ['frontend.tsx'] : []),
+                    ])
+                )
             },
         ],
-        hasAllFiles: [(s) => [s.fileNames], (fileNames) => !ALLOWED_FILES.find((file) => !fileNames.includes(file))],
     }),
 
-    listeners(({ props, values, actions }) => ({
+    listeners(({ props, values }) => ({
         closePluginSource: () => {
             const close = (): void => props.onClose?.()
             if (values.pluginSourceChanged) {
@@ -166,23 +157,6 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
                 </>,
                 { position: 'top-right' }
             )
-        },
-        addFilePrompt: () => {
-            let file: string | null = null
-            while (!file) {
-                file = window.prompt('Enter filename:')
-                if (file && !ALLOWED_FILES.includes(file)) {
-                    window.alert(`File must be one of: ${ALLOWED_FILES.join(', ')}`)
-                    file = null
-                } else if (file && values.fileNames.includes(file)) {
-                    window.alert(`The file "${file}" already exists`)
-                    file = null
-                } else if (file) {
-                    actions.addSourceFile(file)
-                } else {
-                    break
-                }
-            }
         },
     })),
 
