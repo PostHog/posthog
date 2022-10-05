@@ -141,8 +141,6 @@ export function EventsTable({
         })
     )
 
-    console.log('EVENT FILTER Fetch', isLoading, eventsFormatted)
-
     const {
         fetchNextEvents,
         prependNewEvents,
@@ -165,6 +163,19 @@ export function EventsTable({
         setPollingActive(pageIsVisible)
         reportEventsTablePollingReactedToPageVisibility(pageIsVisible)
     })
+
+    console.log(
+        'REFRESH EVENTS TABLE',
+        properties,
+        eventsFormatted,
+        isLoading,
+        hasNext,
+        isLoadingNext,
+        eventFilter,
+        automaticLoadEnabled,
+        highlightEvents,
+        months
+    )
 
     const newEventsRender = (
         { date_break, new_events }: EventsTableRowItem,

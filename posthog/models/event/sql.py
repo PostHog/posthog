@@ -305,7 +305,7 @@ SELECT
     elements_chain,
     created_at,
     session_recording_events.session_id as session_id,
-    session_recording_events.window_id as window_id
+    window_id
 FROM
 (
     SELECT
@@ -322,20 +322,20 @@ FROM
     FROM
         events
     where team_id = %(team_id)s
-    {conditions}
-    ORDER BY timestamp {order} {limit}
+    {time_conditions}
+    {event_conditions}
 ) as events
 LEFT JOIN
 (
     SELECT
-        uuid,
-        window_id,
         session_id
     FROM session_recording_events
     WHERE team_id = %(team_id)s
-    ORDER BY timestamp {order} {limit}
+    {time_conditions}
+    GROUP BY session_id
 ) AS session_recording_events
 ON events.session_id = session_recording_events.session_id
+ORDER BY timestamp {order} {limit}
 """
 
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL = """
@@ -349,7 +349,7 @@ SELECT
     elements_chain,
     created_at,
     session_recording_events.session_id as session_id,
-    session_recording_events.window_id as window_id
+    window_id
 FROM
 (
     SELECT
@@ -366,21 +366,21 @@ FROM
     FROM
         events
     WHERE team_id = %(team_id)s
-    {conditions}
+    {time_conditions}
+    {event_conditions}
     {filters}
-    ORDER BY timestamp {order} {limit}
 ) as events
 LEFT JOIN
 (
     SELECT
-        uuid,
-        window_id,
         session_id
     FROM session_recording_events
     WHERE team_id = %(team_id)s
-    ORDER BY timestamp {order} {limit}
+    {time_conditions}
+    GROUP BY session_id
 ) AS session_recording_events
 ON events.session_id = session_recording_events.session_id
+ORDER BY timestamp {order} {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """
