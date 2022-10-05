@@ -1,9 +1,11 @@
+import datetime
 import json
 from typing import Any, Dict, List, Optional, cast
 
 from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -21,6 +23,7 @@ from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.utils import should_refresh
 
 
 class CanEditDashboard(BasePermission):
@@ -35,12 +38,23 @@ class CanEditDashboard(BasePermission):
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
     insight = InsightSerializer()
+    last_refresh = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="""
+        The datetime this tile's insight results were generated.
+        """,
+    )
 
     class Meta:
         model = DashboardTile
         exclude = ["dashboard"]
         read_only_fields = ["id", "insight"]
         depth = 1
+
+    def get_last_refresh(self, dashboard_tile: DashboardTile) -> datetime.datetime:
+        if should_refresh(self.context["request"]):
+            return now()
+        return dashboard_tile.last_refresh
 
 
 class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -205,7 +219,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         self.context.update({"dashboard": dashboard})
 
         serialized_tiles = []
-        for tile in dashboard.tiles.filter(insight__deleted=False).all():
+        for tile in dashboard.tiles.all():
             if isinstance(tile.layouts, str):
                 tile.layouts = json.loads(tile.layouts)
             self.context.update({"filters_hash": tile.filters_hash})
@@ -214,6 +228,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return serialized_tiles
 
+    @extend_schema(deprecated=True, description="items is deprecated, use tiles instead")
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
             return None
@@ -222,7 +237,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         self.context.update({"dashboard": dashboard})
 
         insights = []
-        for tile in dashboard.tiles.filter(insight__deleted=False).all():
+        for tile in dashboard.tiles.all():
             if tile.insight:
                 insight = tile.insight
                 layouts = tile.layouts
@@ -279,22 +294,17 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             queryset = queryset.filter(deleted=False)
 
         queryset = (
-            queryset.prefetch_related(
-                "sharingconfiguration_set",
-            )
+            queryset.prefetch_related("sharingconfiguration_set")
             .select_related(
                 "team__organization",
                 "created_by",
             )
-            .prefetch_related(Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order")))
             .prefetch_related(
                 Prefetch(
                     "tiles",
-                    queryset=DashboardTile.objects.select_related(
-                        "insight__created_by", "insight__last_modified_by", "insight__team__organization"
-                    )
+                    queryset=DashboardTile.objects.select_related("insight", "text")
                     .filter(insight__deleted=False)
-                    .prefetch_related("insight__dashboards__team__organization")
+                    .prefetch_related("insight__dashboards__team__organization", "insight__created_by")
                     .order_by("insight__order"),
                 )
             )

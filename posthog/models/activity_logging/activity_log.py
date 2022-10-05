@@ -9,6 +9,7 @@ from django.db import models
 from django.utils import timezone
 
 from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
 
@@ -140,6 +141,13 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
 def _description(m: List[Any]) -> Union[str, Dict]:
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
+    if isinstance(m, DashboardTile):
+        description = {"dashboard": {"id": m.dashboard.id, "name": m.dashboard.name}}
+        if m.insight:
+            description["insight"] = {"id": m.insight.id}
+        if m.text:
+            description["text"] = {"id": m.text.id}
+        return description
     else:
         return str(m)
 
