@@ -181,7 +181,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 updateItemColor: async ({ insightNumericId, color }) => {
                     if (!props.id) {
                         // what are we saving colors against?!
-                        return
+                        return values.allItems
                     }
 
                     await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
