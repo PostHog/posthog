@@ -51,7 +51,7 @@ jobs:
 
             - name: Build
               id: docker_build
-              uses: docker/build-push-action@v2
+              uses: depot/build-push-action@v1
               with:
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
@@ -59,6 +59,8 @@ jobs:
                   cache-to: type=gha,mode=max
                   outputs: |
                       type=docker,dest=/tmp/posthog-image.tar
+                  project: 1stsk4xt19 # posthog-cloud project
+                  buildx-fallback: true # if Depot builder is unavailable, fall back to local buildx
 
             - name: Upload docker image
               uses: actions/upload-artifact@v2
