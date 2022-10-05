@@ -72,7 +72,7 @@ export interface HumanizedActivityLogItem {
     unread?: boolean
 }
 
-export type Describer = (logItem: ActivityLogItem, asNotification?: boolean) => HumanizedChange
+export type Describer = (logItem: ActivityLogItem) => HumanizedChange
 
 export function detectBoolean(candidate: unknown): boolean {
     let b: boolean = !!candidate
@@ -84,8 +84,7 @@ export function detectBoolean(candidate: unknown): boolean {
 
 export function humanize(
     results: ActivityLogItem[],
-    describerFor?: (logItem?: ActivityLogItem) => Describer | undefined,
-    asNotification?: boolean
+    describerFor?: (logItem?: ActivityLogItem) => Describer | undefined
 ): HumanizedActivityLogItem[] {
     const logLines: HumanizedActivityLogItem[] = []
 
@@ -94,7 +93,7 @@ export function humanize(
         if (!describer) {
             continue
         }
-        const { description, extendedDescription } = describer(logItem, asNotification)
+        const { description, extendedDescription } = describer(logItem)
         if (description !== null) {
             logLines.push({
                 email: logItem.user.email,

@@ -35,13 +35,13 @@ const linkToDashboard = (dashboard: DashboardLink): JSX.Element => (
 
 const insightActionsMapping: Record<
     keyof InsightModel,
-    (change?: ActivityChange, logItem?: ActivityLogItem, asNotification?: boolean) => ChangeMapping | null
+    (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
 > = {
-    name: function onName(change, logItem, asNotification) {
+    name: function onName(change, logItem) {
         return {
             description: [
                 <>
-                    renamed {asNotification && 'your insight '}"{change?.before}" to{' '}
+                    renamed "{change?.before}" to{' '}
                     <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
                 </>,
             ],
@@ -74,56 +74,49 @@ const insightActionsMapping: Record<
         console.error({ change }, 'could not describe this change')
         return null
     },
-    deleted: function onSoftDelete(change, logItem, asNotification) {
+    deleted: function onSoftDelete(change, logItem) {
         const isDeleted = detectBoolean(change?.after)
         const describeChange = isDeleted ? 'deleted' : 'un-deleted'
         return {
-            description: [
-                <>
-                    {describeChange}
-                    {asNotification && ' your insight '}
-                </>,
-            ],
+            description: [<>{describeChange}</>],
             suffix: <>{nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}</>,
         }
     },
-    short_id: function onShortId(change, _, asNotification) {
+    short_id: function onShortId(change) {
         return {
             description: [
                 <>
-                    changed the short id {asNotification && ' of your insight '}to <strong>"{change?.after}"</strong>
+                    changed the short id to <strong>"{change?.after}"</strong>
                 </>,
             ],
         }
     },
-    derived_name: function onDerivedName(change, logItem, asNotification) {
+    derived_name: function onDerivedName(change, logItem) {
         return {
             description: [
                 <>
-                    renamed {asNotification && ' your insight '}"{change?.before}" to{' '}
+                    renamed "{change?.before}" to{' '}
                     <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
                 </>,
             ],
             suffix: <></>,
         }
     },
-    description: function onDescription(change, _, asNotification) {
+    description: function onDescription(change) {
         return {
             description: [
                 <>
-                    changed the description {asNotification && ' of your insight '}to <strong>"{change?.after}"</strong>
+                    changed the description to <strong>"{change?.after}"</strong>
                 </>,
             ],
         }
     },
-    favorited: function onFavorited(change, logItem, asNotification) {
+    favorited: function onFavorited(change, logItem) {
         const isFavoriteAfter = detectBoolean(change?.after)
         return {
             description: [
                 <>
-                    <div className="highlighted-activity">
-                        {isFavoriteAfter ? '' : 'un-'}favorited{asNotification && ' your insight '}
-                    </div>
+                    <div className="highlighted-activity">{isFavoriteAfter ? '' : 'un-'}favorited</div>
                 </>,
             ],
             suffix: <>{nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}</>,
@@ -155,7 +148,7 @@ const insightActionsMapping: Record<
 
         return { description: changes }
     },
-    dashboards: function onDashboardsChange(change, logItem, asNotification) {
+    dashboards: function onDashboardsChange(change, logItem) {
         const dashboardsBefore = change?.before as DashboardLink[]
         const dashboardsAfter = change?.after as DashboardLink[]
 
@@ -168,12 +161,7 @@ const insightActionsMapping: Record<
 
         const addedSentence = addedDashboards.length ? (
             <SentenceList
-                prefix={
-                    <>
-                        added {asNotification && ' your insight '}
-                        {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} to
-                    </>
-                }
+                prefix={<>added {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} to</>}
                 listParts={addedDashboards.map((d) => (
                     <>{linkToDashboard(d)}</>
                 ))}
@@ -182,12 +170,7 @@ const insightActionsMapping: Record<
 
         const removedSentence = removedDashboards.length ? (
             <SentenceList
-                prefix={
-                    <>
-                        removed {asNotification && ' your insight '}
-                        {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} from
-                    </>
-                }
+                prefix={<>removed {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} from</>}
                 listParts={removedDashboards.map((d) => (
                     <>{linkToDashboard(d)}</>
                 ))}
@@ -219,7 +202,7 @@ const insightActionsMapping: Record<
     disable_baseline: () => null,
 }
 
-export function insightActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+export function insightActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
     if (logItem.scope != 'Insight') {
         console.error('insight describer received a non-insight activity')
         return { description: null }
@@ -239,8 +222,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> deleted {asNotification ? 'your' : 'the'} insight:{' '}
-                    {logItem.detail.name}
+                    <strong>{logItem.user.first_name}</strong> deleted the insight: {logItem.detail.name}
                 </>
             ),
         }
@@ -248,12 +230,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
         let extendedDescription: JSX.Element | undefined
-        let changeSuffix: Description = (
-            <>
-                on {asNotification && ' your insight '}
-                {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
-            </>
-        )
+        let changeSuffix: Description = <>on {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}</>
 
         for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
@@ -264,7 +241,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
                 description,
                 extendedDescription: _extendedDescription,
                 suffix,
-            } = insightActionsMapping[change.field](change, logItem, asNotification)
+            } = insightActionsMapping[change.field](change, logItem)
             if (description) {
                 changes = changes.concat(description)
             }

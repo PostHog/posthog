@@ -31,7 +31,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         const response = (await api.get(
                             `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
                         )) as ActivityLogItem[]
-                        return humanize(response, describerFor, true)
+                        return humanize(response, describerFor)
                     } finally {
                         const timeout = window.setTimeout(actions.loadImportantChanges, POLL_TIMEOUT)
                         actions.setPollTimeout(timeout)
