@@ -62,6 +62,7 @@ export const urls = {
     annotations: (): string => '/annotations',
     projectApps: (): string => '/project/apps',
     frontendApp: (id: string | number): string => `/app/${id}`,
+    appMetrics: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/metrics`,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
     projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,
