@@ -1064,7 +1064,7 @@ describe('insightLogic', () => {
                     }),
                 })
         })
-        it('des not react to rename of a different insight', async () => {
+        it('does not react to rename of a different insight', async () => {
             await expectLogic(logic, () => {
                 insightsModel.actions.renameInsightSuccess(
                     insightModelWith({
