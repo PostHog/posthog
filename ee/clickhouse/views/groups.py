@@ -1,6 +1,8 @@
 from collections import defaultdict
 from typing import Dict, List, cast
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -8,6 +10,7 @@ from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
+from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.client import sync_execute
@@ -66,6 +69,36 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
             )
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "group_type_index",
+                OpenApiTypes.INT,
+                description="Specify the group type to list",
+            ),
+        ]
+    )
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return response.Response(serializer.data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "group_type_index", OpenApiTypes.INT, description="Specify the group type to find", required=True
+            ),
+            OpenApiParameter(
+                "group_key", OpenApiTypes.STR, description="Specify the key of the group to find", required=True
+            ),
+        ]
+    )
     @action(methods=["GET"], detail=False)
     def find(self, request: request.Request, **kw) -> response.Response:
         try:
@@ -75,6 +108,16 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
         except Group.DoesNotExist:
             raise NotFound()
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "group_type_index", OpenApiTypes.INT, description="Specify the group type to find", required=True
+            ),
+            OpenApiParameter(
+                "id", OpenApiTypes.STR, description="Specify the id of the user to find groups for", required=True
+            ),
+        ]
+    )
     @action(methods=["GET"], detail=False)
     def related(self, request: request.Request, pk=None, **kw) -> response.Response:
         group_type_index = request.GET.get("group_type_index")
@@ -103,6 +146,19 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
 
         return response.Response(group_type_index_to_properties)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "group_type_index",
+                OpenApiTypes.INT,
+                description="Specify the group type to find property values of",
+                required=True,
+            ),
+            OpenApiParameter(
+                "key", OpenApiTypes.STR, description="Specify the property key to find values for", required=True
+            ),
+        ]
+    )
     @action(methods=["GET"], detail=False)
     def property_values(self, request: request.Request, **kw):
         rows = sync_execute(
