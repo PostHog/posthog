@@ -84,7 +84,7 @@ export function DashboardItems(): JSX.Element {
                 draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popup"
             >
                 {tiles?.map((tile: DashboardTile) => {
-                    const insight = tile.insight
+                    const { insight } = tile
                     return (
                         <InsightCard
                             key={insight.short_id}
