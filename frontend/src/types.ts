@@ -491,6 +491,7 @@ export enum SessionPlayerState {
     PAUSE = 'pause',
     SCRUB = 'scrub',
     SKIP = 'skip',
+    ERROR = 'error',
 }
 
 /** Sync with plugin-server/src/types.ts */
