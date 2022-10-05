@@ -112,7 +112,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>({
             },
         ],
         typeFilters: [
-            [] as CheckboxValueType[],
+            Object.values(PluginLogEntryType).filter((type) => type !== 'DEBUG') as CheckboxValueType[],
             {
                 setPluginLogsTypes: (_, { typeFilters }) => typeFilters || [],
             },
