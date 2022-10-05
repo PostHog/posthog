@@ -11,6 +11,8 @@ import { useMocks } from '~/mocks/jest'
 import { dayjs, now } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import anything = jasmine.anything
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+import api from 'lib/api'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
@@ -224,6 +226,8 @@ describe('dashboardLogic', () => {
         })
 
         it('only replaces the source dashboard with the target', async () => {
+            jest.spyOn(api, 'update')
+
             const dashboardEightlogic = dashboardLogic({ id: 8 })
             dashboardEightlogic.mount()
 
@@ -244,11 +248,10 @@ describe('dashboardLogic', () => {
                     }),
                 })
 
-            await expectLogic(dashboardEightlogic)
-                .toFinishAllListeners()
-                .toMatchValues({
-                    allItems: truth(({ tiles }) => tiles.length === 1 && tiles[0].insight.id === 1001),
-                })
+            await expectLogic(dashboardEightlogic).toFinishAllListeners()
+
+            expect(dashboardEightlogic.values.allItems?.tiles.length).toEqual(1)
+            expect(dashboardEightlogic.values.allItems?.tiles.map((t) => t.insight.id)).toEqual([1001])
 
             await expectLogic(logic, () => {
                 logic.actions.moveToDashboard(sourceTile, 9, 8, 'targetDashboard')
@@ -260,13 +263,12 @@ describe('dashboardLogic', () => {
                     }),
                 })
 
-            await expectLogic(dashboardEightlogic)
-                .toFinishAllListeners()
-                .toMatchValues({
-                    allItems: truth(
-                        ({ tiles }) => tiles.length === 2 && tiles[0].insight.id === 1001 && tiles[1].insight.id === 800
-                    ),
-                })
+            await expectLogic(dashboardEightlogic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                `api/projects/${MOCK_TEAM_ID}/dashboards/${9}/move_tile`,
+                expect.objectContaining({ tile: sourceTile, toDashboard: 8 })
+            )
         })
     })
 
