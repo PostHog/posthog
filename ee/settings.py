@@ -18,6 +18,7 @@ HOOK_DELIVERER = "ee.models.hook.deliver_hook_wrapper"
 AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
     "ee.api.authentication.MultitenantSAMLAuth",
     "social_core.backends.google.GoogleOAuth2",
+    "posthog.models.person.backends.CaseInsensitiveModelBackend",
 ]
 
 # SAML base attributes
