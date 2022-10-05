@@ -66,6 +66,34 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         }
     }
 
+    if (logItem.activity == 'job_triggered' && logItem.detail.trigger?.job_type == 'Export historical events V2') {
+        const [startDate, endDate] = logItem.detail.trigger.payload.dateRange
+        return {
+            description: (
+                <>
+                    <strong>{logItem.user.first_name}</strong> started exporting historical events between {startDate}{' '}
+                    and {endDate} (inclusive).
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'job_triggered' && logItem.detail.trigger) {
+        return {
+            description: (
+                <>
+                    <strong>{logItem.user.first_name}</strong> triggered job:{' '}
+                    <code>{logItem.detail.trigger.job_type}</code> with config ID {logItem.item_id}.
+                </>
+            ),
+            extendedDescription: (
+                <>
+                    Payload: <code>{JSON.stringify(logItem.detail.trigger.payload, null, 2)}</code>
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'config_updated') {
         const changes: (string | JSX.Element)[] = []
         for (const change of logItem.detail.changes || []) {

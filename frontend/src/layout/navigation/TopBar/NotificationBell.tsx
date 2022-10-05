@@ -1,5 +1,5 @@
 import React from 'react'
-import { IconArrowDropDown, IconNotification, IconWithCount } from 'lib/components/icons'
+import { IconArrowDropDown, IconInfo, IconNotification, IconWithCount } from 'lib/components/icons'
 import { notificationsLogic } from '~/layout/navigation/TopBar/notificationsLogic'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
@@ -8,6 +8,8 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import './NotificationsBell.scss'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { Link } from 'lib/components/Link'
 
 export function NotificationBell(): JSX.Element {
     const { unreadCount, hasImportantChanges, importantChanges, isNotificationPopoverOpen, hasUnread } =
@@ -24,7 +26,18 @@ export function NotificationBell(): JSX.Element {
             onClickOutside={toggleNotificationsPopover}
             overlay={
                 <div className="activity-log notifications-menu">
-                    <h5>Notifications</h5>
+                    <h5>
+                        Notifications{' '}
+                        <LemonTag type="warning" className="ml-1">
+                            Beta
+                        </LemonTag>
+                    </h5>
+                    <p className={'mx-2 text-muted'}>
+                        <IconInfo /> Notifications is in beta. Right now it only shows you changes other users make to
+                        Insights and Feature Flags that you created. Come join{' '}
+                        <Link to={'https://posthog.com/slack'}>our community slack</Link> and tell us what else should
+                        be here!
+                    </p>
                     <LemonDivider />
                     {hasImportantChanges ? (
                         importantChanges.map((logItem, index) => <ActivityLogRow logItem={logItem} key={index} />)

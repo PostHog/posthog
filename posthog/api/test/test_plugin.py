@@ -81,7 +81,13 @@ class TestPluginAPI(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Plugin",
                     "item_id": str(response.json()["id"]),
-                    "detail": {"name": "helloworldplugin", "changes": None, "merge": None, "short_id": None},
+                    "detail": {
+                        "name": "helloworldplugin",
+                        "changes": None,
+                        "merge": None,
+                        "trigger": None,
+                        "short_id": None,
+                    },
                 }
             ]
         )
@@ -286,7 +292,13 @@ class TestPluginAPI(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Plugin",
                     "item_id": str(plugin_id),
-                    "detail": {"name": "helloworldplugin", "changes": None, "merge": None, "short_id": None},
+                    "detail": {
+                        "name": "helloworldplugin",
+                        "changes": None,
+                        "merge": None,
+                        "trigger": None,
+                        "short_id": None,
+                    },
                 },
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com"},
@@ -294,7 +306,13 @@ class TestPluginAPI(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Plugin",
                     "item_id": str(plugin_id),
-                    "detail": {"name": "helloworldplugin", "changes": None, "merge": None, "short_id": None},
+                    "detail": {
+                        "name": "helloworldplugin",
+                        "changes": None,
+                        "merge": None,
+                        "trigger": None,
+                        "short_id": None,
+                    },
                 },
             ]
         )
@@ -742,6 +760,8 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
             },
         )
+        plugin_config = PluginConfig.objects.first()
+        self.assertIsNotNone(plugin_config.web_token)  # type: ignore
 
         # If we're trying to create another plugin config for the same plugin, just return the original
         response = self.client.post(
@@ -1045,15 +1065,19 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         execute_fn = db_connections["default"].cursor().__enter__().execute
         self.assertEqual(execute_fn.call_count, 1)
-        expected_sql = "SELECT graphile_worker.add_job('pluginJob', %s)"
-        expected_params = [
-            (
-                '{"type": "myJob", "payload": {"a": 1, "$operation": "stop"}, '
-                f'"pluginConfigId": {plugin_config_id}, "pluginConfigTeam": {self.team.pk}'
-                "}"
-            )
-        ]
-        execute_fn.assert_called_with(expected_sql, expected_params)
+
+        execute_fn_args = execute_fn.mock_calls[0].args
+        self.assertEqual(execute_fn_args[0], "SELECT graphile_worker.add_job('pluginJob', %s)")
+        self.assertDictEqual(
+            json.loads(execute_fn_args[1][0]),
+            {
+                "type": "myJob",
+                "payload": {"a": 1, "$operation": "stop", "$job_id": ANY},
+                "pluginConfigId": plugin_config_id,
+                "pluginConfigTeam": self.team.pk,
+            },
+        )
+
         mock_validate_plugin_job_payload.assert_called_with(ANY, "myJob", {"a": 1}, is_staff=False)
 
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
@@ -1099,7 +1123,13 @@ class TestPluginAPI(APIBaseTest):
                 {
                     "activity": "installed",
                     "created_at": "2021-08-25T22:09:14.252000Z",
-                    "detail": {"changes": None, "merge": None, "name": "helloworldplugin", "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "merge": None,
+                        "trigger": None,
+                        "name": "helloworldplugin",
+                        "short_id": None,
+                    },
                     "item_id": str(plugin_id),
                     "scope": "Plugin",
                     "user": {"email": "user1@posthog.com", "first_name": ""},
@@ -1107,7 +1137,13 @@ class TestPluginAPI(APIBaseTest):
                 {
                     "activity": "enabled",
                     "created_at": "2021-08-25T22:09:14.252000Z",
-                    "detail": {"changes": [], "merge": None, "name": "helloworldplugin", "short_id": None},
+                    "detail": {
+                        "changes": [],
+                        "merge": None,
+                        "trigger": None,
+                        "name": "helloworldplugin",
+                        "short_id": None,
+                    },
                     "item_id": str(plugin_config_id),
                     "scope": "PluginConfig",
                     "user": {"email": "user1@posthog.com", "first_name": ""},

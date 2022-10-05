@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0262_track_viewed_notifications"),
+        ("posthog", "0263_plugin_config_web_token"),
     ]
 
     operations = [

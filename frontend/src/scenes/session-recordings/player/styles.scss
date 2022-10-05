@@ -117,28 +117,13 @@
             z-index: 10;
 
             .rrweb-overlay {
-                transition: all 200ms;
-                position: absolute;
-
-                display: flex;
-                justify-content: center;
-                align-items: center;
-
-                height: 100%;
-                width: 100%;
-
-                background-color: var(--bg-overlay);
-                opacity: 0.2;
-
-                font-size: 40px;
-                color: white;
-                cursor: pointer;
+                transition: background-color 200ms;
+                background-color: rgba(0, 0, 0, 0.08);
 
                 &:hover {
-                    opacity: 0.5;
+                    background-color: rgba(0, 0, 0, 0.15);
                 }
-
-                .rrweb-overlay-play-icon {
+                .rrweb-overlay-icon {
                     svg {
                         width: 5rem;
                         height: 5rem;

@@ -35,16 +35,24 @@ class Merge:
 
 
 @dataclasses.dataclass(frozen=True)
+class Trigger:
+    job_type: str
+    job_id: str
+    payload: Dict
+
+
+@dataclasses.dataclass(frozen=True)
 class Detail:
     changes: Optional[List[Change]] = None
     merge: Optional[Merge] = None
+    trigger: Optional[Trigger] = None
     name: Optional[str] = None
     short_id: Optional[str] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, (Detail, Change, Merge)):
+        if isinstance(obj, (Detail, Change, Merge, Trigger)):
             return obj.__dict__
         if isinstance(obj, datetime):
             return obj.isoformat()
