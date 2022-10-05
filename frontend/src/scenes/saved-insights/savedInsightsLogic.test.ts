@@ -7,8 +7,9 @@ import { urls } from 'scenes/urls'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { useMocks } from '~/mocks/jest'
 import api from 'lib/api'
-jest.spyOn(api, 'create')
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+jest.spyOn(api, 'create')
 
 const createInsight = (id: number, string = 'hi'): InsightModel =>
     ({
