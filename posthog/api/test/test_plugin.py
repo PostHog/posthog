@@ -83,7 +83,6 @@ class TestPluginAPI(APIBaseTest):
                     "item_id": str(response.json()["id"]),
                     "detail": {
                         "name": "helloworldplugin",
-                        "merge": None,
                         "trigger": None,
                         "short_id": None,
                     },
