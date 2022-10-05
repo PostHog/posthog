@@ -55,8 +55,9 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         subscribed_feature_flags = list(
             Subscription.objects.exclude(feature_flag=None)
             .filter(created_by_id=user.id)
-            .values("feature_flag", "start_date")
+            .values_list("feature_flag", flat=True)
         )
+
         other_peoples_changes = (
             self.queryset.filter(scope__in=["FeatureFlag", "Insight"])
             .exclude(user=user)
