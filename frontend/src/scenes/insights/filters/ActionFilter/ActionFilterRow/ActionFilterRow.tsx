@@ -308,6 +308,7 @@ export function ActionFilterRow({
                                         mathGroupTypeIndex={mathGroupTypeIndex}
                                         index={index}
                                         onMathSelect={onMathSelect}
+                                        disabled={readOnly}
                                         style={{ maxWidth: '100%', width: 'initial' }}
                                         mathAvailability={mathAvailability}
                                     />
@@ -394,6 +395,7 @@ interface MathSelectorProps {
     mathGroupTypeIndex?: number | null
     mathAvailability: MathAvailability
     index: number
+    disabled?: boolean
     onMathSelect: (index: number, value: any) => any
     style?: React.CSSProperties
 }
@@ -403,6 +405,7 @@ function MathSelector({
     mathGroupTypeIndex,
     mathAvailability,
     index,
+    disabled,
     onMathSelect,
 }: MathSelectorProps): JSX.Element {
     const { mathDefinitions, selectFormattedOptions } = useValues(mathsLogic)
@@ -442,6 +445,7 @@ function MathSelector({
             options={relevantEventMathEntries}
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
+            disabled={disabled}
             dropdownMatchSelectWidth={false}
             dropdownPlacement={'bottom-start'}
         />

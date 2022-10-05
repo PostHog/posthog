@@ -76,8 +76,8 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                         onChange({ ...value, ...{ insight: val } })
                                     }}
                                     options={[
-                                        { value: InsightType.TRENDS, label: InsightType.TRENDS },
-                                        { value: InsightType.FUNNELS, label: InsightType.FUNNELS },
+                                        { value: InsightType.TRENDS, label: <b>Trends</b> },
+                                        { value: InsightType.FUNNELS, label: <b>Funnels</b> },
                                     ]}
                                 />
                                 {value.insight === InsightType.FUNNELS && (
