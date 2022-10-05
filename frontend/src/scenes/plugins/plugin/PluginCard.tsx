@@ -14,6 +14,7 @@ import {
     DownOutlined,
     GlobalOutlined,
     ClockCircleOutlined,
+    LineChartOutlined,
 } from '@ant-design/icons'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
@@ -94,7 +95,8 @@ export function PluginCard({
         showPluginLogs,
         showPluginHistory,
     } = useActions(pluginsLogic)
-    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer } = useValues(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer, shouldShowAppMetrics } =
+        useValues(pluginsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { user } = useValues(userLogic)
 
@@ -214,6 +216,19 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
+                                    {shouldShowAppMetrics ? (
+                                        <Tooltip title="App metrics">
+                                            <Button
+                                                className="padding-under-500"
+                                                disabled={rearranging}
+                                                data-attr="app-metrics"
+                                            >
+                                                <Link to={'todo'}>
+                                                    <LineChartOutlined />
+                                                </Link>
+                                            </Button>
+                                        </Tooltip>
+                                    ) : null}
                                     <Tooltip title="Activity history">
                                         <Button
                                             className="padding-under-500"
