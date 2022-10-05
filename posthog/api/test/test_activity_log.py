@@ -135,6 +135,33 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             "Insight",
         ]
 
+        # unsubscribe from the flag
+        delete_subscription_response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{create_subscription_response.json()['id']}",
+            {
+                "deleted": True,
+            },
+        )
+        assert delete_subscription_response.status_code == status.HTTP_200_OK
+
+        # now the other flag isn't included anymore
+        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
+        assert changes.status_code == status.HTTP_200_OK
+        assert len(changes.json()) == 10
+
+        assert [c["scope"] for c in changes.json()] == [
+            "FeatureFlag",
+            "FeatureFlag",
+            "Insight",
+            "Insight",
+            "Insight",
+            "Insight",
+            "Insight",
+            "Insight",
+            "Insight",
+            "Insight",
+        ]
+
     def test_reading_notifications_marks_them_unread(self):
         # user one has created 10 insights and 2 flags
         # user two has edited them all

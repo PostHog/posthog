@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { userLogic } from 'scenes/userLogic'
 
 import type { featureFlagSubscriptionLogicType } from './featureFlagSubscriptionLogicType'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export const NEW_FEATURE_FLAG_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'on_change',
@@ -44,14 +45,20 @@ export const featureFlagSubscriptionLogic = kea<featureFlagSubscriptionLogicType
                 return null
             },
             createSubscription: async () => {
-                return await api.subscriptions.create({
+                const createResponse = (await api.subscriptions.create({
                     ...NEW_FEATURE_FLAG_SUBSCRIPTION,
                     feature_flag: Number(props.featureFlagId),
-                })
+                })) as SubscriptionType
+                lemonToast.success('In-App Notification Subscription created!')
+                return createResponse
             },
             deleteSubscription: async () => {
                 if (values.subscription?.id !== undefined) {
-                    return await api.subscriptions.update(values.subscription.id, { deleted: true })
+                    const deleteResponse = (await api.subscriptions.update(values.subscription.id, {
+                        deleted: true,
+                    })) as SubscriptionType
+                    lemonToast.success('In-App Notification Subscription removed!')
+                    return deleteResponse
                 }
             },
         },

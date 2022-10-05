@@ -54,6 +54,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         my_feature_flags = list(FeatureFlag.objects.filter(created_by=user).values_list("id", flat=True))
         subscribed_feature_flags = list(
             Subscription.objects.exclude(feature_flag=None)
+            .exclude(deleted=True)
             .filter(created_by_id=user.id)
             .values_list("feature_flag", flat=True)
         )
