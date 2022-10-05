@@ -40,6 +40,15 @@ export function BillingV2(): JSX.Element {
                                     <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
                                     <b>{billing.billing_period.current_period_end.format('LL')}</b>
                                 </p>
+
+                                <div className="space-y-2">
+                                    <LemonLabel
+                                        info={'This is the current amount you have been billed for this month so far.'}
+                                    >
+                                        Current bill
+                                    </LemonLabel>
+                                    <div className="font-bold text-4xl">${billing.current_total_amount_usd}</div>
+                                </div>
                                 <p>
                                     <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b>{' '}
                                     remaining in your billing period.

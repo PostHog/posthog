@@ -804,6 +804,7 @@ export interface BillingProductV2Type {
 
 export interface BillingV2Type {
     stripe_portal_url?: string
+    current_total_amount_usd?: string
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
