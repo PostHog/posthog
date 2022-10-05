@@ -760,6 +760,8 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
             },
         )
+        plugin_config = PluginConfig.objects.first()
+        self.assertIsNotNone(plugin_config.web_token)  # type: ignore
 
         # If we're trying to create another plugin config for the same plugin, just return the original
         response = self.client.post(

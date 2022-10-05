@@ -316,7 +316,7 @@ export const InsightCard: Story = (args) => {
                         name: args.insightName,
                         description: args.insightDescription,
                     }}
-                    cardColor={insightColor}
+                    ribbonColor={insightColor}
                     loading={args.loading}
                     apiErrored={args.apiErrored}
                     highlighted={args.highlighted}
