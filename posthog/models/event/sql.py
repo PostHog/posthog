@@ -332,8 +332,8 @@ LEFT JOIN
         window_id,
         session_id
     FROM session_recording_events
-    where team_id = %(team_id)s
-    {conditions}
+    WHERE team_id = %(team_id)s
+    ORDER BY timestamp {order} {limit}
 ) AS session_recording_events
 ON events.session_id = session_recording_events.session_id
 """
@@ -365,7 +365,7 @@ FROM
         $window_id as window_id
     FROM
         events
-    where team_id = %(team_id)s
+    WHERE team_id = %(team_id)s
     {conditions}
     {filters}
     ORDER BY timestamp {order} {limit}
@@ -377,8 +377,8 @@ LEFT JOIN
         window_id,
         session_id
     FROM session_recording_events
-    where team_id = %(team_id)s
-    {conditions}
+    WHERE team_id = %(team_id)s
+    ORDER BY timestamp {order} {limit}
 ) AS session_recording_events
 ON events.session_id = session_recording_events.session_id
 """

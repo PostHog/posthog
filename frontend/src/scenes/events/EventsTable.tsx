@@ -141,6 +141,8 @@ export function EventsTable({
         })
     )
 
+    console.log('EVENT FILTER Fetch', isLoading, eventsFormatted)
+
     const {
         fetchNextEvents,
         prependNewEvents,

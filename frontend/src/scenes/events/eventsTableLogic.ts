@@ -17,7 +17,6 @@ import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import equal from 'fast-deep-equal'
 
 const DAYS_FIRST_FETCH = 5
 const DAYS_SECOND_FETCH = 365
@@ -26,6 +25,7 @@ const POLL_TIMEOUT = 5000
 
 const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableRowItem[] => {
     let eventsFormatted: EventsTableRowItem[] = []
+    console.log('EVENT FETCH FORMAT', events)
 
     eventsFormatted = events.map((item) => ({
         event: item,
@@ -278,12 +278,9 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
 
     urlToAction: ({ actions, values, props }) => ({
         [decodeURI(props.sceneUrl)]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            const nextProperties = searchParams.properties || values.properties || {}
-            if (!equal(nextProperties, values.properties)) {
-                actions.setProperties(nextProperties)
-            }
+            actions.setProperties(searchParams.properties || values.properties || {})
 
-            if (!equal(searchParams.eventFilter, values.eventFilter)) {
+            if (searchParams.eventFilter) {
                 actions.setEventFilter(searchParams.eventFilter)
             }
         },
