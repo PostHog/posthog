@@ -12,7 +12,7 @@ else
 fi
 
 echo "Checking for named postgres and clickhouse volumes to avoid data loss when upgrading from < 1.39"
-if docker volume ls | grep -Pzoq 'root_clickhouse-data\n(.|\n)*root_postgres-data\n'
+if docker volume ls | grep -Pzoq 'clickhouse-data\n(.|\n)*postgres-data\n'
 then
     DOCKER_VOLUMES_MISSING=FALSE
     echo "Found postgres and clickhouse volumes, proceeding..."
@@ -36,8 +36,8 @@ else
     echo "🛑 Stop this script and do not proceed"
     echo "✅ Back up your entire environment/installation (vm, host, etc.), including all docker containers and volumes:"
     echo "✅ Specifically back up the contents of :"
-    echo "  ☑ /var/lib/postgresql/data in the postgres (root_db_1) container"
-    echo "  ☑ /var/lib/clickhouse in the root_clickhouse_1 (root_clickhouse_1) container"
+    echo "  ☑ /var/lib/postgresql/data in the postgres (*_db_1) container"
+    echo "  ☑ /var/lib/clickhouse in the clickhouse (*_clickhouse_1) container"
     echo "and be ready to check/recopy the data before you boot Posthog next."
     read -r -p "Do you want to proceed anyway? [y/N] " response
     if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
