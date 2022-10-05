@@ -204,7 +204,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 },
                 moveToDashboard: async ({ tile, fromDashboard, toDashboard }) => {
                     if (!tile || !tile.insight || fromDashboard === toDashboard) {
-                        return
+                        return values.allItems
                     }
 
                     if (fromDashboard !== props.id) {
@@ -718,32 +718,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 return
             }
 
-            const targetDashboard = dashboardLogic.findMounted({ id: payload?.toDashboard })
-            targetDashboard?.actions.loadDashboardItems()
-
             lemonToast.success(
                 <>
                     Insight moved to{' '}
                     <b>
                         <Link to={urls.dashboard(payload?.toDashboard)}>{payload?.toDashboardName}</Link>
                     </b>
-                </>,
-                {
-                    button: payload?.allowUndo
-                        ? {
-                              label: 'Undo',
-                              action: async () => {
-                                  targetDashboard?.actions.moveToDashboard(
-                                      payload?.tile,
-                                      payload?.toDashboard,
-                                      payload?.fromDashboard,
-                                      values.allItems?.name || ' dashboard',
-                                      false
-                                  )
-                              },
-                          }
-                        : undefined,
-                }
+                </>
+                // TODO implement undo for move to dashboard
             )
         },
         triggerDashboardUpdate: ({ payload }) => {
