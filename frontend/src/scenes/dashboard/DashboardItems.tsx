@@ -89,7 +89,7 @@ export function DashboardItems(): JSX.Element {
                         <InsightCard
                             key={insight.short_id}
                             insight={insight}
-                            cardColor={tile.color}
+                            ribbonColor={tile.color}
                             dashboardId={dashboard?.id}
                             loading={isRefreshing(insight.short_id)}
                             apiErrored={refreshStatus[insight.short_id]?.error || false}

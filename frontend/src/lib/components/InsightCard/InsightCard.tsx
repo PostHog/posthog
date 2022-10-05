@@ -148,7 +148,7 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     showDetailsControls?: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
-    cardColor?: InsightColor | null
+    ribbonColor?: InsightColor | null
     updateColor?: (newColor: DashboardTile['color']) => void
     removeFromDashboard?: () => void
     deleteWithUndo?: () => void
@@ -162,7 +162,7 @@ interface InsightMetaProps
     extends Pick<
         InsightCardProps,
         | 'insight'
-        | 'cardColor'
+        | 'ribbonColor'
         | 'updateColor'
         | 'removeFromDashboard'
         | 'deleteWithUndo'
@@ -185,7 +185,7 @@ interface InsightMetaProps
 
 function InsightMeta({
     insight,
-    cardColor,
+    ribbonColor,
     dashboardId,
     updateColor,
     removeFromDashboard,
@@ -246,10 +246,10 @@ function InsightMeta({
             {(transitionState) => (
                 <div className="InsightMeta" style={transitionStyles[transitionState]}>
                     <div className="InsightMeta__primary" ref={primaryRef}>
-                        {cardColor &&
-                            cardColor !==
+                        {ribbonColor &&
+                            ribbonColor !==
                                 InsightColor.White /* White has historically meant no color synonymously to null */ && (
-                                <div className={clsx('InsightMeta__ribbon', cardColor)} />
+                                <div className={clsx('InsightMeta__ribbon', ribbonColor)} />
                             )}
                         <div className="InsightMeta__main">
                             <div className="InsightMeta__top">
@@ -308,7 +308,7 @@ function InsightMeta({
                                                                             key={availableColor}
                                                                             active={
                                                                                 availableColor ===
-                                                                                (cardColor || InsightColor.White)
+                                                                                (ribbonColor || InsightColor.White)
                                                                             }
                                                                             status="stealth"
                                                                             onClick={() => updateColor(availableColor)}
@@ -540,7 +540,7 @@ function InsightCardInternal(
     {
         insight,
         dashboardId,
-        cardColor,
+        ribbonColor,
         loading,
         apiErrored,
         timedOut,
@@ -608,7 +608,7 @@ function InsightCardInternal(
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightMeta
                     insight={insight}
-                    cardColor={cardColor}
+                    ribbonColor={ribbonColor}
                     dashboardId={dashboardId}
                     updateColor={updateColor}
                     removeFromDashboard={removeFromDashboard}
