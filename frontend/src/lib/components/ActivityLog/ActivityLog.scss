@@ -1,4 +1,7 @@
 .activity-log {
+    &.notifications-menu {
+        max-width: 25rem;
+    }
     .empty {
         text-align: center;
 
@@ -35,9 +38,15 @@
 
     .activity-log-row {
         display: flex;
-        margin-top: 1rem;
+        margin-top: 0.5rem;
         line-height: 24px;
         max-width: 50rem;
+        overflow-wrap: anywhere;
+        padding: 0.5rem;
+
+        &.unread {
+            background-color: var(--primary-highlight);
+        }
 
         &:first-of-type {
             margin-top: 0.5rem;

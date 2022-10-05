@@ -20,7 +20,6 @@ import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
@@ -177,7 +176,7 @@ export function Person(): JSX.Element | null {
                             </AlertMessage>
                         </div>
                     ) : null}
-                    {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST] ? (
+                    {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3] ? (
                         <SessionRecordingsPlaylist
                             key={person.uuid} // force refresh if user changes
                             personUUID={person.uuid}
@@ -223,7 +222,6 @@ export function Person(): JSX.Element | null {
                     <ActivityLog
                         scope={ActivityScope.PERSON}
                         id={person.id}
-                        describer={personActivityDescriber}
                         caption={
                             <div>
                                 <InfoCircleOutlined style={{ marginRight: '.25rem' }} />

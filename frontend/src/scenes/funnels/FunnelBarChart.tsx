@@ -43,8 +43,11 @@ interface StepBarCSSProperties extends React.CSSProperties {
 
 function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element {
     const { openPersonsModalForSeries, showTooltip, hideTooltip } = useActions(funnelLogic)
+    const { disableFunnelBreakdownBaseline } = useValues(funnelLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
+
+    const seriesOrderForColor = disableFunnelBreakdownBaseline ? (series.order ?? 0) + 1 : series.order ?? 0
 
     return (
         <div
@@ -52,7 +55,7 @@ function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element {
             /* eslint-disable-next-line react/forbid-dom-props */
             style={
                 {
-                    '--series-color': getSeriesColor(series.order ?? 0),
+                    '--series-color': getSeriesColor(seriesOrderForColor),
                     '--conversion-rate': percentage(series.conversionRates.fromBasisStep, 1, true),
                 } as StepBarCSSProperties
             }

@@ -4,6 +4,7 @@ from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.settings import EE_AVAILABLE
 
 from . import (
+    activity_log,
     annotation,
     async_migration,
     authentication,
@@ -12,6 +13,7 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    ingestion_warnings,
     instance_settings,
     instance_status,
     integration,
@@ -57,6 +59,7 @@ project_plugins_configs_router.register(
     r"logs", plugin_log_entry.PluginLogEntryViewSet, "project_plugins_config_logs", ["team_id", "plugin_config_id"]
 )
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
+projects_router.register(r"activity_log", activity_log.ActivityLogViewSet, "project_activity_log", ["team_id"])
 projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
@@ -64,6 +67,9 @@ project_dashboards_router = projects_router.register(
 
 projects_router.register(r"exports", exports.ExportedAssetViewSet, "exports", ["team_id"])
 projects_router.register(r"integrations", integration.IntegrationViewSet, "integrations", ["team_id"])
+projects_router.register(
+    r"ingestion_warnings", ingestion_warnings.IngestionWarningsViewSet, "ingestion_warnings", ["team_id"]
+)
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")

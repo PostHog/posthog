@@ -20,15 +20,8 @@ interface SessionRecordingsTableProps {
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID, isPlaylist: true })
-    const {
-        sessionRecordings,
-        sessionRecordingsResponseLoading,
-        hasNext,
-        hasPrev,
-        activeSessionRecording,
-        activeSessionRecordingId,
-        offset,
-    } = useValues(sessionRecordingsTableLogicInstance)
+    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecording, offset } =
+        useValues(sessionRecordingsTableLogicInstance)
     const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
     const playlistRef = useRef<HTMLDivElement>(null)
 
@@ -67,7 +60,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                         onClick: (e) => {
                             // Lets the link to the person open the person's page and not the session recording
                             if (!(e.target as HTMLElement).closest('a')) {
-                                openSessionPlayer(sessionRecording.id)
+                                openSessionPlayer({ id: sessionRecording.id })
                                 window.scrollTo({
                                     left: 0,
                                     top: playlistRef?.current?.offsetTop ? playlistRef.current.offsetTop - 8 : 0,
@@ -76,7 +69,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                             }
                         },
                     })}
-                    rowStatus={(recording) => (activeSessionRecordingId === recording.id ? 'highlighted' : null)}
+                    rowStatus={(recording) => (activeSessionRecording?.id === recording.id ? 'highlighted' : null)}
                     rowClassName="cursor-pointer"
                     data-attr="session-recording-table"
                     data-tooltip="session-recording-table"
@@ -109,11 +102,12 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                 </div>
             </div>
             <div className="SessionRecordingsPlaylist__right-column">
-                {activeSessionRecordingId ? (
+                {activeSessionRecording?.id ? (
                     <div className="border rounded h-full">
                         <SessionRecordingPlayerV3
                             playerKey="playlist"
-                            sessionRecordingId={activeSessionRecordingId}
+                            sessionRecordingId={activeSessionRecording.id}
+                            matching={activeSessionRecording?.matching_events}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                         />
                     </div>

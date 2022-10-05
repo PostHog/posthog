@@ -62,7 +62,7 @@ export function DashboardHeader(): JSX.Element | null {
 
             <PageHeader
                 title={
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <div className="flex items-center">
                         <EditableField
                             name="name"
                             value={dashboard?.name || (allItemsLoading ? 'Loading…' : '')}

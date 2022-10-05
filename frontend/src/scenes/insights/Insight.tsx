@@ -134,6 +134,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                                 status="stealth"
                                                 onClick={() => duplicateInsight(insight as InsightModel, true)}
                                                 fullWidth
+                                                data-attr="duplicate-insight-from-insight-view"
                                             >
                                                 Duplicate
                                             </LemonButton>

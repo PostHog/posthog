@@ -247,7 +247,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "scope": "Person",
                     "item_id": str(person.pk),
                     # don't store deleted person's name, so user primary key
-                    "detail": {"changes": None, "name": str(person.pk), "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": str(person.pk),
+                        "short_id": None,
+                    },
                     "created_at": "2021-08-25T22:09:14.252000Z",
                 }
             ],
@@ -326,6 +331,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                             }
                         ],
                         "name": None,
+                        "trigger": None,
                         "short_id": None,
                     },
                     "created_at": "2021-08-25T22:09:14.252000Z",
@@ -523,6 +529,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                                 "after": None,
                             }
                         ],
+                        "trigger": None,
                         "name": None,
                         "short_id": None,
                     },

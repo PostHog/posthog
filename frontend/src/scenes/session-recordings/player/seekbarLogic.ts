@@ -2,7 +2,6 @@ import { MutableRefObject } from 'react'
 import { kea } from 'kea'
 import type { seekbarLogicType } from './seekbarLogicType'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { clamp } from 'lib/utils'
 import { PlayerPosition, SessionRecordingPlayerProps } from '~/types'
 
@@ -24,8 +23,6 @@ export const seekbarLogic = kea<seekbarLogicType>({
         values: [
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['sessionPlayerData', 'currentPlayerPosition'],
-            sessionRecordingDataLogic({ sessionRecordingId }),
-            ['eventsToShow'],
         ],
         actions: [
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),

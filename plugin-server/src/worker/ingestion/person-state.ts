@@ -13,9 +13,9 @@ import { status } from '../../utils/status'
 import { NoRowsUpdatedError, UUIDT } from '../../utils/utils'
 import { LazyPersonContainer } from './lazy-person-container'
 import { PersonManager } from './person-manager'
+import { captureIngestionWarning } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
-
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
 const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
@@ -31,7 +31,7 @@ const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
     'false',
 ])
 
-const CASE_SENSITIVE_ILLEGAL_IDS = new Set(['[object Object]', 'NaN', 'None', 'none', 'null', '0'])
+const CASE_SENSITIVE_ILLEGAL_IDS = new Set(['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined'])
 
 const isDistinctIdIllegal = (id: string): boolean => {
     return id.trim() === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
@@ -260,18 +260,19 @@ export class PersonState {
     // Alias & merge
 
     async handleIdentifyOrAlias(): Promise<void> {
-        if (isDistinctIdIllegal(this.distinctId)) {
-            this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId: this.distinctId })
-            return
-        }
-
         const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
         try {
-            if (this.event.event === '$create_alias') {
-                await this.merge(this.eventProperties['alias'], this.distinctId, this.teamId, this.timestamp, false)
+            if (this.event.event === '$create_alias' && this.eventProperties['alias']) {
+                await this.merge(
+                    String(this.eventProperties['alias']),
+                    this.distinctId,
+                    this.teamId,
+                    this.timestamp,
+                    false
+                )
             } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
                 await this.merge(
-                    this.eventProperties['$anon_distinct_id'],
+                    String(this.eventProperties['$anon_distinct_id']),
                     this.distinctId,
                     this.teamId,
                     this.timestamp,
@@ -294,6 +295,22 @@ export class PersonState {
     ): Promise<void> {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (distinctId === previousDistinctId) {
+            return
+        }
+        if (isDistinctIdIllegal(distinctId)) {
+            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: distinctId })
+            captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
+                illegalDistinctId: distinctId,
+                otherDistinctId: previousDistinctId,
+            })
+            return
+        }
+        if (isDistinctIdIllegal(previousDistinctId)) {
+            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: previousDistinctId })
+            captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
+                illegalDistinctId: previousDistinctId,
+                otherDistinctId: distinctId,
+            })
             return
         }
         await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall)
@@ -397,6 +414,10 @@ export class PersonState {
 
             if (isIdentifyCallToMergeAnIdentifiedUser) {
                 status.warn('🤔', 'refused to merge an already identified user via an $identify call')
+                captureIngestionWarning(this.db, teamId, 'cannot_merge_already_identified', {
+                    sourcePersonDistinctId: previousDistinctId,
+                    targetPersonDistinctId: distinctId,
+                })
                 this.updateIsIdentified = shouldIdentifyPerson
             } else {
                 await this.mergePeople({

@@ -76,3 +76,16 @@ export const Sizes: ComponentStory<typeof LemonBadge> = () => {
         </div>
     )
 }
+
+export const Status: ComponentStory<typeof LemonBadge> = () => {
+    return (
+        <div className="flex space-x-2 items-center">
+            <span>primary:</span>
+            <LemonBadge count={4} status="primary" />
+            <span>danger:</span>
+            <LemonBadge count={4} status="danger" />
+            <span>muted:</span>
+            <LemonBadge count={4} status="muted" />
+        </div>
+    )
+}

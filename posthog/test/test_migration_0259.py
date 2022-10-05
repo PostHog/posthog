@@ -1,10 +1,14 @@
+import pytest
+
 from posthog.test.base import TestMigrations
+
+pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class RecordingDomainMigrationTestCase(TestMigrations):
 
-    migrate_from = "0258_team_recording_domains"  # type: ignore
-    migrate_to = "0259_backfill_team_recording_domains"  # type: ignore
+    migrate_from = "0258_team_recording_domains"
+    migrate_to = "0259_backfill_team_recording_domains"
     assert_snapshots = True
 
     def setUpBeforeMigration(self, apps):
@@ -47,7 +51,7 @@ class RecordingDomainMigrationTestCase(TestMigrations):
             app_urls=["jamaican me crazy", "test.com", "http://", "", "https://test.example.com"],
         )
 
-    def test_backfill_primary_dashboard(self):
+    def test_backfill_recording_domain(self):
         Team = self.apps.get_model("posthog", "Team")  # type: ignore
 
         # CASE 1:

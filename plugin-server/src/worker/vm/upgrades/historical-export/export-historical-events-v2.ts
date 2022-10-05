@@ -42,7 +42,6 @@ import {
 import { processError } from '../../../../utils/db/error'
 import { isTestEnv } from '../../../../utils/env-utils'
 import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
-import { TimestampBoundaries } from '../utils/utils'
 
 const TEN_MINUTES = 1000 * 60 * 10
 const TWELVE_HOURS = 1000 * 60 * 60 * 12
@@ -51,18 +50,13 @@ export const EVENTS_PER_RUN = 500
 export const EXPORT_PARAMETERS_KEY = 'EXPORT_PARAMETERS'
 export const EXPORT_COORDINATION_KEY = 'EXPORT_COORDINATION'
 
-const INTERFACE_JOB_NAME = 'Export historical events V2'
+export const INTERFACE_JOB_NAME = 'Export historical events V2'
 
-const JOB_SPEC: JobSpec = {
+export const JOB_SPEC: JobSpec = {
     payload: {
-        dateFrom: {
-            title: 'Export start date',
-            type: 'date',
-            required: true,
-        },
-        dateTo: {
-            title: 'Export end date',
-            type: 'date',
+        dateRange: {
+            title: 'Export date range',
+            type: 'daterange',
             required: true,
         },
         parallelism: {
@@ -76,7 +70,7 @@ const JOB_SPEC: JobSpec = {
 
 export interface TestFunctions {
     exportHistoricalEvents: (payload: ExportHistoricalEventsJobPayload) => Promise<void>
-    getTimestampBoundaries: (payload: ExportHistoricalEventsUIPayload) => TimestampBoundaries
+    getTimestampBoundaries: (payload: ExportHistoricalEventsUIPayload) => [ISOTimestamp, ISOTimestamp]
     nextCursor: (payload: ExportHistoricalEventsJobPayload, eventCount: number) => OffsetParams
     coordinateHistoricalExport: (update?: CoordinationUpdate) => Promise<void>
     calculateCoordination: (
@@ -111,7 +105,7 @@ export interface ExportHistoricalEventsJobPayload {
     retriesPerformedSoFar: number
 
     // used for ensuring only one "export task" is running if the server restarts
-    exportId: number
+    exportId: string | number
 
     // Time frame to fetch events for.
     fetchTimeInterval: number
@@ -123,14 +117,14 @@ export interface ExportHistoricalEventsJobPayload {
 type OffsetParams = Pick<ExportHistoricalEventsJobPayload, 'timestampCursor' | 'fetchTimeInterval' | 'offset'>
 
 export interface ExportHistoricalEventsUIPayload {
-    // Only set starting export from UI
+    dateRange: [string, string]
     parallelism?: number
-    dateFrom: string
-    dateTo: string
+    // API-generated token
+    $job_id?: string
 }
 
 export interface ExportParams {
-    id: number
+    id: string | number
     parallelism: number
     dateFrom: ISOTimestamp
     dateTo: ISOTimestamp
@@ -168,7 +162,11 @@ export function addHistoricalEventsExportCapabilityV2(
 
     const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
 
-    if (!(INTERFACE_JOB_NAME in currentPublicJobs)) {
+    // If public job hasn't been registered or has changed, update it!
+    if (
+        Object.keys(currentPublicJobs[INTERFACE_JOB_NAME]?.payload || {}).length !=
+        Object.keys(JOB_SPEC.payload!).length
+    ) {
         hub.promiseManager.trackPromise(
             hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, JOB_SPEC)
         )
@@ -192,23 +190,20 @@ export function addHistoricalEventsExportCapabilityV2(
             // Clear old (conflicting) storage
             await meta.storage.del(EXPORT_COORDINATION_KEY)
 
-            const id = Math.floor(Math.random() * 10000 + 1)
+            const id = payload.$job_id || String(Math.floor(Math.random() * 10000 + 1))
             const parallelism = Number(payload.parallelism ?? 1)
-            const boundaries = getTimestampBoundaries(payload)
+            const [dateFrom, dateTo] = getTimestampBoundaries(payload)
 
             await meta.storage.set(EXPORT_PARAMETERS_KEY, {
                 id,
                 parallelism,
-                dateFrom: boundaries.min.toISOString(),
-                dateTo: boundaries.max.toISOString(),
+                dateFrom,
+                dateTo,
             } as ExportParams)
 
-            createLog(
-                `Starting export ${boundaries.min.toISOString()} - ${boundaries.max.toISOString()}. id=${id}, parallelism=${parallelism}`,
-                {
-                    type: PluginLogEntryType.Info,
-                }
-            )
+            createLog(`Starting export ${dateFrom} - ${dateTo}. id=${id}, parallelism=${parallelism}`, {
+                type: PluginLogEntryType.Info,
+            })
 
             await coordinateHistoricalExport()
         },
@@ -318,6 +313,10 @@ export function addHistoricalEventsExportCapabilityV2(
             }
 
             if (dateStatus && shouldResume(dateStatus, now)) {
+                // :TODO: Temporary debugging code
+                createLog(`toResume found: now=${now}, dateStatus=${JSON.stringify(dateStatus)}`, {
+                    type: PluginLogEntryType.Debug,
+                })
                 hasChanges = true
                 toResume.push(dateStatus)
             }
@@ -384,20 +383,20 @@ export function addHistoricalEventsExportCapabilityV2(
                 type: PluginLogEntryType.Debug,
             })
             await meta.storage.set(payload.statusKey, {
+                ...payload,
                 done: true,
                 progress: 1,
                 statusTime: Date.now(),
-                ...payload,
             } as ExportChunkStatus)
 
             return
         }
 
         await meta.storage.set(payload.statusKey, {
+            ...payload,
             done: false,
             progress: (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime),
             statusTime: Date.now(),
-            ...payload,
         } as ExportChunkStatus)
 
         let events: PluginEvent[] = []
@@ -485,17 +484,18 @@ export function addHistoricalEventsExportCapabilityV2(
         createLog(message, logOverrides)
     }
 
-    function getTimestampBoundaries(payload: ExportHistoricalEventsUIPayload): TimestampBoundaries {
-        const min = new Date(payload.dateFrom)
-        const max = new Date(payload.dateTo)
+    function getTimestampBoundaries(payload: ExportHistoricalEventsUIPayload): [ISOTimestamp, ISOTimestamp] {
+        const min = DateTime.fromISO(payload.dateRange[0], { zone: 'UTC' })
+        // :TRICKY: UI shows the end date to be inclusive
+        const max = DateTime.fromISO(payload.dateRange[1], { zone: 'UTC' }).plus({ days: 1 })
 
-        if (isNaN(min.getTime()) || isNaN(max.getTime())) {
-            createLog(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`, {
+        if (!min.isValid || !max.isValid) {
+            createLog(`'dateRange' should be two dates in ISO string format.`, {
                 type: PluginLogEntryType.Error,
             })
-            throw new Error(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`)
+            throw new Error(`'dateRange' should be two dates in ISO string format.`)
         }
-        return { min, max }
+        return [min.toISO(), max.toISO()] as [ISOTimestamp, ISOTimestamp]
     }
 
     function retryDelaySeconds(retriesPerformedSoFar: number): number {
