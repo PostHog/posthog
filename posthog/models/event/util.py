@@ -386,6 +386,22 @@ def get_event_count_for_team(team_id: Union[str, int]) -> int:
     return result
 
 
+def get_event_count_with_groups_count_for_team_and_period(
+    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
+) -> int:
+    result = sync_execute(
+        """
+        SELECT count(1) as count
+        FROM events
+        WHERE team_id IN (%(team_id)s)
+        AND timestamp between %(begin)s AND %(end)s
+        AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
+    """,
+        {"team_id": team_id, "begin": begin, "end": end},
+    )[0][0]
+    return result
+
+
 def get_event_count() -> int:
     result = sync_execute(
         """
