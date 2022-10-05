@@ -18,6 +18,10 @@ jobs:
         outputs:
             docker_image_id: ${{ steps.docker_build.outputs.imageid }}
 
+        permissions:
+            contents: read
+            id-token: write
+
         steps:
             - name: Checkout PR branch
               uses: actions/checkout@v2
