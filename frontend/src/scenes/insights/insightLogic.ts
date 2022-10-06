@@ -37,7 +37,6 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { insightsModel } from '~/models/insightsModel'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -414,9 +413,9 @@ export const insightLogic = kea<insightLogicType>({
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                 // TODO when is this called without changes originating in this logic
-                const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
+                const targetDashboards = (item.dashboards || []).concat(extraDashboardIds || [])
                 const updateIsForThisDashboard =
-                    item?.short_id === state.short_id &&
+                    item.short_id === state.short_id &&
                     props.dashboardId &&
                     targetDashboards.includes(props.dashboardId)
                 if (updateIsForThisDashboard) {
@@ -424,12 +423,6 @@ export const insightLogic = kea<insightLogicType>({
                 } else {
                     return state
                 }
-            },
-            [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
-                if (item.id === state.id) {
-                    return { ...state, name: item.name }
-                }
-                return state
             },
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
@@ -855,7 +848,7 @@ export const insightLogic = kea<insightLogicType>({
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-            const { name, description, favorited, filters, deleted, dashboards, tags } = values.insight
+            const { name, description, favorited, filters, deleted, color, dashboards, tags } = values.insight
             let savedInsight: InsightModel
 
             try {
@@ -871,7 +864,7 @@ export const insightLogic = kea<insightLogicType>({
                     throw error
                 }
 
-                // We don't want to send ALL the insight properties back to the API, so only grabbing fields that might have changed
+                // We don't want to send ALL of the insight back to the API, so only grabbing fields that might have changed
                 const insightRequest: Partial<InsightModel> = {
                     name,
                     derived_name: values.derivedName,
@@ -880,6 +873,7 @@ export const insightLogic = kea<insightLogicType>({
                     filters,
                     deleted,
                     saved: true,
+                    color,
                     dashboards,
                     tags,
                 }

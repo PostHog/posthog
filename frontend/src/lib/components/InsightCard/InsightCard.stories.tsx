@@ -23,7 +23,24 @@ const EXAMPLE_TRENDS: InsightModel = {
     filters_hash: 'cache_10242f26e25fd30ec2c9721e4f90a018',
     deleted: false,
     dashboards: [1],
+    layouts: {
+        sm: {
+            h: 5,
+            w: 6,
+            x: 0,
+            y: 0,
+        },
+        xs: {
+            h: 5,
+            w: 1,
+            x: 0,
+            y: 0,
+            moved: false,
+            static: false,
+        },
+    },
     order: 0,
+    color: null,
     last_refresh: '2021-12-14T12:57:57.125157Z',
     refreshing: false,
     result: [
@@ -217,6 +234,8 @@ const EXAMPLE_FUNNEL: InsightModel = {
     order: 1,
     deleted: false,
     dashboards: [6],
+    layouts: {},
+    color: null,
     last_refresh: null,
     refreshing: false,
     result: [
@@ -315,8 +334,8 @@ export const InsightCard: Story = (args) => {
                         ...EXAMPLE_TRENDS,
                         name: args.insightName,
                         description: args.insightDescription,
+                        color: insightColor,
                     }}
-                    ribbonColor={insightColor}
                     loading={args.loading}
                     apiErrored={args.apiErrored}
                     highlighted={args.highlighted}

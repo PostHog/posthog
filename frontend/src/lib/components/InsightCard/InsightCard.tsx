@@ -16,7 +16,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     ChartDisplayType,
     ChartParams,
-    DashboardTile,
     DashboardType,
     ExporterFormat,
     FilterType,
@@ -148,8 +147,7 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     showDetailsControls?: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
-    ribbonColor?: InsightColor | null
-    updateColor?: (newColor: DashboardTile['color']) => void
+    updateColor?: (newColor: InsightModel['color']) => void
     removeFromDashboard?: () => void
     deleteWithUndo?: () => void
     refresh?: () => void
@@ -162,7 +160,6 @@ interface InsightMetaProps
     extends Pick<
         InsightCardProps,
         | 'insight'
-        | 'ribbonColor'
         | 'updateColor'
         | 'removeFromDashboard'
         | 'deleteWithUndo'
@@ -185,7 +182,6 @@ interface InsightMetaProps
 
 function InsightMeta({
     insight,
-    ribbonColor,
     dashboardId,
     updateColor,
     removeFromDashboard,
@@ -200,7 +196,7 @@ function InsightMeta({
     showEditingControls = true,
     showDetailsControls = true,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, description, tags, filters, dashboards } = insight
+    const { short_id, name, description, tags, color, filters, dashboards } = insight
     const { exporterResourceParams, insightProps } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -246,10 +242,10 @@ function InsightMeta({
             {(transitionState) => (
                 <div className="InsightMeta" style={transitionStyles[transitionState]}>
                     <div className="InsightMeta__primary" ref={primaryRef}>
-                        {ribbonColor &&
-                            ribbonColor !==
+                        {color &&
+                            color !==
                                 InsightColor.White /* White has historically meant no color synonymously to null */ && (
-                                <div className={clsx('InsightMeta__ribbon', ribbonColor)} />
+                                <div className={clsx('InsightMeta__ribbon', color)} />
                             )}
                         <div className="InsightMeta__main">
                             <div className="InsightMeta__top">
@@ -308,7 +304,7 @@ function InsightMeta({
                                                                             key={availableColor}
                                                                             active={
                                                                                 availableColor ===
-                                                                                (ribbonColor || InsightColor.White)
+                                                                                (color || InsightColor.White)
                                                                             }
                                                                             status="stealth"
                                                                             onClick={() => updateColor(availableColor)}
@@ -540,7 +536,6 @@ function InsightCardInternal(
     {
         insight,
         dashboardId,
-        ribbonColor,
         loading,
         apiErrored,
         timedOut,
@@ -608,7 +603,6 @@ function InsightCardInternal(
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightMeta
                     insight={insight}
-                    ribbonColor={ribbonColor}
                     dashboardId={dashboardId}
                     updateColor={updateColor}
                     removeFromDashboard={removeFromDashboard}

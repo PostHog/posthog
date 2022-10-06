@@ -201,6 +201,8 @@ const insightActionsMapping: Record<
     created_at: () => null,
     created_by: () => null,
     filters_hash: () => null,
+    layouts: () => null,
+    color: () => null,
     refreshing: () => null,
     updated_at: () => null,
     last_modified_at: () => null,

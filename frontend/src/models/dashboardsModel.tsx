@@ -5,7 +5,7 @@ import { delay, idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import type { dashboardsModelType } from './dashboardsModelType'
-import { DashboardType, InsightShortId, DashboardTile, InsightModel } from '~/types'
+import { InsightModel, DashboardType, InsightShortId } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/components/lemonToast'
@@ -22,12 +22,8 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // can provide extra dashboard ids if not all listeners will choose to respond to this action
         // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
         // specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
-        updateDashboardInsight: (insight: InsightModel, extraDashboardIds?: number[]) => ({
-            insight,
-            extraDashboardIds,
-        }),
-        updateDashboardTile: (tile: DashboardTile, extraDashboardIds?: number[]) => ({
-            tile,
+        updateDashboardInsight: (item: InsightModel, extraDashboardIds?: number[]) => ({
+            item,
             extraDashboardIds,
         }),
         // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
@@ -49,7 +45,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
             name: name || `#${id}`,
             show: show || false,
         }),
-        tileMovedToDashboard: (tile: DashboardTile, dashboardId: number) => ({ tile, dashboardId }),
     }),
     loaders: ({ values, actions }) => ({
         rawDashboards: [
@@ -58,7 +53,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 loadDashboards: async (_, breakpoint) => {
                     // looking at a fully exported dashboard, return its contents
                     const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
-                    if (exportedDashboard?.id && exportedDashboard?.tiles) {
+                    if (exportedDashboard?.id && exportedDashboard?.items) {
                         return { [exportedDashboard.id]: exportedDashboard }
                     }
 
