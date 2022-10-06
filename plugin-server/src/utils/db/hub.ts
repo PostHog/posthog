@@ -212,7 +212,7 @@ export async function createHub(
         new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
     )
     const teamManager = new TeamManager(db, serverConfig, statsd)
-    const organizationManager = new OrganizationManager(db)
+    const organizationManager = new OrganizationManager(db, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
