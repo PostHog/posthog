@@ -25,7 +25,6 @@ from posthog.models.event.util import get_event_count_for_team_and_period
 from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
 from posthog.models.team.team import Team
 from posthog.settings import BILLING_USAGE_CACHING_TTL
-from posthog.utils import get_previous_day
 
 UNLICENSED_BILLING_RESPONSE: Any = {"subscription_url": None, "products": None, "custom_limits": {}}
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
