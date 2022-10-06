@@ -2,7 +2,7 @@ import datetime
 import json
 from typing import Any, Dict, List, Optional, cast
 
-from django.db.models import Prefetch, QuerySet
+from django.db.models import Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from drf_spectacular.utils import extend_schema
@@ -303,7 +303,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                 Prefetch(
                     "tiles",
                     queryset=DashboardTile.objects.select_related("insight", "text")
-                    .filter(insight__deleted=False)
+                    .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
                     .prefetch_related("insight__dashboards__team__organization", "insight__created_by")
                     .order_by("insight__order"),
                 )
