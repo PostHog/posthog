@@ -330,6 +330,11 @@ export class PersonState {
             return
         }
 
+        // The first distinct_id that is used in identify or alias (not the alias_id nor anon_id)
+        // cannot be used as alias_id nor anon_id in the future.
+        // Specifically we block merges on anon_id (and soon alias_id) being identified person already.
+        this.updateIsIdentified = true
+
         const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
         // :TRICKY: Reduce needless lookups for person
         const newPerson = await this.personContainer.get()
@@ -338,7 +343,6 @@ export class PersonState {
             try {
                 await this.db.addDistinctId(oldPerson, distinctId)
                 this.personContainer = this.personContainer.with(oldPerson)
-                this.updateIsIdentified = isIdentifyCall
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -350,7 +354,6 @@ export class PersonState {
         } else if (!oldPerson && newPerson) {
             try {
                 await this.db.addDistinctId(newPerson, previousDistinctId)
-                this.updateIsIdentified = isIdentifyCall
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -367,7 +370,7 @@ export class PersonState {
                     this.eventProperties['$set_once'] || {},
                     teamId,
                     null,
-                    isIdentifyCall,
+                    true,
                     this.newUuid,
                     [distinctId, previousDistinctId]
                 )
@@ -394,7 +397,6 @@ export class PersonState {
             })
             if (isIdentifyCallToMergeAnIdentifiedUser) {
                 status.warn('🤔', 'refused to merge an already identified user via an $identify call')
-                this.updateIsIdentified = isIdentifyCall
                 captureIngestionWarning(this.db, teamId, 'cannot_merge_already_identified', {
                     sourcePersonDistinctId: previousDistinctId,
                     targetPersonDistinctId: distinctId,
@@ -410,8 +412,6 @@ export class PersonState {
                     timestamp: timestamp,
                 })
             }
-        } else {
-            this.updateIsIdentified = isIdentifyCall
         }
     }
 
@@ -464,7 +464,7 @@ export class PersonState {
                     {
                         created_at: firstSeen,
                         properties: this.updatedPersonProperties(mergeInto.properties),
-                        is_identified: mergeInto.is_identified || otherPerson.is_identified || shouldIdentifyPerson,
+                        is_identified: true,
                     },
                     client
                 )
