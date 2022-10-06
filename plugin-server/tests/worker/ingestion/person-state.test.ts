@@ -79,9 +79,8 @@ describe('PersonState.update()', () => {
         return (await hub.db.clickhouseQuery(query)).data
     }
 
-    async function fetchDistinctIdsRowsWithVersion1() {
-        const query = `SELECT * FROM person_distinct_id2 FINAL WHERE team_id = ${teamId} AND version = 1`
-        return (await hub.db.clickhouseQuery(query)).data
+    async function fetchDistinctIdsClickhouse(person: Person) {
+        return hub.db.fetchDistinctIdValues(person, Database.ClickHouse)
     }
 
     describe('on person creation', () => {
@@ -738,8 +737,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(fetchDistinctIdsRowsWithVersion1)
-            const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(persons[0], Database.ClickHouse)
+            const clickHouseDistinctIds = await delayUntilEventIngested(() => fetchDistinctIdsClickhouse(persons[0]), 2)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -798,8 +796,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(fetchDistinctIdsRowsWithVersion1)
-            const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(persons[0], Database.ClickHouse)
+            const clickHouseDistinctIds = await delayUntilEventIngested(() => fetchDistinctIdsClickhouse(persons[0]))
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -958,8 +955,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(fetchDistinctIdsRowsWithVersion1)
-            const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(persons[0], Database.ClickHouse)
+            const clickHouseDistinctIds = await delayUntilEventIngested(() => fetchDistinctIdsClickhouse(persons[0]))
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1049,8 +1045,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(fetchDistinctIdsRowsWithVersion1)
-            const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(persons[0], Database.ClickHouse)
+            const clickHouseDistinctIds = await delayUntilEventIngested(() => fetchDistinctIdsClickhouse(persons[0]))
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1103,8 +1098,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(fetchDistinctIdsRowsWithVersion1)
-            const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(persons[0], Database.ClickHouse)
+            const clickHouseDistinctIds = await delayUntilEventIngested(() => fetchDistinctIdsClickhouse(persons[0]))
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1155,8 +1149,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(fetchDistinctIdsRowsWithVersion1)
-            const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(persons[0], Database.ClickHouse)
+            const clickHouseDistinctIds = await delayUntilEventIngested(() => fetchDistinctIdsClickhouse(persons[0]))
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1207,8 +1200,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(fetchDistinctIdsRowsWithVersion1)
-            const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(persons[0], Database.ClickHouse)
+            const clickHouseDistinctIds = await delayUntilEventIngested(() => fetchDistinctIdsClickhouse(persons[0]))
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1267,8 +1259,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(fetchDistinctIdsRowsWithVersion1)
-            const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(persons[0], Database.ClickHouse)
+            const clickHouseDistinctIds = await delayUntilEventIngested(() => fetchDistinctIdsClickhouse(persons[0]))
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1327,8 +1318,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(fetchDistinctIdsRowsWithVersion1)
-            const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(persons[0], Database.ClickHouse)
+            const clickHouseDistinctIds = await delayUntilEventIngested(() => fetchDistinctIdsClickhouse(persons[0]))
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1388,8 +1378,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(fetchDistinctIdsRowsWithVersion1)
-            const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(persons[0], Database.ClickHouse)
+            const clickHouseDistinctIds = await delayUntilEventIngested(() => fetchDistinctIdsClickhouse(persons[0]))
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1449,8 +1438,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(fetchDistinctIdsRowsWithVersion1)
-            const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(persons[0], Database.ClickHouse)
+            const clickHouseDistinctIds = await delayUntilEventIngested(() => fetchDistinctIdsClickhouse(persons[0]))
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
