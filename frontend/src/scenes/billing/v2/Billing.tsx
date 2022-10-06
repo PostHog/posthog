@@ -212,26 +212,24 @@ const BillingProduct = ({
                     tooltip: (
                         <>
                             <b>Free tier limit</b>
-                            {!billing?.stripe_portal_url ? <div>With subscription</div> : null}
+                            {!billing?.stripe_portal_url ? <div>(With subscription)</div> : null}
                         </>
                     ),
                     color: billing?.stripe_portal_url ? 'success-light' : 'danger-light',
                     value: product.tiers?.[0]?.up_to || 0,
                     top: true,
-                    // Background
                 },
                 !billing?.stripe_portal_url
                     ? {
                           tooltip: (
                               <>
                                   <b>Free tier limit</b>
-                                  <div>Without subscription</div>
+                                  <div>(Without subscription)</div>
                               </>
                           ),
                           color: 'success-light',
                           value: product.free_allocation,
                           top: true,
-                          // Background
                       }
                     : (undefined as any),
                 {
@@ -243,7 +241,6 @@ const BillingProduct = ({
                     color: 'success',
                     value: product.current_usage || 0,
                     top: false,
-                    // Foreground
                 },
                 projectedUsage && projectedUsage > (product.current_usage || 0)
                     ? {
@@ -255,7 +252,6 @@ const BillingProduct = ({
                           color: 'border',
                           value: projectedUsage || 0,
                           top: false,
-                          // Background
                       }
                     : undefined,
                 billingLimitAsUsage

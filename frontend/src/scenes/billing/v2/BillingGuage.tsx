@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { Tooltip } from 'lib/components/Tooltip'
 import { compactNumber } from 'lib/utils'
 import React, { useEffect, useMemo, useState } from 'react'
 import './BillingGuage.scss'
@@ -20,14 +21,16 @@ const BillingGuageItem = ({ width, className, tooltip, top, value }: BillingGuag
             }}
         >
             <div className="absolute right-0 w-px h-full bg-light" />
-            <div
-                className={clsx('BillingGuageItem__info', {
-                    'BillingGuageItem__info--bottom': !top,
-                })}
-            >
-                {tooltip}
-                <div>{compactNumber(value)}</div>
-            </div>
+            <Tooltip title={value.toLocaleString()} placement={'right'}>
+                <div
+                    className={clsx('BillingGuageItem__info', {
+                        'BillingGuageItem__info--bottom': !top,
+                    })}
+                >
+                    {tooltip}
+                    <div>{compactNumber(value)}</div>
+                </div>
+            </Tooltip>
         </div>
     )
 }
