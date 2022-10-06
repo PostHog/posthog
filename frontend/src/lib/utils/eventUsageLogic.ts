@@ -644,21 +644,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 pinned,
                 creation_mode,
                 sample_items_count: 0,
-                item_count: dashboard.tiles?.length || 0,
+                item_count: dashboard.items?.length || 0,
                 created_by_system: !dashboard.created_by,
                 dashboard_id: id,
                 lastRefreshed: lastRefreshed?.toISOString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
             }
 
-            for (const item of dashboard.tiles || []) {
-                const key = `${item.insight.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
+            for (const item of dashboard.items || []) {
+                const key = `${item.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                 if (!properties[key]) {
                     properties[key] = 1
                 } else {
                     properties[key] += 1
                 }
-                properties.sample_items_count += item.insight.is_sample ? 1 : 0
+                properties.sample_items_count += item.is_sample ? 1 : 0
             }
 
             const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility

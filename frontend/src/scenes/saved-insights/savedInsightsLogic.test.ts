@@ -6,10 +6,6 @@ import { combineUrl, router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { useMocks } from '~/mocks/jest'
-import api from 'lib/api'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-
-jest.spyOn(api, 'create')
 
 const createInsight = (id: number, string = 'hi'): InsightModel =>
     ({
@@ -50,12 +46,6 @@ describe('savedInsightsLogic', () => {
                 ],
                 '/api/projects/:team/insights/42': createInsight(42),
                 '/api/projects/:team/insights/123': createInsight(123),
-            },
-            post: {
-                '/api/projects/:team/insights/': (req) => [
-                    200,
-                    createSavedInsights(req.url.searchParams.get('search') ?? ''),
-                ],
             },
         })
         initKeaTests()
@@ -169,26 +159,5 @@ describe('savedInsightsLogic', () => {
                 hashParams: { filters: partial({ insight: InsightType.FUNNELS }) },
             })
         })
-    })
-
-    it('can duplicate using derived name', async () => {
-        const sourceInsight = createInsight(123, 'hello')
-        sourceInsight.name = ''
-        sourceInsight.derived_name = 'should be copied'
-        await logic.actions.duplicateInsight(sourceInsight)
-        expect(api.create).toHaveBeenCalledWith(
-            `api/projects/${MOCK_TEAM_ID}/insights`,
-            expect.objectContaining({ name: 'should be copied (copy)' })
-        )
-    })
-    it('can duplicate using name', async () => {
-        const sourceInsight = createInsight(123, 'hello')
-        sourceInsight.name = 'should be copied'
-        sourceInsight.derived_name = ''
-        await logic.actions.duplicateInsight(sourceInsight)
-        expect(api.create).toHaveBeenCalledWith(
-            `api/projects/${MOCK_TEAM_ID}/insights`,
-            expect.objectContaining({ name: 'should be copied (copy)' })
-        )
     })
 })
