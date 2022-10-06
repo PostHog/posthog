@@ -112,10 +112,6 @@ describe('PersonState.update()', () => {
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
-            expect(clickhouseRows.length).toEqual(1)
         })
 
         it('handles person being created in a race condition', async () => {
@@ -153,10 +149,6 @@ describe('PersonState.update()', () => {
             expect(personContainer.loaded).toEqual(false)
             expect(persons[0]).toEqual(await personContainer.get())
             expect(await personContainer.get()).toEqual(racePerson)
-
-            // Make sure Kafka messages are processed before CH db reset
-            const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
-            expect(clickhouseRows.length).toEqual(1)
         })
 
         it('handles person already being created by time `createPerson` is called', async () => {
@@ -195,10 +187,6 @@ describe('PersonState.update()', () => {
             expect(personContainer.loaded).toEqual(false)
             expect(persons[0]).toEqual(await personContainer.get())
             expect(await personContainer.get()).toEqual(racePerson)
-
-            // Make sure Kafka messages are processed before CH db reset
-            const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
-            expect(clickhouseRows.length).toEqual(1)
         })
 
         it('creates person with properties', async () => {
@@ -236,10 +224,6 @@ describe('PersonState.update()', () => {
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
-            expect(clickhouseRows.length).toEqual(1)
         })
     })
 
@@ -278,10 +262,6 @@ describe('PersonState.update()', () => {
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
-            expect(clickhouseRows.length).toEqual(1)
         })
 
         it('updating with cached person data skips checking if person is new', async () => {
@@ -329,10 +309,6 @@ describe('PersonState.update()', () => {
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
-            expect(clickhouseRows.length).toEqual(1)
         })
 
         it('does not update person if not needed', async () => {
@@ -369,10 +345,6 @@ describe('PersonState.update()', () => {
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
-            expect(clickhouseRows.length).toEqual(1)
         })
     })
 
@@ -409,10 +381,6 @@ describe('PersonState.update()', () => {
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
-            expect(clickhouseRows.length).toEqual(1)
         })
 
         it('creates person with both distinct_ids and marks user as is_identified when $anon_distinct_id passed', async () => {
@@ -448,10 +416,6 @@ describe('PersonState.update()', () => {
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
-            expect(clickhouseRows.length).toEqual(1)
         })
 
         it('updates person properties leaves is_identified false when no change to distinct_ids', async () => {
@@ -489,10 +453,6 @@ describe('PersonState.update()', () => {
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
-            expect(clickhouseRows.length).toEqual(1)
         })
 
         it('marks user as is_identified when no change to distinct_ids when $anon_distinct_id passed', async () => {
@@ -523,10 +483,6 @@ describe('PersonState.update()', () => {
                     is_identified: true,
                 })
             )
-
-            // Make sure Kafka messages are processed before CH db reset
-            const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
-            expect(clickhouseRows.length).toEqual(1)
         })
 
         it('does not update person if no change to is_identified nor properties', async () => {
@@ -564,10 +520,6 @@ describe('PersonState.update()', () => {
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
-            expect(clickhouseRows.length).toEqual(1)
         })
 
         it('add distinct id and marks user is_identified when passed $anon_distinct_id person does not exists and distinct_id does', async () => {
@@ -602,9 +554,6 @@ describe('PersonState.update()', () => {
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            await delayUntilEventIngested(fetchPersonsRows)
         })
 
         it('add distinct id and marks user as is_identified when passed $anon_distinct_id person exists and distinct_id does not', async () => {
@@ -639,9 +588,6 @@ describe('PersonState.update()', () => {
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            await delayUntilEventIngested(fetchPersonsRows)
         })
 
         it('add distinct id, marks user as is_identified and updates properties when one of the persons exists and properties are passed', async () => {
@@ -680,9 +626,6 @@ describe('PersonState.update()', () => {
 
             // verify personContainer
             expect(persons[0]).toEqual(await personContainer.get())
-
-            // Make sure Kafka messages are processed before CH db reset
-            await delayUntilEventIngested(fetchPersonsRows)
         })
 
         it('merges people and marks user as is_identified when both persons have is_identified false', async () => {
