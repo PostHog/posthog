@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0261_team_capture_console_log_opt_in"),
+        ("posthog", "0264_user_partial_notification_settings"),
     ]
 
     operations = [
