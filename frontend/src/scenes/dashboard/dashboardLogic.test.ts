@@ -280,6 +280,7 @@ describe('dashboardLogic', () => {
                 logic.actions.moveToDashboard(sourceTile, 9, 8, 'targetDashboard')
             })
                 .toFinishAllListeners()
+                .toDispatchActions(['moveToDashboardSuccess'])
                 .toMatchValues({
                     allItems: truth(({ tiles }) => {
                         return tiles.length === 0
@@ -292,6 +293,48 @@ describe('dashboardLogic', () => {
                 `api/projects/${MOCK_TEAM_ID}/dashboards/${9}/move_tile`,
                 expect.objectContaining({ tile: sourceTile, toDashboard: 8 })
             )
+        })
+
+        it('adds tile on moveToDashboardSuccess', async () => {
+            const dashboardEightlogic = dashboardLogic({ id: 8 })
+            dashboardEightlogic.mount()
+
+            await expectLogic(dashboardEightlogic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    allItems: truth(({ tiles }) => {
+                        return tiles.length === 1 && tiles[0].insight.id === 1001
+                    }),
+                })
+
+            await expectLogic(dashboardEightlogic, () => {
+                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 8)
+            }).toMatchValues({
+                allItems: truth(({ tiles }) => {
+                    return tiles.length === 2
+                }),
+            })
+        })
+
+        it('ignores tile on moveToDashboardSuccess for a different dashboard', async () => {
+            const dashboardEightlogic = dashboardLogic({ id: 8 })
+            dashboardEightlogic.mount()
+
+            await expectLogic(dashboardEightlogic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    allItems: truth(({ tiles }) => {
+                        return tiles.length === 1 && tiles[0].insight.id === 1001
+                    }),
+                })
+
+            await expectLogic(dashboardEightlogic, () => {
+                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 10)
+            }).toMatchValues({
+                allItems: truth(({ tiles }) => {
+                    return tiles.length === 1
+                }),
+            })
         })
     })
 
