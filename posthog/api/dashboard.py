@@ -323,13 +323,15 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
 
     @action(methods=["PATCH"], detail=True)
     def move_tile(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        # TODO could things be rearranged so this is  PATCH call on a resource and not a custom endpoint?
         tile = request.data["tile"]
         from_dashboard = kwargs["pk"]
         to_dashboard = request.data["toDashboard"]
         insight_id = tile["insight"]["id"]
 
-        DashboardTile.objects.get(dashboard_id=from_dashboard, insight_id=insight_id).delete()
-        DashboardTile.objects.create(dashboard_id=to_dashboard, insight_id=insight_id, layouts={}, color=tile["color"])
+        tile = DashboardTile.objects.get(dashboard_id=from_dashboard, insight_id=insight_id)
+        tile.dashboard_id = to_dashboard
+        tile.save(update_fields=["dashboard_id"])
 
         serializer = DashboardSerializer(
             Dashboard.objects.get(id=from_dashboard), context={"view": self, "request": request}
