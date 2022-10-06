@@ -23,7 +23,7 @@ import { navigationLogic } from '../navigationLogic'
 import { LicenseType, OrganizationBasicType } from '../../../types'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
-import { licenseLogic, isLicenseExpired } from '../../../scenes/billing/license/licenseLogic'
+import { licenseLogic, isLicenseExpired } from '../../../scenes/instance/Licenses/licenseLogic'
 import { identifierToHuman } from '../../../lib/utils'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
 import {
