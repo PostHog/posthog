@@ -34,18 +34,20 @@ export function TextTileModal({
     const { isTextTileSubmitting } = useValues(modalLogic)
     const { submitTextTile, resetTextTile } = useActions(modalLogic)
 
+    const handleClose = (): void => {
+        resetTextTile()
+        onClose()
+    }
+
     return (
         <LemonModal
             closable={true}
             isOpen={isOpen}
             title={''}
-            onClose={() => {
-                resetTextTile()
-                onClose()
-            }}
+            onClose={handleClose}
             footer={
                 <>
-                    <LemonButton disabled={isTextTileSubmitting} type="secondary" onClick={onClose}>
+                    <LemonButton disabled={isTextTileSubmitting} type="secondary" onClick={handleClose}>
                         Cancel
                     </LemonButton>
                     <LemonButton
