@@ -1,9 +1,13 @@
-from datetime import datetime, timedelta, timezone
-from typing import Any
+import calendar
+from datetime import datetime, time, timedelta
+from django.utils import timezone
+from typing import Any, Dict, Optional, Tuple
 
 import jwt
+import pytz
 import requests
 from django.conf import settings
+from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect
 from rest_framework import serializers, status, viewsets
@@ -17,6 +21,11 @@ from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import Organization
+from posthog.models.event.util import get_event_count_for_team_and_period
+from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
+from posthog.models.team.team import Team
+from posthog.settings import BILLING_USAGE_CACHING_TTL
+from posthog.utils import get_previous_day
 
 UNLICENSED_BILLING_RESPONSE: Any = {"subscription_url": None, "products": None, "custom_limits": {}}
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
@@ -52,6 +61,54 @@ def build_billing_token(license: License, organization_id: str):
     return encoded_jwt
 
 
+def get_this_month_date_range() -> Tuple[datetime, datetime]:
+    now = datetime.utcnow()
+    date_range: Tuple[int, int] = calendar.monthrange(now.year, now.month)
+    start_time: datetime = datetime.combine(
+        datetime(now.year, now.month, 1),
+        time.min,
+    ).replace(tzinfo=pytz.UTC)
+
+    end_time: datetime = datetime.combine(
+        datetime(now.year, now.month, date_range[1]),
+        time.max,
+    ).replace(tzinfo=pytz.UTC)
+
+    return (start_time, end_time)
+
+
+def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
+    """
+    Calculate the actual current usage for an organization - only used if a subscription does not exist
+    """
+    cache_key: str = f"org_monthly_usage_{organization.id}"
+    usage: Optional[Dict[str, int]] = cache.get(cache_key)
+
+    if usage is None:
+        teams = Team.objects.filter(organization=organization).exclude(organization__for_internal_metrics=True)
+
+        usage = {
+            "EVENTS": 0,
+            "RECORDINGS": 0,
+        }
+
+        for team in teams:
+            (start_period, end_period) = get_this_month_date_range()
+            usage["RECORDINGS"] += get_recording_count_for_team_and_period(team.id, start_period, end_period)
+            usage["EVENTS"] += get_event_count_for_team_and_period(team.id, start_period, end_period)
+
+        cache.set(
+            cache_key,
+            usage,
+            min(
+                BILLING_USAGE_CACHING_TTL,
+                (end_period - timezone.now()).total_seconds(),
+            ),
+        )
+
+    return usage
+
+
 class BillingViewset(viewsets.GenericViewSet):
     serializer_class = BillingSerializer
 
@@ -80,9 +137,13 @@ class BillingViewset(viewsets.GenericViewSet):
             if res.status_code not in (200, 404):
                 raise Exception(f"Billing service returned bad status code: {res.status_code}")
 
-        # The default response includes products but no subscription
-
+        # The default response is used if there is no subscription
         products = self._get_products()
+        calculated_usage = get_cached_current_usage(org)
+
+        for product in products:
+            if product["type"] in calculated_usage:
+                product["current_usage"] = calculated_usage[product["type"]]
 
         return Response({"subscription_url": None, "products": products, "custom_limits": {}})
 
