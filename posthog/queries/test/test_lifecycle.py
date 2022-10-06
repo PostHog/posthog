@@ -4,7 +4,8 @@ from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models import Filter
-from posthog.test.base import APIBaseTest, snapshot_clickhouse_queries
+from posthog.models.instance_setting import get_instance_setting
+from posthog.test.base import APIBaseTest, _create_event, snapshot_clickhouse_queries
 from posthog.utils import relative_date_parse
 
 
@@ -44,6 +45,67 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     ("p3", ["2020-01-12T12:00:00Z"]),
                     ("p4", ["2020-01-15T12:00:00Z"]),
                 ]
+            )
+
+            result = trends().run(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "shown_as": TRENDS_LIFECYCLE,
+                    }
+                ),
+                self.team,
+            )
+
+            self.assertLifecycleResults(
+                result,
+                [
+                    {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
+                    {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                    {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
+                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+                ],
+            )
+
+        def test_lifecycle_trend_with_zero_person_ids(self):
+            # only a person-on-event test
+            if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+                return True
+
+            self._create_events(
+                data=[
+                    (
+                        "p1",
+                        [
+                            "2020-01-11T12:00:00Z",
+                            "2020-01-12T12:00:00Z",
+                            "2020-01-13T12:00:00Z",
+                            "2020-01-15T12:00:00Z",
+                            "2020-01-17T12:00:00Z",
+                            "2020-01-19T12:00:00Z",
+                        ],
+                    ),
+                    ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                    ("p3", ["2020-01-12T12:00:00Z"]),
+                    ("p4", ["2020-01-15T12:00:00Z"]),
+                ]
+            )
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p5",
+                timestamp="2020-01-13T12:00:00Z",
+                person_id="00000000-0000-0000-0000-000000000000",
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p5",
+                timestamp="2020-01-14T12:00:00Z",
+                person_id="00000000-0000-0000-0000-000000000000",
             )
 
             result = trends().run(
