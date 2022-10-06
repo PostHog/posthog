@@ -1,5 +1,6 @@
 import posthoganalytics
 import requests
+from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import mixins, request, serializers, viewsets
@@ -10,6 +11,8 @@ from ee.models.license import License, LicenseError
 from posthog.event_usage import groups
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.settings import BILLING_V2_ENABLED
+from posthog.cloud_utils import is_cloud
 
 
 class LicenseSerializer(serializers.ModelSerializer):
@@ -57,6 +60,12 @@ class LicenseViewSet(
 ):
     queryset = License.objects.all()
     serializer_class = LicenseSerializer
+
+    def get_queryset(self) -> QuerySet:
+        if is_cloud() or BILLING_V2_ENABLED:
+            return License.objects.none()
+
+        return super().get_queryset()
 
     # TODO: Limit this to staff users only if Cloud....
 
