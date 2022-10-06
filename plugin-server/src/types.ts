@@ -279,7 +279,7 @@ export type StoredPluginMetrics = Record<string, StoredMetricMathOperations> | n
 export type PluginMetricsVmResponse = Record<string, string> | null
 
 export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date' | 'daterange'
     title?: string
     required?: boolean
     default?: any
@@ -307,6 +307,8 @@ export interface Plugin {
     source__index_ts?: string
     /** Cached source for frontend.tsx from a joined PluginSourceFile query */
     source__frontend_tsx?: string
+    /** Cached source for web.ts from a joined PluginSourceFile query */
+    source__web_ts?: string
     error?: PluginError
     from_json?: boolean
     from_web?: boolean

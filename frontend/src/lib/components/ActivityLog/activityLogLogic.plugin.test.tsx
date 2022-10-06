@@ -3,15 +3,10 @@ import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import React from 'react'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
-import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
 
 describe('the activity log logic', () => {
     describe('humanizing plugins', () => {
-        const pluginTestSetup = makeTestSetup(
-            ActivityScope.PLUGIN,
-            pluginActivityDescriber,
-            '/api/organizations/@current/plugins/activity'
-        )
+        const pluginTestSetup = makeTestSetup(ActivityScope.PLUGIN, '/api/organizations/@current/plugins/activity')
         it('can handle installation of a plugin', async () => {
             const logic = await pluginTestSetup('the installed plugin', 'installed', null)
             const actual = logic.values.humanizedActivity

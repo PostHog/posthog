@@ -329,6 +329,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "detail": {
                         "changes": None,
                         "merge": None,
+                        "trigger": None,
                         "name": "a created dashboard",
                         "short_id": response_data["short_id"],
                     },
@@ -419,6 +420,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "detail": {
                         "changes": None,
                         "merge": None,
+                        "trigger": None,
                         "name": "pageview unique users",
                         "short_id": response_data["short_id"],
                     },
@@ -478,6 +480,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                 },
                             ],
                             "merge": None,
+                            "trigger": None,
                             "name": "insight new name",
                             "short_id": short_id,
                         },
@@ -488,7 +491,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "activity": "created",
                         "scope": "Insight",
                         "item_id": str(insight_id),
-                        "detail": {"changes": None, "merge": None, "name": "insight name", "short_id": short_id},
+                        "detail": {
+                            "changes": None,
+                            "merge": None,
+                            "trigger": None,
+                            "name": "insight name",
+                            "short_id": short_id,
+                        },
                         "created_at": "2012-01-14T03:21:34Z",
                     },
                 ],
@@ -543,6 +552,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "detail": {
                         "changes": None,
                         "merge": None,
+                        "trigger": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -564,6 +574,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             }
                         ],
                         "merge": None,
+                        "trigger": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -585,6 +596,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             }
                         ],
                         "merge": None,
+                        "trigger": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },

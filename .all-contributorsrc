@@ -2142,6 +2142,51 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "krzd",
+      "name": "Adam Hani Schakaki",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1003886?v=4",
+      "profile": "https://github.com/krzd",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "msmans",
+      "name": "Mansour Behabadi",
+      "avatar_url": "https://avatars.githubusercontent.com/u/18408986?v=4",
+      "profile": "https://mathspace.co",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "gma",
+      "name": "Graham Ashton",
+      "avatar_url": "https://avatars.githubusercontent.com/u/2122?v=4",
+      "profile": "https://www.linkedin.com/in/ashtong/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "balajivenkatesh",
+      "name": "balajivenkatesh",
+      "avatar_url": "https://avatars.githubusercontent.com/u/4346757?v=4",
+      "profile": "https://github.com/balajivenkatesh",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "bytemerger",
+      "name": "Francis Onyishi",
+      "avatar_url": "https://avatars.githubusercontent.com/u/31082804?v=4",
+      "profile": "https://github.com/bytemerger",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

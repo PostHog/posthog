@@ -37,8 +37,10 @@ export function MySettings(): JSX.Element {
                 </h2>
                 <PersonalAPIKeys />
                 <Divider />
-                <h2 className="subtitle">Security and Feature Updates</h2>
-                <UpdateEmailPreferences />
+                <div id="notifications">
+                    <h2 className="subtitle">Notifications</h2>
+                    <UpdateEmailPreferences />
+                </div>
                 <Divider />
                 <h2 id="optout" className="subtitle">
                     Anonymize Data Collection

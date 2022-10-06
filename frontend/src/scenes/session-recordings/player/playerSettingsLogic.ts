@@ -9,6 +9,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     actions({
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
+        setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
     }),
     reducers({
         speed: [
@@ -23,6 +24,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setSkipInactivitySetting: (_, { skipInactivitySetting }) => skipInactivitySetting,
+            },
+        ],
+        showOnlyMatching: [
+            false,
+            {
+                setShowOnlyMatching: (_, { showOnlyMatching }) => showOnlyMatching,
             },
         ],
     }),

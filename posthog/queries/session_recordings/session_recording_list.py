@@ -355,7 +355,7 @@ class SessionRecordingList(EventQuery):
                 "matching_events": [
                     {
                         "events": [
-                            dict(zip(["timestamp", "id", "session_id", "window_id"], event)) for event in row[i + 1]
+                            dict(zip(["timestamp", "uuid", "session_id", "window_id"], event)) for event in row[i + 1]
                         ]
                     }
                     for i in range(len(default_columns), len(row), 2)

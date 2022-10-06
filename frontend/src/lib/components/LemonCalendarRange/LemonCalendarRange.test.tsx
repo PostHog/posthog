@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { render, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { getByDataAttr } from '~/test/byDataAttr'
-import { LemonCalendarRange } from 'lib/components/LemonCalendar/LemonCalendarRange'
+import { LemonCalendarRange } from 'lib/components/LemonCalendarRange/LemonCalendarRange'
 
 describe('LemonCalendarRange', () => {
     test('select various ranges', async () => {

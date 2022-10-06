@@ -57,6 +57,7 @@ export function SessionRecordingsFilters({
                                 TaxonomicFilterGroupType.EventFeatureFlags,
                                 TaxonomicFilterGroupType.Elements,
                             ]}
+                            propertyFiltersPopover
                         />
                     </div>
                     {!isPersonPage && (

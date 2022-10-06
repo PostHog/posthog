@@ -29,7 +29,7 @@ const BASE_MOCK_ANNOTATION = {
 /** ID 20 at 2022-08-10T04:00:00.000Z */
 const MOCK_ANNOTATION_ORG_SCOPED: RawAnnotationType = {
     id: 20,
-    content: 'Alpha',
+    content: 'MOCK_ANNOTATION_ORG_SCOPED',
     date_marker: '2022-08-10T04:00:00.000Z',
     dashboard_item: null,
     insight_short_id: null,
@@ -40,7 +40,7 @@ const MOCK_ANNOTATION_ORG_SCOPED: RawAnnotationType = {
 /** ID 10 at 2022-08-10T04:00:01.000Z */
 const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3: RawAnnotationType = {
     id: 10,
-    content: 'Alpha',
+    content: 'MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3',
     date_marker: '2022-08-10T04:00:01.000Z', // A second after MOCK_ANNOTATION_ORG_SCOPED
     dashboard_item: 3,
     insight_short_id: 'xxxxxx' as InsightShortId,
@@ -51,7 +51,7 @@ const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3: RawAnnotationType = {
 /** ID 17 at 2022-08-10T04:01:00.000Z */
 const MOCK_ANNOTATION_PROJECT_SCOPED: RawAnnotationType = {
     id: 17,
-    content: 'Beta',
+    content: 'MOCK_ANNOTATION_PROJECT_SCOPED',
     date_marker: '2022-08-10T04:01:00.000Z', // A minute after MOCK_ANNOTATION_ORG_SCOPED
     dashboard_item: null,
     insight_short_id: null,
@@ -62,7 +62,7 @@ const MOCK_ANNOTATION_PROJECT_SCOPED: RawAnnotationType = {
 /** ID 19 at 2022-08-10T05:00:00.000Z */
 const MOCK_ANNOTATION_INSIGHT_1_SCOPED: RawAnnotationType = {
     id: 19,
-    content: 'Theta',
+    content: 'MOCK_ANNOTATION_INSIGHT_1_SCOPED',
     date_marker: '2022-08-10T05:00:00.000Z', // An hour after MOCK_ANNOTATION_ORG_SCOPED
     dashboard_item: 1,
     insight_short_id: MOCK_INSIGHT_SHORT_ID,
@@ -73,7 +73,7 @@ const MOCK_ANNOTATION_INSIGHT_1_SCOPED: RawAnnotationType = {
 /** ID 20 at 2022-08-11T04:00:00.000Z */
 const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1: RawAnnotationType = {
     id: 20,
-    content: 'Theta',
+    content: 'MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1',
     date_marker: '2022-08-11T04:00:00.000Z', // A day after MOCK_ANNOTATION_ORG_SCOPED
     dashboard_item: MOCK_INSIGHT_NUMERIC_ID,
     insight_short_id: MOCK_INSIGHT_SHORT_ID,
@@ -84,7 +84,7 @@ const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1: RawAnnotationType = {
 /** ID 21 at 2022-08-17T04:00:00.000Z */
 const MOCK_ANNOTATION_INSIGHT_3_SCOPED: RawAnnotationType = {
     id: 21,
-    content: 'Omega',
+    content: 'MOCK_ANNOTATION_INSIGHT_3_SCOPED',
     date_marker: '2022-08-17T04:00:00.000Z', // A week after MOCK_ANNOTATION_ORG_SCOPED
     dashboard_item: 3,
     insight_short_id: 'xxxxxx' as InsightShortId,
@@ -95,7 +95,7 @@ const MOCK_ANNOTATION_INSIGHT_3_SCOPED: RawAnnotationType = {
 /** ID 40 at 2022-08-17T04:00:00.000Z */
 const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1: RawAnnotationType = {
     id: 40,
-    content: 'Alpha',
+    content: 'MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1',
     date_marker: '2022-08-17T04:00:00.000Z', // A week after MOCK_ANNOTATION_ORG_SCOPED
     dashboard_item: MOCK_INSIGHT_NUMERIC_ID,
     insight_short_id: MOCK_INSIGHT_SHORT_ID,
@@ -106,7 +106,7 @@ const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1: RawAnnotationType = {
 /** ID 22 at 2022-09-10T04:00:00.000Z */
 const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3: RawAnnotationType = {
     id: 22,
-    content: 'Omega',
+    content: 'MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3',
     date_marker: '2022-09-10T04:00:00.000Z', // A month after MOCK_ANNOTATION_ORG_SCOPED
     dashboard_item: 3,
     insight_short_id: 'xxxxxx' as InsightShortId,
@@ -180,6 +180,8 @@ describe('annotationsOverlayLogic', () => {
         logic = annotationsOverlayLogic({
             dashboardItemId: MOCK_INSIGHT_SHORT_ID,
             insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+            dates: [],
+            ticks: [],
         })
         logic.mount()
         await expectLogic(annotationsModel).toDispatchActions(['loadAnnotations'])
@@ -194,6 +196,8 @@ describe('annotationsOverlayLogic', () => {
             logic = annotationsOverlayLogic({
                 dashboardItemId: MOCK_INSIGHT_SHORT_ID,
                 insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
             })
             logic.mount()
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
@@ -219,12 +223,14 @@ describe('annotationsOverlayLogic', () => {
 
             useInsightMocks()
 
-            logic = annotationsOverlayLogic({ dashboardItemId: 'new', insightNumericId: 'new' })
+            logic = annotationsOverlayLogic({
+                dashboardItemId: 'new',
+                insightNumericId: 'new',
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+            })
             logic.mount()
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
-            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
-                'loadInsightSuccess',
-            ])
             await expectLogic(logic).toMatchValues({
                 relevantAnnotations: [
                     // The annotation scoped to insight 3 should be omitted
@@ -233,6 +239,27 @@ describe('annotationsOverlayLogic', () => {
                     MOCK_ANNOTATION_PROJECT_SCOPED,
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
+                    MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
+                ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
+            })
+        })
+
+        it('excludes annotations that are outside of insight date range', async () => {
+            initKeaTests()
+
+            useInsightMocks()
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: 'new',
+                insightNumericId: 'new',
+                dates: ['2022-09-01', '2022-10-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(logic).toMatchValues({
+                relevantAnnotations: [
+                    // This is the only September annotation
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
                 ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
             })
@@ -458,6 +485,8 @@ describe('annotationsOverlayLogic', () => {
                     logic = annotationsOverlayLogic({
                         dashboardItemId: MOCK_INSIGHT_SHORT_ID,
                         insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                        dates: ['2022-01-01', '2023-01-01'],
+                        ticks: [{ value: 0 }, { value: 1 }],
                     })
                     logic.mount()
                     await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
@@ -470,5 +499,135 @@ describe('annotationsOverlayLogic', () => {
                 })
             }
         }
+
+        it(`merges groups when one tick covers more than one date (UTC)`, async () => {
+            initKeaTests(true, MOCK_DEFAULT_TEAM)
+
+            useInsightMocks()
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-08-10', '2022-08-11', '2022-08-12'],
+                ticks: [
+                    { value: 0 },
+                    { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
+                ],
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
+                'loadInsightSuccess',
+            ])
+            await expectLogic(logic).toMatchValues({
+                groupedAnnotations: {
+                    '2022-08-10 00:00:00+0000': [
+                        MOCK_ANNOTATION_ORG_SCOPED,
+                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                        MOCK_ANNOTATION_PROJECT_SCOPED,
+                        MOCK_ANNOTATION_INSIGHT_1_SCOPED,
+                        // This one would normally go into 2022-08-11
+                        MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
+                    ].map((annotation) => deserializeAnnotation(annotation, MOCK_DEFAULT_TEAM.timezone)),
+                },
+            })
+        })
+
+        it(`merges groups when one tick covers more than one date (Asia/Colombo)`, async () => {
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, timezone: 'Asia/Colombo' })
+
+            useInsightMocks('day', 'Asia/Colombo')
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-08-10', '2022-08-11', '2022-08-12'],
+                ticks: [
+                    { value: 0 },
+                    { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
+                ],
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
+                'loadInsightSuccess',
+            ])
+            await expectLogic(logic).toMatchValues({
+                groupedAnnotations: {
+                    '2022-08-10 00:00:00+0530': [
+                        MOCK_ANNOTATION_ORG_SCOPED,
+                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                        MOCK_ANNOTATION_PROJECT_SCOPED,
+                        MOCK_ANNOTATION_INSIGHT_1_SCOPED,
+                        // This one would normally go into 2022-08-11
+                        MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
+                    ].map((annotation) => deserializeAnnotation(annotation, 'Asia/Colombo')),
+                },
+            })
+        })
+
+        it(`merges groups when one tick covers more than one hour (UTC)`, async () => {
+            initKeaTests(true, MOCK_DEFAULT_TEAM)
+
+            useInsightMocks('hour')
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-08-10 04:00', '2022-08-10 05:00', '2022-08-10 06:00', '2022-08-10 07:00'],
+                ticks: [
+                    { value: 0 },
+                    { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
+                ],
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
+                'loadInsightSuccess',
+            ])
+            await expectLogic(logic).toMatchValues({
+                groupedAnnotations: {
+                    '2022-08-10 04:00:00+0000': [
+                        MOCK_ANNOTATION_ORG_SCOPED,
+                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                        MOCK_ANNOTATION_PROJECT_SCOPED,
+                        // This one would normally go into 2022-08-10 05:00
+                        MOCK_ANNOTATION_INSIGHT_1_SCOPED,
+                    ].map((annotation) => deserializeAnnotation(annotation, MOCK_DEFAULT_TEAM.timezone)),
+                },
+            })
+        })
+
+        it(`merges groups when one tick covers more than one hour (Asia/Colombo)`, async () => {
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, timezone: 'Asia/Colombo' })
+
+            useInsightMocks('hour', 'Asia/Colombo')
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-08-10 09:00', '2022-08-10 10:00', '2022-08-10 11:00', '2022-08-10 12:00'],
+                ticks: [
+                    { value: 0 },
+                    { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
+                ],
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
+                'loadInsightSuccess',
+            ])
+            await expectLogic(logic).toMatchValues({
+                groupedAnnotations: {
+                    '2022-08-10 09:00:00+0530': [
+                        MOCK_ANNOTATION_ORG_SCOPED,
+                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                        MOCK_ANNOTATION_PROJECT_SCOPED,
+                        // This one would normally go into 2022-08-10 09:00
+                        MOCK_ANNOTATION_INSIGHT_1_SCOPED,
+                    ].map((annotation) => deserializeAnnotation(annotation, 'Asia/Colombo')),
+                },
+            })
+        })
     })
 })
