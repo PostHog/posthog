@@ -254,6 +254,15 @@ export const dashboardLogic = kea<dashboardLogicType>({
             null as DashboardType | null,
             {
                 loadExportedDashboard: (_, { dashboard }) => dashboard,
+                [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
+                    if (state?.id === dashboardId) {
+                        return {
+                            ...state,
+                            tiles: [...state.tiles, tile],
+                        }
+                    }
+                    return state
+                },
                 [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { insight, extraDashboardIds }) => {
                     const targetDashboards = (insight.dashboards || []).concat(extraDashboardIds || [])
                     if (!props.id) {
@@ -722,6 +731,15 @@ export const dashboardLogic = kea<dashboardLogicType>({
         moveToDashboardSuccess: ({ payload }) => {
             if (payload?.toDashboard === undefined || payload?.tile === undefined) {
                 return
+            }
+
+            const updatedTile = { ...payload.tile }
+            updatedTile.insight.dashboards =
+                payload.tile.insight?.dashboards?.filter((d) => d !== payload.fromDashboard) || []
+            updatedTile.insight.dashboards.push(payload.toDashboard)
+
+            if (updatedTile) {
+                dashboardsModel.actions.tileMovedToDashboard(updatedTile, payload.toDashboard)
             }
 
             lemonToast.success(
