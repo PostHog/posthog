@@ -278,16 +278,15 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
 
-        queryset = (
-            queryset.prefetch_related(
-                "sharingconfiguration_set",
-            )
-            .select_related(
-                "team__organization",
-                "created_by",
-            )
-            .prefetch_related(Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order")))
-            .prefetch_related(
+        queryset = queryset.prefetch_related("sharingconfiguration_set",).select_related(
+            "team__organization",
+            "created_by",
+        )
+
+        if self.action != "list":
+            return queryset.prefetch_related(
+                Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order"))
+            ).prefetch_related(
                 Prefetch(
                     "tiles",
                     queryset=DashboardTile.objects.select_related(
@@ -298,7 +297,6 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                     .order_by("insight__order"),
                 )
             )
-        )
 
         return queryset
 

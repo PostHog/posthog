@@ -191,11 +191,26 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         for i in range(5):
-            self._create_dashboard({"name": f"dashboard-{i}", "description": i})
+            dashboard_id, _ = self._create_dashboard({"name": f"dashboard-{i}", "description": i})
+            for j in range(3):
+                self._create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(10):
-                response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+            with self.assertNumQueries(8):
+                response = self.client.get(f"/api/projects/{self.team.id}/dashboards/?limit=100")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_listing_dashboards_does_not_include_tiles(self) -> None:
+        dashboard_one_id, _ = self._create_dashboard({"name": "dashboard-1"})
+        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard-2"})
+        self._create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
+
+        assert len(self._get_dashboard(dashboard_one_id)["items"]) == 1
+        assert len(self._get_dashboard(dashboard_two_id)["items"]) == 1
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/?limit=100")
+
+        assert [r.get("items", None) for r in response.json()["results"]] == [None, None]
+        assert [r.get("tiles", None) for r in response.json()["results"]] == [None, None]
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
