@@ -177,7 +177,11 @@ const BillingProduct = ({
 
     useEffect(() => {
         setShowBillingLimit(!!customLimitUsd)
-        setBillingLimit(parseInt(customLimitUsd || '100'))
+        setBillingLimit(
+            parseInt(customLimitUsd || '0') ||
+                parseInt(convertUsageToAmount((projectedUsage || 0) * 1.5, product.tiers)) ||
+                100
+        )
     }, [customLimitUsd])
 
     const onBillingLimitToggle = (): void => {
@@ -267,7 +271,7 @@ const BillingProduct = ({
                       }
                     : (undefined as any),
             ].filter(Boolean),
-        [product]
+        [product, billingLimitAsUsage]
     )
 
     return (
@@ -303,9 +307,14 @@ const BillingProduct = ({
                         <div className="flex-1" />
                         <div className="space-y-2 text-right">
                             <LemonLabel
-                                info={`Billing limits can help you control the maximum you wish to pay in a given period. 
-                                    As you approach the billing limit you will be notified and given the option to increase it.
-                                    If you exceed the limit you will not be billed but you will be locked out from using certain areas of the product and incoming data may be lost.`}
+                                info={
+                                    <>
+                                        Set a billing limit to control your recurring costs.{' '}
+                                        <b>Your critical data will still be ingested and available in the product</b>.
+                                        Some features may cease operation if your usage greatly exceeds your billing
+                                        cap.
+                                    </>
+                                }
                             >
                                 Billing limit
                             </LemonLabel>

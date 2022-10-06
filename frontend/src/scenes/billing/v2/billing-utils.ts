@@ -31,13 +31,44 @@ export const projectUsage = (
 }
 
 export const convertUsageToAmount = (usage: number, tiers: BillingProductV2Type['tiers']): string => {
-    return '100.00'
+    let remainingUsage = usage
+    let amount = 0
+    let previousTier: BillingProductV2Type['tiers'][0] | undefined = undefined
+
+    for (const tier of tiers) {
+        if (remainingUsage <= 0) {
+            break
+        }
+
+        const tierUsageMax = tier.up_to ? tier.up_to - (previousTier?.up_to || 0) : Infinity
+        const amountFloatUsd = parseFloat(tier.unit_amount_usd)
+        const usageThisTier = Math.min(remainingUsage, tierUsageMax)
+        remainingUsage -= usageThisTier
+        amount += amountFloatUsd * usageThisTier
+        previousTier = tier
+    }
+
+    return amount.toFixed(2)
 }
 
 export const convertAmountToUsage = (amount: string, tiers: BillingProductV2Type['tiers']): number => {
-    const amountFloat = parseFloat(amount)
+    let remainingAmount = parseFloat(amount)
+    let usage = 0
+    let previousTier: BillingProductV2Type['tiers'][0] | undefined = undefined
 
-    console.log({ amount })
+    for (const tier of tiers) {
+        if (remainingAmount <= 0) {
+            break
+        }
 
-    return amountFloat * 2100
+        const tierUsageMax = tier.up_to ? tier.up_to - (previousTier?.up_to || 0) : Infinity
+        const amountFloatUsd = parseFloat(tier.unit_amount_usd)
+        const usageThisTier = Math.min(remainingAmount / amountFloatUsd, tierUsageMax)
+
+        usage += usageThisTier
+        remainingAmount -= amountFloatUsd * usageThisTier
+        previousTier = tier
+    }
+
+    return usage
 }
