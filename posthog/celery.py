@@ -78,13 +78,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s()  # check twice a week
     )
 
-    # TODO: BW This will now be that every instance, cloud included sends reports
-    # Send weekly status report on self-hosted instances
-    if not getattr(settings, "MULTI_TENANCY", False):
-        sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
+    sender.add_periodic_task(
+        crontab(
+            hour=0, minute=randrange(0, 40)
+        ),  # every day at a random minute past midnight. Sends data from the preceding whole day to the billing service.
+        send_instance_usage_report.s(),
+        name="send instance usage report",
+    )
 
     # PostHog Cloud cron jobs
     if getattr(settings, "MULTI_TENANCY", False):
+        # TODO EC this should be triggered only for instances that haven't been migrated to the new billing
         # Calculate billing usage for the day every day at midnight UTC
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
         # Verify that persons data is in sync every day at 4 AM UTC
@@ -145,18 +149,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         )
 
     if settings.EE_AVAILABLE:
-        sender.add_periodic_task(
-            crontab(
-                hour=0, minute=randrange(0, 40)
-            ),  # every day at a random minute past midnight. Sends data from the preceding whole day.
-            send_org_usage_report.s(),
-            name="send event usage report",
-        )
-
-        sender.add_periodic_task(
-            crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
-        )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
-
         materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
         if materialize_columns_crontab:
@@ -453,13 +445,6 @@ def clean_stale_partials():
 
 
 @app.task(ignore_result=True)
-def status_report():
-    from posthog.tasks.status_report import status_report
-
-    status_report()
-
-
-@app.task(ignore_result=True)
 def monitoring_check_clickhouse_schema_drift():
     from posthog.tasks.check_clickhouse_schema_drift import check_clickhouse_schema_drift
 
@@ -641,9 +626,9 @@ def clickhouse_send_license_usage():
 
 
 @app.task(ignore_result=True)
-def send_org_usage_report():
+def send_instance_usage_report():
     try:
-        from ee.tasks.org_usage_report import send_all_org_usage_reports
+        from ee.tasks.usage_report import send_all_org_usage_reports
     except ImportError:
         pass
     else:
