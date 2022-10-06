@@ -93,7 +93,7 @@ function StepBars({ step, stepIndex }: Omit<StepBarProps, 'series'>): JSX.Elemen
                         />
                     ))}
             </div>
-            {step?.nested_breakdown?.map((series) => (
+            {step.nested_breakdown?.map((series) => (
                 <StepBar key={`bar-${stepIndex}-${series.order}`} step={step} stepIndex={stepIndex} series={series} />
             ))}
         </div>
