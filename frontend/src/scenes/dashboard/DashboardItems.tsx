@@ -10,12 +10,29 @@ import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/da
 import clsx from 'clsx'
 import { InsightCard } from 'lib/components/InsightCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { LemonButton } from 'lib/components/LemonButton'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 export function DashboardItems(): JSX.Element {
-    const { dashboard, items, layouts, dashboardMode, placement, isRefreshing, highlightedInsightId, refreshStatus } =
-        useValues(dashboardLogic)
-    const { updateLayouts, updateContainerWidth, updateItemColor, removeItem, refreshAllDashboardItems } =
-        useActions(dashboardLogic)
+    const {
+        dashboard,
+        items,
+        layouts,
+        dashboardMode,
+        placement,
+        isRefreshing,
+        highlightedInsightId,
+        refreshStatus,
+        canEditDashboard,
+    } = useValues(dashboardLogic)
+    const {
+        updateLayouts,
+        updateContainerWidth,
+        updateItemColor,
+        removeItem,
+        refreshAllDashboardItems,
+        setDashboardMode,
+    } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight, moveToDashboard } = useActions(insightsModel)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
@@ -103,6 +120,19 @@ export function DashboardItems(): JSX.Element {
                             DashboardPlacement.ProjectHomepage,
                         ].includes(placement)}
                         showDetailsControls={placement != DashboardPlacement.Export}
+                        moreButtons={
+                            canEditDashboard ? (
+                                <LemonButton
+                                    onClick={() =>
+                                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
+                                    }
+                                    status="stealth"
+                                    fullWidth
+                                >
+                                    Edit layout (E)
+                                </LemonButton>
+                            ) : null
+                        }
                     />
                 ))}
             </ReactGridLayout>
