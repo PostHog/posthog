@@ -874,6 +874,7 @@ export const insightLogic = kea<insightLogicType>({
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
                 { fromPersistentApi: true, overrideFilter: true }
             )
+            eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
