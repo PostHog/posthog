@@ -81,7 +81,7 @@ def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
     """
     Calculate the actual current usage for an organization - only used if a subscription does not exist
     """
-    cache_key: str = f"org_monthly_usage_{organization.id}"
+    cache_key: str = f"monthly_usage_{organization.id}"
     usage: Optional[Dict[str, int]] = cache.get(cache_key)
 
     if usage is None:
