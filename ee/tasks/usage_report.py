@@ -320,6 +320,7 @@ def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
             org_reports.append(report)
             if not dry_run:
                 send_report(report, org["token"])
+                capture_event("org usage report sent", organization_id, report, dry_run=dry_run)  # type: ignore
                 time.sleep(0.25)
         except Exception as err:
             capture_event("send org report failure", organization_id, {"error": str(err)}, dry_run=dry_run)
@@ -333,7 +334,7 @@ def send_report(report: OrgReport, token: str):
         headers = {"Authorization": f"Bearer {token}"}
     request = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
     if request.status_code != 200:
-        raise Exception()
+        raise Exception("Billing service request failed")
 
 
 def get_product_name(realm: str, has_license: bool) -> str:
@@ -375,20 +376,23 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
 def capture_event(name: str, organization_id: str, report: Dict[str, Any], dry_run: bool) -> None:
     if not dry_run:
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
-        posthoganalytics.capture(
-            get_machine_id(),
-            name,
-            {**report, "scope": "machine"},
-            groups={"organization": organization_id, "instance": settings.SITE_URL},
-        )
-
         if is_cloud():
+            org_owner = get_org_owner_or_first_user(organization_id)
+            posthoganalytics.capture(
+                org_owner.id,  # type: ignore
+                name,
+                {**report, "scope": "user"},
+                groups={"organization": organization_id},
+            )
             posthoganalytics.group_identify("organization", organization_id, report)
         else:
+            posthoganalytics.capture(
+                get_machine_id(),
+                name,
+                {**report, "scope": "machine"},
+                groups={"instance": settings.SITE_URL},
+            )
             posthoganalytics.group_identify("instance", settings.SITE_URL, report)
-
-        for user in User.objects.all():
-            posthoganalytics.capture(user.distinct_id, f"user {name}", {**report, "scope": "user"})
     else:
         print(name, json.dumps(report))  # noqa: T201
 

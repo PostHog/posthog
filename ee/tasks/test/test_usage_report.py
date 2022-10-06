@@ -404,6 +404,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
         mockresponse = Mock()
         mock_post.return_value = mockresponse
+        mockresponse.status_code = 200
         mockresponse.json = lambda: {"ok": True}
 
         all_reports = send_all_reports(dry_run=False)
@@ -411,6 +412,12 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         token = build_billing_token(license, self.organization.id)  # type: ignore
         mock_post.assert_called_once_with(
             f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
+        )
+        mock_capture.assert_any_call(
+            get_machine_id(),
+            "org usage report sent",
+            {**all_reports[0], "scope": "machine"},
+            groups={"instance": ANY},
         )
 
     @freeze_time("2021-10-10T23:01:00Z")
@@ -436,7 +443,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             get_machine_id(),
             "get org usage report failure",
             {"error": "", "scope": "machine"},
-            groups={"instance": ANY, "organization": str(self.organization.id)},
+            groups={"instance": ANY},
         )
 
     @freeze_time("2021-10-10T23:01:00Z")
@@ -470,8 +477,8 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_capture.assert_any_call(
             get_machine_id(),
             "send org report failure",
-            {"error": "", "scope": "machine"},
-            groups={"instance": ANY, "organization": str(self.organization.id)},
+            {"error": "Billing service request failed", "scope": "machine"},
+            groups={"instance": ANY},
         )
 
 
