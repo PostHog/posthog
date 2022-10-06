@@ -99,6 +99,7 @@ def send_fatal_plugin_error(
         template_name="fatal_plugin_error",
         template_context={"plugin": plugin, "team": team, "error": error, "is_system_error": is_system_error},
     )
+
     memberships_to_email = [
         membership
         for membership in OrganizationMembership.objects.select_related("user", "organization").filter(
@@ -107,6 +108,7 @@ def send_fatal_plugin_error(
         # Only send the email to users who have access to the affected project
         # Those without access have `effective_membership_level` of `None`
         if team.get_effective_membership_level_for_parent_membership(membership) is not None
+        and membership.user.notification_settings["plugin_disabled"]
     ]
     if memberships_to_email:
         for membership in memberships_to_email:

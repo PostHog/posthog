@@ -468,7 +468,7 @@ def cors_response(request, response):
     response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
 
     # Handle headers that sentry randomly sends for every request.
-    #  Would cause a CORS failure otherwise.
+    # Would cause a CORS failure otherwise.
     allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
     allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id"]]
 

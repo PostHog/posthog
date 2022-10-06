@@ -7,4 +7,5 @@ from posthog.settings.utils import get_list
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) + [
     "insight-legends",
     "simplify-actions",
+    "historical-exports-v2",
 ]
