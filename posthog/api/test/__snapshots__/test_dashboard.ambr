@@ -15,6 +15,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
@@ -261,6 +262,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
@@ -466,6 +468,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
@@ -937,6 +940,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
@@ -955,6 +959,7 @@
          T7."temporary_token",
          T7."distinct_id",
          T7."email_opt_in",
+         T7."partial_notification_settings",
          T7."anonymize_data",
          T7."toolbar_mode",
          T7."events_column_config"
@@ -1381,6 +1386,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
@@ -1576,6 +1582,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
@@ -1594,6 +1601,7 @@
          T7."temporary_token",
          T7."distinct_id",
          T7."email_opt_in",
+         T7."partial_notification_settings",
          T7."anonymize_data",
          T7."toolbar_mode",
          T7."events_column_config"
@@ -1656,6 +1664,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
@@ -1842,6 +1851,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
@@ -2176,6 +2186,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
@@ -2354,6 +2365,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
@@ -2586,6 +2598,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
@@ -2604,6 +2617,7 @@
          T7."temporary_token",
          T7."distinct_id",
          T7."email_opt_in",
+         T7."partial_notification_settings",
          T7."anonymize_data",
          T7."toolbar_mode",
          T7."events_column_config"
@@ -2634,6 +2648,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
@@ -2786,6 +2801,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
@@ -2804,6 +2820,7 @@
          T7."temporary_token",
          T7."distinct_id",
          T7."email_opt_in",
+         T7."partial_notification_settings",
          T7."anonymize_data",
          T7."toolbar_mode",
          T7."events_column_config"
@@ -2866,6 +2883,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
@@ -3265,6 +3283,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
@@ -3283,6 +3302,7 @@
          T7."temporary_token",
          T7."distinct_id",
          T7."email_opt_in",
+         T7."partial_notification_settings",
          T7."anonymize_data",
          T7."toolbar_mode",
          T7."events_column_config"
@@ -3345,6 +3365,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
@@ -3574,6 +3595,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config"
