@@ -615,17 +615,6 @@ def clickhouse_mark_all_materialized():
 
 
 @app.task(ignore_result=True)
-def clickhouse_send_license_usage():
-    try:
-        # if not settings.MULTI_TENANCY:
-        from ee.tasks.send_license_usage import send_license_usage
-
-        send_license_usage()
-    except ImportError:
-        pass
-
-
-@app.task(ignore_result=True)
 def send_instance_usage_report():
     try:
         from ee.tasks.usage_report import send_all_org_usage_reports
