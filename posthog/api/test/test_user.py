@@ -195,6 +195,7 @@ class TestUserAPI(APIBaseTest):
                 "anonymize_data": True,
                 "email_opt_in": False,
                 "events_column_config": {"active": ["column_1", "column_2"]},
+                "notification_settings": {"plugin_disabled": False},
                 "uuid": 1,  # should be ignored
                 "id": 1,  # should be ignored
                 "organization": str(another_org.id),  # should be ignored
@@ -220,12 +221,20 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(user.first_name, "Cooper")
         self.assertEqual(user.email, "updated@posthog.com")
         self.assertEqual(user.anonymize_data, True)
+        self.assertDictContainsSubset({"plugin_disabled": False}, user.notification_settings)
 
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "user updated",
             properties={
-                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name"]
+                "updated_attrs": [
+                    "anonymize_data",
+                    "email",
+                    "email_opt_in",
+                    "events_column_config",
+                    "first_name",
+                    "partial_notification_settings",
+                ]
             },
             groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )

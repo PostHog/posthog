@@ -96,6 +96,7 @@ export interface UserBasicType extends UserBaseType {
 export interface UserType extends UserBaseType {
     date_joined: string
     email_opt_in: boolean
+    notification_settings: NotificationSettings
     events_column_config: ColumnConfig
     anonymize_data: boolean
     toolbar_mode: 'disabled' | 'toolbar'
@@ -107,6 +108,9 @@ export interface UserType extends UserBaseType {
     organizations: OrganizationBasicType[]
     realm?: Realm
     posthog_version?: string
+}
+export interface NotificationSettings {
+    plugin_disabled: boolean
 }
 
 export interface PluginAccess {
