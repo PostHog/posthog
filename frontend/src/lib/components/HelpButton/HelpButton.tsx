@@ -172,7 +172,7 @@ export function HelpButton({
                                 hideHelp()
                             }}
                         >
-                            {hedgehogModeEnabled ? 'Disable Hedgehog mode' : 'Enable Hedgehog mode'}
+                            {hedgehogModeEnabled ? 'Disable' : 'Enable'} Hedgehog Mode
                         </LemonButton>
                     </>
                 }
