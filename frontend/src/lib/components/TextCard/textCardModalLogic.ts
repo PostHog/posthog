@@ -61,11 +61,12 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             },
             submit: (formValues) => {
                 // only id and body, layout and color could be out-of-date
-                const textTiles = props.dashboard.tiles
+                const textTiles = (props.dashboard.tiles || [])
                     .filter((t): t is DashboardTextTile => {
                         return 'body' in t
                     })
                     .map((t) => ({ id: t.id, body: t.body }))
+
                 if (props.textTileId === 'new') {
                     actions.updateDashboard({ id: props.dashboard.id, text_tiles: [...textTiles, formValues] })
                 } else {
