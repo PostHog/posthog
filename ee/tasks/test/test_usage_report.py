@@ -5,6 +5,7 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 
+from ee.api.billing import build_billing_token
 from ee.api.test.base import LicensedTestMixin
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
@@ -56,7 +57,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(report["deployment_infrastructure"], "tests")
         self.assertIsNotNone(report["realm"])
         self.assertIsNotNone(report["site_url"])
-        self.assertEqual(report["license_id"], None)
         self.assertIsNotNone(report["product"])
         self.assertLess(report["table_sizes"]["posthog_event"], 10**7)  # <10MB
         self.assertLess(report["table_sizes"]["posthog_sessionrecordingevent"], 10**7)  # <10MB
@@ -386,7 +386,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthoganalytics.capture")
     @patch("requests.post")
-    def test_send_license_usage(self, mock_post, mock_capture):
+    def test_send_usage(self, mock_post, mock_capture):
         team2 = Team.objects.create(organization=self.organization)
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
@@ -407,10 +407,9 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
         all_reports = send_all_reports(dry_run=False)
         license = License.objects.first()
-        self.assertEqual(all_reports[0]["license_id"], license.key.split("::")[0])  # type: ignore
+        token = build_billing_token(license, self.organization.id)  # type: ignore
         mock_post.assert_called_once_with(
-            f"{BILLING_SERVICE_URL}/api/usage",
-            json=all_reports[0],
+            f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
         )
 
     @freeze_time("2021-10-10T23:01:00Z")
@@ -488,6 +487,6 @@ class SendUsageNoLicenseTest(APIBaseTest):
 
         flush_persons_and_events()
 
-        send_all_reports()
+        all_reports = send_all_reports()
 
-        self.assertEqual(mock_post.call_count, 1)
+        mock_post.assert_called_once_with(f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={})

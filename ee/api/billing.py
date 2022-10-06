@@ -1,13 +1,12 @@
 from datetime import datetime, timedelta, timezone
-from http.client import FORBIDDEN
-from typing import Any, Optional
+from typing import Any
 
 import jwt
 import requests
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect
-from rest_framework import mixins, serializers, status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotAuthenticated, PermissionDenied, ValidationError
@@ -32,6 +31,27 @@ class LicenseKeySerializer(serializers.Serializer):
     license = serializers.CharField()
 
 
+def build_billing_token(license: License, organization_id: str):
+    if not organization_id or not license:
+        raise NotAuthenticated()
+
+    license_id = license.key.split("::")[0]
+    license_secret = license.key.split("::")[1]
+
+    encoded_jwt = jwt.encode(
+        {
+            "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
+            "id": license_id,
+            "organization_id": str(organization_id),
+            "aud": "posthog:license-key",
+        },
+        license_secret,
+        algorithm="HS256",
+    )
+
+    return encoded_jwt
+
+
 class BillingViewset(viewsets.GenericViewSet):
     serializer_class = BillingSerializer
 
@@ -46,7 +66,7 @@ class BillingViewset(viewsets.GenericViewSet):
         org = self._get_org()
 
         if license:
-            billing_service_token = self._build_token(license, org)
+            billing_service_token = build_billing_token(license, str(org.id))
 
             res = requests.get(
                 f"{BILLING_SERVICE_URL}/api/billing",
@@ -73,7 +93,7 @@ class BillingViewset(viewsets.GenericViewSet):
             raise Exception("There is no license configured for this instance yet.")
         org = self._get_org()
 
-        billing_service_token = self._build_token(license, org)
+        billing_service_token = build_billing_token(license, str(org.id))
 
         res = requests.patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
@@ -101,7 +121,7 @@ class BillingViewset(viewsets.GenericViewSet):
         url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}"
 
         if license:
-            billing_service_token = self._build_token(license, organization)
+            billing_service_token = build_billing_token(license, str(organization.id))
             url = f"{url}&token={billing_service_token}"
 
         return redirect(url)
@@ -124,7 +144,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
-            headers={"Authorization": f"Bearer {self._build_token(license, organization)}"},
+            headers={"Authorization": f"Bearer {build_billing_token(license, str(organization.id))}"},
         )
 
         if res.status_code == 200:
@@ -149,26 +169,6 @@ class BillingViewset(viewsets.GenericViewSet):
             raise Exception("You cannot setup billing without an organization configured.")
 
         return org
-
-    def _build_token(self, license: License, org: Organization):
-        if not org or not license:
-            raise NotAuthenticated()
-
-        license_id = license.key.split("::")[0]
-        license_secret = license.key.split("::")[1]
-
-        encoded_jwt = jwt.encode(
-            {
-                "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
-                "id": license_id,
-                "organization_id": str(org.id),
-                "aud": "posthog:license-key",
-            },
-            license_secret,
-            algorithm="HS256",
-        )
-
-        return encoded_jwt
 
     def _get_products(self):
         res = requests.get(
