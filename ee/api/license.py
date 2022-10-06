@@ -71,10 +71,6 @@ class LicenseViewSet(
 
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:
         license = get_object_or_404(License, pk=pk)
-        # TODO: Test this
-        if license.plan == "cloud":
-            raise ValidationError({"plan": "Cloud plans cannot be deleted."})
-
         validation = requests.post("https://license.posthog.com/licenses/deactivate", data={"key": license.key})
         validation.raise_for_status()
 
