@@ -8,11 +8,11 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from ee.models.license import License, LicenseError
+from posthog.cloud_utils import is_cloud
 from posthog.event_usage import groups
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.settings import BILLING_V2_ENABLED
-from posthog.cloud_utils import is_cloud
 
 
 class LicenseSerializer(serializers.ModelSerializer):
