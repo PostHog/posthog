@@ -285,14 +285,14 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
 
         if self.action != "list":
             return queryset.prefetch_related(
-                Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order"))
-            ).prefetch_related(
+                # prefetching tiles saves 25 queries per tile on the dashboard
                 Prefetch(
                     "tiles",
                     queryset=DashboardTile.objects.select_related(
                         "insight__created_by", "insight__last_modified_by", "insight__team__organization"
                     )
                     .filter(insight__deleted=False)
+                    .filter(dashboard_id=self.kwargs["pk"])
                     .prefetch_related("insight__dashboards__team__organization")
                     .order_by("insight__order"),
                 )

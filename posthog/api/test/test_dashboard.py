@@ -212,6 +212,27 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert [r.get("items", None) for r in response.json()["results"]] == [None, None]
         assert [r.get("tiles", None) for r in response.json()["results"]] == [None, None]
 
+    @snapshot_postgres_queries
+    def test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles(self) -> None:
+        """
+        this test only exists for the query snapshot
+        which can be used to check if all dashboard tiles are being queried.
+        look for a query on posthog_dashboard_tile with
+        ```
+            AND "posthog_dashboardtile"."dashboard_id" = 2
+            AND "posthog_dashboardtile"."dashboard_id" IN (1,
+         ```
+        """
+        dashboard_one_id, _ = self._create_dashboard({"name": "dashboard-1"})
+        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard-2"})
+        self._create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
+        self._create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
+        self._create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
+        self._create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
+
+        # so DB has 5 tiles, but we only load need to 1
+        self._get_dashboard(dashboard_one_id)
+
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
         filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
