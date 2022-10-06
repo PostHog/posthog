@@ -282,6 +282,7 @@ export function SitePopover(): JSX.Element {
     useMountedLogic(licenseLogic)
 
     const expired = relevantLicense && isLicenseExpired(relevantLicense)
+    const billingV2 = preflight?.billing_v2_enabled
 
     return (
         <Popup
@@ -295,15 +296,17 @@ export function SitePopover(): JSX.Element {
                     </SitePopoverSection>
                     <SitePopoverSection title="Current organization">
                         {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
-                        <LemonButton
-                            onClick={closeSitePopover}
-                            to={urls.organizationBilling()}
-                            icon={<IconBill />}
-                            fullWidth
-                            data-attr="top-menu-item-billing"
-                        >
-                            Billing
-                        </LemonButton>
+                        {billingV2 || preflight?.cloud ? (
+                            <LemonButton
+                                onClick={closeSitePopover}
+                                to={urls.organizationBilling()}
+                                icon={<IconBill />}
+                                fullWidth
+                                data-attr="top-menu-item-billing"
+                            >
+                                Billing
+                            </LemonButton>
+                        ) : null}
                         <InviteMembersButton />
                     </SitePopoverSection>
                     {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
@@ -320,7 +323,9 @@ export function SitePopover(): JSX.Element {
                     )}
                     {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
                         <SitePopoverSection title="PostHog instance">
-                            <License license={relevantLicense} expired={expired} />
+                            {!preflight?.cloud && !billingV2 ? (
+                                <License license={relevantLicense} expired={expired} />
+                            ) : null}
                             <SystemStatus />
                             {!preflight?.cloud && <Version />}
                             <AsyncMigrations />
