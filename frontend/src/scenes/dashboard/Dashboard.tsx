@@ -46,7 +46,7 @@ function DashboardScene(): JSX.Element {
         placement,
         dashboard,
         canEditDashboard,
-        items,
+        tiles,
         itemsLoading,
         filters: dashboardFilters,
         dashboardMode,
@@ -97,7 +97,7 @@ function DashboardScene(): JSX.Element {
 
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
-            ) : !items || items.length === 0 ? (
+            ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading} />
             ) : (
                 <div>

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FullScreen } from 'lib/components/FullScreen'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -15,21 +15,32 @@ import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
-import { privilegeLevelToName } from 'lib/constants'
+import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
 import { urls } from 'scenes/urls'
-import { Link } from 'lib/components/Link'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { isLemonSelectSection } from 'lib/components/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { TextTileModal } from 'lib/components/TextCard/TextCard'
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId, apiUrl } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        allItemsLoading,
+        dashboardMode,
+        canEditDashboard,
+        showSubscriptions,
+        subscriptionId,
+        apiUrl,
+        showTextTileModal,
+        textTileId,
+    } = useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
@@ -38,6 +49,9 @@ export function DashboardHeader(): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
 
     const { push } = useActions(router)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showTextCards = featureFlags[FEATURE_FLAGS.TEXT_CARDS]
 
     return dashboard || allItemsLoading ? (
         <>
@@ -57,6 +71,14 @@ export function DashboardHeader(): JSX.Element | null {
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}
                     />
+                    {showTextCards && (
+                        <TextTileModal
+                            isOpen={showTextTileModal}
+                            onClose={() => push(urls.dashboard(dashboard.id))}
+                            dashboard={dashboard}
+                            textTileId={textTileId}
+                        />
+                    )}
                 </>
             )}
 
@@ -240,13 +262,54 @@ export function DashboardHeader(): JSX.Element | null {
                                     </LemonButton>
                                 </>
                             )}
-                            {canEditDashboard && (
-                                <Link to={urls.insightNew(undefined, dashboard?.id)}>
-                                    <LemonButton type="primary" data-attr="dashboard-add-graph-header">
+                            {dashboard && canEditDashboard ? (
+                                showTextCards && hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) ? (
+                                    <LemonButtonWithSideAction
+                                        to={urls.insightNew(undefined, dashboard.id)}
+                                        type="primary"
+                                        data-attr="dashboard-add-graph-header"
+                                        sideAction={{
+                                            popup: {
+                                                placement: 'bottom-end',
+                                                overlay: (
+                                                    <>
+                                                        {showTextCards &&
+                                                            hasAvailableFeature(
+                                                                AvailableFeature.DASHBOARD_COLLABORATION
+                                                            ) && (
+                                                                <LemonButton
+                                                                    status="stealth"
+                                                                    fullWidth
+                                                                    onClick={() => {
+                                                                        push(
+                                                                            urls.dashboardTextTile(dashboard.id, 'new')
+                                                                        )
+                                                                    }}
+                                                                    data-attr="add-text-tile-to-dashboard"
+                                                                >
+                                                                    Add text card &nbsp;
+                                                                    <LemonTag type="warning">Beta</LemonTag>
+                                                                </LemonButton>
+                                                            )}
+                                                    </>
+                                                ),
+                                            },
+                                            disabled: false,
+                                            'data-attr': 'dashboard-add-dropdown',
+                                        }}
+                                    >
+                                        Add insight
+                                    </LemonButtonWithSideAction>
+                                ) : (
+                                    <LemonButton
+                                        to={urls.insightNew(undefined, dashboard?.id)}
+                                        type="primary"
+                                        data-attr="dashboard-add-graph-header"
+                                    >
                                         Add insight
                                     </LemonButton>
-                                </Link>
-                            )}
+                                )
+                            ) : null}
                         </>
                     )
                 }

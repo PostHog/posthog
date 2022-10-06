@@ -12,8 +12,16 @@ import { InsightCard } from 'lib/components/InsightCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 export function DashboardItems(): JSX.Element {
-    const { dashboard, tiles, layouts, dashboardMode, placement, isRefreshing, highlightedInsightId, refreshStatus } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        insightTiles,
+        layouts,
+        dashboardMode,
+        placement,
+        isRefreshing,
+        highlightedInsightId,
+        refreshStatus,
+    } = useValues(dashboardLogic)
     const {
         updateLayouts,
         updateContainerWidth,
@@ -83,8 +91,9 @@ export function DashboardItems(): JSX.Element {
                 }}
                 draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popup"
             >
-                {tiles?.map((tile: DashboardTile) => {
+                {insightTiles?.map((tile: DashboardTile) => {
                     const { insight } = tile
+
                     return (
                         <InsightCard
                             key={insight.short_id}
