@@ -1585,10 +1585,8 @@ export type HotKeys =
 
 export interface LicenseType {
     id: number
-    key: string
     plan: LicensePlan
     valid_until: string
-    max_users: number | null
     created_at: string
 }
 

@@ -118,7 +118,7 @@ export const billingLogic = kea<billingLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        '/organization/billing': (params, search, hash) => {
+        '/organization/billing': (_params, _search, hash) => {
             if (hash.license) {
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })

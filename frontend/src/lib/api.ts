@@ -763,7 +763,7 @@ const api = {
         async list(): Promise<PaginatedResponse<LicenseType>> {
             return await new ApiRequest().licenses().get()
         },
-        async create(key: LicenseType['key']): Promise<LicenseType> {
+        async create(key: string): Promise<LicenseType> {
             return await new ApiRequest().licenses().create({ data: { key } })
         },
         async delete(licenseId: LicenseType['id']): Promise<LicenseType> {

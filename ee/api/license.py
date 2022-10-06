@@ -19,10 +19,10 @@ class LicenseSerializer(serializers.ModelSerializer):
             "id",
             "plan",
             "valid_until",
-            "max_users",
             "created_at",
         ]
-        read_only_fields = ["plan", "valid_until", "max_users"]
+        read_only_fields = ["plan", "valid_until"]
+        write_only_fields = ["key"]
 
     def validate(self, data):
         validation = requests.post("https://license.posthog.com/licenses/activate", data={"key": data["key"]})
