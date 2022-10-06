@@ -2,6 +2,7 @@ from typing import Dict, Optional, Union
 from unittest import mock
 
 from freezegun import freeze_time
+from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models import User
@@ -51,7 +52,6 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
 
     def _expected_tile_with_text(
         self,
-        dashboard_id: int,
         body: str,
         tile_id: Optional[int] = None,
         created_by: Optional[User] = None,
@@ -78,7 +78,6 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "last_refresh": None,
             "insight": None,
             "filters_hash": None,
-            "dashboard": dashboard_id,
         }
 
     @staticmethod
@@ -104,9 +103,30 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
     def test_can_create_a_single_text_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-        tile_id, tile_json = self.dashboard_api.create_text_tile(dashboard_id, text="hello world")
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hello world")
 
-        assert tile_json == self._expected_tile_with_text(
-            dashboard_id=dashboard_id,
+        assert len(dashboard_json["tiles"]) == 1
+        assert dashboard_json["tiles"][0] == self._expected_tile_with_text(
             body="hello world",
         )
+
+    def test_can_remove_text_tiles_from_dashboard(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="io sono testo")
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="soy texto")
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="i am text")
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="ich bin text")
+
+        last_tile = dashboard_json["tiles"][-1]
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{**last_tile, "deleted": True}]},
+        )
+        self.assertEqual(delete_response.status_code, status.HTTP_200_OK)
+
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        tiles = dashboard_json["tiles"]
+        assert len(tiles) == 3
+        assert [t["text"]["body"] for t in tiles] == ["io sono testo", "soy texto", "i am text"]

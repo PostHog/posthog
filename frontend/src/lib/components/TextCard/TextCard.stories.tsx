@@ -1,6 +1,6 @@
 import { Meta, Story } from '@storybook/react'
 import React from 'react'
-import { DashboardTextTile } from '~/types'
+import { DashboardTile, InsightColor } from '~/types'
 import { TextCard } from './TextCard'
 
 export default {
@@ -8,20 +8,27 @@ export default {
     component: TextCard,
 } as Meta
 
-const makeTextTile = (body: string, color: string | null = null): DashboardTextTile => {
+const makeTextTile = (body: string, color: InsightColor | null = null): DashboardTile => {
     return {
         id: 1,
-        body: body,
-        last_modified_by: {
-            uuid: 'a uuid',
-            distinct_id: 'another uuid',
-            first_name: 'paul',
-            email: 'paul@posthog.com',
+        text: {
+            body: body,
+            last_modified_by: {
+                id: 1,
+                uuid: 'a uuid',
+                distinct_id: 'another uuid',
+                first_name: 'paul',
+                email: 'paul@posthog.com',
+            },
+            last_modified_at: '2022-04-01 12:24:36',
         },
-        last_modified_at: '2022-04-01 12:24:36',
+
         layouts: {},
         color,
-    } as DashboardTextTile
+        last_refresh: null,
+        filters_hash: '',
+        refreshing: false,
+    }
 }
 
 export const Default: Story = () => {
@@ -61,7 +68,7 @@ export const Default: Story = () => {
                 <TextCard
                     className={'react-grid-item react-draggable cssTransforms react-resizable'}
                     dashboardId={1}
-                    textTile={makeTextTile('# a title \n\n * with\n * a \n * color', 'purple')}
+                    textTile={makeTextTile('# a title \n\n * with\n * a \n * color', InsightColor.Purple)}
                 />
             </div>
             <div className={'w-full'} style={{ height: '200px' }}>

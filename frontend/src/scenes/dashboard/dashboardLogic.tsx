@@ -13,7 +13,6 @@ import {
     DashboardLayoutSize,
     DashboardMode,
     DashboardPlacement,
-    DashboardTextTile,
     DashboardTile,
     DashboardType,
     FilterType,
@@ -189,8 +188,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                         colors: [{ id: insightNumericId, color }],
                     })
-                    const matchingTile = values.tiles.find(
-                        (tile) => 'insight' in tile && tile.insight.id === insightNumericId
+                    const matchingTile = values.insightTiles.find(
+                        (tile) => !!tile.insight && tile.insight.id === insightNumericId
                     )
                     if (matchingTile) {
                         matchingTile.color = color as InsightColor
@@ -205,7 +204,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                         return {
                             ...values.allItems,
-                            tiles: values.allItems?.tiles.filter((t) => 'insight' in t && t.insight.id !== insight.id),
+                            tiles: values.insightTiles.filter((t) => !!t.insight && t.insight.id !== insight.id),
                         } as DashboardType
                     } catch (e) {
                         lemonToast.error('Could not remove item: ' + e)
@@ -280,7 +279,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                     if (state) {
                         const tileIndex = state.tiles.findIndex(
-                            (t) => 'insight' in t && t.insight.short_id === insight.short_id
+                            (t) => !!t.insight && t.insight.short_id === insight.short_id
                         )
                         const newTiles = state.tiles.slice(0)
 
@@ -296,14 +295,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                         return {
                             ...state,
-                            tiles: newTiles.filter((t) => 'insight' in t && !t.insight.deleted),
+                            tiles: newTiles.filter((t) => !!t.insight && !t.insight.deleted),
                         } as DashboardType
                     }
 
                     return null
                 },
                 [dashboardsModel.actionTypes.updateDashboardTile]: (state, { tile, extraDashboardIds }) => {
-                    const targetDashboards = (tile.insight.dashboards || []).concat(extraDashboardIds || [])
+                    const targetDashboards = (tile.insight?.dashboards || []).concat(extraDashboardIds || [])
 
                     if (!props.id) {
                         // what are we even updating?
@@ -318,7 +317,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         const tileIndex = state.tiles.findIndex((t) => t.id === tile.id)
                         const newTiles = state.tiles.slice(0)
                         if (tileIndex >= 0) {
-                            if (tile.insight.dashboards?.includes(props.id)) {
+                            if (tile.insight?.dashboards?.includes(props.id)) {
                                 newTiles[tileIndex] = { ...newTiles[tileIndex], ...tile }
                             } else {
                                 newTiles.splice(tileIndex, 1)
@@ -329,7 +328,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                         return {
                             ...state,
-                            tiles: newTiles.filter((t) => !('insight' in t) || !t.insight.deleted),
+                            tiles: newTiles.filter((t) => !t.deleted || !t.insight?.deleted),
                         } as DashboardType
                     }
 
@@ -349,7 +348,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     return {
                         ...state,
                         items: state?.tiles.map((t) =>
-                            !('insight' in t) || t.insight.short_id === shortId
+                            !t.insight || t.insight.short_id === shortId
                                 ? {
                                       ...t,
                                       ...(refreshing != null ? { refreshing } : {}),
@@ -372,9 +371,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     } as DashboardType
                 },
                 [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }): DashboardType | null => {
-                    const tileIndex = state?.tiles.findIndex(
-                        (t) => 'insight' in t && t.insight.short_id === item.short_id
-                    )
+                    const tileIndex = state?.tiles.findIndex((t) => !!t.insight && t.insight.short_id === item.short_id)
                     const tiles = state?.tiles.slice(0)
 
                     if (tileIndex === undefined || tileIndex === -1 || !tiles) {
@@ -384,7 +381,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     tiles[tileIndex] = {
                         ...tiles[tileIndex],
                         insight: {
-                            ...(tiles[tileIndex] as DashboardTile).insight,
+                            ...((tiles[tileIndex] as DashboardTile).insight as InsightModel),
                             name: item.name,
                             last_modified_at: item.last_modified_at,
                         },
@@ -508,15 +505,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     })}`
             },
         ],
-        tiles: [(s) => [s.allItems], (allItems) => allItems?.tiles || []],
+        tiles: [(s) => [s.allItems], (allItems) => allItems?.tiles.filter((t) => !t.deleted) || []],
         insightTiles: [
             (s) => [s.tiles],
-            (tiles) => tiles.filter((t): t is DashboardTile => 'insight' in t).filter((i) => !i.insight.deleted),
+            (tiles) => tiles.filter((t) => !!t.insight).filter((i) => !i.insight?.deleted),
         ],
-        textTiles: [
-            (s) => [s.tiles],
-            (tiles) => tiles.filter((t): t is DashboardTextTile => 'body' in t).map((t) => t.body),
-        ],
+        textTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.text)],
         itemsLoading: [
             (s) => [s.allItemsLoading, s.refreshStatus],
             (allItemsLoading, refreshStatus) => {
@@ -529,13 +523,13 @@ export const dashboardLogic = kea<dashboardLogicType>({
             (searchParams) => searchParams.highlightInsightId,
         ],
         lastRefreshed: [
-            (s) => [s.tiles],
-            (tiles) => {
-                if (!tiles || !tiles.length) {
+            (s) => [s.insightTiles],
+            (insightTiles) => {
+                if (!insightTiles || !insightTiles.length) {
                     return null
                 }
                 let oldestLastRefreshed = null
-                for (const tile of tiles.filter((t): t is DashboardTile => 'insight' in t)) {
+                for (const tile of insightTiles) {
                     const itemLastRefreshed = tile.last_refresh ? dayjs(tile.last_refresh) : null
                     if (
                         !oldestLastRefreshed ||
@@ -587,24 +581,24 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 for (const col of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
                     const layouts = tiles.map((tile) => {
                         const isRetention =
-                            'insight' in tile &&
+                            !!tile.insight &&
                             tile.insight.filters.insight === InsightType.RETENTION &&
                             tile.insight.filters.display === ChartDisplayType.ActionsLineGraph
                         const defaultWidth =
                             isRetention ||
-                            ('insight' in tile && tile.insight.filters.display === ChartDisplayType.PathsViz)
+                            (!!tile.insight && tile.insight.filters.display === ChartDisplayType.PathsViz)
                                 ? 8
                                 : 6
                         const defaultHeight = isRetention
                             ? 8
-                            : 'insight' in tile && tile.insight.filters.display === ChartDisplayType.PathsViz
+                            : !!tile.insight && tile.insight.filters.display === ChartDisplayType.PathsViz
                             ? 12.5
                             : 5
                         const layout = tile.layouts && tile.layouts[col]
                         const { x, y, w, h } = layout || {}
                         const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
                         return {
-                            i: 'insight' in tile ? tile.insight.short_id : tile.id.toString(),
+                            i: !!tile.insight ? tile.insight.short_id : tile.id.toString(),
                             x: Number.isInteger(x) && x + width - 1 < BREAKPOINT_COLUMN_COUNTS[col] ? x : 0,
                             y: Number.isInteger(y) ? y : Infinity,
                             w: width,
@@ -709,7 +703,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 return (insightTiles ?? [])
                     .map((t) => t.insight)
                     .reduce((acc, curr) => {
-                        acc[curr.short_id] = Number(curr.id)
+                        if (curr) {
+                            acc[curr.short_id] = Number(curr.id)
+                        }
                         return acc
                     }, {})
             },
@@ -765,23 +761,25 @@ export const dashboardLogic = kea<dashboardLogicType>({
             }
 
             const updatedTile = { ...payload.tile }
-            updatedTile.insight.dashboards =
-                payload.tile.insight?.dashboards?.filter((d) => d !== payload.fromDashboard) || []
-            updatedTile.insight.dashboards.push(payload.toDashboard)
+            if (updatedTile.insight !== undefined) {
+                updatedTile.insight.dashboards =
+                    payload.tile.insight?.dashboards?.filter((d) => d !== payload.fromDashboard) || []
+                updatedTile.insight.dashboards.push(payload.toDashboard)
 
-            if (updatedTile) {
-                dashboardsModel.actions.tileMovedToDashboard(updatedTile, payload.toDashboard)
+                if (updatedTile) {
+                    dashboardsModel.actions.tileMovedToDashboard(updatedTile, payload.toDashboard)
+                }
+
+                lemonToast.success(
+                    <>
+                        Insight moved to{' '}
+                        <b>
+                            <Link to={urls.dashboard(payload?.toDashboard)}>{payload?.toDashboardName}</Link>
+                        </b>
+                    </>
+                    // TODO implement undo for move to dashboard
+                )
             }
-
-            lemonToast.success(
-                <>
-                    Insight moved to{' '}
-                    <b>
-                        <Link to={urls.dashboard(payload?.toDashboard)}>{payload?.toDashboardName}</Link>
-                    </b>
-                </>
-                // TODO implement undo for move to dashboard
-            )
         },
         triggerDashboardUpdate: ({ payload }) => {
             if (values.dashboard) {
@@ -800,10 +798,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
             }
             const dashboardId: number = props.id
 
-            const insights =
-                tiles?.filter((t): t is DashboardTile => 'insight' in t).map((t) => t.insight) ||
-                values.insightTiles.map((t) => t.insight) ||
-                []
+            const insights = (tiles || values.insightTiles || []).reduce((acc, cur) => {
+                if (cur.insight) {
+                    acc.push(cur.insight)
+                }
+                return acc
+            }, [] as InsightModel[])
 
             // Don't do anything if there's nothing to refresh
             if (insights.length === 0) {
@@ -919,7 +919,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 actions.refreshAllDashboardItems()
             } else {
                 const notYetLoadedItems = values.tiles?.filter(
-                    (t): t is DashboardTile => 'insight' in t && !t.insight.result
+                    (t): t is DashboardTile => !!t.insight && !t.insight.result
                 )
                 if (notYetLoadedItems && notYetLoadedItems?.length > 0) {
                     actions.refreshAllDashboardItems(notYetLoadedItems)

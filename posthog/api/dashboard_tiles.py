@@ -1,8 +1,7 @@
 from typing import Any, Dict
 
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import serializers
 
-from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import DashboardTile, Text
 
@@ -37,17 +36,24 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         return instance
 
 
-class DashboardTilesViewSet(
-    StructuredViewSetMixin,
-    mixins.CreateModelMixin,
-    viewsets.GenericViewSet,
-):
-    queryset = DashboardTile.objects.select_related("dashboard", "insight", "text")
-    filter_rewrite_rules = {"team_id": "dashboard__team_id"}
-    serializer_class = DashboardTileSerializer
-
-    def create(self, request, *args, **kwargs):
-        request.data["text"]["team"] = self.team.id
-        request.data["dashboard"] = kwargs["parent_lookup_dashboard_id"]
-
-        return super().create(request, *args, **kwargs)
+#
+#
+# class DashboardTilesViewSet(
+#     StructuredViewSetMixin,
+#     mixins.CreateModelMixin,
+#     viewsets.GenericViewSet,
+# ):
+#     queryset = DashboardTile.objects.select_related("dashboard", "insight", "text")
+#     filter_rewrite_rules = {"team_id": "dashboard__team_id"}
+#     serializer_class = DashboardTileSerializer
+#
+#     def create(self, request, *args, **kwargs):
+#         request.data["text"]["team"] = self.team.id
+#         request.data["dashboard"] = kwargs["parent_lookup_dashboard_id"]
+#
+#         dashboard = Dashboard.objects.get(pk=kwargs["parent_lookup_dashboard_id"])
+#         context = super(DashboardTilesViewSet, self).get_serializer_context()
+#         breakpoint()
+#         dashboard_serializer = DashboardSerializer(dashboard, context)
+#         dashboard_serializer.is_valid(raise_exception=True)
+#         return Response(dashboard_serializer.data)

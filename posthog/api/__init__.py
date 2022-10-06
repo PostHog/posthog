@@ -9,7 +9,6 @@ from . import (
     async_migration,
     authentication,
     dashboard,
-    dashboard_tiles,
     dead_letter_queue,
     event_definition,
     exports,
@@ -153,12 +152,6 @@ else:
     projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
     router.register(r"person", LegacyPersonViewSet, basename="person")
 
-project_dashboards_router.register(
-    r"tiles",
-    dashboard_tiles.DashboardTilesViewSet,
-    "project_dashboard_tiles",
-    ["team_id", "dashboard_id"],
-)
 
 project_dashboards_router.register(
     r"sharing", sharing.SharingConfigurationViewSet, "project_dashboard_sharing", ["team_id", "dashboard_id"]

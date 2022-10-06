@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { kea, props, path, connect, key, listeners } from 'kea'
 import { forms } from 'kea-forms'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardTextTile, DashboardType } from '~/types'
+import { DashboardType } from '~/types'
 
 import type { textCardModalLogicType } from './textCardModalLogicType'
 
@@ -17,11 +17,7 @@ export interface TextCardModalProps {
 }
 
 const getTileBody = (dashboard: DashboardType, textTileId: number): string => {
-    const foundBody = dashboard.tiles
-        .filter((t): t is DashboardTextTile => {
-            return 'body' in t
-        })
-        .find((tt) => tt.id === textTileId)?.body
+    const foundBody = dashboard.tiles.find((tt) => tt.id === textTileId)?.text?.body
     if (foundBody === undefined) {
         throw new Error('could not find body for tile with id: ' + textTileId)
     }
@@ -61,14 +57,10 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             },
             submit: (formValues) => {
                 // only id and body, layout and color could be out-of-date
-                const textTiles = (props.dashboard.tiles || [])
-                    .filter((t): t is DashboardTextTile => {
-                        return 'body' in t
-                    })
-                    .map((t) => ({ id: t.id, body: t.body }))
+                const textTiles = (props.dashboard.tiles || []).map((t) => ({ id: t.id, body: t.text?.body }))
 
                 if (props.textTileId === 'new') {
-                    actions.updateDashboard({ id: props.dashboard.id, text_tiles: [...textTiles, formValues] })
+                    actions.updateDashboard({ id: props.dashboard.id, tiles: [...textTiles, { text: formValues }] })
                 } else {
                     const updatedTiles = [...textTiles].map((tile) => {
                         if (tile.id === props.textTileId) {
@@ -76,7 +68,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                         }
                         return tile
                     })
-                    actions.updateDashboard({ id: props.dashboard.id, text_tiles: updatedTiles })
+                    actions.updateDashboard({ id: props.dashboard.id, tiles: updatedTiles })
                 }
             },
         },

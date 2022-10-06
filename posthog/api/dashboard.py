@@ -12,6 +12,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 
+from posthog.api.dashboard_tiles import TextSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
@@ -20,7 +21,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, DashboardTile, Insight, Team
+from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import should_refresh
@@ -38,6 +39,7 @@ class CanEditDashboard(BasePermission):
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
     insight = InsightSerializer()
+    text = TextSerializer()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
         help_text="""
@@ -47,7 +49,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DashboardTile
-        exclude = ["dashboard"]
+        exclude = ["dashboard", "deleted"]
         read_only_fields = ["id", "insight"]
         depth = 1
 
@@ -187,12 +189,24 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             )
 
         validated_data.pop("use_template", None)  # Remove attribute if present
+
         instance = super().update(instance, validated_data)
 
         if validated_data.get("deleted", False):
             DashboardTile.objects.filter(dashboard__id=instance.id).delete()
 
         initial_data = dict(self.initial_data)
+
+        tile = initial_data.pop("tiles", [])
+        for tile_data in tile:
+            if "text" in tile_data:
+                text, _ = Text.objects.update_or_create(
+                    id=tile_data.get("text").get("id", None),
+                    defaults={**tile_data["text"], "team": self.context["team"], "created_by": user},
+                )
+                DashboardTile.objects.update_or_create(
+                    id=tile_data.get("id", None), defaults={**tile_data, "text": text, "dashboard": instance}
+                )
 
         tile_layouts = initial_data.pop("tile_layouts", [])
         for tile_layout in tile_layouts:
@@ -303,6 +317,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                 Prefetch(
                     "tiles",
                     queryset=DashboardTile.objects.select_related("insight", "text")
+                    .exclude(deleted=True)
                     .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
                     .prefetch_related("insight__dashboards__team__organization", "insight__created_by")
                     .order_by("insight__order"),

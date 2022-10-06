@@ -4,7 +4,7 @@ import './TextCard.scss'
 import { Textfit } from 'react-textfit'
 import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/InsightCard/handles'
 import clsx from 'clsx'
-import { DashboardTextTile, DashboardType, InsightColor, Tileable } from '~/types'
+import { DashboardTile, DashboardType, InsightColor, Tileable } from '~/types'
 import { LemonButton, LemonButtonWithPopup, LemonDivider, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 import { More } from 'lib/components/LemonButton/More'
 import { useActions, useValues } from 'kea'
@@ -99,8 +99,8 @@ export function TextTileModal({
 }
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
-    dashboardId: string | number
-    textTile: DashboardTextTile
+    dashboardId?: string | number
+    textTile: DashboardTile
     children?: JSX.Element
     updateColor?: (newColor: Tileable['color']) => void
     removeFromDashboard?: () => void
@@ -133,7 +133,13 @@ export function TextCardInternal(
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
     const { push } = useActions(router)
-
+    const { text } = textTile
+    if (!text) {
+        throw new Error('TextCard requires text')
+    }
+    if (!dashboardId) {
+        throw new Error('TextCard requires dashboardId')
+    }
     return (
         <div
             className={clsx('TextCard border rounded flex flex-col overflow-hidden', className)}
@@ -149,8 +155,8 @@ export function TextCardInternal(
                     )}
                 <UserActivityIndicator
                     className={'grow'}
-                    at={textTile.last_modified_at}
-                    by={textTile.created_by || textTile.last_modified_by}
+                    at={text.last_modified_at}
+                    by={text.created_by || text.last_modified_by}
                 />
                 <div className="min-h-4 flex items-center justify-end">
                     <More
@@ -215,7 +221,7 @@ export function TextCardInternal(
             </div>
             <LemonDivider />
             <div className="flex p-2 pl-4">
-                <TextCardBody text={textTile.body} />
+                <TextCardBody text={text.body} />
             </div>
             {showResizeHandles && (
                 <>
