@@ -1692,7 +1692,7 @@ describe('when handling $create_alias', () => {
 
         // Make sure there is one identified person
         const persons = await hub.db.fetchPersons()
-        expect(persons.map((person) => person.is_identified)).toEqual([false])
+        expect(persons.map((person) => person.is_identified)).toEqual([true])
     })
 
     test('we can alias two non-existent persons', async () => {
@@ -1711,7 +1711,7 @@ describe('when handling $create_alias', () => {
 
         // Make sure there is one non-identified person
         const persons = await hub.db.fetchPersons()
-        expect(persons.map((person) => person.is_identified)).toEqual([false])
+        expect(persons.map((person) => person.is_identified)).toEqual([true])
     })
 })
 
