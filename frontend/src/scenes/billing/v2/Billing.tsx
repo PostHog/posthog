@@ -208,6 +208,18 @@ const BillingProduct = ({
     const billingGuageItems: BillingGuageProps['items'] = useMemo(
         () =>
             [
+                {
+                    tooltip: (
+                        <>
+                            <b>Free tier limit</b>
+                            {!billing?.stripe_portal_url ? <div>With subscription</div> : null}
+                        </>
+                    ),
+                    color: billing?.stripe_portal_url ? 'success-light' : 'danger-light',
+                    value: product.tiers?.[0]?.up_to || 0,
+                    top: true,
+                    // Background
+                },
                 !billing?.stripe_portal_url
                     ? {
                           tooltip: (
@@ -216,24 +228,12 @@ const BillingProduct = ({
                                   <div>Without subscription</div>
                               </>
                           ),
-                          color: 'success',
+                          color: 'success-light',
                           value: product.free_allocation,
                           top: true,
                           // Background
                       }
                     : (undefined as any),
-                {
-                    tooltip: (
-                        <>
-                            <b>Free tier limit</b>
-                            <div>With subscription</div>
-                        </>
-                    ),
-                    color: 'success-light',
-                    value: product.tiers?.[0]?.up_to || 0,
-                    top: true,
-                    // Background
-                },
                 {
                     tooltip: (
                         <>
