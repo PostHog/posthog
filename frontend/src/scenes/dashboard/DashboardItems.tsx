@@ -10,10 +10,21 @@ import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/da
 import clsx from 'clsx'
 import { InsightCard } from 'lib/components/InsightCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { LemonButton } from 'lib/components/LemonButton'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 export function DashboardItems(): JSX.Element {
-    const { dashboard, tiles, layouts, dashboardMode, placement, isRefreshing, highlightedInsightId, refreshStatus } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        tiles,
+        layouts,
+        dashboardMode,
+        placement,
+        isRefreshing,
+        highlightedInsightId,
+        refreshStatus,
+        canEditDashboard,
+    } = useValues(dashboardLogic)
     const {
         updateLayouts,
         updateContainerWidth,
@@ -21,6 +32,7 @@ export function DashboardItems(): JSX.Element {
         removeItem,
         refreshAllDashboardItems,
         moveToDashboard,
+        setDashboardMode,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight } = useActions(insightsModel)
 
@@ -112,6 +124,19 @@ export function DashboardItems(): JSX.Element {
                                 DashboardPlacement.ProjectHomepage,
                             ].includes(placement)}
                             showDetailsControls={placement != DashboardPlacement.Export}
+                            moreButtons={
+                                canEditDashboard ? (
+                                    <LemonButton
+                                        onClick={() =>
+                                            setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
+                                        }
+                                        status="stealth"
+                                        fullWidth
+                                    >
+                                        Edit layout (E)
+                                    </LemonButton>
+                                ) : null
+                            }
                         />
                     )
                 })}
