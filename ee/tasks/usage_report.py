@@ -121,6 +121,7 @@ OrgMetadata = TypedDict(
 OrgReport = TypedDict(
     "OrgReport",
     {
+        "date": str,
         "admin_distinct_id": int,
         "organization_id": str,
         "organization_name": str,
@@ -274,6 +275,7 @@ def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
     Generic way to generate and send org usage reports.
     Specify Postgres or ClickHouse for event queries.
     """
+    period_start, _ = get_previous_day()
     license = License.objects.first_valid()
     metadata = get_instance_metadata(bool(license))
 
@@ -313,6 +315,7 @@ def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
                 "organization_created_at": org["created_at"],
                 "organization_user_count": org["user_count"],
                 "team_count": len(org["teams"]),
+                "date": period_start.strftime("%Y-%m-%d"),
             }
             org_reports.append(report)
             if not dry_run:

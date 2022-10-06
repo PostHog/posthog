@@ -65,6 +65,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
         default_team = self._create_new_org_and_team()
 
         def _test_org_report(org_report: OrgReport) -> None:
+            self.assertEqual(org_report["date"], "2020-11-10")
             self.assertEqual(org_report["org_usage_summary"]["event_count_total"], 5)
             self.assertEqual(org_report["org_usage_summary"]["event_count_new_in_period"], 3)
             self.assertEqual(org_report["org_usage_summary"]["event_count_with_groups_new_in_period"], 0)
