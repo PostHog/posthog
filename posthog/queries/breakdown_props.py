@@ -71,6 +71,8 @@ def get_breakdown_prop_values(
     sessions_join_clause = ""
     sessions_join_params: Dict = {}
 
+    null_person_filter = f"AND e.person_id != toUUIDOrZero('')" if team.actor_on_events_querying_enabled else ""
+
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
         outer_properties: Optional[PropertyGroup] = props_to_filter
         person_id_joined_alias = "e.person_id"
@@ -146,6 +148,7 @@ def get_breakdown_prop_values(
             person_join_clauses=person_join_clauses,
             groups_join_clauses=groups_join_clause,
             sessions_join_clauses=sessions_join_clause,
+            null_person_filter=null_person_filter,
             **entity_format_params,
         )
     else:
@@ -158,6 +161,7 @@ def get_breakdown_prop_values(
             person_join_clauses=person_join_clauses,
             groups_join_clauses=groups_join_clause,
             sessions_join_clauses=sessions_join_clause,
+            null_person_filter=null_person_filter,
             **entity_format_params,
         )
 
