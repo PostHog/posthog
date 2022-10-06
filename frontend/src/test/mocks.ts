@@ -42,6 +42,7 @@ export const mockEvent: EventType = {
     elements: [],
     elements_chain: '',
     elements_hash: null,
+    matched_recordings: [],
 }
 
 export const mockEventDefinitions: EventDefinition[] = [
