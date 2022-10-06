@@ -145,7 +145,7 @@ export function InsightContainer(
                 <>
                     {exporterResourceParams && (
                         <div className="flex items-center justify-between my-4 mx-0">
-                            <h2>Detailed results</h2>
+                            <h2 className="m-0">Detailed results</h2>
                             <Tooltip title="Export this table in CSV format" placement="left">
                                 <ExportButton
                                     type="secondary"
