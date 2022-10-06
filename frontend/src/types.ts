@@ -819,16 +819,22 @@ export enum InsightColor {
     Purple = 'purple',
 }
 
-export interface DashboardTile {
-    result: any | null
-    layouts: Record<string, any>
-    color: InsightColor | null
+export interface Cacheable {
     last_refresh: string | null
-    filters: Partial<FilterType>
     filters_hash: string
+    refreshing: boolean
 }
 
-export interface InsightModel extends DashboardTile {
+export interface Tileable {
+    layouts: Record<string, any>
+    color: InsightColor | null
+}
+
+export interface DashboardTile extends Tileable, Cacheable {
+    insight: InsightModel
+}
+
+export interface InsightModel extends Cacheable {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -838,11 +844,11 @@ export interface InsightModel extends DashboardTile {
     description?: string
     favorited?: boolean
     order: number | null
+    result: any | null
     deleted: boolean
     saved: boolean
     created_at: string
     created_by: UserBasicType | null
-    refreshing: boolean
     is_sample: boolean
     dashboards: number[] | null
     updated_at: string
@@ -856,6 +862,7 @@ export interface InsightModel extends DashboardTile {
     next?: string
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
+    filters: Partial<FilterType>
 }
 
 export interface DashboardType {
@@ -863,7 +870,7 @@ export interface DashboardType {
     name: string
     description: string
     pinned: boolean
-    items: InsightModel[]
+    tiles: DashboardTile[]
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
