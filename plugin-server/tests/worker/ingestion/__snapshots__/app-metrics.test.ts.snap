@@ -1,0 +1,16 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`AppMetrics() flush() flushes queued messages 1`] = `
+Array [
+  Array [
+    Object {
+      "messages": Array [
+        Object {
+          "value": "{\\"teamId\\":2,\\"pluginConfigId\\":2,\\"jobId\\":\\"000-000\\",\\"category\\":\\"processEvent\\",\\"successes\\":1,\\"successesOnRetry\\":0,\\"failures\\":0}",
+        },
+      ],
+      "topic": "TODO",
+    },
+  ],
+]
+`;
