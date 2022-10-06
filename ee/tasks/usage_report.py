@@ -23,6 +23,8 @@ from psycopg2 import sql
 from sentry_sdk import capture_exception
 from typing_extensions import NotRequired
 
+from ee.api.billing import build_billing_token
+from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog import version_requirement
 from posthog.cloud_utils import is_cloud
@@ -103,7 +105,6 @@ OrgMetadata = TypedDict(
         "realm": str,
         "period": Period,
         "site_url": str,
-        "license_id": Optional[str],
         "product": str,
         "helm": NotRequired[dict],
         "clickhouse_version": NotRequired[str],
@@ -130,7 +131,6 @@ OrgReport = TypedDict(
         "realm": str,
         "period": Period,
         "site_url": str,
-        "license_id": Optional[str],
         "product": str,
         "helm": NotRequired[dict],
         "clickhouse_version": NotRequired[str],
@@ -231,18 +231,16 @@ def get_org_usage_report(organization_id: str, team_ids: List[str], dry_run: boo
     }
 
 
-def get_instance_metadata() -> OrgMetadata:
+def get_instance_metadata(has_license: bool) -> OrgMetadata:
     period_start, period_end = get_previous_day()
     realm = get_instance_realm()
-    license_id = get_instance_license_id()
     metadata: OrgMetadata = {
         "posthog_version": VERSION,
         "deployment_infrastructure": os.getenv("DEPLOYMENT", "unknown"),
         "realm": realm,
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
         "site_url": os.getenv("SITE_URL", "unknown"),
-        "license_id": license_id,
-        "product": get_product_name(realm, bool(license_id)),
+        "product": get_product_name(realm, has_license),
     }
 
     if realm != "cloud":
@@ -276,7 +274,8 @@ def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
     Generic way to generate and send org usage reports.
     Specify Postgres or ClickHouse for event queries.
     """
-    metadata = get_instance_metadata()
+    license = License.objects.first_valid()
+    metadata = get_instance_metadata(bool(license))
 
     org_data: Dict[str, Dict[str, Any]] = {}
     org_reports: List[OrgReport] = []
@@ -284,6 +283,9 @@ def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
         org = team.organization
         organization_id = str(org.id)
+        billing_service_token = None
+        if license:
+            billing_service_token = build_billing_token(license, organization_id)
         if organization_id in org_data:
             org_data[organization_id]["teams"].append(team.id)
         else:
@@ -292,6 +294,7 @@ def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
                 "user_count": get_org_user_count(organization_id),
                 "name": org.name,
                 "created_at": str(org.created_at),
+                "token": billing_service_token,
             }
 
     for organization_id, org in org_data.items():
@@ -313,7 +316,7 @@ def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
             }
             org_reports.append(report)
             if not dry_run:
-                send_report(report)
+                send_report(report, org["token"])
                 time.sleep(0.25)
         except Exception as err:
             capture_event("send org report failure", organization_id, {"error": str(err)}, dry_run=dry_run)
@@ -321,11 +324,11 @@ def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
     return org_reports
 
 
-def send_report(report: OrgReport):
-    request = requests.post(
-        f"{BILLING_SERVICE_URL}/api/usage",
-        json=report,
-    )
+def send_report(report: OrgReport, token: str):
+    headers = {}
+    if token:
+        headers = {"Authorization": f"Bearer {token}"}
+    request = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
     if request.status_code != 200:
         raise Exception()
 
@@ -406,15 +409,3 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
     with connection.cursor() as cursor:
         cursor.execute(sql.SQL(sql_), params)
         return namedtuplefetchall(cursor)
-
-
-def get_instance_license_id() -> Optional[str]:
-    try:
-        from ee.models import License
-    except ImportError:
-        return None
-    else:
-        license = License.objects.first()
-        if license:
-            return license.key.split("::")[0]
-        return None
