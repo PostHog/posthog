@@ -42,7 +42,7 @@ import {
     getLastFilledStep,
     getMeanAndStandardDeviation,
     getReferenceStep,
-    getVisibilityIndex,
+    getVisibilityKey,
     isBreakdownFunnelResults,
     isStepsEmpty,
     isValidBreakdownParameter,
@@ -753,12 +753,8 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         visibleStepsWithConversionMetrics: [
-            () => [
-                selectors.stepsWithConversionMetrics,
-                selectors.hiddenLegendKeys,
-                selectors.flattenedStepsByBreakdown,
-            ],
-            (steps, hiddenLegendKeys, flattenedStepsByBreakdown): FunnelStepWithConversionMetrics[] => {
+            (s) => [s.stepsWithConversionMetrics, s.hiddenLegendKeys, s.flattenedStepsByBreakdown, s.isOnlySeries],
+            (steps, hiddenLegendKeys, flattenedStepsByBreakdown, isOnlySeries): FunnelStepWithConversionMetrics[] => {
                 const baseLineSteps = flattenedStepsByBreakdown.find((b) => b.isBaseline)
                 return steps.map((step, stepIndex) => ({
                     ...step,
@@ -770,9 +766,7 @@ export const funnelLogic = kea<funnelLogicType>({
                             ...b,
                             order: breakdownIndex,
                         }))
-                        ?.filter((b) => {
-                            return !hiddenLegendKeys[getVisibilityIndex(step, b.breakdown_value)]
-                        }),
+                        ?.filter((b) => isOnlySeries || !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]),
                 }))
             },
         ],
@@ -787,7 +781,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         rowKey: step.order,
                         nestedRowKeys: step.nested_breakdown
                             ? step.nested_breakdown.map((breakdownStep) =>
-                                  getVisibilityIndex(step, breakdownStep.breakdown_value)
+                                  getVisibilityKey(breakdownStep.breakdown_value)
                               )
                             : [],
                         isBreakdownParent,
@@ -800,7 +794,7 @@ export const funnelLogic = kea<funnelLogicType>({
                                 ...breakdownStep,
                                 order: step.order,
                                 breakdownIndex: i,
-                                rowKey: getVisibilityIndex(step, breakdownStep.breakdown_value),
+                                rowKey: getVisibilityKey(breakdownStep.breakdown_value),
                                 isBreakdownParent: false,
                             })
                         })
@@ -878,6 +872,10 @@ export const funnelLogic = kea<funnelLogicType>({
             (breakdowns): FlattenedFunnelStepByBreakdown[] => {
                 return breakdowns.filter((b) => b.breakdown)
             },
+        ],
+        isOnlySeries: [
+            (s) => [s.flattenedBreakdowns],
+            (flattenedBreakdowns): boolean => flattenedBreakdowns.length <= 1,
         ],
         numericBinCount: [
             () => [selectors.filters, selectors.timeConversionResults],
@@ -1198,26 +1196,10 @@ export const funnelLogic = kea<funnelLogicType>({
     }),
 
     listeners: ({ actions, values, props }) => ({
-        loadResultsSuccess: async ({ insight }) => {
-            if (insight.filters?.insight !== InsightType.FUNNELS) {
-                return
-            }
-            // hide all but the first five breakdowns for each step
-            values.steps?.forEach((step) => {
-                values.flattenedStepsByBreakdown
-                    ?.filter((s) => !!s.breakdown)
-                    ?.slice(5)
-                    .forEach((b) => {
-                        actions.setHiddenById({ [getVisibilityIndex(step, b.breakdown_value)]: true })
-                    })
-            })
-        },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
-            values.visibleStepsWithConversionMetrics?.forEach((step) => {
-                const key = getVisibilityIndex(step, breakdownValue)
-                const currentIsHidden = !!values.hiddenLegendKeys?.[key]
-                actions.setHiddenById({ [key]: currentIsHidden ? undefined : true })
-            })
+            const key = getVisibilityKey(breakdownValue)
+            const currentIsHidden = !!values.hiddenLegendKeys?.[key]
+            actions.setHiddenById({ [key]: !currentIsHidden })
         },
         setFilters: ({ filters, mergeWithExisting }) => {
             const cleanedParams = cleanFilters(

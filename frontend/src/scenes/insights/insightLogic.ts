@@ -586,7 +586,27 @@ export const insightLogic = kea<insightLogicType>({
         hiddenLegendKeys: [
             (s) => [s.filters],
             (filters) => {
-                return filters.hidden_legend_keys ?? {}
+                const hiddenLegendKeys: FilterType['hidden_legend_keys'] = {}
+                if (filters.hidden_legend_keys) {
+                    for (const [key, value] of Object.entries(filters.hidden_legend_keys)) {
+                        // Transform pre-#12113 funnel series keys to the current more reliable format.
+                        // Old: `${step.type}/${step.action_id}/${step.order}/${breakdownValues.join('_')}`
+                        // New: breakdownValues.join('::')
+                        // If you squint you'll notice this doesn't actually handle the .join() part, but that's fine,
+                        // because that's only relevant for funnels with multiple breakdowns, and that hasn't been
+                        // released to users at the point of the format change.
+                        const oldFormatMatch = key.match(/\w+\/.+\/\d+\/(.+)/)
+                        if (oldFormatMatch) {
+                            // Don't override values for series if already set from a previously-seen old-format key
+                            if (!(oldFormatMatch[1] in hiddenLegendKeys)) {
+                                hiddenLegendKeys[oldFormatMatch[1]] = value
+                            }
+                        } else {
+                            hiddenLegendKeys[key] = value
+                        }
+                    }
+                }
+                return hiddenLegendKeys
             },
         ],
         filtersKnown: [
@@ -880,6 +900,7 @@ export const insightLogic = kea<insightLogicType>({
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
                 { fromPersistentApi: true, overrideFilter: true }
             )
+            eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',

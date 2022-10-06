@@ -6,6 +6,7 @@ import {
     AvailableFeature,
     BreakdownType,
     FilterLogicalOperator,
+    FilterType,
     InsightModel,
     InsightShortId,
     InsightType,
@@ -29,7 +30,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 
-const API_FILTERS = {
+const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
     events: [{ id: 3 }],
     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
@@ -832,6 +833,39 @@ describe('insightLogic', () => {
             .toMatchValues({
                 location: partial({ pathname: '/insights/12/edit' }),
             })
+    })
+
+    describe('hiddenLegendKeys selector', () => {
+        it('properly migrates pre-#12113 visibility keys', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    short_id: Insight42,
+                    results: undefined,
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                        hidden_legend_keys: {
+                            // Pre-#12113 funnel visibility key style
+                            'events/$pageview/0/Baseline': true,
+                            'events/$pageview/1/Baseline': undefined,
+                            // Post-#12113 funnel visibility key style
+                            'Chrome OS': undefined,
+                            Windows: true,
+                        },
+                    },
+                },
+            })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                hiddenLegendKeys: {
+                    // 'events/$pageview/0/Baseline' should be transformed to 'Baseline'
+                    Baseline: true,
+                    'Chrome OS': undefined,
+                    Windows: true,
+                },
+            })
+        })
     })
 
     describe('filterPropertiesCount selector', () => {

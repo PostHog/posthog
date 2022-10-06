@@ -211,7 +211,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportEventsTablePollingReactedToPageVisibility: (pageIsVisible: boolean) => ({ pageIsVisible }),
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
-        reportInsightCreated: (insight: InsightType | null) => ({ insight }),
+        reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
+        reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
             filters: Partial<FilterType>,
@@ -535,9 +536,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightCreated: async ({ insight }, breakpoint) => {
+        reportInsightCreated: async ({ insightType }, breakpoint) => {
+            // "insight created" essentially means that the user clicked "New insight"
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
-            posthog.capture('insight created', { insight })
+            posthog.capture('insight created', { insight: insightType })
+        },
+        reportInsightSaved: async ({ filters, isNewInsight }) => {
+            // "insight saved" is a proxy for the new insight's results being valuable to the user
+            posthog.capture('insight saved', { ...filters, is_new_insight: isNewInsight })
         },
         reportInsightViewed: ({
             insightModel,
