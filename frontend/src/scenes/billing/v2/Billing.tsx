@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { billingLogic } from './billingLogic'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Spinner, SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
@@ -14,24 +14,47 @@ import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
 import { BillingGuage, BillingGuageProps } from './BillingGuage'
 import { convertAmountToUsage, convertUsageToAmount, projectUsage, summarizeUsage } from './billing-utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export function BillingV2(): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
     const { setShowLicenseDirectInput } = useActions(billingLogic)
+    const { preflight } = useValues(preflightLogic)
 
     if (!billing && billingLoading) {
         return <SpinnerOverlay />
     }
+
+    const supportLink = (
+        <Link
+            target="blank"
+            to="https://posthog.com/support?utm_medium=in-product&utm_campaign=billing-service-unreachable"
+        >
+            {' '}
+            contact support{' '}
+        </Link>
+    )
 
     return (
         <div>
             <PageHeader title="Billing &amp; usage" />
 
             {!billing && !billingLoading ? (
-                <AlertMessage type="error">
-                    There was an issue retreiving your current billing information. If this message persists please
-                    contact support.
-                </AlertMessage>
+                <div className="space-y-4">
+                    <AlertMessage type="error">
+                        There was an issue retreiving your current billing information. If this message persists please
+                        {supportLink}.
+                    </AlertMessage>
+
+                    {!preflight?.cloud ? (
+                        <AlertMessage type="info">
+                            Please ensure your instance is able to reach <b>https://billing.posthog.com</b>
+                            <br />
+                            If this is not possible, please {supportLink} about licensing options for "air-gapped"
+                            instances.
+                        </AlertMessage>
+                    ) : null}
+                </div>
             ) : (
                 <div className="flex">
                     <div className="flex-1">
@@ -122,7 +145,7 @@ export function BillingV2(): JSX.Element {
                             </>
                         )}
 
-                        {!billing?.stripe_portal_url ? (
+                        {!preflight?.cloud && !billing?.stripe_portal_url ? (
                             <LemonButton
                                 fullWidth
                                 center

@@ -121,6 +121,8 @@ class BillingViewset(viewsets.GenericViewSet):
         license = License.objects.first_valid()
         org = self._get_org()
 
+        response: Dict[str, Any] = {"subscription_url": None, "custom_limits_usd": {}}
+
         if license:
             billing_service_token = build_billing_token(license, str(org.id))
 
@@ -135,21 +137,23 @@ class BillingViewset(viewsets.GenericViewSet):
                 self._update_license_details(license, data["license"])
 
             if res.status_code == 200 and data.get("customer"):
-                return Response(data["customer"])
+                response.update(data["customer"])
 
             # For all unhandled statuses we raise an exception
             if res.status_code not in (200, 404):
                 raise Exception(f"Billing service returned bad status code: {res.status_code}")
 
         # The default response is used if there is no subscription
-        products = self._get_products()
-        calculated_usage = get_cached_current_usage(org)
+        if not response.get("products"):
+            products = self._get_products()
+            calculated_usage = get_cached_current_usage(org)
 
-        for product in products:
-            if product["type"] in calculated_usage:
-                product["current_usage"] = calculated_usage[product["type"]]
+            for product in products:
+                if product["type"] in calculated_usage:
+                    product["current_usage"] = calculated_usage[product["type"]]
+            response["products"] = products
 
-        return Response({"subscription_url": None, "products": products, "custom_limits": {}})
+        return Response(response)
 
     @action(methods=["PATCH"], detail=False, url_path="/")
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
