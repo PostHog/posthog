@@ -1,10 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { StatsD } from 'hot-shots'
 import { EachBatchHandler, Kafka } from 'kafkajs'
 import { JobQueueManager } from 'main/job-queues/job-queue-manager'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_BUFFER, KAFKA_EVENTS_DEAD_LETTER_QUEUE } from '../../config/kafka-topics'
-import { Hub, JobName } from '../../types'
+import { JobName } from '../../types'
 import { status } from '../../utils/status'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
@@ -12,12 +13,12 @@ export const startAnonymousEventBufferConsumer = async ({
     kafka,
     producer,
     jobQueueManager,
-    hub,
+    statsd,
 }: {
     kafka: Kafka
     producer: KafkaProducerWrapper
     jobQueueManager: JobQueueManager
-    hub: Hub
+    statsd?: StatsD
 }) => {
     /*
         Consumes from the anonymous event topic, and enqueues the events for
@@ -103,7 +104,7 @@ export const startAnonymousEventBufferConsumer = async ({
     await consumer.subscribe({ topic: KAFKA_BUFFER })
     await consumer.run({
         eachBatch: async (payload) => {
-            return await instrumentEachBatch(KAFKA_BUFFER, eachBatch, payload, hub)
+            return await instrumentEachBatch(KAFKA_BUFFER, eachBatch, payload, statsd)
         },
     })
 

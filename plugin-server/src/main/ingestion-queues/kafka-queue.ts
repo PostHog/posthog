@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/node'
+import { StatsD } from 'hot-shots'
 import { Consumer, ConsumerSubscribeTopics, EachBatchHandler, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
@@ -200,13 +201,13 @@ export const instrumentEachBatch = async (
     topic: string,
     eachBatch: EachBatchHandler,
     payload: EachBatchPayload,
-    pluginsServer: Hub
+    statsd?: StatsD
 ): Promise<void> => {
     try {
         await eachBatch(payload)
     } catch (error) {
         const eventCount = payload.batch.messages.length
-        pluginsServer.statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
+        statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
             topic: topic,
         })
         status.info('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
@@ -223,7 +224,7 @@ export const instrumentEachBatch = async (
             }
             for (const [msg, metricSuffix] of Object.entries(messagesToIgnore)) {
                 if (error.message.includes(msg)) {
-                    pluginsServer.statsd?.increment('each_batch_error_' + metricSuffix)
+                    statsd?.increment('each_batch_error_' + metricSuffix)
                     logToSentry = false
                 }
             }
