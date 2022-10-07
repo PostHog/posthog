@@ -50,7 +50,8 @@ export async function emitToBufferStep(
         // NOTE: calling flush on every call isn't optimal although we can
         // optimize later.
         // TODO: handle ack of the specific message from this method or
-        // otherwise send to DLQ or appropriate.
+        // otherwise send to DLQ or appropriate. i.e. we don't have guaranteed
+        // delivery atm.
         await runner.hub.kafkaProducer.flush()
 
         runner.hub.statsd?.increment('events_sent_to_buffer')
