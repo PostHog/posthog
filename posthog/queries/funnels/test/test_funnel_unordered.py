@@ -8,7 +8,11 @@ from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
-from posthog.queries.funnels.test.breakdown_cases import FunnelStepResult, funnel_breakdown_test_factory
+from posthog.queries.funnels.test.breakdown_cases import (
+    FunnelStepResult,
+    assert_funnel_results_equal,
+    funnel_breakdown_test_factory,
+)
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.test.base import (
     APIBaseTest,
@@ -76,7 +80,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
         )
 
         result = funnel.run()
-        self._assert_funnel_results_equal(
+        assert_funnel_results_equal(
             result[0],
             [
                 {
@@ -110,7 +114,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome"]), [person1.uuid])
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Chrome"]), [])
 
-        self._assert_funnel_results_equal(
+        assert_funnel_results_equal(
             result[1],
             [
                 {

@@ -31,32 +31,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             return [val["id"] for val in serialized_result]
 
-        def _assert_funnel_results_equal(self, left: List[Dict[str, Any]], right: List[Dict[str, Any]]):
-            """
-            Helper to be able to compare two funnel results, but exclude people urls
-            from the comparison, as these include:
-
-                1. all the params from the request, and will thus almost always be
-                different for varying inputs
-                2. contain timestamps which are not stable across runs
-            """
-
-            def _filter(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-
-                return [{**step, "converted_people_url": None, "dropped_people_url": None} for step in steps]
-
-            assert len(left) == len(right)
-
-            for index, item in enumerate(_filter(left)):
-                other = _filter(right)[index]
-                assert item.keys() == other.keys()
-                for key in item.keys():
-                    try:
-                        assert item[key] == other[key]
-                    except AssertionError as e:
-                        e.args += (f"failed comparing ${key}", f'Got "{item[key]}" and "{other[key]}"')
-                        raise
-
         def _assert_funnel_breakdown_result_is_correct(self, result, steps: List[FunnelStepResult]):
             def funnel_result(step: FunnelStepResult, order: int) -> Dict[str, Any]:
                 return {
@@ -82,7 +56,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             for index, step_result in enumerate(steps):
                 step_results.append(funnel_result(step_result, index))
 
-            self._assert_funnel_results_equal(result, step_results)
+            assert_funnel_results_equal(result, step_results)
 
         @test_with_materialized_columns(["$browser", "$browser_version"])
         def test_funnel_step_multi_property_breakdown_event(self):
@@ -2201,3 +2175,30 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
 def sort_breakdown_funnel_results(results: List[Dict[int, Any]]):
     return list(sorted(results, key=lambda r: r[0]["breakdown_value"]))
+
+
+def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str, Any]]):
+    """
+    Helper to be able to compare two funnel results, but exclude people urls
+    from the comparison, as these include:
+
+        1. all the params from the request, and will thus almost always be
+        different for varying inputs
+        2. contain timestamps which are not stable across runs
+    """
+
+    def _filter(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+        return [{**step, "converted_people_url": None, "dropped_people_url": None} for step in steps]
+
+    assert len(left) == len(right)
+
+    for index, item in enumerate(_filter(left)):
+        other = _filter(right)[index]
+        assert item.keys() == other.keys()
+        for key in item.keys():
+            try:
+                assert item[key] == other[key]
+            except AssertionError as e:
+                e.args += (f"failed comparing ${key}", f'Got "{item[key]}" and "{other[key]}"')
+                raise
