@@ -3,9 +3,9 @@ from datetime import datetime, time, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 import jwt
+import posthoganalytics
 import pytz
 import requests
-import posthoganalytics
 from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse
