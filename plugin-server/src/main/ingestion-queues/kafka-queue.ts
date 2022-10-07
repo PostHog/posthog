@@ -90,7 +90,7 @@ export class KafkaQueue {
                 resolve()
             })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
-            status.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
+            status.info('⏬', `Connect   ing Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
             this.wasConsumerRan = true
 
             await this.consumer.connect()
@@ -105,7 +105,12 @@ export class KafkaQueue {
                 eachBatch: async (payload) => {
                     const topic = payload.batch.topic
                     const eachBatch = this.eachBatch[topic]
-                    await instrumentEachBatch(topic, (payload) => eachBatch(payload, this), payload, this.pluginsServer)
+                    await instrumentEachBatch(
+                        topic,
+                        (payload) => eachBatch(payload, this),
+                        payload,
+                        this.pluginsServer.statsd
+                    )
                 },
             })
         })
