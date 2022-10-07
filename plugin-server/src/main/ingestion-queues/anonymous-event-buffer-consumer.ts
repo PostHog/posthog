@@ -32,7 +32,7 @@ export const startAnonymousEventBufferConsumer = async ({
         TODO:
 
         1. distinguish between operational errors and programming errors
-        2. ensure offset only updated if message pushed to DQL
+        2. ensure offset only updated if message pushed to DLQ
     */
 
     const consumer = kafka.consumer({ groupId: 'ingester' })
