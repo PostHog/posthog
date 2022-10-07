@@ -21,7 +21,7 @@ export const startAnonymousEventBufferConsumer = async ({
         processing at a later date as per the message header `processEventAt`.
 
         We do this delayed processing to allow for the anonymous users that
-        these events are assosiated to be merged or identified as other
+        these events are associated to be merged or identified as other
         "identified" users, at which point to can denormalize data to improve
         query performance.
 
