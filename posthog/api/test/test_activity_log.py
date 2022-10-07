@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional, Tuple
 from rest_framework import status
 
 from posthog.models import User
-from posthog.test.base import APIBaseTest, QueryMatchingTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
 def _feature_flag_json_payload(key: str) -> Dict:
@@ -58,6 +58,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
         self.client.force_login(self.user)
 
+    @snapshot_postgres_queries
     def test_can_get_top_ten_important_changes(self) -> None:
         # user one has created 10 insights and 2 flags
         # user two has edited them all
