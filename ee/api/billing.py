@@ -129,8 +129,13 @@ class BillingViewset(viewsets.GenericViewSet):
                 headers={"Authorization": f"Bearer {billing_service_token}"},
             )
 
-            if res.status_code == 200 and res.json().get("customer"):
-                return Response(res.json()["customer"])
+            data = res.json()
+
+            if data.get("license"):
+                self._update_license_details(license, data["license"])
+
+            if res.status_code == 200 and data.get("customer"):
+                return Response(data["customer"])
 
             # For all unhandled statuses we raise an exception
             if res.status_code not in (200, 404):
@@ -208,12 +213,8 @@ class BillingViewset(viewsets.GenericViewSet):
         )
 
         if res.status_code == 200:
-            # Successfull license - let's save it
             data = res.json()
-            license.valid_until = data["license"]["valid_until"]
-            license.plan = data["license"]["type"]
-            license.max_users = 0
-            license.save()
+            self._update_license_details(license, data["license"])
             return Response({"success": True})
 
         raise ValidationError(
@@ -235,3 +236,14 @@ class BillingViewset(viewsets.GenericViewSet):
             f"{BILLING_SERVICE_URL}/api/products",
         )
         return res.json()["products"]
+
+    def _update_license_details(self, license: License, data: Dict[str, Any]) -> License:
+        """
+        Ensure the license details are up-to-date locally
+        """
+        license.valid_until = data["valid_until"]
+        license.plan = data["type"]
+        license.max_users = 0
+        license.save()
+
+        return license
