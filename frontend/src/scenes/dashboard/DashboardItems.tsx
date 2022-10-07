@@ -10,11 +10,22 @@ import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/da
 import clsx from 'clsx'
 import { InsightCard } from 'lib/components/InsightCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { LemonButton } from 'lib/components/LemonButton'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TextCard } from 'lib/components/TextCard/TextCard'
 
 export function DashboardItems(): JSX.Element {
-    const { dashboard, tiles, layouts, dashboardMode, placement, isRefreshing, highlightedInsightId, refreshStatus } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        tiles,
+        layouts,
+        dashboardMode,
+        placement,
+        isRefreshing,
+        highlightedInsightId,
+        refreshStatus,
+        canEditDashboard,
+    } = useValues(dashboardLogic)
     const {
         updateLayouts,
         updateContainerWidth,
@@ -22,6 +33,7 @@ export function DashboardItems(): JSX.Element {
         removeItem,
         refreshAllDashboardItems,
         moveToDashboard,
+        setDashboardMode,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight } = useActions(insightsModel)
 
@@ -91,7 +103,6 @@ export function DashboardItems(): JSX.Element {
                             <InsightCard
                                 key={insight.short_id}
                                 insight={insight}
-                                ribbonColor={tile.color}
                                 dashboardId={dashboard?.id}
                                 loading={isRefreshing(insight.short_id)}
                                 apiErrored={refreshStatus[insight.short_id]?.error || false}
@@ -99,6 +110,7 @@ export function DashboardItems(): JSX.Element {
                                 showResizeHandles={dashboardMode === DashboardMode.Edit}
                                 canResizeWidth={canResizeWidth}
                                 updateColor={(color) => updateItemColor(insight.id, color)}
+                                ribbonColor={tile.color}
                                 removeFromDashboard={() => removeItem(insight)}
                                 refresh={() => refreshAllDashboardItems([tile])}
                                 rename={() => renameInsight(insight)}
@@ -114,6 +126,19 @@ export function DashboardItems(): JSX.Element {
                                     DashboardPlacement.ProjectHomepage,
                                 ].includes(placement)}
                                 showDetailsControls={placement != DashboardPlacement.Export}
+                                moreButtons={
+                                    canEditDashboard ? (
+                                        <LemonButton
+                                            onClick={() =>
+                                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
+                                            }
+                                            status="stealth"
+                                            fullWidth
+                                        >
+                                            Edit layout (E)
+                                        </LemonButton>
+                                    ) : null
+                                }
                             />
                         )
                     }

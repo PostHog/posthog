@@ -159,6 +159,8 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     rename?: () => void
     duplicate?: () => void
     moveToDashboard?: (dashboard: DashboardType) => void
+    /** buttons to add to the "more" menu on the card**/
+    moreButtons?: JSX.Element | null
 }
 
 interface InsightMetaProps
@@ -176,6 +178,7 @@ interface InsightMetaProps
         | 'moveToDashboard'
         | 'showEditingControls'
         | 'showDetailsControls'
+        | 'moreButtons'
     > {
     /**
      * Optional callback to update height of the primary InsightMeta div. Allow for coordinating InsightViz height
@@ -202,6 +205,7 @@ function InsightMeta({
     setAreDetailsShown,
     showEditingControls = true,
     showDetailsControls = true,
+    moreButtons,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, description, tags, filters, dashboards } = insight
     const { exporterResourceParams, insightProps } = useValues(insightLogic)
@@ -413,6 +417,12 @@ function InsightMeta({
                                                             ]}
                                                         />
                                                     ) : null}
+                                                    {moreButtons && (
+                                                        <>
+                                                            <LemonDivider />
+                                                            {moreButtons}
+                                                        </>
+                                                    )}
                                                     {editable && (
                                                         <>
                                                             <LemonDivider />
@@ -561,6 +571,7 @@ function InsightCardInternal(
         moveToDashboard,
         className,
         children,
+        moreButtons,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -625,6 +636,7 @@ function InsightCardInternal(
                     setAreDetailsShown={setAreDetailsShown}
                     showEditingControls={showEditingControls}
                     showDetailsControls={showDetailsControls}
+                    moreButtons={moreButtons}
                 />
                 <InsightViz
                     insight={insight}

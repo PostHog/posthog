@@ -58,6 +58,15 @@ sudo -E docker-compose run asyncmigrationscheck
 echo "Stopping the stack!"
 docker-compose stop
 
+# rewrite entrypoint
+# TODO: this is duplicated from bin/deploy-hobby. We should refactor this into a
+# single script.
+cat > compose/start <<EOF
+#!/bin/bash
+/compose/wait
+./bin/migrate
+./bin/docker-server
+EOF
 
 echo ""
 echo ""

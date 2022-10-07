@@ -303,11 +303,38 @@ SELECT
     team_id,
     distinct_id,
     elements_chain,
-    created_at
+    created_at,
+    session_recording_events.session_id as session_id,
+    window_id
 FROM
-    events
-where team_id = %(team_id)s
-{conditions}
+(
+    SELECT
+        uuid,
+        event,
+        properties,
+        timestamp,
+        team_id,
+        distinct_id,
+        elements_chain,
+        created_at,
+        $session_id as session_id,
+        $window_id as window_id
+    FROM
+        events
+    where team_id = %(team_id)s
+    {time_conditions}
+    {event_conditions}
+) as events
+LEFT JOIN
+(
+    SELECT
+        session_id
+    FROM session_recording_events
+    WHERE team_id = %(team_id)s
+    {time_conditions}
+    GROUP BY session_id
+) AS session_recording_events
+ON events.session_id = session_recording_events.session_id
 ORDER BY timestamp {order} {limit}
 """
 
@@ -320,12 +347,39 @@ SELECT
     team_id,
     distinct_id,
     elements_chain,
-    created_at
-FROM events
-WHERE
-team_id = %(team_id)s
-{conditions}
-{filters}
+    created_at,
+    session_recording_events.session_id as session_id,
+    window_id
+FROM
+(
+    SELECT
+        uuid,
+        event,
+        properties,
+        timestamp,
+        team_id,
+        distinct_id,
+        elements_chain,
+        created_at,
+        $session_id as session_id,
+        $window_id as window_id
+    FROM
+        events
+    WHERE team_id = %(team_id)s
+    {time_conditions}
+    {event_conditions}
+    {filters}
+) as events
+LEFT JOIN
+(
+    SELECT
+        session_id
+    FROM session_recording_events
+    WHERE team_id = %(team_id)s
+    {time_conditions}
+    GROUP BY session_id
+) AS session_recording_events
+ON events.session_id = session_recording_events.session_id
 ORDER BY timestamp {order} {limit}
 """
 

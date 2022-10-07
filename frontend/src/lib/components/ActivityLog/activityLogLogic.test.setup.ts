@@ -65,9 +65,10 @@ export const makeTestSetup = (scope: ActivityScope, url: string) => {
         name: string,
         activity: string,
         changes: ActivityChange[] | null,
-        merge?: PersonMerge
+        merge?: PersonMerge | null,
+        trigger?: Trigger | null
     ): Promise<ReturnType<typeof activityLogLogic.build>> => {
-        const activityLogItem = makeAPIItem({ scope, name, activity, changes, merge })
+        const activityLogItem = makeAPIItem({ scope, name, activity, changes, merge, trigger })
         return await testSetup(activityLogItem, scope, url)
     }
 }
