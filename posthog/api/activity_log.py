@@ -54,9 +54,10 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         my_feature_flags = list(FeatureFlag.objects.filter(created_by=user).values_list("id", flat=True))
         other_peoples_changes = (
             self.queryset.exclude(user=user)
+            .filter(team_id=self.team.id)
             .filter(
-                Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags) & Q(team_id=self.team_id))
-                | Q(Q(scope="Insight") & Q(item_id__in=my_insights) & Q(team_id=self.team_id))
+                Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags))
+                | Q(Q(scope="Insight") & Q(item_id__in=my_insights))
             )
             .order_by("-created_at")
         )[:10]
