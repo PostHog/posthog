@@ -161,6 +161,8 @@ export async function startPluginsServer(
         }
         if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs) {
             jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+        }
+        if (hub.capabilities.ingestion) {
             bufferConsumer = await startAnonymousEventBufferConsumer({
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
