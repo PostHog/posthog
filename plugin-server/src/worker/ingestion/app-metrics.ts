@@ -32,7 +32,6 @@ export class AppMetrics {
     queuedData: Record<string, QueuedMetric>
 
     flushFrequencyMs: number
-    maxQueueSize: number
 
     timer: NodeJS.Timeout | null
 
@@ -41,7 +40,6 @@ export class AppMetrics {
         this.queuedData = {}
 
         this.flushFrequencyMs = hub.APP_METRICS_FLUSH_FREQUENCY_MS
-        this.maxQueueSize = hub.APP_METRICS_MAX_QUEUE_SIZE
         this.timer = null
     }
 
@@ -56,11 +54,6 @@ export class AppMetrics {
         const { successes, successesOnRetry, failures, ...metricInfo } = metric
 
         if (!this.queuedData[key]) {
-            if (this.shouldFlushQueue()) {
-                this.hub.promiseManager.trackPromise(this.flush())
-                await this.hub.promiseManager.awaitPromisesIfNeeded()
-            }
-
             this.queuedData[key] = {
                 successes: 0,
                 successesOnRetry: 0,
@@ -116,10 +109,6 @@ export class AppMetrics {
             topic: KAFKA_APP_METRICS,
             messages: kafkaMessages,
         })
-    }
-
-    shouldFlushQueue(): boolean {
-        return Object.keys(this.queuedData).length >= this.maxQueueSize
     }
 
     _key(metric: AppMetric): string {

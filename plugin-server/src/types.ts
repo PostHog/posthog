@@ -103,7 +103,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
-    APP_METRICS_MAX_QUEUE_SIZE: number
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string

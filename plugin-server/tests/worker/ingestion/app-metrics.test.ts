@@ -19,7 +19,7 @@ describe('AppMetrics()', () => {
     let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({ APP_METRICS_MAX_QUEUE_SIZE: 2, APP_METRICS_FLUSH_FREQUENCY_MS: 100 })
+        ;[hub, closeHub] = await createHub({ APP_METRICS_FLUSH_FREQUENCY_MS: 100 })
         appMetrics = new AppMetrics(hub)
 
         jest.spyOn(hub.organizationManager, 'hasAvailableFeature').mockResolvedValue(true)
@@ -98,18 +98,6 @@ describe('AppMetrics()', () => {
                     },
                 },
             ])
-        })
-
-        it('automatically flushes queue if full', async () => {
-            jest.spyOn(appMetrics, 'flush')
-
-            await appMetrics.queueMetric({ ...metric, teamId: 1, successes: 1 })
-            await appMetrics.queueMetric({ ...metric, teamId: 1, successes: 1 })
-            await appMetrics.queueMetric({ ...metric, teamId: 2, successes: 1 })
-            expect(appMetrics.flush).not.toHaveBeenCalled()
-
-            await appMetrics.queueMetric({ ...metric, teamId: 3, successes: 1 })
-            expect(appMetrics.flush).toHaveBeenCalled()
         })
 
         it('creates timer to flush if no timer before', async () => {
