@@ -7,7 +7,7 @@ from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.funnels.funnel_strict import ClickhouseFunnelStrict
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal, funnel_breakdown_test_factory
+from posthog.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from posthog.test.test_journeys import journeys_for
@@ -67,7 +67,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
         )
 
         result = funnel.run()
-        assert_funnel_results_equal(
+        self._assert_funnel_results_equal(
             result[0],
             [
                 {
@@ -101,7 +101,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome"]), [people["person1"].uuid])
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Chrome"]), [])
 
-        assert_funnel_results_equal(
+        self._assert_funnel_results_equal(
             result[1],
             [
                 {

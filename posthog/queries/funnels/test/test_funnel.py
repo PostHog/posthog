@@ -11,7 +11,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelActors
-from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal, funnel_breakdown_test_factory
+from posthog.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.tasks.update_cache import update_cache_item
 from posthog.test.base import (
@@ -52,6 +52,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             _, serialized_result, _ = ClickhouseFunnelActors(person_filter, self.team).get_actors()
 
             return [val["id"] for val in serialized_result]
+
+        def _assert_funnel_results_equal(self, left, right):
+            # set in TestFunnelBreakdown
+            raise NotImplementedError()
 
         def _signup_event(self, **kwargs):
             event_factory(team=self.team, event="user signed up", **kwargs)
@@ -651,7 +655,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             funnel = Funnel(filter, self.team)
             result2 = funnel.run()
 
-            assert_funnel_results_equal(result, result2)
+            self._assert_funnel_results_equal(result, result2)
 
             filters = {
                 "events": [
@@ -668,7 +672,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             funnel = Funnel(filter, self.team)
             result3 = funnel.run()
 
-            assert_funnel_results_equal(result, result3)
+            self._assert_funnel_results_equal(result, result3)
 
         def test_funnel_exclusions_full_window(self):
             filters = {
