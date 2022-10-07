@@ -173,7 +173,7 @@ export async function startPluginsServer(
             // end up with the plugin-server running but not consuming from the
             // buffer.
             bufferConsumer.on(bufferConsumer.events.CRASH, () => {
-                status.info('🛑', 'Anonymous event buffer consumer, sending term signal to self!')
+                status.info('🛑', 'Anonymous event buffer consumer crashed, sending term signal to self!')
                 process.kill(process.pid, 'SIGTERM')
             })
         }
