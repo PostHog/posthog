@@ -108,6 +108,7 @@ export function DashboardItems(): JSX.Element {
                             showResizeHandles={dashboardMode === DashboardMode.Edit}
                             canResizeWidth={canResizeWidth}
                             updateColor={(color) => updateItemColor(insight.id, color)}
+                            ribbonColor={tile.color}
                             removeFromDashboard={() => removeItem(insight)}
                             refresh={() => refreshAllDashboardItems([tile])}
                             rename={() => renameInsight(insight)}
