@@ -197,12 +197,13 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
 
-    def get_object(self) -> Any:
+    def get_object(self) -> User:
         lookup_value = self.kwargs[self.lookup_field]
+        request_user = cast(User, self.request.user)  # Must be authenticated to access this endpoint
         if lookup_value == "@me":
-            return self.request.user
+            return request_user
 
-        if not self.request.user.is_staff:
+        if not request_user.is_staff:
             raise exceptions.PermissionDenied(
                 "As a non-staff user you're only allowed to access the `@me` user instance."
             )
