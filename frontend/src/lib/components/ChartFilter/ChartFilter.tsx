@@ -13,7 +13,6 @@ import {
 } from '@ant-design/icons'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Tooltip } from '../Tooltip'
 import { LemonTag } from '../LemonTag/LemonTag'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
@@ -25,11 +24,10 @@ interface ChartFilterProps {
 }
 
 export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, isSingleSeries } = useValues(insightLogic)
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
-    const seriesCount = toLocalFilters(filters).length
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const pieDisabled: boolean = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const worldMapDisabled: boolean =
@@ -38,9 +36,9 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             !!filters.breakdown &&
             filters.breakdown !== '$geoip_country_code' &&
             filters.breakdown !== '$geoip_country_name') ||
-        seriesCount > 1 // World map only works with one series
+        !isSingleSeries // World map only works with one series
     const boldNumberDisabled: boolean =
-        filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION || seriesCount > 1 // Bold number only works with one series
+        filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION || !isSingleSeries // Bold number only works with one series
     const barDisabled: boolean = filters.insight === InsightType.RETENTION
     const barValueDisabled: boolean =
         barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION

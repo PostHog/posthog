@@ -9,7 +9,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
-export function TrendsSteps({ insightProps }: EditorFilterProps): JSX.Element {
+export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
     const { filters } = useValues(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -54,4 +54,10 @@ export function TrendsSteps({ insightProps }: EditorFilterProps): JSX.Element {
             />
         </>
     )
+}
+
+export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Element {
+    const { isFormulaOn } = useValues(trendsLogic(insightProps))
+
+    return <>{isFormulaOn ? 'Variables' : 'Series'}</>
 }
