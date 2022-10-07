@@ -136,6 +136,7 @@ describe('insightLogic', () => {
                                         result: ['result 42'],
                                         filters: API_FILTERS,
                                         name: 'original name',
+                                        dashboards: [1, 2, 3],
                                     },
                                     { id: 43, short_id: Insight43, result: ['result 43'], filters: API_FILTERS },
                                 ],
@@ -156,6 +157,7 @@ describe('insightLogic', () => {
                                     short_id: shortId.toString(),
                                     filters: JSON.parse(req.url.searchParams.get('filters') || 'false') || API_FILTERS,
                                     name: 'original name',
+                                    dashboards: [1, 2, 3],
                                 },
                             ],
                         },
@@ -1115,6 +1117,26 @@ describe('insightLogic', () => {
                     insight: truth(({ name }) => {
                         return name === 'original name'
                     }),
+                })
+        })
+
+        it('reacts to removal from dashboard', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.tileRemovedFromDashboard({ insightId: 42, dashboardId: 3 })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2] }),
+                })
+        })
+
+        it('does not reacts to removal of a different tile from dashboard', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.tileRemovedFromDashboard({ insightId: 12, dashboardId: 3 })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
     })
