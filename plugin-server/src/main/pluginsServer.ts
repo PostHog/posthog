@@ -167,10 +167,14 @@ export async function startPluginsServer(
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
                 jobQueueManager: hub.jobQueueManager,
-                onStop: () => {
-                    status.info('🛑', 'Anonymous event buffer consumer, sending term signal to self!')
-                    process.kill(process.pid, 'SIGTERM')
-                },
+            })
+
+            // Make sure we kill the whole process on crash, otherwise we may
+            // end up with the plugin-server running but not consuming from the
+            // buffer.
+            bufferConsumer.on(bufferConsumer.events.CRASH, () => {
+                status.info('🛑', 'Anonymous event buffer consumer, sending term signal to self!')
+                process.kill(process.pid, 'SIGTERM')
             })
         }
 
