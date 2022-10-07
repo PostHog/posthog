@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 
 import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
 import { Hub, TeamId, TimestampFormat } from '../../types'
+import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
 
 export interface AppMetricIdentifier {
@@ -47,7 +48,13 @@ export class AppMetrics {
         timestamp = timestamp || Date.now()
         const key = this._key(metric)
 
-        if (!(await this.hub.organizationManager.hasAvailableFeature(metric.teamId, 'app_metrics'))) {
+        // :TRICKY: If postgres connection is down, we ignore this metric
+        try {
+            if (!(await this.hub.organizationManager.hasAvailableFeature(metric.teamId, 'app_metrics'))) {
+                return
+            }
+        } catch (err) {
+            status.warn('⚠️', 'Error querying whether app_metrics is available. Ignoring this metric', metric, err)
             return
         }
 
