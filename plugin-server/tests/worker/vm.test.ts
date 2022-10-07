@@ -1067,6 +1067,10 @@ describe('vm tests', () => {
     })
 
     describe('exportEvents', () => {
+        beforeEach(() => {
+            jest.spyOn(hub.appMetrics, 'queueMetric')
+        })
+
         test('normal operation', async () => {
             const indexJs = `
                 async function exportEvents (events, meta) {
@@ -1087,12 +1091,20 @@ describe('vm tests', () => {
                 },
                 indexJs
             )
+
             await vm.methods.onEvent!(defaultEvent)
             await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent' })
             await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent2' })
             await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent3' })
             await delay(1010)
             expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=otherEvent2&events=2')
+            expect(hub.appMetrics.queueMetric).toHaveBeenCalledWith({
+                teamId: pluginConfig39.team_id,
+                pluginConfigId: pluginConfig39.id,
+                category: 'exportEvents',
+                successes: 2,
+                successesOnRetry: 0,
+            })
 
             // adds exportEventsWithRetry job and onEvent function
             expect(Object.keys(vm.tasks.job)).toEqual(expect.arrayContaining(['exportEventsWithRetry']))
@@ -1182,6 +1194,13 @@ describe('vm tests', () => {
 
             // now it passed
             expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=exported&events=3')
+            expect(hub.appMetrics.queueMetric).toHaveBeenCalledWith({
+                teamId: pluginConfig39.team_id,
+                pluginConfigId: pluginConfig39.id,
+                category: 'exportEvents',
+                successes: 0,
+                successesOnRetry: 3,
+            })
         })
 
         test('max retries', async () => {
