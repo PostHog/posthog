@@ -260,12 +260,17 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
 
         it('stops processing after HISTORICAL_EXPORTS_MAX_RETRY_COUNT retries', async () => {
+            createVM()
+
+            jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
+            jest.mocked(vm.methods.exportEvents).mockRejectedValue(new RetryError('Retry error'))
+
             await exportHistoricalEvents({
                 ...defaultPayload,
-                retriesPerformedSoFar: hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT,
+                retriesPerformedSoFar: hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT - 1,
             })
 
-            expect(fetchEventsForInterval).not.toHaveBeenCalled()
+            expect(vm.meta.jobs.exportHistoricalEventsV2).not.toHaveBeenCalled()
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: expect.stringContaining(

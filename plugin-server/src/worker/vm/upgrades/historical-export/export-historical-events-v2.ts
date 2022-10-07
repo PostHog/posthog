@@ -369,15 +369,6 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
-        if (payload.retriesPerformedSoFar >= hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT) {
-            const message = `Exporting chunk ${dateRange(payload.startTime, payload.endTime)} failed after ${
-                hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT
-            } retries. Stopping export.`
-            await stopExport(message, { type: PluginLogEntryType.Error })
-            await processError(hub, pluginConfig, message)
-            return
-        }
-
         if (payload.timestampCursor >= payload.endTime) {
             createLog(`Finished exporting chunk from ${dateRange(payload.startTime, payload.endTime)}`, {
                 type: PluginLogEntryType.Debug,
@@ -454,7 +445,7 @@ export function addHistoricalEventsExportCapabilityV2(
         payload: ExportHistoricalEventsJobPayload,
         eventCount: number
     ): Promise<void> {
-        if (error instanceof RetryError) {
+        if (error instanceof RetryError && payload.retriesPerformedSoFar + 1 < hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT) {
             const nextRetrySeconds = retryDelaySeconds(payload.retriesPerformedSoFar)
 
             createLog(
@@ -474,8 +465,18 @@ export function addHistoricalEventsExportCapabilityV2(
                 } as ExportHistoricalEventsJobPayload)
                 .runIn(nextRetrySeconds, 'seconds')
         } else {
-            await processError(hub, pluginConfig, error)
-            await stopExport(`exportEvents returned unknown error, stopping export. error=${error}`)
+            if (error instanceof RetryError) {
+                const message = `Exporting chunk ${dateRange(payload.startTime, payload.endTime)} failed after ${
+                    hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT
+                } retries. Stopping export.`
+                await stopExport(message, { type: PluginLogEntryType.Error })
+                await processError(hub, pluginConfig, message)
+            } else {
+                await stopExport(`exportEvents returned unknown error, stopping export. error=${error}`, {
+                    type: PluginLogEntryType.Error,
+                })
+                await processError(hub, pluginConfig, error)
+            }
         }
     }
 
