@@ -48,10 +48,10 @@ def traces_sampler(sampling_context: dict) -> float:
         elif path.startswith("/api/feature_flag"):
             return 0.0001  # 0.001%
         elif path.startswith("/api"):
-            return 0.001  # 0.1%
+            return 0.01  # 1%
         else:
             # Default sample rate for HTTP requests
-            return 0.0001  # 0.01%
+            return 0.001  # 0.1%
 
     elif op == "celery.task":
         task = sampling_context.get("celery_job", {}).get("task")
