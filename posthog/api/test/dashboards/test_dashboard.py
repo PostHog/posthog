@@ -166,9 +166,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # fewer queries when loading dashboard with no insights
         self.assertLess(query_counts[0], query_counts[1])
-        # then only climbs by four queries for each additional insight
+        # then only climbs by three queries for each additional insight
         self.assertTrue(
-            all(j - i == 4 for i, j in zip(query_counts[2:], query_counts[3:])),
+            all(j - i == 3 for i, j in zip(query_counts[2:], query_counts[3:])),
             f"received: {query_counts}",
         )
 
@@ -195,8 +195,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self._create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(9):
-                response = self.client.get(f"/api/projects/{self.team.id}/dashboards/limit=300")
+            with self.assertNumQueries(8):
+                response = self.client.get(f"/api/projects/{self.team.id}/dashboards/?limit=300")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:

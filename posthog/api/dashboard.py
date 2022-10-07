@@ -297,7 +297,10 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         if self.action != "list":
             tiles_prefetch_queryset = (
                 DashboardTile.objects.select_related(
-                    "insight", "text", "insight__created_by", "insight__last_modified_by", "insight__team__organization"
+                    "insight",
+                    "text",
+                    "insight__created_by",
+                    "insight__last_modified_by",
                 )
                 .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
                 .prefetch_related("insight__dashboards__team__organization")
