@@ -38,10 +38,8 @@ const existingPerson: Person = {
 }
 
 let runner: any
-let producer: any
 
 beforeEach(() => {
-    producer = { send: jest.fn() }
     runner = {
         nextStep: (...args: any[]) => args,
         hub: {
@@ -52,8 +50,8 @@ beforeEach(() => {
             jobQueueManager: {
                 enqueue: jest.fn(),
             },
-            kafka: {
-                producer: () => producer,
+            kafkaProducer: {
+                queueMessage: jest.fn(),
             },
         },
     }
@@ -66,13 +64,14 @@ describe('emitToBufferStep()', () => {
 
         const response = await emitToBufferStep(runner, pluginEvent, () => true)
 
-        expect(producer.send).toHaveBeenCalledWith({
+        expect(runner.hub.kafkaProducer.queueMessage).toHaveBeenCalledWith({
             topic: KAFKA_BUFFER,
             messages: [
                 {
                     key: '2',
                     value: JSON.stringify(pluginEvent),
                     headers: {
+                        eventId: pluginEvent.uuid,
                         processEventAt: (unixNow + 60000).toString(),
                     },
                 },
