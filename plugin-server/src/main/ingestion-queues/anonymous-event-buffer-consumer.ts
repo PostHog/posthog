@@ -46,7 +46,7 @@ export const startAnonymousEventBufferConsumer = async ({
             status.info('🔁', 'Processing batch', { size: batch.messages.length })
             for (const message of batch.messages) {
                 if (!message.value || !message.headers?.processEventAt || !message.headers?.eventId) {
-                    status.warn(`Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
+                    status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                         value: message.value,
                         processEventAt: message.headers?.processEventAt,
                         eventId: message.headers?.eventId,
@@ -61,7 +61,9 @@ export const startAnonymousEventBufferConsumer = async ({
                 try {
                     eventPayload = JSON.parse(message.value.toString())
                 } catch (error) {
-                    status.warn(`Invalid message for partition ${batch.partition} offset ${message.offset}.`, { error })
+                    status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
+                        error,
+                    })
                     producer.queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
                     resolveOffset(message.offset)
                     continue
