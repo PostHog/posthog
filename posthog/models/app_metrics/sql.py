@@ -40,7 +40,6 @@ BASE_APP_METRICS_COLUMNS = """
     successes Int64,
     successes_on_retry Int64,
     failures Int64,
-    error_timestamp DateTime64(6, 'UTC'),
     error_uuid UUID,
     error_type String,
     error_details String CODEC(ZSTD(3))
@@ -80,7 +79,6 @@ job_id,
 successes,
 successes_on_retry,
 failures,
-error_timestamp,
 error_uuid,
 error_type,
 error_details
