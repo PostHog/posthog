@@ -2421,11 +2421,11 @@
                      day_start,
                      breakdown_value
               FROM
-                (SELECT $session_id,
+                (SELECT sessions."$session_id",
                         session_duration,
                         toStartOfWeek(timestamp, 0, 'UTC') as day_start,
                         replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
-                 FROM events e
+                 FROM events AS e
                  INNER JOIN
                    (SELECT $session_id,
                            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -2440,7 +2440,7 @@
                    AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0), 'UTC'), 'UTC')
                    AND timestamp <= toDateTime('2020-01-04 23:59:59')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
-              GROUP BY $session_id,
+              GROUP BY sessions."$session_id",
                        day_start,
                        breakdown_value)
            GROUP BY day_start,
@@ -2515,11 +2515,11 @@
                      day_start,
                      breakdown_value
               FROM
-                (SELECT $session_id,
+                (SELECT sessions."$session_id",
                         session_duration,
                         toStartOfDay(timestamp, 'UTC') as day_start,
                         replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
-                 FROM events e
+                 FROM events AS e
                  INNER JOIN
                    (SELECT $session_id,
                            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -2534,7 +2534,7 @@
                    AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
                    AND timestamp <= toDateTime('2020-01-04 23:59:59')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
-              GROUP BY $session_id,
+              GROUP BY sessions."$session_id",
                        day_start,
                        breakdown_value)
            GROUP BY day_start,
