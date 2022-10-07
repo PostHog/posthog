@@ -1,7 +1,9 @@
 import { Message } from 'kafkajs'
+import { DateTime } from 'luxon'
 
 import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
-import { Hub, TeamId } from '../../types'
+import { Hub, TeamId, TimestampFormat } from '../../types'
+import { castTimestampOrNow } from '../../utils/utils'
 
 export interface AppMetricIdentifier {
     teamId: TeamId
@@ -99,6 +101,7 @@ export class AppMetrics {
 
         const kafkaMessages: Message[] = Object.values(queue).map((value) => ({
             value: JSON.stringify({
+                timestamp: castTimestampOrNow(DateTime.fromMillis(value.lastTimestamp), TimestampFormat.ClickHouse),
                 team_id: value.metric.teamId,
                 plugin_config_id: value.metric.pluginConfigId,
                 job_id: value.metric.jobId ?? null,

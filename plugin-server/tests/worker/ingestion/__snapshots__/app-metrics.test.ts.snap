@@ -6,10 +6,10 @@ Array [
     Object {
       "messages": Array [
         Object {
-          "value": "{\\"teamId\\":2,\\"pluginConfigId\\":2,\\"jobId\\":\\"000-000\\",\\"category\\":\\"processEvent\\",\\"successes\\":1,\\"successesOnRetry\\":0,\\"failures\\":0}",
+          "value": "{\\"timestamp\\":\\"1970-01-01 00:16:40.000\\",\\"team_id\\":2,\\"plugin_config_id\\":2,\\"job_id\\":\\"000-000\\",\\"category\\":\\"processEvent\\",\\"successes\\":1,\\"successes_on_retry\\":0,\\"failures\\":0}",
         },
       ],
-      "topic": "TODO",
+      "topic": "clickhouse_app_metrics_test",
     },
   ],
 ]
