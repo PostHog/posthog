@@ -92,7 +92,7 @@ export const startAnonymousEventBufferConsumer = async ({
                 // the batch, we will not process these again
                 resolveOffset(message.offset)
 
-                // After every we keep a heartbeat going to ensure we don't
+                // After processing every message we keep a heartbeat going to ensure we don't
                 // get kicked out of the consumer group.
                 await heartbeat()
 
