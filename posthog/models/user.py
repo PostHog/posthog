@@ -21,6 +21,10 @@ class UserManager(BaseUserManager):
 
     use_in_migrations = True
 
+    # to make the email and username fields case insensitive
+    def get_by_natural_key(self, email):
+        return self.get(email__iexact=email)
+
     def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
         """Create and save a User with the given email and password."""
         if email is None:
