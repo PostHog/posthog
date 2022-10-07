@@ -6,6 +6,7 @@ import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 import { KAFKA_BUFFER, KAFKA_EVENTS_DEAD_LETTER_QUEUE } from '../../config/kafka-topics'
 import { JobName } from '../../types'
 import { status } from '../../utils/status'
+import { setupEventHandlers } from './kafka-queue'
 
 export const startAnonymousEventBufferConsumer = async ({
     kafka,
@@ -36,6 +37,7 @@ export const startAnonymousEventBufferConsumer = async ({
     */
 
     const consumer = kafka.consumer({ groupId: 'ingester' })
+    setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting anonymous event buffer consumer')
 

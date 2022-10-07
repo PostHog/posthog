@@ -205,21 +205,25 @@ export class KafkaQueue {
             groupId,
             readUncommitted: false,
         })
-        const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
-        consumer.on(GROUP_JOIN, ({ payload: { groupId } }) => {
-            status.info('✅', `Kafka consumer joined group ${groupId}!`)
-        })
-        consumer.on(CRASH, ({ payload: { error, groupId } }) => {
-            status.error('⚠️', `Kafka consumer group ${groupId} crashed:\n`, error)
-            Sentry.captureException(error)
-            killGracefully()
-        })
-        consumer.on(CONNECT, () => {
-            status.info('✅', 'Kafka consumer connected!')
-        })
-        consumer.on(DISCONNECT, () => {
-            status.info('🛑', 'Kafka consumer disconnected!')
-        })
+        setupEventHandlers(consumer)
         return consumer
     }
+}
+
+export const setupEventHandlers = (consumer: Consumer): void => {
+    const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
+    consumer.on(GROUP_JOIN, ({ payload: { groupId } }) => {
+        status.info('✅', `Kafka consumer joined group ${groupId}!`)
+    })
+    consumer.on(CRASH, ({ payload: { error, groupId } }) => {
+        status.error('⚠️', `Kafka consumer group ${groupId} crashed:\n`, error)
+        Sentry.captureException(error)
+        killGracefully()
+    })
+    consumer.on(CONNECT, () => {
+        status.info('✅', 'Kafka consumer connected!')
+    })
+    consumer.on(DISCONNECT, () => {
+        status.info('🛑', 'Kafka consumer disconnected!')
+    })
 }
