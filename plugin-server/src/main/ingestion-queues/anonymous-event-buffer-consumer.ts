@@ -1,23 +1,23 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { StatsD } from 'hot-shots'
 import { EachBatchHandler, Kafka } from 'kafkajs'
-import { JobQueueManager } from 'main/job-queues/job-queue-manager'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_BUFFER, KAFKA_EVENTS_DEAD_LETTER_QUEUE } from '../../config/kafka-topics'
 import { JobName } from '../../types'
 import { status } from '../../utils/status'
+import { GraphileQueue } from '../job-queues/concurrent/graphile-queue'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
 export const startAnonymousEventBufferConsumer = async ({
     kafka,
     producer,
-    jobQueueManager,
+    graphileQueue,
     statsd,
 }: {
     kafka: Kafka
     producer: KafkaProducerWrapper
-    jobQueueManager: JobQueueManager
+    graphileQueue: GraphileQueue
     statsd?: StatsD
 }) => {
     /*
@@ -72,21 +72,14 @@ export const startAnonymousEventBufferConsumer = async ({
             }
 
             const job = {
-                jobKey: message.headers.eventId.toString(), // Ensure we don't create duplicates
                 eventPayload: eventPayload,
                 timestamp: Number.parseInt(message.headers.processEventAt.toString()),
+                jobKey: message.headers.eventId.toString(), // Ensure we don't create duplicates
             }
 
             status.debug('⬆️', 'Enqueuing anonymous event for processing', { job })
 
-            // NOTE: `jobQueueManager.enqueue` handles retries internally.
-            // As such this can take a long time, so we need to ensure we
-            // keep the heartbeat going during this time, every 5 seconds.
-            // NOTE: it might be worth handling retry logic explicit here so
-            // get better control on which errors we retry on.
-            const heartbeatTimer = setInterval(async () => await heartbeat(), 5000)
-            await jobQueueManager.enqueue(JobName.BUFFER_JOB, job)
-            clearTimeout(heartbeatTimer)
+            await graphileQueue.enqueue(JobName.BUFFER_JOB, job)
 
             // Resolve the offset such that, in case of errors further in
             // the batch, we will not process these again

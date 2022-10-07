@@ -25,6 +25,7 @@ import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
+import { jobQueueMap } from './job-queues/job-queues'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startPluginSchedules } from './services/schedule'
@@ -166,7 +167,7 @@ export async function startPluginsServer(
             bufferConsumer = await startAnonymousEventBufferConsumer({
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
-                jobQueueManager: hub.jobQueueManager,
+                graphileQueue: jobQueueMap.graphile.getQueue(serverConfig),
                 statsd: hub.statsd,
             })
         }
