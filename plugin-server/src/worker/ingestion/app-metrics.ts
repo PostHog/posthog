@@ -9,7 +9,6 @@ export interface AppMetricIdentifier {
     teamId: TeamId
     pluginConfigId: number
     jobId?: string
-    // :TODO: Verify this list
     category: 'processEvent' | 'onEvent' | 'exportEvents'
 }
 
