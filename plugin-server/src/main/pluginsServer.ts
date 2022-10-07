@@ -142,6 +142,7 @@ export async function startPluginsServer(
 
         if (hub.capabilities.http) {
             // start http server used for the healthcheck
+            // TODO: include bufferConsumer in healthcheck
             httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
         }
 
