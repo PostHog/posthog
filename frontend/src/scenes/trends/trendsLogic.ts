@@ -17,7 +17,7 @@ export const trendsLogic = kea<trendsLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'hiddenLegendKeys'],
+            ['filters', 'insight', 'insightLoading', 'hiddenLegendKeys', 'localFilters'],
             groupsModel,
             ['aggregationLabel'],
         ],

@@ -34,7 +34,7 @@
 
     &.LemonSwitch--disabled {
         cursor: not-allowed;
-        color: var(--muted);
+        opacity: var(--opacity-disabled);
     }
 }
 

@@ -626,10 +626,16 @@ export const insightLogic = kea<insightLogicType>([
                     : sum(filters.properties?.values?.map((x) => x.values.length) || [])
             },
         ],
-        isSingleSeries: [
+        localFilters: [
             (s) => [s.filters],
-            (filters): number => {
-                return filters.formula || toLocalFilters(filters).length <= 1
+            (filters) => {
+                return toLocalFilters(filters)
+            },
+        ],
+        isSingleSeries: [
+            (s) => [s.filters, s.localFilters],
+            (filters, localFilters): number => {
+                return filters.formula || localFilters.length <= 1
             },
         ],
         intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
