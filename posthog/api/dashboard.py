@@ -196,15 +196,11 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         tile_layouts = initial_data.pop("tile_layouts", [])
         for tile_layout in tile_layouts:
-            DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(tile_layout["id"])).update(
-                layouts=tile_layout["layouts"]
-            )
+            instance.tiles.filter(insight__id=(tile_layout["id"])).update(layouts=tile_layout["layouts"])
 
         colors = initial_data.pop("colors", [])
         for color in colors:
-            DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(color["id"])).update(
-                color=color["color"]
-            )
+            instance.tiles.filter(dashboard__id=instance.id, insight__id=(color["id"])).update(color=color["color"])
 
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
@@ -293,22 +289,34 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
 
-        queryset = (
-            queryset.prefetch_related("sharingconfiguration_set")
-            .select_related(
-                "team__organization",
-                "created_by",
+        queryset = queryset.prefetch_related("sharingconfiguration_set",).select_related(
+            "team__organization",
+            "created_by",
+        )
+
+        if self.action != "list":
+            tiles_prefetch_queryset = (
+                DashboardTile.objects.select_related(
+                    "insight", "text", "insight__created_by", "insight__last_modified_by", "insight__team__organization"
+                )
+                .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
+                .prefetch_related("insight__dashboards__team__organization")
+                .order_by("insight__order")
             )
-            .prefetch_related(
+            try:
+                dashboard_id = self.kwargs["pk"]
+                tiles_prefetch_queryset = tiles_prefetch_queryset.filter(dashboard_id=dashboard_id)
+            except KeyError:
+                # in case there are endpoints that hit this branch but don't have a pk
+                pass
+
+            queryset = queryset.prefetch_related(
+                # prefetching tiles saves 25 queries per tile on the dashboard
                 Prefetch(
                     "tiles",
-                    queryset=DashboardTile.objects.select_related("insight", "text")
-                    .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
-                    .prefetch_related("insight__dashboards__team__organization", "insight__created_by")
-                    .order_by("insight__order"),
+                    queryset=tiles_prefetch_queryset,
                 )
             )
-        )
 
         return queryset
 

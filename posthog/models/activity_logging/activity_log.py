@@ -78,6 +78,9 @@ class ActivityLog(UUIDModel):
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.SET_NULL)
+    # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
+    is_system = models.BooleanField(null=True)
+
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged
     # if not scoped to a model this log might not hold an item_id
