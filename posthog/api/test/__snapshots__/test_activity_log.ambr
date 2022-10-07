@@ -8076,20 +8076,20 @@
               AND "posthog_activitylog"."user_id" IS NOT NULL)
          AND "posthog_activitylog"."team_id" = 2
          AND (("posthog_activitylog"."scope" = 'FeatureFlag'
-               AND "posthog_activitylog"."item_id" IN ('13',
-                                                       '14'))
+               AND "posthog_activitylog"."item_id" IN ('1',
+                                                       '2'))
               OR ("posthog_activitylog"."scope" = 'Insight'
-                  AND "posthog_activitylog"."item_id" IN ('67',
-                                                          '68',
-                                                          '69',
-                                                          '70',
-                                                          '71',
-                                                          '72',
-                                                          '73',
-                                                          '74',
-                                                          '75',
-                                                          '76',
-                                                          '77'))))
+                  AND "posthog_activitylog"."item_id" IN ('1',
+                                                          '2',
+                                                          '3',
+                                                          '4',
+                                                          '5',
+                                                          '6',
+                                                          '7',
+                                                          '8',
+                                                          '9',
+                                                          '10',
+                                                          '11'))))
   ORDER BY "posthog_activitylog"."created_at" DESC
   LIMIT 10 /*controller='project_activity_log-important-changes',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/activity_log/important_changes/%3F%24'*/
   '
