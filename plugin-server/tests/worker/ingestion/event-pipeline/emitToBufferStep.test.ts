@@ -1,7 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { JobName, Person } from '../../../../src/types'
+import { KAFKA_BUFFER } from '../../../../src/config/kafka-topics'
+import { Person } from '../../../../src/types'
 import { UUIDT } from '../../../../src/utils/utils'
 import {
     emitToBufferStep,
@@ -37,8 +38,10 @@ const existingPerson: Person = {
 }
 
 let runner: any
+let producer: any
 
 beforeEach(() => {
+    producer = { send: jest.fn() }
     runner = {
         nextStep: (...args: any[]) => args,
         hub: {
@@ -49,25 +52,32 @@ beforeEach(() => {
             jobQueueManager: {
                 enqueue: jest.fn(),
             },
+            kafka: {
+                producer: () => producer,
+            },
         },
     }
 })
 
 describe('emitToBufferStep()', () => {
-    it('enqueues graphile job if event should be buffered, stops processing', async () => {
+    it('produces to anonymous events buffer if event should be buffered, stops processing', async () => {
         const unixNow = 1657710000000
         Date.now = jest.fn(() => unixNow)
 
         const response = await emitToBufferStep(runner, pluginEvent, () => true)
 
-        expect(runner.hub.jobQueueManager.enqueue).toHaveBeenCalledWith(
-            JobName.BUFFER_JOB,
-            {
-                eventPayload: pluginEvent,
-                timestamp: unixNow + 60000, // runner.hub.BUFFER_CONVERSION_SECONDS * 1000
-            },
-            { key: 'team_id', tag: '2' }
-        )
+        expect(producer.send).toHaveBeenCalledWith({
+            topic: KAFKA_BUFFER,
+            messages: [
+                {
+                    key: '2',
+                    value: JSON.stringify(pluginEvent),
+                    headers: {
+                        processEventAt: (unixNow + 60000).toString(),
+                    },
+                },
+            ],
+        })
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
     })

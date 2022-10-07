@@ -77,7 +77,7 @@ export async function startPluginsServer(
         await queue?.stop()
         await pubSub?.stop()
         await jobQueueConsumer?.stop()
-        await bufferConsumer?.stop()
+        await bufferConsumer?.disconnect()
         await pluginScheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
@@ -161,11 +161,18 @@ export async function startPluginsServer(
         }
         if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs) {
             jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+            bufferConsumer = await startAnonymousEventBufferConsumer({
+                kafka: hub.kafka,
+                producer: hub.kafkaProducer,
+                jobQueueManager: hub.jobQueueManager,
+                onStop: () => {
+                    status.info('🛑', 'Anonymous event buffer consumer, sending term signal to self!')
+                    process.kill(process.pid, 'SIGTERM')
+                },
+            })
         }
 
         const queues = await startQueues(hub, piscina)
-
-        bufferConsumer = startAnonymousEventBufferConsumer(hub.kafka, hub.jobQueueManager)
 
         // `queue` refers to the ingestion queue.
         queue = queues.ingestion

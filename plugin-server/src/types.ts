@@ -221,11 +221,13 @@ export interface EnqueuedPluginJob {
     timestamp: number
     pluginConfigId: number
     pluginConfigTeam: number
+    jobKey: string
 }
 
 export interface EnqueuedBufferJob {
     eventPayload: PluginEvent
     timestamp: number
+    jobKey: string
 }
 
 export enum JobName {

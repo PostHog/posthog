@@ -1,6 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { KAFKA_BUFFER } from '../../../config/kafka-topics'
 import { Hub, IngestionPersonData, TeamId } from '../../../types'
+import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
 
@@ -14,6 +16,7 @@ export async function emitToBufferStep(
         teamId: TeamId
     ) => boolean = shouldSendEventToBuffer
 ): Promise<StepResult> {
+    status.debug('🔁', 'Running emitToBufferStep', { event })
     const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
 
     if (event.event === '$snapshot') {
@@ -23,13 +26,15 @@ export async function emitToBufferStep(
     const person = await personContainer.get()
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
-        await runner.hub.kafka.producer().send({
-            topic: 'anonymous_events_buffer',
+        status.debug('🔁', 'Emitting event to buffer', { event, processEventAt })
+
+        await runner.hub.kafkaProducer.queueMessage({
+            topic: KAFKA_BUFFER,
             messages: [
                 {
                     key: event.team_id.toString(),
                     value: JSON.stringify(event),
-                    headers: { processEventAt: processEventAt.toString() },
+                    headers: { processEventAt: processEventAt.toString(), eventId: event.uuid },
                 },
             ],
         })
