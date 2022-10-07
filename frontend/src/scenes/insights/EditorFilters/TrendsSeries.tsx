@@ -39,7 +39,7 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
                 showNestedArrow
                 entitiesLimit={
                     filters.insight === InsightType.LIFECYCLE ||
-                    (filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display))
+                    (filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) && !filters.formula)
                         ? 1
                         : alphabet.length
                 }
