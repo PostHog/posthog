@@ -29,9 +29,9 @@ export const startAnonymousEventBufferConsumer = async ({
         "identified" users, at which point to can denormalize data to improve
         query performance.
 
-        On failure to enqueue we will fail the batch. only on successfully
-        enqueuing an entire batch to Graphile Worker (a PostgreSQL backed async
-        worker library).
+        On failure to enqueue to Graphile Worker, we will fail the eachBatch
+        call resulting in KafkaJS rety mechanism kicking in. Any messages that
+        we have called `resolveOffset` KafkaJS will try to set offsets for.
 
         TODO:
 
