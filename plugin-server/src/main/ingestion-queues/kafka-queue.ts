@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/node'
-import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
+import { Consumer, ConsumerSubscribeTopics, EachBatchHandler, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -103,40 +103,8 @@ export class KafkaQueue {
                 partitionsConsumedConcurrently: this.pluginsServer.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                 eachBatch: async (payload) => {
                     const topic = payload.batch.topic
-                    try {
-                        await this.eachBatch[topic](payload, this)
-                    } catch (error) {
-                        const eventCount = payload.batch.messages.length
-                        this.pluginsServer.statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
-                            topic: topic,
-                        })
-                        status.info('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
-                        if (error.type === 'UNKNOWN_MEMBER_ID') {
-                            status.info(
-                                '💀',
-                                "Probably the batch took longer than the session and we couldn't commit the offset"
-                            )
-                        }
-                        if (error.message) {
-                            let logToSentry = true
-                            const messagesToIgnore = {
-                                'The group is rebalancing, so a rejoin is needed': 'group_rebalancing',
-                                'Specified group generation id is not valid': 'generation_id_invalid',
-                                'Could not find person with distinct id': 'person_not_found',
-                                'The coordinator is not aware of this member': 'not_aware_of_member',
-                            }
-                            for (const [msg, metricSuffix] of Object.entries(messagesToIgnore)) {
-                                if (error.message.includes(msg)) {
-                                    this.pluginsServer.statsd?.increment('each_batch_error_' + metricSuffix)
-                                    logToSentry = false
-                                }
-                            }
-                            if (logToSentry) {
-                                Sentry.captureException(error)
-                            }
-                        }
-                        throw error
-                    }
+                    const eachBatch = this.eachBatch[topic]
+                    await instrumentEachBatch(topic, (payload) => eachBatch(payload, this), payload, this.pluginsServer)
                 },
             })
         })
@@ -226,4 +194,43 @@ export const setupEventHandlers = (consumer: Consumer): void => {
     consumer.on(DISCONNECT, () => {
         status.info('🛑', 'Kafka consumer disconnected!')
     })
+}
+
+export const instrumentEachBatch = async (
+    topic: string,
+    eachBatch: EachBatchHandler,
+    payload: EachBatchPayload,
+    pluginsServer: Hub
+): Promise<void> => {
+    try {
+        await eachBatch(payload)
+    } catch (error) {
+        const eventCount = payload.batch.messages.length
+        pluginsServer.statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
+            topic: topic,
+        })
+        status.info('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
+        if (error.type === 'UNKNOWN_MEMBER_ID') {
+            status.info('💀', "Probably the batch took longer than the session and we couldn't commit the offset")
+        }
+        if (error.message) {
+            let logToSentry = true
+            const messagesToIgnore = {
+                'The group is rebalancing, so a rejoin is needed': 'group_rebalancing',
+                'Specified group generation id is not valid': 'generation_id_invalid',
+                'Could not find person with distinct id': 'person_not_found',
+                'The coordinator is not aware of this member': 'not_aware_of_member',
+            }
+            for (const [msg, metricSuffix] of Object.entries(messagesToIgnore)) {
+                if (error.message.includes(msg)) {
+                    pluginsServer.statsd?.increment('each_batch_error_' + metricSuffix)
+                    logToSentry = false
+                }
+            }
+            if (logToSentry) {
+                Sentry.captureException(error)
+            }
+        }
+        throw error
+    }
 }

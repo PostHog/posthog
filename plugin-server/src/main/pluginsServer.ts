@@ -167,6 +167,7 @@ export async function startPluginsServer(
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
                 jobQueueManager: hub.jobQueueManager,
+                hub,
             })
         }
 
