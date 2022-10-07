@@ -1,5 +1,6 @@
 import { Message } from 'kafkajs'
 
+import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
 import { Hub, TeamId } from '../../types'
 
 export interface AppMetricIdentifier {
@@ -98,19 +99,19 @@ export class AppMetrics {
 
         const kafkaMessages: Message[] = Object.values(queue).map((value) => ({
             value: JSON.stringify({
-                teamId: value.metric.teamId,
-                pluginConfigId: value.metric.pluginConfigId,
-                jobId: value.metric.jobId ?? null,
+                team_id: value.metric.teamId,
+                plugin_config_id: value.metric.pluginConfigId,
+                job_id: value.metric.jobId ?? null,
                 category: value.metric.category,
 
                 successes: value.successes,
-                successesOnRetry: value.successesOnRetry,
+                successes_on_retry: value.successesOnRetry,
                 failures: value.failures,
             }),
         }))
 
         await this.hub.db.kafkaProducer.queueMessage({
-            topic: 'TODO',
+            topic: KAFKA_APP_METRICS,
             messages: kafkaMessages,
         })
     }
