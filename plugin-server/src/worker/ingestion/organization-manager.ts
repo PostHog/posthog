@@ -44,13 +44,13 @@ export class OrganizationManager {
             return cachedAvailableFeatures.includes(feature)
         }
 
-        team = team || (await this.teamManager.fetchTeam(teamId))
+        const _team = team || (await this.teamManager.fetchTeam(teamId))
 
-        if (!team) {
+        if (!_team) {
             return false
         }
 
-        const organization = await this.fetchOrganization(team.organization_id)
+        const organization = await this.fetchOrganization(_team.organization_id)
         const availableFeatures = organization?.available_features || []
         this.availableFeaturesCache.set(teamId, [availableFeatures, Date.now()])
 
