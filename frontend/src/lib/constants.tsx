@@ -148,6 +148,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.SAML]: LicensePlan.Enterprise,
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
     [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
+    [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
