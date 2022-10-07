@@ -1,5 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { Kafka } from 'kafkajs'
+import { EachBatchHandler, Kafka } from 'kafkajs'
 import { JobQueueManager } from 'main/job-queues/job-queue-manager'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
