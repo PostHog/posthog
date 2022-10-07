@@ -36,7 +36,8 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             !!filters.breakdown &&
             filters.breakdown !== '$geoip_country_code' &&
             filters.breakdown !== '$geoip_country_name') ||
-        !isSingleSeries // World map only works with one series
+        !isSingleSeries || // World map only works with one series
+        !!filters.formula // Breakdowns currently don't work with formulas
     const boldNumberDisabled: boolean =
         filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION || !isSingleSeries // Bold number only works with one series
     const barDisabled: boolean = filters.insight === InsightType.RETENTION
