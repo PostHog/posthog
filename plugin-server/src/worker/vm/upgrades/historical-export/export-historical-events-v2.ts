@@ -424,6 +424,14 @@ export function addHistoricalEventsExportCapabilityV2(
                     )}.`,
                     { type: PluginLogEntryType.Debug }
                 )
+                await hub.appMetrics.queueMetric({
+                    teamId: pluginConfig.team_id,
+                    pluginConfigId: pluginConfig.id,
+                    jobId: payload.exportId.toString(),
+                    category: 'exportEvents',
+                    successes: payload.retriesPerformedSoFar == 0 ? events.length : 0,
+                    successesOnRetry: payload.retriesPerformedSoFar == 0 ? 0 : events.length,
+                })
             } catch (error) {
                 await handleExportError(error, activeExportParameters, payload, events.length)
                 return
@@ -479,6 +487,13 @@ export function addHistoricalEventsExportCapabilityV2(
                 await stopExport(params, `exportEvents returned unknown error, stopping export. error=${error}`, 'fail')
                 await processError(hub, pluginConfig, error)
             }
+            await hub.appMetrics.queueMetric({
+                teamId: pluginConfig.team_id,
+                pluginConfigId: pluginConfig.id,
+                jobId: payload.exportId.toString(),
+                category: 'exportEvents',
+                failures: eventCount,
+            })
         }
     }
 

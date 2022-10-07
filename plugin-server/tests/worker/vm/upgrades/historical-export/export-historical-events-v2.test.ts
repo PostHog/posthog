@@ -43,6 +43,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         hub.kafkaProducer.queueMessage = jest.fn()
         hub.kafkaProducer.flush = jest.fn()
         jest.spyOn(hub.db, 'queuePluginLogEntry')
+        jest.spyOn(hub.appMetrics, 'queueMetric')
 
         jest.spyOn(Date, 'now').mockReturnValue(1_000_000_000)
     })
@@ -165,6 +166,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
+            expect(jest.mocked(hub.appMetrics.queueMetric).mock.calls).toMatchSnapshot()
         })
 
         it('does not call exportEvents or log if no events in time range', async () => {
@@ -257,6 +259,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
+            expect(jest.mocked(hub.appMetrics.queueMetric).mock.calls).toMatchSnapshot()
 
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
@@ -280,6 +283,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
+            expect(jest.mocked(hub.appMetrics.queueMetric).mock.calls).toMatchSnapshot()
 
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
