@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional, Tuple
 import jwt
 import pytz
 import requests
+import posthoganalytics
 from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse
@@ -143,6 +144,12 @@ class BillingViewset(viewsets.GenericViewSet):
             if res.status_code not in (200, 404):
                 raise Exception(f"Billing service returned bad status code: {res.status_code}")
 
+        # If there isn't a valid v2 subscription then we only return sucessfully if BILLING_V2_ENABLED
+        if not response.get("has_active_subscription") and not BILLING_V2_ENABLED:
+            distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
+            if not (distinct_id and posthoganalytics.get_feature_flag("billing-v2-enabled", distinct_id)):
+                raise NotFound("Billing V2 is not enabled for this organization")
+
         # The default response is used if there is no subscription
         if not response.get("products"):
             products = self._get_products()
@@ -152,10 +159,6 @@ class BillingViewset(viewsets.GenericViewSet):
                 if product["type"] in calculated_usage:
                     product["current_usage"] = calculated_usage[product["type"]]
             response["products"] = products
-
-        # If there isn't a valid v2 subscription then we only return sucessfully if BILLING_V2_ENABLED
-        if not response.get("has_active_subscription") and not BILLING_V2_ENABLED:
-            raise NotFound("Billing V2 is not enabled for this organization")
 
         return Response(response)
 
