@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_group_test_factory
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -8,8 +9,24 @@ from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.queries.funnels.funnel import ClickhouseFunnel
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person
+from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
+from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
+from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.queries.funnels.test.test_funnel import _create_action
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from posthog.test.test_journeys import journeys_for
+
+
+class TestFunnelGroupBreakdown(ClickhouseTestMixin, funnel_breakdown_group_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_action, _create_person)):  # type: ignore
+    pass
+
+
+class TestUnorderedFunnelGroupBreakdown(ClickhouseTestMixin, funnel_breakdown_group_test_factory(ClickhouseFunnel, ClickhouseFunnelUnorderedActors, _create_event, _create_action, _create_person)):  # type: ignore
+    pass
+
+
+class TestStrictFunnelGroupBreakdown(ClickhouseTestMixin, funnel_breakdown_group_test_factory(ClickhouseFunnel, ClickhouseFunnelStrictActors, _create_event, _create_action, _create_person)):  # type: ignore
+    pass
 
 
 class TestClickhouseFunnel(ClickhouseTestMixin, APIBaseTest):
