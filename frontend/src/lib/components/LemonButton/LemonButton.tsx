@@ -83,6 +83,8 @@ function LemonButtonInternal(
 
     const ButtonComponent = to ? Link : 'button'
 
+    const linkOnlyProps = to ? { disableClientSideRouting } : {}
+
     if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
         buttonProps['aria-label'] = tooltip
     }
@@ -109,7 +111,7 @@ function LemonButtonInternal(
             disabled={disabled || loading}
             to={to}
             target={targetBlank ? '_blank' : undefined}
-            disableClientSideRouting={disableClientSideRouting}
+            {...linkOnlyProps}
             {...buttonProps}
         >
             {icon ? <span className="LemonButton__icon">{icon}</span> : null}
