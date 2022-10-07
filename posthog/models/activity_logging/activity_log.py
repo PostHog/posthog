@@ -195,6 +195,14 @@ def changes_between(
             if field == "tagged_items":
                 field = "tags"  # or the UI needs to be coupled to this internal backend naming
 
+            if field == "dashboards" and "dashboard_tiles" in filtered_fields:
+                # only process dashboard_tiles when it is present. It supersedes dashboards
+                continue
+
+            if model_type == "Insight" and field == "dashboard_tiles":
+                # the api exposes this as dashboards and that's what the activity describers expect
+                field = "dashboards"
+
             if left is None and right is not None:
                 changes.append(Change(type=model_type, field=field, action="created", after=right))
             elif right is None and left is not None:
