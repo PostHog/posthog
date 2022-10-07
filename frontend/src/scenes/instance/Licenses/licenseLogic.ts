@@ -5,7 +5,6 @@ import { APIErrorType, LicensePlan, LicenseType } from '~/types'
 import { preflightLogic } from '../../PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { dayjs } from 'lib/dayjs'
-import { router } from 'kea-router'
 
 export function isLicenseExpired(license: LicenseType): boolean {
     return new Date(license.valid_until) < new Date()
@@ -109,15 +108,6 @@ export const licenseLogic = kea<licenseLogicType>({
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadLicenses()
-        },
-    }),
-
-    urlToAction: ({ values }) => ({
-        '/instance/licenses': () => {
-            // NOTE: When V2 billing is fully released, we can remove this and all other license related frontend code
-            if (values.preflight?.billing_v2_enabled) {
-                router.actions.replace('/organization/billing')
-            }
         },
     }),
 })

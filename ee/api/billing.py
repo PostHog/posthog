@@ -13,7 +13,7 @@ from django.utils import timezone
 from rest_framework import serializers, status, viewsets
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotAuthenticated, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -24,7 +24,7 @@ from posthog.models import Organization
 from posthog.models.event.util import get_event_count_for_team_and_period
 from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
 from posthog.models.team.team import Team
-from posthog.settings import BILLING_USAGE_CACHING_TTL
+from posthog.settings import BILLING_USAGE_CACHING_TTL, BILLING_V2_ENABLED
 
 UNLICENSED_BILLING_RESPONSE: Any = {"subscription_url": None, "products": None, "custom_limits": {}}
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
@@ -152,6 +152,10 @@ class BillingViewset(viewsets.GenericViewSet):
                 if product["type"] in calculated_usage:
                     product["current_usage"] = calculated_usage[product["type"]]
             response["products"] = products
+
+        # If there isn't a valid v2 subscription then we only return sucessfully if BILLING_V2_ENABLED
+        if not response.get("has_active_subscription") and not BILLING_V2_ENABLED:
+            raise NotFound("Billing V2 is not enabled for this organization")
 
         return Response(response)
 

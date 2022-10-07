@@ -790,6 +790,8 @@ export interface BillingType {
     tiers: BillingTierType[] | null
 }
 
+export type BillingVersion = 'v1' | 'v2'
+
 export interface BillingProductV2Type {
     type: 'EVENTS' | 'RECORDINGS'
     name: string
@@ -1529,7 +1531,6 @@ export interface PreflightStatus {
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
     object_storage: boolean
-    billing_v2_enabled?: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode

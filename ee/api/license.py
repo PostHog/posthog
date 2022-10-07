@@ -11,7 +11,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.event_usage import groups
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.settings import BILLING_V2_ENABLED
 
 
 class LicenseSerializer(serializers.ModelSerializer):
@@ -61,7 +60,7 @@ class LicenseViewSet(
     serializer_class = LicenseSerializer
 
     def get_queryset(self) -> QuerySet:
-        if is_cloud() or BILLING_V2_ENABLED:
+        if is_cloud():
             return License.objects.none()
 
         return super().get_queryset()

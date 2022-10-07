@@ -416,7 +416,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_capture.assert_any_call(
             get_machine_id(),
             "org usage report sent",
-            {**all_reports[0], "scope": "machine"},
+            {**all_reports[0], "scope": "machine"},  # type: ignore
             groups={"instance": ANY},
         )
 

@@ -112,7 +112,6 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "email_service_available": is_email_available(with_absolute_urls=True),
         "slack_service": {"available": bool(slack_client_id), "client_id": slack_client_id or None},
         "object_storage": is_object_storage_available(),
-        "billing_v2_enabled": settings.BILLING_V2_ENABLED,
     }
 
     if request.user.is_authenticated:

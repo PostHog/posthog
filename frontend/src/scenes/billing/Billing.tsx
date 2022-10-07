@@ -9,8 +9,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BillingV2 } from './v2/Billing'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -18,11 +18,13 @@ export const scene: SceneExport = {
 }
 
 export function Billing(): JSX.Element {
-    const { preflight } = useValues(preflightLogic)
+    const { billing, isSmallScreen, billingVersion } = useValues(billingLogic)
 
-    const { billing, isSmallScreen } = useValues(billingLogic)
+    if (!billingVersion) {
+        return <SpinnerOverlay />
+    }
 
-    if (preflight?.billing_v2_enabled) {
+    if (billingVersion === 'v2') {
         return <BillingV2 />
     }
 

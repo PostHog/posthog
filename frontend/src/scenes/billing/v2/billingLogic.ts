@@ -1,8 +1,8 @@
-import { kea, path, actions, connect, reducers, afterMount } from 'kea'
+import { kea, path, actions, connect, reducers, afterMount, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import type { billingLogicType } from './billingLogicType'
-import { BillingProductV2Type, BillingV2Type } from '~/types'
+import { BillingProductV2Type, BillingV2Type, BillingVersion } from '~/types'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urlToAction } from 'kea-router'
@@ -86,6 +86,13 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     })),
+    selectors({
+        billingVersion: [
+            (s) => [s.billing, s.billingLoading],
+            (billing, billingLoading): BillingVersion | undefined =>
+                !billingLoading ? (billing ? 'v2' : 'v1') : undefined,
+        ],
+    }),
     forms(({ actions }) => ({
         activateLicense: {
             defaults: { license: '' } as { license: string },
@@ -113,6 +120,7 @@ export const billingLogic = kea<billingLogicType>([
             },
         },
     })),
+
     afterMount(({ actions }) => {
         actions.loadBilling()
     }),
