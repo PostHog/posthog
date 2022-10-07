@@ -80,7 +80,7 @@ describe('E2E with buffer enabled', () => {
             await posthog.capture('custom event via buffer', { name: 'hehe', uuid })
             await hub.kafkaProducer.flush()
 
-            await delayUntilEventIngested(() => hub.db.fetchEvents(), undefined, 500)
+            await delayUntilEventIngested(() => hub.db.fetchEvents(), undefined, undefined, 500)
             const events = await hub.db.fetchEvents()
 
             expect(events.length).toBe(1)
