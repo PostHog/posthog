@@ -10,6 +10,7 @@ import digitalocean
 import random
 import string
 import time
+import os
 
 letters = string.ascii_lowercase
 random_bit = ''.join(random.choice(letters) for i in range(4))
@@ -23,7 +24,7 @@ user_data = f'#!/bin/bash \n' \
 			f'wget https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby \n' \
 			f'chmod +x deploy-hobby \n' \
 			f'./deploy-hobby {release_tag} {hostname}\n'
-token = 'hah-no'
+token = os.getenv("DIGITALOCEAN_ACCESS_TOKEN")
 
 
 def block_until_droplet_is_started(droplet):
