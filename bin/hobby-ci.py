@@ -23,7 +23,7 @@ user_data = f'#!/bin/bash \n' \
 			f'wget https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby \n' \
 			f'chmod +x deploy-hobby \n' \
 			f'./deploy-hobby {release_tag} {hostname}\n'
-token = 'dop_v1_3c7b5e99a3a085fafe5d4f46c448ef0dbdf2457f2a5dc80a831a675386ce1c6f'
+token = 'hah-no'
 
 
 def block_until_droplet_is_started(droplet):
