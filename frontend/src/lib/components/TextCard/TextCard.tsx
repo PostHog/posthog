@@ -104,6 +104,8 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     children?: JSX.Element
     updateColor?: (newColor: Tileable['color']) => void
     removeFromDashboard?: () => void
+    /** buttons to add to the "more" menu on the card**/
+    moreButtons?: JSX.Element | null
 }
 
 function TextCardBody({ text }: { text: string }): JSX.Element {
@@ -127,6 +129,7 @@ export function TextCardInternal(
         className,
         dashboardId,
         updateColor,
+        moreButtons,
         removeFromDashboard,
         ...divProps
     }: TextCardProps,
@@ -197,11 +200,18 @@ export function TextCardInternal(
                                             placement: 'right-start',
                                             fallbackPlacements: ['left-start'],
                                             actionable: true,
+                                            closeParentPopupOnClickInside: true,
                                         }}
                                         fullWidth
                                     >
                                         Set color
                                     </LemonButtonWithPopup>
+                                )}
+                                {moreButtons && (
+                                    <>
+                                        <LemonDivider />
+                                        {moreButtons}
+                                    </>
                                 )}
                                 <LemonDivider />
                                 {removeFromDashboard && (

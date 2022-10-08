@@ -29,7 +29,7 @@ export function DashboardItems(): JSX.Element {
     const {
         updateLayouts,
         updateContainerWidth,
-        updateItemColor,
+        updateTileColor,
         removeTile,
         refreshAllDashboardItems,
         moveToDashboard,
@@ -101,7 +101,7 @@ export function DashboardItems(): JSX.Element {
                     if (!!insight) {
                         return (
                             <InsightCard
-                                key={insight.short_id}
+                                key={tile.id}
                                 insight={insight}
                                 dashboardId={dashboard?.id}
                                 loading={isRefreshing(insight.short_id)}
@@ -109,7 +109,7 @@ export function DashboardItems(): JSX.Element {
                                 highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                 showResizeHandles={dashboardMode === DashboardMode.Edit}
                                 canResizeWidth={canResizeWidth}
-                                updateColor={(color) => updateItemColor(insight.id, color)}
+                                updateColor={(color) => updateTileColor(tile.id, color)}
                                 ribbonColor={tile.color}
                                 removeFromDashboard={() => removeTile(tile)}
                                 refresh={() => refreshAllDashboardItems([tile])}
@@ -148,7 +148,23 @@ export function DashboardItems(): JSX.Element {
                                 dashboardId={dashboard?.id}
                                 textTile={tile}
                                 key={tile.id}
+                                updateColor={(color) => updateTileColor(tile.id, color)}
                                 removeFromDashboard={() => removeTile(tile)}
+                                showResizeHandles={dashboardMode === DashboardMode.Edit}
+                                canResizeWidth={canResizeWidth}
+                                moreButtons={
+                                    canEditDashboard ? (
+                                        <LemonButton
+                                            onClick={() =>
+                                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
+                                            }
+                                            status="stealth"
+                                            fullWidth
+                                        >
+                                            Edit layout (E)
+                                        </LemonButton>
+                                    ) : null
+                                }
                             />
                         )
                     }

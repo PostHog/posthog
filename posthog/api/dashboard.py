@@ -207,7 +207,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 DashboardTile.objects.update_or_create(
                     id=tile_data.get("id", None), defaults={**tile_data, "text": text, "dashboard": instance}
                 )
-            if "deleted" in tile_data:
+            elif "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data:
                 DashboardTile.objects.update_or_create(
                     id=tile_data.get("id", None), defaults={**tile_data, "dashboard": instance}
                 )
@@ -215,10 +215,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         tile_layouts = initial_data.pop("tile_layouts", [])
         for tile_layout in tile_layouts:
             instance.tiles.filter(insight__id=(tile_layout["id"])).update(layouts=tile_layout["layouts"])
-
-        colors = initial_data.pop("colors", [])
-        for color in colors:
-            instance.tiles.filter(dashboard__id=instance.id, insight__id=(color["id"])).update(color=color["color"])
 
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())

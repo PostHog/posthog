@@ -87,7 +87,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
-        updateItemColor: (insightNumericId: number, color: string | null) => ({ insightNumericId, color }),
+        updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
         removeTile: (tile: DashboardTile) => ({ tile }),
         refreshAllDashboardItems: (tiles?: DashboardTile[]) => ({ tiles }),
         refreshAllDashboardItemsManual: true,
@@ -159,38 +159,30 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                     Object.entries(layouts).forEach(([col, layout]) => {
                         layout.forEach((layoutItem) => {
-                            const insightId = values.shortIdToId?.[layoutItem.i]
-                            if (!insightId) {
-                                // it _should_ be impossible for a layout item to not be in this mapping
-                                throw new Error('Could not update layouts for unknown insight')
+                            if (!itemLayouts[layoutItem.i]) {
+                                itemLayouts[layoutItem.i] = {}
                             }
-
-                            if (!itemLayouts[insightId]) {
-                                itemLayouts[insightId] = {}
-                            }
-                            itemLayouts[insightId][col] = layoutItem
+                            itemLayouts[layoutItem.i][col] = layoutItem
                         })
                     })
 
                     return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                        tile_layouts: Object.entries(itemLayouts).map(([id, layouts]) => ({
+                        tiles: Object.entries(itemLayouts).map(([id, layouts]) => ({
                             id,
                             layouts,
                         })),
                     })
                 },
-                updateItemColor: async ({ insightNumericId, color }) => {
+                updateTileColor: async ({ tileId, color }) => {
                     if (!props.id) {
                         // what are we saving colors against?!
                         return values.allItems
                     }
 
                     await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                        colors: [{ id: insightNumericId, color }],
+                        tiles: [{ id: tileId, color }],
                     })
-                    const matchingTile = values.insightTiles.find(
-                        (tile) => !!tile.insight && tile.insight.id === insightNumericId
-                    )
+                    const matchingTile = values.tiles.find((tile) => tile.id === tileId)
                     if (matchingTile) {
                         matchingTile.color = color as InsightColor
                     }
@@ -597,18 +589,20 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             ? 8
                             : !!tile.insight && tile.insight.filters.display === ChartDisplayType.PathsViz
                             ? 12.5
+                            : !!tile.text
+                            ? 2.5
                             : 5
                         const layout = tile.layouts && tile.layouts[col]
                         const { x, y, w, h } = layout || {}
                         const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
                         return {
-                            i: !!tile.insight ? tile.insight.short_id : tile.id.toString(),
+                            i: tile.id.toString(),
                             x: Number.isInteger(x) && x + width - 1 < BREAKPOINT_COLUMN_COUNTS[col] ? x : 0,
                             y: Number.isInteger(y) ? y : Infinity,
                             w: width,
                             h: h || defaultHeight,
                             minW,
-                            minH,
+                            minH: tile.text ? minH / 2 : minH,
                         }
                     })
 
