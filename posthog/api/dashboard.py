@@ -199,22 +199,27 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         tile = initial_data.pop("tiles", [])
         for tile_data in tile:
-            if "text" in tile_data:
+            insight = tile_data.get("insight", None)
+            if insight:
+                insight = Insight.objects.get(id=insight["id"])
+
+            text = tile_data.get("text", None)
+            if text:
                 text, _ = Text.objects.update_or_create(
                     id=tile_data.get("text").get("id", None),
-                    defaults={**tile_data["text"], "team": self.context["team"], "created_by": user},
-                )
-                DashboardTile.objects.update_or_create(
-                    id=tile_data.get("id", None), defaults={**tile_data, "text": text, "dashboard": instance}
-                )
-            elif "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data:
-                DashboardTile.objects.update_or_create(
-                    id=tile_data.get("id", None), defaults={**tile_data, "dashboard": instance}
+                    defaults={
+                        **tile_data["text"],
+                        "team": self.context["team"],
+                        "created_by": user,
+                        "last_modified_by": user,
+                    },
                 )
 
-        tile_layouts = initial_data.pop("tile_layouts", [])
-        for tile_layout in tile_layouts:
-            instance.tiles.filter(insight__id=(tile_layout["id"])).update(layouts=tile_layout["layouts"])
+            if text or "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data:
+                DashboardTile.objects.update_or_create(
+                    id=tile_data.get("id", None),
+                    defaults={**tile_data, "insight": insight, "text": text, "dashboard": instance},
+                )
 
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())

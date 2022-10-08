@@ -85,6 +85,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
+        saveLayouts: true,
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
@@ -144,34 +145,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         }
                         throw error
                     }
-                },
-                updateLayouts: async ({ layouts }) => {
-                    if (!isUserLoggedIn()) {
-                        // If user is anonymous (i.e. viewing a shared dashboard logged out), we don't save any layout changes.
-                        return
-                    }
-                    if (!props.id) {
-                        // what are we saving layouts against?!
-                        return
-                    }
-
-                    const itemLayouts: Record<number, Partial<Record<string, Layout>>> = {}
-
-                    Object.entries(layouts).forEach(([col, layout]) => {
-                        layout.forEach((layoutItem) => {
-                            if (!itemLayouts[layoutItem.i]) {
-                                itemLayouts[layoutItem.i] = {}
-                            }
-                            itemLayouts[layoutItem.i][col] = layoutItem
-                        })
-                    })
-
-                    return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                        tiles: Object.entries(itemLayouts).map(([id, layouts]) => ({
-                            id,
-                            layouts,
-                        })),
-                    })
                 },
                 updateTileColor: async ({ tileId, color }) => {
                     if (!props.id) {
@@ -253,6 +226,23 @@ export const dashboardLogic = kea<dashboardLogicType>({
             null as DashboardType | null,
             {
                 loadExportedDashboard: (_, { dashboard }) => dashboard,
+                updateLayouts: (state, { layouts }) => {
+                    const itemLayouts: Record<number, Partial<Record<string, Layout>>> = {}
+
+                    Object.entries(layouts).forEach(([col, layout]) => {
+                        layout.forEach((layoutItem) => {
+                            if (!itemLayouts[layoutItem.i]) {
+                                itemLayouts[layoutItem.i] = {}
+                            }
+                            itemLayouts[layoutItem.i][col] = layoutItem
+                        })
+                    })
+
+                    return {
+                        ...state,
+                        tiles: state?.tiles?.map((tile) => ({ ...tile, layouts: itemLayouts[tile.id] })),
+                    } as DashboardType
+                },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
                     if (state?.id === dashboardId) {
                         return {
@@ -695,19 +685,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 },
             ],
         ],
-        shortIdToId: [
-            (s) => [s.insightTiles],
-            (insightTiles): Record<InsightShortId, number> => {
-                return (insightTiles ?? [])
-                    .map((t) => t.insight)
-                    .reduce((acc, curr) => {
-                        if (curr) {
-                            acc[curr.short_id] = Number(curr.id)
-                        }
-                        return acc
-                    }, {})
-            },
-        ],
     }),
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
@@ -753,6 +730,24 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
         loadDashboardItemsFailure: sharedListeners.reportLoadTiming,
+        updateLayouts: () => {
+            actions.saveLayouts()
+        },
+        saveLayouts: async (_, breakpoint) => {
+            await breakpoint(100)
+            if (!isUserLoggedIn()) {
+                // If user is anonymous (i.e. viewing a shared dashboard logged out), we don't save any layout changes.
+                return
+            }
+            if (!props.id) {
+                // what are we saving layouts against?!
+                return
+            }
+
+            return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                tiles: values.allItems?.tiles || [],
+            })
+        },
         moveToDashboardSuccess: ({ payload }) => {
             if (payload?.toDashboard === undefined || payload?.tile === undefined) {
                 return
