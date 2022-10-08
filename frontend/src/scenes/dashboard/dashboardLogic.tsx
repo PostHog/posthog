@@ -88,7 +88,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateItemColor: (insightNumericId: number, color: string | null) => ({ insightNumericId, color }),
-        removeItem: (insight: Partial<InsightModel>) => ({ insight }),
+        removeTile: (tile: DashboardTile) => ({ tile }),
         refreshAllDashboardItems: (tiles?: DashboardTile[]) => ({ tiles }),
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
@@ -196,22 +196,22 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     }
                     return values.allItems
                 },
-                removeItem: async ({ insight }) => {
+                removeTile: async ({ tile }) => {
                     try {
-                        await api.update(`api/projects/${values.currentTeamId}/insights/${insight.id}`, {
-                            dashboards: insight.dashboards?.filter((id) => id !== props.id) ?? [],
+                        await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                            tiles: [{ id: tile.id, deleted: true }],
                         } as Partial<InsightModel>)
 
                         dashboardsModel.actions.tileRemovedFromDashboard({
-                            insightId: insight.id,
+                            tile: tile,
                             dashboardId: props.id,
                         })
                         return {
                             ...values.allItems,
-                            tiles: values.insightTiles.filter((t) => !!t.insight && t.insight.id !== insight.id),
+                            tiles: values.tiles.filter((t) => t.id !== tile.id),
                         } as DashboardType
                     } catch (e) {
-                        lemonToast.error('Could not remove item: ' + e)
+                        lemonToast.error('Could not remove tile from dashboard: ' + e)
                         return values.allItems
                     }
                 },

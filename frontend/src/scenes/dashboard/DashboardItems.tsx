@@ -30,7 +30,7 @@ export function DashboardItems(): JSX.Element {
         updateLayouts,
         updateContainerWidth,
         updateItemColor,
-        removeItem,
+        removeTile,
         refreshAllDashboardItems,
         moveToDashboard,
         setDashboardMode,
@@ -111,7 +111,7 @@ export function DashboardItems(): JSX.Element {
                                 canResizeWidth={canResizeWidth}
                                 updateColor={(color) => updateItemColor(insight.id, color)}
                                 ribbonColor={tile.color}
-                                removeFromDashboard={() => removeItem(insight)}
+                                removeFromDashboard={() => removeTile(tile)}
                                 refresh={() => refreshAllDashboardItems([tile])}
                                 rename={() => renameInsight(insight)}
                                 duplicate={() => duplicateInsight(insight)}
@@ -143,7 +143,14 @@ export function DashboardItems(): JSX.Element {
                         )
                     }
                     if (!!text) {
-                        return <TextCard dashboardId={dashboard?.id} textTile={tile} key={tile.id} />
+                        return (
+                            <TextCard
+                                dashboardId={dashboard?.id}
+                                textTile={tile}
+                                key={tile.id}
+                                removeFromDashboard={() => removeTile(tile)}
+                            />
+                        )
                     }
                 })}
             </ReactGridLayout>

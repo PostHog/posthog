@@ -142,7 +142,8 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
 
         delete_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {"tiles": [{**last_tile, "deleted": True}]},
+            # can send just tile id and deleted flag
+            {"tiles": [{"id": last_tile["id"], "deleted": True}]},
         )
         self.assertEqual(delete_response.status_code, status.HTTP_200_OK)
 

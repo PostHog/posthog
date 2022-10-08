@@ -50,8 +50,8 @@ export const dashboardsModel = kea<dashboardsModelType>({
             show: show || false,
         }),
         tileMovedToDashboard: (tile: DashboardTile, dashboardId: number) => ({ tile, dashboardId }),
-        tileRemovedFromDashboard: ({ insightId, dashboardId }: { insightId?: number; dashboardId?: number }) => ({
-            insightId,
+        tileRemovedFromDashboard: ({ tile, dashboardId }: { tile?: DashboardTile; dashboardId?: number }) => ({
+            tile,
             dashboardId,
         }),
     }),

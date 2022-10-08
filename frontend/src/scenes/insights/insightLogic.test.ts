@@ -5,6 +5,7 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     BreakdownType,
+    DashboardTile,
     FilterLogicalOperator,
     FilterType,
     InsightModel,
@@ -1123,7 +1124,10 @@ describe('insightLogic', () => {
 
         it('reacts to removal from dashboard', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.tileRemovedFromDashboard({ insightId: 42, dashboardId: 3 })
+                dashboardsModel.actions.tileRemovedFromDashboard({
+                    tile: { insight: { id: 42 } } as DashboardTile,
+                    dashboardId: 3,
+                })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -1133,7 +1137,10 @@ describe('insightLogic', () => {
 
         it('does not reacts to removal of a different tile from dashboard', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.tileRemovedFromDashboard({ insightId: 12, dashboardId: 3 })
+                dashboardsModel.actions.tileRemovedFromDashboard({
+                    tile: { insight: { id: 12 } } as DashboardTile,
+                    dashboardId: 3,
+                })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
