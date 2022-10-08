@@ -1,3 +1,4 @@
+import datetime
 from typing import Dict, Optional, Union
 from unittest import mock
 
@@ -110,27 +111,44 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             body="hello world",
         )
 
-    @freeze_time("2022-04-01 12:45")
     def test_can_update_a_single_text_tile(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        with freeze_time("2022-04-01 12:45") as frozen_time:
+            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hello world")
-        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="ciao il mondo")
+            dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hello world")
+            dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="ciao il mondo")
 
-        assert len(dashboard_json["tiles"]) == 2
-        tile_ids = [tile["id"] for tile in dashboard_json["tiles"]]
+            assert len(dashboard_json["tiles"]) == 2
+            tile_ids = [tile["id"] for tile in dashboard_json["tiles"]]
 
-        updated_tile = {**dashboard_json["tiles"][0]}
-        updated_tile["text"]["body"] = "anche ciao"
-        dashboard_id, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, updated_tile)
+            frozen_time.tick(delta=datetime.timedelta(hours=10))
+            other_user = User.objects.create_and_join(organization=self.organization, email="", password="")
+            self.client.force_login(other_user)
+            updated_tile = {**dashboard_json["tiles"][0]}
+            updated_tile["text"]["body"] = "anche ciao"
+            dashboard_id, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, updated_tile)
 
-        assert len(dashboard_json["tiles"]) == 2
-        assert [(t["id"], t["text"]["body"]) for t in dashboard_json["tiles"]] == [
-            (tile_ids[0], "anche ciao"),
-            (tile_ids[1], "ciao il mondo"),
-        ]
+            assert len(dashboard_json["tiles"]) == 2
 
-    @freeze_time("2022-04-01 12:45")
+            assert dashboard_json["tiles"][0]["id"] == tile_ids[0]
+            assert dashboard_json["tiles"][1]["id"] == tile_ids[1]
+
+            # the edit to tile 0 has changed the text
+            assert dashboard_json["tiles"][0]["text"]["body"] == "anche ciao"
+            assert dashboard_json["tiles"][1]["text"]["body"] == "ciao il mondo"
+
+            # created by is set for both tiles
+            assert dashboard_json["tiles"][0]["text"]["created_by"]["id"] == self.user.id
+            assert dashboard_json["tiles"][1]["text"]["created_by"]["id"] == self.user.id
+
+            # tile 1 has never been modified so has no modified by user
+            assert dashboard_json["tiles"][0]["text"]["last_modified_by"]["id"] == other_user.id
+            assert dashboard_json["tiles"][1]["text"]["last_modified_by"] is None
+
+            # tile 1 has not been modified, but tile 0 has. Tile 0 has a new modified at date
+            assert dashboard_json["tiles"][0]["text"]["last_modified_at"] == "2022-04-01T22:45:00Z"
+            assert dashboard_json["tiles"][1]["text"]["last_modified_at"] == "2022-04-01T12:45:00Z"
+
     def test_can_update_a_single_text_tile_color(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 

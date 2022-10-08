@@ -199,26 +199,33 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         tile = initial_data.pop("tiles", [])
         for tile_data in tile:
-            insight = tile_data.get("insight", None)
-            if insight:
-                insight = Insight.objects.get(id=insight["id"])
-
-            text = tile_data.get("text", None)
-            if text:
+            if tile_data.get("text", None):
+                text_json = tile_data.get("text")
+                created_by_json = text_json.get("created_by", None)
+                if created_by_json:
+                    last_modified_by = user
+                    created_by = User.objects.get(id=created_by_json.get("id"))
+                else:
+                    created_by = user
+                    last_modified_by = None
                 text, _ = Text.objects.update_or_create(
-                    id=tile_data.get("text").get("id", None),
+                    id=text_json.get("id", None),
                     defaults={
                         **tile_data["text"],
                         "team": self.context["team"],
-                        "created_by": user,
-                        "last_modified_by": user,
+                        "created_by": created_by,
+                        "last_modified_by": last_modified_by,
+                        "last_modified_at": now(),
                     },
                 )
-
-            if text or "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data:
                 DashboardTile.objects.update_or_create(
-                    id=tile_data.get("id", None),
-                    defaults={**tile_data, "insight": insight, "text": text, "dashboard": instance},
+                    id=tile_data.get("id", None), defaults={**tile_data, "text": text, "dashboard": instance}
+                )
+            elif "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data:
+                tile_data.pop("insight", None)  # don't ever update insight tiles here
+
+                DashboardTile.objects.update_or_create(
+                    id=tile_data.get("id", None), defaults={**tile_data, "dashboard": instance}
                 )
 
         if "request" in self.context:

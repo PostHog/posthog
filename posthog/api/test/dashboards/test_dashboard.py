@@ -436,13 +436,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "another"}
         )
 
+        dashboard_json = self._get_dashboard(dashboard_id)
+        tiles = dashboard_json["tiles"]
+        assert len(tiles) == 1
+        tile_id = tiles[0]["id"]
         # layouts used to live on insights, but moved onto the relation from a dashboard to its insights
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {
-                "tile_layouts": [
+                "tiles": [
                     {
-                        "id": insight_id,
+                        "id": tile_id,
                         "layouts": {
                             "lg": {"x": "0", "y": "0", "w": "6", "h": "5"},
                             "sm": {"w": "7", "h": "5", "x": "0", "y": "0", "moved": "False", "static": "False"},
@@ -460,6 +464,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"refresh": False}
         ).json()
         first_tile_layouts = dashboard_json["tiles"][0]["layouts"]
+
         self.assertTrue("lg" in first_tile_layouts)
 
     def test_dashboard_from_template(self):
