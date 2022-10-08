@@ -69,6 +69,11 @@ runs:
               python -m pip install -r requirements-dev.txt
               python -m pip install -r requirements.txt
 
+        - name: Install reportlog
+          shell: bash
+          run: |
+              python -m pip install pytest-reportlog
+
         - name: Set up needed files
           shell: bash
           run: |
@@ -89,18 +94,11 @@ runs:
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
-        - name: Run FOSS tests
-          if: ${{ inputs.foss == 'true' }}
-          shell: bash
-          run: |
-              pytest -m "not ee and not async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml \
-                --durations=150 --durations-min=1.0 $PYTEST_ARGS
-
-        - name: Run ee/ tests
+        - name: Run all tests
           if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true' }}
           shell: bash
           run: |
-              pytest ee \
+              pytest ee/ posthog/ \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
                   --store-durations \
@@ -113,7 +111,7 @@ runs:
           if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true' }}
           shell: bash
           run: |
-              PERSON_ON_EVENTS_ENABLED=true pytest ee \
+              PERSON_ON_EVENTS_ENABLED=true pytest ee/clickhouse \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
                   $PYTEST_ARGS
