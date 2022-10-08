@@ -3,7 +3,7 @@ import json
 import os
 import re
 import tarfile
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 from urllib.parse import parse_qs, quote
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
@@ -216,13 +216,20 @@ def load_json_file(filename: str):
         return None
 
 
+def get_local_file(file_path: str, json_parse: bool) -> Any:
+    try:
+        with open(file_path, "r", encoding="utf_8") as reader:
+            file_bytes = reader.read()
+        return json.loads(file_bytes) if json_parse else file_bytes
+    except FileNotFoundError:
+        return None
+
+
 def get_file_from_zip_archive(archive: bytes, filename: str, *, json_parse: bool) -> Any:
     zip_file = ZipFile(io.BytesIO(archive), "r")
     root_folder = zip_file.namelist()[0]
     file_path = os.path.join(root_folder, filename)
-    with zip_file.open(file_path) as reader:
-        file_bytes = reader.read()
-        return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
+    return get_local_file(file_path, json_parse)
 
 
 def get_file_from_tgz_archive(archive: bytes, filename, *, json_parse: bool) -> Any:
@@ -249,27 +256,38 @@ def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = T
         return None
 
 
-def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None) -> str:
+# archive is a bytes object or null
+def get_file(url: str, archive: Union[bytes, None], filename: str, *, json_parse: bool = True) -> Any:
+    if url.startswith("file:"):
+        url = url[5:]
+        file_path = os.path.join(url, filename)
+        return get_local_file(file_path, json_parse)
+    archive = download_plugin_archive(url)
+    return get_file_from_archive(archive, filename, json_parse=json_parse)
+
+
+def find_index_ts_in_archive(url: str, archive: bytes, main_filename: Optional[str] = None) -> str:
     main_filenames_to_try = [main_filename] if main_filename else ["index.js", "index.ts"]
     for main_filename in main_filenames_to_try:
-        index_ts = get_file_from_archive(archive, main_filename, json_parse=False)
+        index_ts = get_file(url, archive, main_filename, json_parse=False)
         if index_ts is not None:
             return index_ts
     raise ValueError(f"Could not find main file {' or '.join(main_filenames_to_try)}")
 
 
 def extract_plugin_code(
-    archive: bytes, plugin_json_parsed: Optional[Dict[str, Any]] = None
+    url: str, archive: bytes, plugin_json_parsed: Optional[Dict[str, Any]] = None
 ) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
     """Extract plugin.json, index.ts (which can be aliased) and frontend.tsx out of an archive.
 
     If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
-    if archive is None:
+    # If it's _not_ a local app and we don't have the archive, raise an error
+    if not url.startswith("file:") and archive is None:
         raise ValueError(f"There is no archive to extract code from")
     # Extract plugin.json - required, might be provided already
     plugin_json: str
     if plugin_json_parsed is None:
-        plugin_json_original = get_file_from_archive(archive, "plugin.json", json_parse=False)
+        plugin_json_original = get_file(url, archive, "plugin.json", json_parse=False)
         if not plugin_json_original:
             raise ValueError(f"Could not find plugin.json")
         try:
@@ -279,13 +297,13 @@ def extract_plugin_code(
     plugin_json = json.dumps(plugin_json_parsed)  # We serialize this even if just extracted from file, for minification
     assert plugin_json_parsed is not None  # Just to let mypy know this must be loaded at this point
     # Extract frontend.tsx - optional
-    frontend_tsx: Optional[str] = get_file_from_archive(archive, "frontend.tsx", json_parse=False)
+    frontend_tsx: Optional[str] = get_file(url, archive, "frontend.tsx", json_parse=False)
     # Extract web.ts - optional
-    web_ts: Optional[str] = get_file_from_archive(archive, "web.ts", json_parse=False)
+    web_ts: Optional[str] = get_file(url, archive, "web.ts", json_parse=False)
     # Extract index.ts - optional if frontend.tsx is present, otherwise required
     index_ts: Optional[str] = None
     try:
-        index_ts = find_index_ts_in_archive(archive, plugin_json_parsed.get("main"))
+        index_ts = find_index_ts_in_archive(url, archive, plugin_json_parsed.get("main"))
     except ValueError as e:
         if frontend_tsx is None and web_ts is None:
             raise e

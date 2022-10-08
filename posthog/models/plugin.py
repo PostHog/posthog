@@ -121,7 +121,7 @@ class PluginManager(models.Manager):
             raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
-            PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
+            PluginSourceFile.objects.sync_from_plugin_archive(kwargs["url"], plugin, plugin_json)
         reload_plugins_on_workers()
         return plugin
 
@@ -257,7 +257,7 @@ class PluginLogEntryType(str, Enum):
 
 class PluginSourceFileManager(models.Manager):
     def sync_from_plugin_archive(
-        self, plugin: Plugin, plugin_json_parsed: Optional[Dict[str, Any]] = None
+        self, url: str, plugin: Plugin, plugin_json_parsed: Optional[Dict[str, Any]] = None
     ) -> Tuple[
         "PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"], Optional["PluginSourceFile"]
     ]:
@@ -265,7 +265,7 @@ class PluginSourceFileManager(models.Manager):
 
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
         try:
-            plugin_json, index_ts, frontend_tsx, web_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
+            plugin_json, index_ts, frontend_tsx, web_ts = extract_plugin_code(url, plugin.archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
         # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
