@@ -1,6 +1,5 @@
 from typing import cast
 
-import pytest
 from django.utils import timezone
 from rest_framework import status
 
@@ -10,7 +9,6 @@ from posthog.test.base import APIBaseTest
 # Testing enterprise properties of actions here (i.e., tagging).
 
 
-@pytest.mark.ee
 class TestActionApi(APIBaseTest):
     def test_create_action_update_delete_tags(self):
         from ee.models.license import License, LicenseManager

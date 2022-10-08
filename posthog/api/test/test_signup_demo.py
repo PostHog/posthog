@@ -1,6 +1,5 @@
 from unittest.mock import patch
 
-import pytest
 from django.contrib import auth
 from django.test import override_settings
 from rest_framework import status
@@ -10,7 +9,6 @@ from posthog.test.base import APIBaseTest
 
 
 @override_settings(DEMO=True)
-@pytest.mark.ee
 class TestDemoSignupAPI(APIBaseTest):
     """Demo environment signup tests - signup and login are unified."""
 

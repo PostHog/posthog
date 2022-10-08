@@ -82,7 +82,7 @@ WHERE team_id = %(team_id)s AND person_id = %(person_id)s
 """
 
 GET_COHORTPEOPLE_BY_COHORT_ID = """
-SELECT person_id
+SELECT person_id, cohort_id, team_id, version
 FROM cohortpeople
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id, version

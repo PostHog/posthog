@@ -102,7 +102,6 @@ class TestPreflight(APIBaseTest):
             self.assertEqual(response, self.preflight_authenticated_dict({"object_storage": True}))
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
-    @pytest.mark.ee
     def test_cloud_preflight_request_unauthenticated(self):
         set_instance_setting("EMAIL_HOST", "localhost")
         set_instance_setting("SLACK_APP_CLIENT_ID", "slack-client-id")
@@ -127,7 +126,6 @@ class TestPreflight(APIBaseTest):
                 ),
             )
 
-    @pytest.mark.ee
     def test_cloud_preflight_request(self):
         with self.settings(MULTI_TENANCY=True, SITE_URL="https://app.posthog.com", OBJECT_STORAGE_ENABLED=False):
             response = self.client.get("/_preflight/")
@@ -150,7 +148,6 @@ class TestPreflight(APIBaseTest):
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
-    @pytest.mark.ee
     def test_cloud_preflight_request_with_social_auth_providers(self):
         set_instance_setting("EMAIL_HOST", "localhost")
 
@@ -193,7 +190,6 @@ class TestPreflight(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), self.preflight_dict({"demo": True, "can_create_org": True, "realm": "demo"}))
 
-    @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy
     def test_ee_preflight_with_users_limit(self):
         try:
@@ -219,7 +215,6 @@ class TestPreflight(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["can_create_org"], True)
 
-    @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy
     def test_can_create_org_with_multi_org(self):
         # First with no license

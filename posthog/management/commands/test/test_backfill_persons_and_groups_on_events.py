@@ -1,7 +1,6 @@
 from time import sleep
 from uuid import UUID, uuid4
 
-import pytest
 from django.conf import settings
 
 from posthog.client import sync_execute
@@ -22,7 +21,6 @@ def create_test_events(properties=""):
     )
 
 
-@pytest.mark.ee
 class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
     def tearDown(self):
         self.recreate_database()

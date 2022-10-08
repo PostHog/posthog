@@ -98,7 +98,7 @@ runs:
           if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true' }}
           shell: bash
           run: |
-              pytest ee/ posthog/ \
+              pytest ee/ posthog/ -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
                   --store-durations \

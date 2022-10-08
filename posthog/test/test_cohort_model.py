@@ -1,15 +1,11 @@
 from unittest.mock import patch
 
-import pytest
-
-from posthog.client import sync_execute
 from posthog.models import Cohort, FeatureFlag, Person, Team
 from posthog.models.cohort import CohortPeople, batch_delete_cohort_people
-from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
 
 
-class TestCohort(BaseTest):
+class TestCohort(APIBaseTest):
     def test_insert_by_distinct_id_or_email(self):
         Person.objects.create(team=self.team, distinct_ids=["000"])
         Person.objects.create(team=self.team, distinct_ids=["123"])
@@ -33,29 +29,6 @@ class TestCohort(BaseTest):
         cohort = Cohort.objects.get()
         self.assertEqual(cohort.people.count(), 2)
         self.assertEqual(cohort.is_calculating, False)
-
-    @pytest.mark.ee
-    def test_calculating_cohort_clickhouse(self):
-        person1 = Person.objects.create(
-            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
-        )
-        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
-        person3 = Person.objects.create(
-            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
-        )
-        cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
-            name="cohort1",
-        )
-
-        cohort.calculate_people_ch(pending_version=0)
-
-        uuids = [
-            row[0]
-            for row in sync_execute(GET_COHORTPEOPLE_BY_COHORT_ID, {"cohort_id": cohort.pk, "team_id": self.team.pk})
-        ]
-        self.assertCountEqual(uuids, [person1.uuid, person3.uuid])
 
     def test_empty_query(self):
         cohort2 = Cohort.objects.create(

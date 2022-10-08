@@ -1,7 +1,6 @@
 import uuid
 from unittest.mock import ANY, patch
 
-import pytest
 from django.core.cache import cache
 from django.utils.text import slugify
 from rest_framework import status
@@ -98,7 +97,6 @@ class TestUserAPI(APIBaseTest):
             ],
         )
 
-    @pytest.mark.ee
     def test_organization_metadata_on_user_serializer(self):
         try:
             from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition

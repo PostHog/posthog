@@ -1,6 +1,5 @@
 from datetime import datetime
 
-import pytest
 from django.db import connection
 
 from posthog.async_migrations.examples.test_migration import Migration
@@ -23,7 +22,7 @@ class TestRunner(AsyncMigrationBaseTest):
         return super().setUp()
 
     # Run the full migration through
-    @pytest.mark.ee
+
     def test_run_migration_in_full(self):
         self.migration.sec.reset_count()
         migration_successful = start_async_migration("test_migration")
@@ -50,7 +49,6 @@ class TestRunner(AsyncMigrationBaseTest):
         self.assertEqual(self.migration.sec.side_effect_count, 3)
         self.assertEqual(self.migration.sec.side_effect_rollback_count, 0)
 
-    @pytest.mark.ee
     def test_rollback_migration(self):
 
         self.migration.sec.reset_count()
@@ -78,7 +76,6 @@ class TestRunner(AsyncMigrationBaseTest):
         self.assertEqual(self.migration.sec.side_effect_count, 3)
         self.assertEqual(self.migration.sec.side_effect_rollback_count, 3)
 
-    @pytest.mark.ee
     def test_rollback_migration_failure(self):
         migration_name = "test_with_rollback_exception"
         create_async_migration(name=migration_name)
@@ -94,7 +91,6 @@ class TestRunner(AsyncMigrationBaseTest):
         self.assertEqual(sm.status, MigrationStatus.Errored)
         self.assertEqual(sm.current_operation_index, 1)
 
-    @pytest.mark.ee
     def test_run_async_migration_next_op(self):
         sm = AsyncMigration.objects.get(name="test_migration")
 
@@ -134,7 +130,6 @@ class TestRunner(AsyncMigrationBaseTest):
 
         self.assertEqual(res, ("a", "c"))
 
-    @pytest.mark.ee
     def test_rollback_an_incomplete_migration(self):
         sm = AsyncMigration.objects.get(name="test_migration")
         sm.status = MigrationStatus.Running
@@ -170,7 +165,6 @@ class TestRunner(AsyncMigrationBaseTest):
         self.assertEqual(sm.progress, 0)
         self.assertEqual(self.migration.sec.side_effect_rollback_count, 2)  # checking we ran current index rollback too
 
-    @pytest.mark.ee
     def test_fail_at_startup_with_no_definition(self):
         sm = AsyncMigration.objects.get(name="test_migration")
         sm.name = "no_such_definition"

@@ -64,6 +64,8 @@ def bulk_create_session_recording_event(events: List[Dict[str, Any]]) -> None:
     inserts = []
     params: Dict[str, Any] = {}
     for index, event in enumerate(events):
+
+        timestamp = event["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
         data = {
             "uuid": str(event["uuid"]),
             "team_id": event["team_id"],
@@ -72,7 +74,7 @@ def bulk_create_session_recording_event(events: List[Dict[str, Any]]) -> None:
             "window_id": event.get("window_id"),
             "snapshot_data": json.dumps(event.get("snapshot_data", {})),
             "timestamp": event["timestamp"],
-            "created_at": event["timestamp"],
+            "created_at": timestamp,
         }
         inserts.append(
             """(

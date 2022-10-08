@@ -1,4 +1,3 @@
-import pytest
 from django.conf import settings
 
 from posthog.client import sync_execute
@@ -7,7 +6,6 @@ from posthog.management.commands.sync_replicated_schema import Command
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
-@pytest.mark.ee
 class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
     def tearDown(self):
         self.recreate_database()

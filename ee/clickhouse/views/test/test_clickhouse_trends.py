@@ -28,7 +28,6 @@ from posthog.test.test_journeys import journeys_for, update_or_create_person
 
 
 @pytest.mark.django_db
-@pytest.mark.ee
 def test_includes_only_intervals_within_range(client: Client):
     """
     This is the case highlighted by https://github.com/PostHog/posthog/issues/2675
@@ -124,7 +123,6 @@ def test_includes_only_intervals_within_range(client: Client):
 
 
 @pytest.mark.django_db
-@pytest.mark.ee
 def test_can_specify_number_of_smoothing_intervals(client: Client):
     """
     The Smoothing feature should allow specifying a number of intervals over
@@ -289,7 +287,6 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
 
 
 @pytest.mark.django_db
-@pytest.mark.ee
 def test_smoothing_intervals_copes_with_null_values(client: Client):
     """
     The Smoothing feature should allow specifying a number of intervals over

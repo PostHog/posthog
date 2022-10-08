@@ -1,6 +1,5 @@
 from typing import cast
 
-import pytest
 from django.utils import timezone
 from rest_framework import status
 
@@ -13,7 +12,6 @@ from posthog.test.base import APIBaseTest
 
 
 class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
-    @pytest.mark.ee
     def test_get_tags(self):
         from ee.models.license import License, LicenseManager
 
@@ -30,7 +28,6 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], ["random"])
 
-    @pytest.mark.ee
     def test_resolve_overlapping_tags_on_update(self):
         from ee.models.license import License, LicenseManager
 
@@ -55,7 +52,6 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         self.assertEqual(sorted(response.json()["tags"]), ["b", "c", "d", "e"])
         self.assertEqual(TaggedItem.objects.all().count(), 4)
 
-    @pytest.mark.ee
     def test_create_and_update_object_with_tags(self):
         from ee.models.license import License, LicenseManager
 

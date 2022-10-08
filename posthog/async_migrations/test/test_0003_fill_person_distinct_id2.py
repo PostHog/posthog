@@ -10,7 +10,6 @@ from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 MIGRATION_NAME = "0003_fill_person_distinct_id2"
 
 
-@pytest.mark.ee
 class Test0003FillPersonDistinctId2(AsyncMigrationBaseTest):
     def setUp(self):
         from posthog.client import sync_execute
