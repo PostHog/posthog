@@ -40,10 +40,12 @@ from posthog.models.session_recording_event.sql import (
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
+from posthog.models.session_recording_event.util import bulk_create_session_recording_event
 from posthog.settings import CLICKHOUSE_REPLICATION
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
+session_recordings_cache_tests: List[Dict[str, Any]] = []
 persons_ordering_int: int = 1
 
 
@@ -416,6 +418,10 @@ def flush_persons_and_events():
         bulk_create_events(events_cache_tests, person_mapping)
         events_cache_tests.clear()
 
+    if len(session_recordings_cache_tests) > 0:
+        bulk_create_session_recording_event(session_recordings_cache_tests)
+        session_recordings_cache_tests.clear()
+
 
 def _create_event(**kwargs):
     """
@@ -456,6 +462,18 @@ def _create_person(*args, **kwargs):
 
     persons_cache_tests.append(kwargs)
     return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
+
+
+def _create_session_recording_event(**kwargs):
+    """
+    Create a session recording event in tests. NOTE: all events get batched and only created when sync_execute is called
+    """
+    if not kwargs.get("uuid"):
+        kwargs["uuid"] = str(uuid.uuid4())
+    if not kwargs.get("timestamp"):
+        kwargs["timestamp"] = now()
+    session_recordings_cache_tests.append(kwargs)
+    return kwargs["uuid"]
 
 
 class ClickhouseTestMixin(QueryMatchingTest):

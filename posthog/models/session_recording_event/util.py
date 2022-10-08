@@ -1,7 +1,7 @@
 import datetime
 import json
 import uuid
-from typing import Union
+from typing import Any, Dict, List, Union
 
 import structlog
 from django.utils import timezone
@@ -10,7 +10,10 @@ from sentry_sdk import capture_exception
 from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
-from posthog.models.session_recording_event.sql import INSERT_SESSION_RECORDING_EVENT_SQL
+from posthog.models.session_recording_event.sql import (
+    BULK_INSERT_SESSION_RECORDING_EVENT_SQL,
+    INSERT_SESSION_RECORDING_EVENT_SQL,
+)
 from posthog.utils import cast_timestamp_or_now
 
 logger = structlog.get_logger(__name__)
@@ -50,6 +53,48 @@ def create_session_recording_event(
         capture_exception(Exception(f"Session recording event data too large - {len(snapshot_data_json)}"))
 
     return str(uuid)
+
+
+def bulk_create_session_recording_event(events: List[Dict[str, Any]]) -> None:
+    """
+    Test only
+    """
+    # timestamp = cast_timestamp_or_now(timestamp)
+
+    inserts = []
+    params: Dict[str, Any] = {}
+    for index, event in enumerate(events):
+        data = {
+            "uuid": str(event["uuid"]),
+            "team_id": event["team_id"],
+            "distinct_id": event["distinct_id"],
+            "session_id": event["session_id"],
+            "window_id": event.get("window_id"),
+            "snapshot_data": json.dumps(event.get("snapshot_data", {})),
+            "timestamp": event["timestamp"],
+            "created_at": event["timestamp"],
+        }
+        inserts.append(
+            """(
+
+                %(uuid_{i})s,
+                %(timestamp_{i})s,
+                %(team_id_{i})s,
+                %(distinct_id_{i})s,
+                %(session_id_{i})s,
+                %(window_id_{i})s,
+                %(snapshot_data_{i})s,
+                %(created_at_{i})s,
+                now(),
+                0
+            )""".format(
+                i=index
+            )
+        )
+
+        params = {**params, **{"{}_{}".format(key, index): value for key, value in data.items()}}
+
+    sync_execute(BULK_INSERT_SESSION_RECORDING_EVENT_SQL() + ", ".join(inserts), params, flush=False)
 
 
 def get_recording_count_for_team_and_period(

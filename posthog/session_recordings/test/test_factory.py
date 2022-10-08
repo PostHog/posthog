@@ -4,11 +4,7 @@ from typing import Dict, Optional
 from uuid import uuid4
 
 from posthog.helpers.session_recording import compress_and_chunk_snapshots
-from posthog.models.session_recording_event.util import create_session_recording_event
-
-
-def _create_session_recording_event(**kwargs) -> str:
-    return create_session_recording_event(uuid=uuid4(), **kwargs)
+from posthog.test.base import _create_session_recording_event
 
 
 def create_snapshot(

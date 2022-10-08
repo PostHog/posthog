@@ -121,6 +121,13 @@ SELECT %(uuid)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(session_id)s, %(
 """
 )
 
+BULK_INSERT_SESSION_RECORDING_EVENT_SQL = (
+    lambda: f"""
+INSERT INTO {SESSION_RECORDING_EVENTS_DATA_TABLE()} (uuid, timestamp, team_id, distinct_id, session_id, window_id, snapshot_data, created_at, _timestamp, _offset)
+VALUES
+"""
+)
+
 
 TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
     f"TRUNCATE TABLE IF EXISTS {SESSION_RECORDING_EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"

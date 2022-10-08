@@ -17,7 +17,6 @@ from posthog.models.filters import Filter, PathFilter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.queries.paths import Paths, PathsActors
 from posthog.queries.paths.paths_event_query import PathEventQuery
 from posthog.test.base import (
@@ -25,6 +24,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    _create_session_recording_event,
     snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
@@ -53,7 +53,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
     ):
         if team_id is None:
             team_id = self.team.pk
-        create_session_recording_event(
+        _create_session_recording_event(
             uuid=uuid4(),
             team_id=team_id,
             distinct_id=distinct_id,

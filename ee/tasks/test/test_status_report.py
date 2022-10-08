@@ -1,13 +1,12 @@
 from posthog.client import sync_execute
 from posthog.models.person.util import create_person_distinct_id
 from posthog.models.utils import UUIDT
-from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.tasks.status_report import status_report
 from posthog.tasks.test.test_status_report import factory_status_report
-from posthog.test.base import _create_event, _create_person
+from posthog.test.base import _create_event, _create_person, _create_session_recording_event
 
 
-class TestStatusReport(factory_status_report(_create_event, _create_person, create_snapshot)):  # type: ignore
+class TestStatusReport(factory_status_report(_create_event, _create_person, _create_session_recording_event)):  # type: ignore
     # CH only
     def test_status_report_duplicate_distinct_ids(self) -> None:
         create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
