@@ -344,18 +344,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         ),
                     } as DashboardType
                 },
-                [insightsModel.actionTypes.duplicateInsightSuccess]: (state, { item }): DashboardType => {
-                    return {
-                        ...state,
-                        tiles:
-                            props.id && item.dashboards?.includes(parseInt(props.id.toString()))
-                                ? [
-                                      ...(state?.tiles || []),
-                                      { insight: item, layouts: {}, color: null } as DashboardTile,
-                                  ]
-                                : state?.tiles,
-                    } as DashboardType
-                },
                 [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }): DashboardType | null => {
                     const tileIndex = state?.tiles.findIndex((t) => !!t.insight && t.insight.short_id === item.short_id)
                     const tiles = state?.tiles.slice(0)
@@ -586,7 +574,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         const { x, y, w, h } = layout || {}
                         const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
                         return {
-                            i: tile.id.toString(),
+                            i: tile.id?.toString(),
                             x: Number.isInteger(x) && x + width - 1 < BREAKPOINT_COLUMN_COUNTS[col] ? x : 0,
                             y: Number.isInteger(y) ? y : Infinity,
                             w: width,
@@ -730,6 +718,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
         loadDashboardItemsFailure: sharedListeners.reportLoadTiming,
+        [insightsModel.actionTypes.duplicateInsightSuccess]: () => {
+            actions.loadDashboardItems()
+        },
         updateLayouts: () => {
             actions.saveLayouts()
         },
