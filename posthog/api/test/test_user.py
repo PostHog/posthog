@@ -612,6 +612,12 @@ class TestUserAPI(APIBaseTest):
             "http://127.0.0.1:8000#__posthog=%7B%22action%22%3A%20%22ph_authorize%22%2C%20%22token%22%3A%20%22token123%22%2C%20%22temporaryToken%22%3A%20%22tokenvalue%22%2C%20%22actionId%22%3A%20null%2C%20%22userIntent%22%3A%20%22add-action%22%2C%20%22toolbarVersion%22%3A%20%22toolbar%22%2C%20%22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22%2C%20%22dataAttributes%22%3A%20%5B%22data-attr%22%5D%2C%20%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22%7D",
         )
 
+    def test_user(self):
+        user1 = self._create_user("case@posthog.com", password="123456789")
+        user2 = self._create_user("caSe@posthog.com", password="abcdefg")
+
+        self.assertNotEqual(user1.email, user2.email)
+
 
 class TestUserSlackWebhook(APIBaseTest):
     ENDPOINT: str = "/api/user/test_slack_webhook/"
