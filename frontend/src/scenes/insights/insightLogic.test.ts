@@ -206,6 +206,7 @@ describe('insightLogic', () => {
         await expectLogic(teamLogic)
             .toFinishAllListeners()
             .toMatchValues({ currentTeam: partial({ test_account_filters_default_checked: true }) })
+        insightsModel.mount()
     })
 
     it('requires props', () => {

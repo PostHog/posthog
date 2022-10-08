@@ -110,6 +110,26 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             body="hello world",
         )
 
+    @freeze_time("2022-04-01 12:45")
+    def test_can_update_a_single_text_tile(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hello world")
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="ciao il mondo")
+
+        assert len(dashboard_json["tiles"]) == 2
+        tile_ids = [tile["id"] for tile in dashboard_json["tiles"]]
+
+        updated_tile = {**dashboard_json["tiles"][0]}
+        updated_tile["text"]["body"] = "anche ciao"
+        dashboard_id, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, updated_tile)
+
+        assert len(dashboard_json["tiles"]) == 2
+        assert [(t["id"], t["text"]["body"]) for t in dashboard_json["tiles"]] == [
+            (tile_ids[0], "anche ciao"),
+            (tile_ids[1], "ciao il mondo"),
+        ]
+
     def test_can_remove_text_tiles_from_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 

@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { kea, props, path, connect, key, listeners } from 'kea'
 import { forms } from 'kea-forms'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardType } from '~/types'
+import { DashboardTile, DashboardType } from '~/types'
 
 import type { textCardModalLogicType } from './textCardModalLogicType'
 
@@ -16,13 +16,8 @@ export interface TextCardModalProps {
     onClose: () => void
 }
 
-const getTileBody = (dashboard: DashboardType, textTileId: number): string => {
-    const foundBody = dashboard.tiles.find((tt) => tt.id === textTileId)?.text?.body
-    if (foundBody === undefined) {
-        throw new Error('could not find body for tile with id: ' + textTileId)
-    }
-    return foundBody
-}
+const getTileBody = (dashboard: DashboardType, textTileId: number): string =>
+    dashboard.tiles?.find((tt) => tt.id === textTileId)?.text?.body || ''
 
 export const textCardModalLogic = kea<textCardModalLogicType>([
     path(['scenes', 'dashboard', 'dashboardTextTileModal', 'logic']),
@@ -57,17 +52,18 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             },
             submit: (formValues) => {
                 // only id and body, layout and color could be out-of-date
-                const textTiles = (props.dashboard.tiles || []).map((t) => ({ id: t.id, body: t.text?.body }))
+                const textTiles = (props.dashboard.tiles || []).map((t) => ({ id: t.id, text: t.text }))
 
                 if (props.textTileId === 'new') {
-                    actions.updateDashboard({ id: props.dashboard.id, tiles: [...textTiles, { text: formValues }] })
+                    actions.updateDashboard({ id: props.dashboard.id, tiles: [{ text: formValues }] })
                 } else {
-                    const updatedTiles = [...textTiles].map((tile) => {
-                        if (tile.id === props.textTileId) {
-                            tile.body = formValues.body
+                    const updatedTiles = [...textTiles].reduce((acc, tile) => {
+                        if (tile.id === props.textTileId && tile.text) {
+                            tile.text.body = formValues.body
+                            acc.push(tile)
                         }
-                        return tile
-                    })
+                        return acc
+                    }, [] as Partial<DashboardTile>[])
                     actions.updateDashboard({ id: props.dashboard.id, tiles: updatedTiles })
                 }
             },

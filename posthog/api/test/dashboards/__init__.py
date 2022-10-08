@@ -100,6 +100,23 @@ class DashboardAPI:
         response_json = response.json()
         return response_json.get("id", None), response_json
 
+    def update_text_tile(
+        self,
+        dashboard_id: int,
+        tile: Dict,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+    ) -> Tuple[int, Dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+
+        response = self.client.patch(f"/api/projects/{team_id}/dashboards/{dashboard_id}", {"tiles": [tile]})
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+        response_json = response.json()
+        return response_json.get("id", None), response_json
+
     def update_tile_layouts(self, dashboard_id: int, layouts: List[Dict]) -> List[Dict]:
         add_layouts_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles/layouts",

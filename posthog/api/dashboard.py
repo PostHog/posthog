@@ -190,12 +190,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         validated_data.pop("use_template", None)  # Remove attribute if present
 
+        initial_data = dict(self.initial_data)
+
         instance = super().update(instance, validated_data)
 
         if validated_data.get("deleted", False):
             DashboardTile.objects.filter(dashboard__id=instance.id).delete()
-
-        initial_data = dict(self.initial_data)
 
         tile = initial_data.pop("tiles", [])
         for tile_data in tile:
