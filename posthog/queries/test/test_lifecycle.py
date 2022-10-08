@@ -59,7 +59,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
             )
 
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result,
                 [
                     {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -120,7 +120,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
             )
 
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result,
                 [
                     {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -202,7 +202,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
             )
 
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result,
                 [
                     {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
@@ -232,7 +232,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
             )
 
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result,
                 [
                     {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
@@ -320,7 +320,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
             )
 
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result,
                 [
                     {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
@@ -354,7 +354,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
             )
 
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result,
                 [
                     {"status": "dormant", "data": [0, -1, 0, 0, -1, 0, -1, 0]},
@@ -496,7 +496,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
             )
 
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result,
                 [
                     {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -538,7 +538,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     self.team,
                 )
 
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result,
                 [
                     {"status": "dormant", "data": [0, -1, 0, 0, -2, -1, 0, -2, 0]},
@@ -586,7 +586,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 result[0]["days"], ["2020-02-03", "2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
             )
 
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result,
                 [
                     {"status": "dormant", "data": [0, 0, -2, -1, -1, -1]},
@@ -629,7 +629,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
             )
 
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result,
                 [
                     {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -673,7 +673,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
             )
 
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result,
                 [
                     {"status": "dormant", "data": [0, -2, 0, 0, -1, 0, 0, 0]},
@@ -698,14 +698,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
             )
-
-        def assertLifecycleResults(self, results, expected):
-            sorted_results = [
-                {"status": r["status"], "data": r["data"]} for r in sorted(results, key=lambda r: r["status"])
-            ]
-            sorted_expected = list(sorted(expected, key=lambda r: r["status"]))
-
-            self.assertEquals(sorted_results, sorted_expected)
 
         @snapshot_clickhouse_queries
         def test_timezones(self):
@@ -740,7 +732,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
             )
 
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result,
                 [
                     {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -765,7 +757,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ),
                 self.team,
             )
-            self.assertLifecycleResults(
+            assertLifecycleResults(
                 result_pacific,
                 [
                     {"status": "dormant", "data": [-1.0, -2.0, -1.0, 0.0, -2.0, 0.0, -1.0, 0.0]},
@@ -776,3 +768,10 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
     return TestLifecycle
+
+
+def assertLifecycleResults(results, expected):
+    sorted_results = [{"status": r["status"], "data": r["data"]} for r in sorted(results, key=lambda r: r["status"])]
+    sorted_expected = list(sorted(expected, key=lambda r: r["status"]))
+
+    assert sorted_results == sorted_expected

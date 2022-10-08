@@ -6,15 +6,20 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person import Person
-from posthog.queries.test.test_trends import trend_test_factory
 from posthog.queries.trends.trends import Trends
 from posthog.queries.trends.trends_actors import TrendsActors
-from posthog.test.base import _create_event, snapshot_clickhouse_queries, test_with_materialized_columns
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    snapshot_clickhouse_queries,
+    test_with_materialized_columns,
+)
 from posthog.test.test_journeys import journeys_for
 
 
 # override tests from test factory if intervals are different
-class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
+class TestClickhouseTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _get_trend_people(self, filter, entity):
