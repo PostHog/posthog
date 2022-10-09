@@ -8,9 +8,14 @@
         list-style: disc;
         padding-inline-start: 1em;
     }
+
     ol {
         list-style: numeric;
         padding-inline-start: 1em;
+    }
+
+    p {
+        margin-bottom: 0;
     }
 }
 
@@ -23,19 +28,24 @@
     height: 100%;
     pointer-events: none;
     z-index: var(--z-raised);
+
     &.horizontal {
         svg {
             transform: rotate(90deg) translateX(0.75rem);
         }
     }
+
     &.vertical {
         flex-direction: column;
+
         svg {
             transform: translateX(0.5rem);
         }
     }
+
     &.corner {
         justify-content: flex-end;
+
         svg {
             transform: translate(0.5rem, 0.5rem);
         }
