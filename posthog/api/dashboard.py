@@ -212,7 +212,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     id=text_json.get("id", None),
                     defaults={
                         **tile_data["text"],
-                        "team": self.context["team"],
+                        "team": instance.team,
                         "created_by": created_by,
                         "last_modified_by": last_modified_by,
                         "last_modified_at": now(),

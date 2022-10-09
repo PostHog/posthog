@@ -150,11 +150,7 @@ class StructuredViewSetMixin(_GenericViewSet):
         return result
 
     def get_serializer_context(self) -> Dict[str, Any]:
-        try:
-            team_for_context = {"team": self.team}
-        except KeyError:
-            team_for_context = {}
-        return {**super().get_serializer_context(), **self.parents_query_dict, **team_for_context}
+        return {**super().get_serializer_context(), **self.parents_query_dict}
 
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None

@@ -186,7 +186,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(6):
             response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -195,7 +195,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self._create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(9):
+            with self.assertNumQueries(8):
                 response = self.client.get(f"/api/projects/{self.team.id}/dashboards/?limit=300")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 

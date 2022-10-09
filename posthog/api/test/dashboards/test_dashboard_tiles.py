@@ -119,7 +119,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="ciao il mondo")
 
             assert len(dashboard_json["tiles"]) == 2
-            tile_ids = [tile["id"] for tile in dashboard_json["tiles"]]
+            tile_ids = sorted([tile["id"] for tile in dashboard_json["tiles"]])
 
             frozen_time.tick(delta=datetime.timedelta(hours=10))
             other_user = User.objects.create_and_join(organization=self.organization, email="", password="")
@@ -128,26 +128,27 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             updated_tile["text"]["body"] = "anche ciao"
             dashboard_id, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, updated_tile)
 
-            assert len(dashboard_json["tiles"]) == 2
+            sorted_tiles = sorted(dashboard_json["tiles"], key=lambda x: x["id"])
+            assert len(sorted_tiles) == 2
 
-            assert dashboard_json["tiles"][0]["id"] == tile_ids[0]
-            assert dashboard_json["tiles"][1]["id"] == tile_ids[1]
+            assert sorted_tiles[0]["id"] == tile_ids[0]
+            assert sorted_tiles[1]["id"] == tile_ids[1]
 
             # the edit to tile 0 has changed the text
-            assert dashboard_json["tiles"][0]["text"]["body"] == "anche ciao"
-            assert dashboard_json["tiles"][1]["text"]["body"] == "ciao il mondo"
+            assert sorted_tiles[0]["text"]["body"] == "anche ciao"
+            assert sorted_tiles[1]["text"]["body"] == "ciao il mondo"
 
             # created by is set for both tiles
-            assert dashboard_json["tiles"][0]["text"]["created_by"]["id"] == self.user.id
-            assert dashboard_json["tiles"][1]["text"]["created_by"]["id"] == self.user.id
+            assert sorted_tiles[0]["text"]["created_by"]["id"] == self.user.id
+            assert sorted_tiles[1]["text"]["created_by"]["id"] == self.user.id
 
             # tile 1 has never been modified so has no modified by user
-            assert dashboard_json["tiles"][0]["text"]["last_modified_by"]["id"] == other_user.id
-            assert dashboard_json["tiles"][1]["text"]["last_modified_by"] is None
+            assert sorted_tiles[0]["text"]["last_modified_by"]["id"] == other_user.id
+            assert sorted_tiles[1]["text"]["last_modified_by"] is None
 
             # tile 1 has not been modified, but tile 0 has. Tile 0 has a new modified at date
-            assert dashboard_json["tiles"][0]["text"]["last_modified_at"] == "2022-04-01T22:45:00Z"
-            assert dashboard_json["tiles"][1]["text"]["last_modified_at"] == "2022-04-01T12:45:00Z"
+            assert sorted_tiles[0]["text"]["last_modified_at"] == "2022-04-01T22:45:00Z"
+            assert sorted_tiles[1]["text"]["last_modified_at"] == "2022-04-01T12:45:00Z"
 
     def test_can_update_a_single_text_tile_color(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
