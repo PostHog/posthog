@@ -1,11 +1,12 @@
-import { LemonSelectOptions } from 'lib/components/LemonSelect'
+import { LemonSelectOption } from 'lib/components/LemonSelect'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { ChartDisplayType } from '~/types'
+import { currencies, isCurrency } from 'lib/components/CurrencyPicker/CurrencyPicker'
 
 const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled'] as const
-export type AggregationAxisFormat = typeof formats[number]
+export type AggregationAxisFormat = typeof formats[number] | currencies
 
-export const aggregationAxisFormatSelectOptions: LemonSelectOptions<AggregationAxisFormat> = [
+export const aggregationAxisFormatSelectOptions: LemonSelectOption<AggregationAxisFormat>[] = [
     { value: 'numeric', label: 'None' },
     { value: 'duration', label: 'Duration (s)' },
     { value: 'duration_ms', label: 'Duration (ms)' },
@@ -18,6 +19,15 @@ export const formatAggregationAxisValue = (
     value: number | string
 ): string => {
     value = Number(value)
+
+    if (isCurrency(axisFormat)) {
+        return value.toLocaleString(undefined, {
+            style: 'currency',
+            currency: axisFormat as string,
+            maximumFractionDigits: 2,
+        })
+    }
+
     switch (axisFormat) {
         case 'duration':
             return humanFriendlyDuration(value)
