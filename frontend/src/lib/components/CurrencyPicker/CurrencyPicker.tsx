@@ -4,7 +4,6 @@ import {
 } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import React from 'react'
 import currencyMap from './currency-map.json'
-import clsx from 'clsx'
 
 // this is almost all possible just with `Intl` browser APIs but obvs not in IE and not yet in TS
 // e.g. supported values of is not in TS yet
@@ -33,7 +32,6 @@ export const CurrencyPicker = ({
 }): JSX.Element => {
     return (
         <LemonSelectMultiple
-            className={clsx(value.length && 'bg-primary-highlight')}
             mode={'single'}
             options={options}
             onChange={(value: string[]): void => {

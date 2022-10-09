@@ -1,4 +1,4 @@
-import React, { PropsWithChildren, ReactNode, useState } from 'react'
+import React, { PropsWithChildren, ReactNode } from 'react'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
@@ -18,10 +18,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { aggregationAxisFormatSelectOptions, axisLabel } from 'scenes/insights/aggregationAxisFormat'
-import { CurrencyPicker, isCurrency } from 'lib/components/CurrencyPicker/CurrencyPicker'
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -94,9 +91,6 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
 
     const { setFilters } = useActions(insightLogic)
 
-    const [isVisible, setIsVisible] = useState(false)
-    const [chosenThingy, setChosenThingy] = useState(filters.aggregation_axis_format)
-
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
             <div className="flex items-center space-x-2 flex-wrap my-2">
@@ -162,55 +156,12 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                     <>
                         {activeView === InsightType.TRENDS && (
                             <ConfigFilter>
-                                <span>{axisLabel(filters.display)}</span>
-                                <LemonButtonWithPopup
-                                    onClick={() => setIsVisible(!isVisible)}
-                                    size={'small'}
-                                    type={'secondary'}
-                                    status="stealth"
-                                    data-attr="chart-aggregation-axis-format"
-                                    popup={{
-                                        onClickOutside: close,
-                                        maxContentWidth: false,
-                                        visible: isVisible,
-                                        className: 'UnitPopup',
-                                        overlay: (
-                                            <>
-                                                {aggregationAxisFormatSelectOptions.map(({ value, label }, index) => (
-                                                    <LemonButton
-                                                        key={index}
-                                                        onClick={() => {
-                                                            console.log(value)
-                                                            setChosenThingy(value)
-                                                            setIsVisible(false)
-                                                            setFilters({ ...filters, aggregation_axis_format: value })
-                                                        }}
-                                                        status="stealth"
-                                                        active={value === chosenThingy}
-                                                        fullWidth
-                                                    >
-                                                        {label}
-                                                    </LemonButton>
-                                                ))}
-                                                <LemonDivider />
-                                                <h5>Currency</h5>
-                                                <CurrencyPicker
-                                                    value={isCurrency(chosenThingy) ? [chosenThingy as string] : []}
-                                                    onChange={(currency) => {
-                                                        setChosenThingy(currency)
-                                                        setIsVisible(false)
-                                                        setFilters({ ...filters, aggregation_axis_format: currency })
-                                                    }}
-                                                />
-                                            </>
-                                        ),
-                                        placement: 'bottom-start',
-                                        actionable: true,
-                                        closeOnClickInside: false,
+                                <UnitPicker
+                                    filters={filters}
+                                    onChange={(value) => {
+                                        setFilters({ ...filters, aggregation_axis_format: value })
                                     }}
-                                >
-                                    {filters.aggregation_axis_format || 'None'}
-                                </LemonButtonWithPopup>
+                                />
                             </ConfigFilter>
                         )}
                         <ConfigFilter>
