@@ -31,6 +31,7 @@ export function DashboardItems(): JSX.Element {
         updateContainerWidth,
         updateTileColor,
         removeTile,
+        duplicateTile,
         refreshAllDashboardItems,
         moveToDashboard,
         setDashboardMode,
@@ -152,6 +153,7 @@ export function DashboardItems(): JSX.Element {
                                 showResizeHandles={dashboardMode === DashboardMode.Edit}
                                 canResizeWidth={canResizeWidth}
                                 removeFromDashboard={() => removeTile(tile)}
+                                duplicate={() => duplicateTile(tile)}
                                 moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                                     if (!dashboard) {
                                         throw new Error('must be on a dashboard to move a text tile')

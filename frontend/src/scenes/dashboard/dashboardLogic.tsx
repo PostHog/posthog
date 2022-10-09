@@ -20,6 +20,7 @@ import {
     InsightModel,
     InsightShortId,
     InsightType,
+    TextModel,
 } from '~/types'
 import type { dashboardLogicType } from './dashboardLogicType'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -121,6 +122,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
             allowUndo: allowUndo === undefined ? true : allowUndo,
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
+        duplicateTile: (tile: DashboardTile) => ({ tile }),
     },
 
     loaders: ({ actions, props, values }) => ({
@@ -177,6 +179,21 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         } as DashboardType
                     } catch (e) {
                         lemonToast.error('Could not remove tile from dashboard: ' + e)
+                        return values.allItems
+                    }
+                },
+                duplicateTile: async ({ tile }) => {
+                    try {
+                        const newTile = { ...tile } as Partial<DashboardTile>
+                        delete newTile.id
+                        if (newTile.text) {
+                            newTile.text = { body: newTile.text.body } as TextModel
+                        }
+                        return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                            tiles: [newTile],
+                        } as Partial<InsightModel>)
+                    } catch (e) {
+                        lemonToast.error('Could not duplicate tile: ' + e)
                         return values.allItems
                     }
                 },

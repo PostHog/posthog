@@ -105,6 +105,7 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     children?: JSX.Element
     updateColor?: (newColor: Tileable['color']) => void
     removeFromDashboard?: () => void
+    duplicate?: () => void
     moveToDashboard?: (dashboard: DashboardType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
@@ -133,6 +134,7 @@ export function TextCardInternal(
         updateColor,
         moreButtons,
         removeFromDashboard,
+        duplicate,
         moveToDashboard,
         ...divProps
     }: TextCardProps,
@@ -238,6 +240,14 @@ export function TextCardInternal(
                                         Move to
                                     </LemonButtonWithPopup>
                                 )}
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={duplicate}
+                                    fullWidth
+                                    data-attr={'duplicate-text-from-dashboard'}
+                                >
+                                    Duplicate
+                                </LemonButton>
                                 {moreButtons && (
                                     <>
                                         <LemonDivider />
