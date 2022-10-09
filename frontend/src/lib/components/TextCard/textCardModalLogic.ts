@@ -16,8 +16,12 @@ export interface TextCardModalProps {
     onClose: () => void
 }
 
-const getTileBody = (dashboard: DashboardType, textTileId: number): string =>
-    dashboard.tiles?.find((tt) => tt.id === textTileId)?.text?.body || ''
+const getTileBody = (dashboard: DashboardType, textTileId: number): string => {
+    const dashboardTiles = dashboard.tiles
+    const matchedTile = dashboardTiles?.find((tt) => tt.id === textTileId)
+    console.log({ dashboard, dashboardTiles, matchedTile })
+    return matchedTile?.text?.body || ''
+}
 
 export const textCardModalLogic = kea<textCardModalLogicType>([
     path(['scenes', 'dashboard', 'dashboardTextTileModal', 'logic']),

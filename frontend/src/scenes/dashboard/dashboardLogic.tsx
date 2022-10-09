@@ -558,17 +558,18 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             !!tile.insight &&
                             tile.insight.filters.insight === InsightType.RETENTION &&
                             tile.insight.filters.display === ChartDisplayType.ActionsLineGraph
-                        const defaultWidth =
-                            isRetention ||
-                            (!!tile.insight && tile.insight.filters.display === ChartDisplayType.PathsViz)
-                                ? 8
-                                : 6
-                        const defaultHeight = isRetention
+                        const defaultWidth = !!tile.text
+                            ? 12
+                            : isRetention ||
+                              (!!tile.insight && tile.insight.filters.display === ChartDisplayType.PathsViz)
+                            ? 8
+                            : 6
+                        const defaultHeight = !!tile.text
+                            ? 2.5
+                            : isRetention
                             ? 8
                             : !!tile.insight && tile.insight.filters.display === ChartDisplayType.PathsViz
                             ? 12.5
-                            : !!tile.text
-                            ? 2.5
                             : 5
                         const layout = tile.layouts && tile.layouts[col]
                         const { x, y, w, h } = layout || {}
@@ -719,7 +720,16 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setRefreshStatus: sharedListeners.reportRefreshTiming,
         loadDashboardItemsFailure: sharedListeners.reportLoadTiming,
         [insightsModel.actionTypes.duplicateInsightSuccess]: () => {
+            // TODO this is a bit hacky, but we need to reload the dashboard to get the new insight
+            // TODO when duplicated from a dashboard we should carry the context so only one logic needs to reload
+            // TODO or we should duplicate the tile (and implicitly the insight)
             actions.loadDashboardItems()
+        },
+        [dashboardsModel.actionTypes.tileAddedToDashboard]: ({ dashboardId }) => {
+            // when adding an insight to a dashboard, we need to reload the dashboard to get the new insight
+            if (dashboardId === props.id) {
+                actions.loadDashboardItems()
+            }
         },
         updateLayouts: () => {
             actions.saveLayouts()

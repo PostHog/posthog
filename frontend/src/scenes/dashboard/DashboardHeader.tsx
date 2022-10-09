@@ -32,6 +32,7 @@ import { TextTileModal } from 'lib/components/TextCard/TextCard'
 export function DashboardHeader(): JSX.Element | null {
     const {
         dashboard,
+        allItems, // dashboard but directly on dashboardLogic not via dashboardsModel
         allItemsLoading,
         dashboardMode,
         canEditDashboard,
@@ -58,7 +59,7 @@ export function DashboardHeader(): JSX.Element | null {
             {dashboardMode === DashboardMode.Fullscreen && (
                 <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
             )}
-            {dashboard && (
+            {dashboard && allItems && (
                 <>
                     <SubscriptionsModal
                         isOpen={showSubscriptions}
@@ -75,7 +76,7 @@ export function DashboardHeader(): JSX.Element | null {
                         <TextTileModal
                             isOpen={showTextTileModal}
                             onClose={() => push(urls.dashboard(dashboard.id))}
-                            dashboard={dashboard}
+                            dashboard={allItems}
                             textTileId={textTileId}
                         />
                     )}
