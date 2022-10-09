@@ -18,6 +18,7 @@ import { IconMarkdown } from 'lib/components/icons'
 import { Tabs } from 'antd'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { textCardModalLogic } from 'lib/components/TextCard/textCardModalLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export function TextTileModal({
     isOpen,
@@ -104,6 +105,7 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     children?: JSX.Element
     updateColor?: (newColor: Tileable['color']) => void
     removeFromDashboard?: () => void
+    moveToDashboard?: (dashboard: DashboardType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
 }
@@ -131,6 +133,7 @@ export function TextCardInternal(
         updateColor,
         moreButtons,
         removeFromDashboard,
+        moveToDashboard,
         ...divProps
     }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -143,6 +146,8 @@ export function TextCardInternal(
     if (!dashboardId) {
         throw new Error('TextCard requires dashboardId')
     }
+    const { nameSortedDashboards } = useValues(dashboardsModel)
+    const otherDashboards = nameSortedDashboards.filter((dashboard) => dashboard.id !== dashboardId)
     return (
         <div
             className={clsx('TextCard border rounded flex flex-col overflow-hidden', className)}
@@ -205,6 +210,32 @@ export function TextCardInternal(
                                         fullWidth
                                     >
                                         Set color
+                                    </LemonButtonWithPopup>
+                                )}
+                                {moveToDashboard && otherDashboards.length > 0 && (
+                                    <LemonButtonWithPopup
+                                        status="stealth"
+                                        popup={{
+                                            overlay: otherDashboards.map((otherDashboard) => (
+                                                <LemonButton
+                                                    key={otherDashboard.id}
+                                                    status="stealth"
+                                                    onClick={() => {
+                                                        moveToDashboard(otherDashboard)
+                                                    }}
+                                                    fullWidth
+                                                >
+                                                    {otherDashboard.name || <i>Untitled</i>}
+                                                </LemonButton>
+                                            )),
+                                            placement: 'right-start',
+                                            fallbackPlacements: ['left-start'],
+                                            actionable: true,
+                                            closeParentPopupOnClickInside: true,
+                                        }}
+                                        fullWidth
+                                    >
+                                        Move to
                                     </LemonButtonWithPopup>
                                 )}
                                 {moreButtons && (

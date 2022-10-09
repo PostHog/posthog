@@ -365,9 +365,8 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         tile = request.data["tile"]
         from_dashboard = kwargs["pk"]
         to_dashboard = request.data["toDashboard"]
-        insight_id = tile["insight"]["id"]
 
-        tile = DashboardTile.objects.get(dashboard_id=from_dashboard, insight_id=insight_id)
+        tile = DashboardTile.objects.get(dashboard_id=from_dashboard, id=tile["id"])
         tile.dashboard_id = to_dashboard
         tile.save(update_fields=["dashboard_id"])
 

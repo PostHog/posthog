@@ -149,9 +149,15 @@ export function DashboardItems(): JSX.Element {
                                 textTile={tile}
                                 key={tile.id}
                                 updateColor={(color) => updateTileColor(tile.id, color)}
-                                removeFromDashboard={() => removeTile(tile)}
                                 showResizeHandles={dashboardMode === DashboardMode.Edit}
                                 canResizeWidth={canResizeWidth}
+                                removeFromDashboard={() => removeTile(tile)}
+                                moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                                    if (!dashboard) {
+                                        throw new Error('must be on a dashboard to move a text tile')
+                                    }
+                                    moveToDashboard(tile, dashboard.id, id, name)
+                                }}
                                 moreButtons={
                                     canEditDashboard ? (
                                         <LemonButton

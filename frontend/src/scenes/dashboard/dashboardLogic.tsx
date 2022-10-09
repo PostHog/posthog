@@ -181,7 +181,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     }
                 },
                 moveToDashboard: async ({ tile, fromDashboard, toDashboard }) => {
-                    if (!tile || !tile.insight || fromDashboard === toDashboard) {
+                    if (!tile || fromDashboard === toDashboard) {
                         return values.allItems
                     }
 
@@ -755,14 +755,13 @@ export const dashboardLogic = kea<dashboardLogicType>({
             }
 
             const updatedTile = { ...payload.tile }
-            if (updatedTile.insight !== undefined) {
+            if (updatedTile.insight !== undefined && updatedTile.insight !== null) {
                 updatedTile.insight.dashboards =
                     payload.tile.insight?.dashboards?.filter((d) => d !== payload.fromDashboard) || []
                 updatedTile.insight.dashboards.push(payload.toDashboard)
-
-                if (updatedTile) {
-                    dashboardsModel.actions.tileMovedToDashboard(updatedTile, payload.toDashboard)
-                }
+            }
+            if (updatedTile) {
+                dashboardsModel.actions.tileMovedToDashboard(updatedTile, payload.toDashboard)
 
                 lemonToast.success(
                     <>
