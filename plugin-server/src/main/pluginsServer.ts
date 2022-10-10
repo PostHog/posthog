@@ -24,9 +24,7 @@ import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
-import { GraphileWorker } from './jobs/graphile-worker'
 import { startJobQueueConsumer } from './jobs/job-queue-consumer'
-import { jobQueueMap } from './jobs/job-queues'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startPluginSchedules } from './services/schedule'
@@ -169,7 +167,7 @@ export async function startPluginsServer(
             bufferConsumer = await startAnonymousEventBufferConsumer({
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
-                graphileQueue: jobQueueMap.graphile.getQueue(serverConfig) as GraphileWorker,
+                graphileWorker: hub.graphileWorker,
                 statsd: hub.statsd,
             })
         }

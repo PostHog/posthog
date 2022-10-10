@@ -12,12 +12,12 @@ import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 export const startAnonymousEventBufferConsumer = async ({
     kafka,
     producer,
-    graphileQueue,
+    graphileWorker,
     statsd,
 }: {
     kafka: Kafka
     producer: KafkaProducerWrapper
-    graphileQueue: GraphileWorker
+    graphileWorker: GraphileWorker
     statsd?: StatsD
 }) => {
     /*
@@ -79,7 +79,7 @@ export const startAnonymousEventBufferConsumer = async ({
 
             status.debug('⬆️', 'Enqueuing anonymous event for processing', { job })
             try {
-                await graphileQueue.enqueue(JobName.BUFFER_JOB, job)
+                await graphileWorker.enqueue(JobName.BUFFER_JOB, job)
                 statsd?.increment('anonymous_event_buffer_consumer.enqueued')
             } catch (error) {
                 status.error('⚠️', 'Failed to enqueue anonymous event for processing', { error })
