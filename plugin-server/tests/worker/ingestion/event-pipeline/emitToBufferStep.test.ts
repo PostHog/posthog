@@ -45,6 +45,7 @@ beforeEach(() => {
         hub: {
             CONVERSION_BUFFER_ENABLED: true,
             BUFFER_CONVERSION_SECONDS: 60,
+            conversionBufferTopicEnabledTeams: new Set([2]),
             db: { fetchPerson: jest.fn().mockResolvedValue(existingPerson) },
             eventsProcessor: {},
             jobQueueManager: {

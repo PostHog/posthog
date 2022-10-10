@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { KAFKA_BUFFER } from '../../../config/kafka-topics'
-import { Hub, IngestionPersonData, TeamId } from '../../../types'
+import { Hub, IngestionPersonData, JobName, TeamId } from '../../../types'
 import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
@@ -26,22 +26,41 @@ export async function emitToBufferStep(
     const person = await personContainer.get()
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
-        status.debug('🔁', 'Emitting event to buffer', { event, processEventAt })
-
-        // TODO: handle delaying offset commit for this message, according to
-        // producer acknowledgement. It's a little tricky as it stands as we do
-        // not have the a reference to resolveOffset here. Rather than do a
-        // refactor I'm just going to let this hang and resolve as a followup.
-        await runner.hub.kafkaProducer.queueMessage({
-            topic: KAFKA_BUFFER,
-            messages: [
-                {
-                    key: event.team_id.toString(),
-                    value: JSON.stringify(event),
-                    headers: { processEventAt: processEventAt.toString(), eventId: event.uuid },
-                },
-            ],
+        status.debug('🔁', 'Emitting event to buffer', {
+            event,
+            processEventAt,
+            conversionBufferTopicEnabledTeams: runner.hub.conversionBufferTopicEnabledTeams,
         })
+
+        // Only enable for teams that have conversionBuffer enabled, otherwise
+        // use the old logic.
+        // TODO: If we want to enable this for all teams, we can remove this
+        // check.
+        if (runner.hub.conversionBufferTopicEnabledTeams.has(event.team_id)) {
+            // TODO: handle delaying offset commit for this message, according to
+            // producer acknowledgement. It's a little tricky as it stands as we do
+            // not have the a reference to resolveOffset here. Rather than do a
+            // refactor I'm just going to let this hang and resolve as a followup.
+            await runner.hub.kafkaProducer.queueMessage({
+                topic: KAFKA_BUFFER,
+                messages: [
+                    {
+                        key: event.team_id.toString(),
+                        value: JSON.stringify(event),
+                        headers: { processEventAt: processEventAt.toString(), eventId: event.uuid },
+                    },
+                ],
+            })
+        } else {
+            const job = {
+                eventPayload: event,
+                timestamp: processEventAt,
+            }
+            await runner.hub.jobQueueManager.enqueue(JobName.BUFFER_JOB, job, {
+                key: 'team_id',
+                tag: event.team_id.toString(),
+            })
+        }
 
         runner.hub.statsd?.increment('events_sent_to_buffer')
         return null
@@ -98,6 +117,7 @@ export function shouldSendEventToBuffer(
     }
 
     if (!hub.CONVERSION_BUFFER_ENABLED && !hub.conversionBufferEnabledTeams.has(teamId)) {
+        status.debug('🔁', 'Conversion buffer disabled, not sending event to buffer', { event, person })
         return false
     }
 
