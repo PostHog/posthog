@@ -28,6 +28,10 @@ export async function emitToBufferStep(
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
         status.debug('🔁', 'Emitting event to buffer', { event, processEventAt })
 
+        // TODO: handle delaying offset commit for this message, according to
+        // producer acknowledgement. It's a little tricky as it stands as we do
+        // not have the a reference to resolveOffset here. Rather than do a
+        // refactor I'm just going to let this hang and resolve as a followup.
         await runner.hub.kafkaProducer.queueMessage({
             topic: KAFKA_BUFFER,
             messages: [
@@ -38,21 +42,6 @@ export async function emitToBufferStep(
                 },
             ],
         })
-
-        // ensure we flush the producer to ensure that the offset for the main
-        // topis is only updated after we have confirmation that the message has
-        // been flushed.
-        // NOTE: we do not actually check the response of the flush, thus we do
-        // not actually check for success of the message being delivered to
-        // Kafka. It is not trivial atm to handle this case as there will be any
-        // number of messages in the response, not just the message referenced
-        // in this method.
-        // NOTE: calling flush on every call isn't optimal although we can
-        // optimize later.
-        // TODO: handle ack of the specific message from this method or
-        // otherwise send to DLQ or appropriate. i.e. we don't have guaranteed
-        // delivery atm.
-        await runner.hub.kafkaProducer.flush()
 
         runner.hub.statsd?.increment('events_sent_to_buffer')
         return null

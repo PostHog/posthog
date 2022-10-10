@@ -78,19 +78,18 @@ export const startAnonymousEventBufferConsumer = async ({
             }
 
             status.debug('⬆️', 'Enqueuing anonymous event for processing', { job })
-
             await graphileQueue.enqueue(JobName.BUFFER_JOB, job)
 
-            // Resolve the offset such that, in case of errors further in
-            // the batch, we will not process these again
             resolveOffset(message.offset)
 
-            // After processing every message we keep a heartbeat going to ensure we don't
-            // get kicked out of the consumer group.
+            // After processing each message, we need to heartbeat to ensure
+            // we don't get kicked out of the group. Note that although we call
+            // this for each message, it's actually a no-op if we're not over
+            // the heartbeatInterval.
             await heartbeat()
-
-            status.info('✅', 'Processed batch', { size: batch.messages.length })
         }
+
+        status.info('✅', 'Processed batch', { size: batch.messages.length })
     }
 
     await consumer.connect()
