@@ -36,7 +36,7 @@ def block_until_droplet_is_started(droplet):
 				print(action.status)
 			else:
 				print("Droplet not booted yet - waiting a bit")
-				time.sleep(1)
+				time.sleep(5)
 
 
 def get_public_ip(droplet):
@@ -81,7 +81,7 @@ def waitForInstance(hostname, timeout=10):
 			r = requests.get(url)
 		except Exception as e:
 			print(f"Host is probably not up. Received exception\n{e}")
-			time.sleep(3)
+			time.sleep(10)
 			continue
 		elapsed = datetime.datetime.now() - start_time
 		if r.status_code == 200:
@@ -90,7 +90,8 @@ def waitForInstance(hostname, timeout=10):
 		if elapsed.seconds >= timeout_seconds:
 			print("Failure - we timed out before receiving a heartbeat")
 			return False
-		time.sleep(1)
+		print("Instance not ready - sleeping")
+		time.sleep(3)
 
 def main():
 	print("Creating droplet on Digitalocean for testing Hobby Deployment")
@@ -109,7 +110,7 @@ def main():
 	print("Destroying the droplet")
 	droplet.destroy()
 	print("Destroying the DNS entry")
-	new_record.destroy()
+	domain.delete_domain_record(new_record)
 	if health_success:
 		exit(1)
 	else:
