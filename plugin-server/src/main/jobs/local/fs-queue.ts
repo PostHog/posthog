@@ -5,8 +5,6 @@ import Timeout = NodeJS.Timeout
 import * as fs from 'fs'
 import * as path from 'path'
 
-import { JobQueueBase } from '../job-queue-base'
-
 interface FsJob {
     jobName: string
     timestamp: number
@@ -16,14 +14,22 @@ interface FsJob {
     pluginConfigId?: number
     pluginConfigTeam?: number
 }
-export class FsQueue extends JobQueueBase {
-    paused: boolean
-    started: boolean
+export class FsQueue {
     interval: Timeout | null
     filename: string
 
+    started: boolean
+    paused: boolean
+    jobHandlers: TaskList
+    timeout: NodeJS.Timeout | null
+    intervalSeconds: number
+
     constructor(filename?: string) {
-        super()
+        this.started = false
+        this.paused = false
+        this.jobHandlers = {}
+        this.timeout = null
+        this.intervalSeconds = 10
 
         if (process.env.NODE_ENV !== 'test') {
             throw new Error('Cannot use FsQueue outside tests')
@@ -47,8 +53,26 @@ export class FsQueue extends JobQueueBase {
         fs.appendFileSync(this.filename, `${JSON.stringify({ jobName, ...job })}\n`)
     }
 
-    startConsumer(jobHandlers: TaskList): void {
-        super.startConsumer(jobHandlers)
+    protected async syncState(): Promise<void> {
+        if (this.started && !this.paused) {
+            if (this.timeout) {
+                clearTimeout(this.timeout)
+            }
+            const hadSomething = await this.readState()
+            this.timeout = setTimeout(() => this.syncState(), hadSomething ? 0 : this.intervalSeconds * 1000)
+        } else {
+            if (this.timeout) {
+                clearTimeout(this.timeout)
+            }
+        }
+    }
+
+    async startConsumer(jobHandlers: TaskList): Promise<void> {
+        this.jobHandlers = jobHandlers
+        if (!this.started) {
+            this.started = true
+            await this.syncState()
+        }
         fs.writeFileSync(this.filename, '')
     }
 
@@ -76,8 +100,20 @@ export class FsQueue extends JobQueueBase {
         return false
     }
 
-    stopConsumer(): void {
-        super.stopConsumer()
+    async stopConsumer(): Promise<void> {
+        this.started = false
+        await this.syncState()
         fs.unlinkSync(this.filename)
+    }
+
+    async resumeConsumer(): Promise<void> {
+        if (this.paused) {
+            this.paused = false
+            await this.syncState()
+        }
+    }
+
+    isConsumerPaused(): boolean {
+        return this.paused
     }
 }
