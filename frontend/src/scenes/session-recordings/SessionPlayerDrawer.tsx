@@ -26,14 +26,14 @@ export function SessionPlayerDrawer({ isPersonPage = false }: SessionPlayerDrawe
 
     if (isSessionRecordingsPlayerV3) {
         return (
-            <LemonModal isOpen={!!activeSessionRecording} onClose={closeSessionPlayer} simple title={''}>
+            <LemonModal isOpen={!!activeSessionRecording} onClose={closeSessionPlayer} simple title={''} width={880}>
                 <header>
                     {activeSessionRecording ? (
                         <PlayerMetaV3 playerKey="drawer" sessionRecordingId={activeSessionRecording?.id} />
                     ) : null}
                 </header>
                 <LemonModal.Content embedded>
-                    <div className="session-player-wrapper-v3">
+                    <div className="SessionPlayerModal">
                         {activeSessionRecording?.id && (
                             <SessionRecordingPlayerV3
                                 playerKey="drawer"

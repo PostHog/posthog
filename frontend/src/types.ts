@@ -726,7 +726,6 @@ export interface EventType {
     colonTimestamp?: string // Used in session recording events list
     person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     event: string
-    matched_recordings: MatchedRecording[]
 }
 
 export interface RecordingTimeMixinType {

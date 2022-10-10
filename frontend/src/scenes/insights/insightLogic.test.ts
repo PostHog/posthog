@@ -6,6 +6,7 @@ import {
     AvailableFeature,
     BreakdownType,
     DashboardTile,
+    DashboardType,
     FilterLogicalOperator,
     FilterType,
     InsightModel,
@@ -1141,6 +1142,26 @@ describe('insightLogic', () => {
                     tile: { insight: { id: 12 } } as DashboardTile,
                     dashboardId: 3,
                 })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                })
+        })
+
+        it('reacts to deletion of dashboard', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2] }),
+                })
+        })
+
+        it('does not reacts to deletion of dashboard it is not on', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType)
             })
                 .toFinishAllListeners()
                 .toMatchValues({

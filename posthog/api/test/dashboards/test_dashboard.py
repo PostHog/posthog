@@ -792,6 +792,27 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert len(dashboard_two["tiles"]) == 1
         assert dashboard_two["tiles"][0]["insight"]["id"] == insight_id
 
+    def test_relations_on_insights_when_dashboards_were_deleted(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_one_id, _ = self._create_dashboard({"name": "dashboard one"})
+        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard two"})
+        insight_id, _ = self._create_insight(
+            {"filters": filter_dict, "dashboards": [dashboard_one_id, dashboard_two_id]}
+        )
+
+        self._soft_delete(dashboard_one_id, "dashboards")
+
+        dashboard_two_json = self._get_dashboard(dashboard_two_id)
+        assert dashboard_two_json["tiles"][0]["insight"]["dashboards"] == [dashboard_two_id]
+
+        insight_after_dashboard_deletion = self._get_insight(insight_id)
+        assert insight_after_dashboard_deletion["dashboards"] == [dashboard_two_id]
+
     def _soft_delete(
         self,
         model_id: int,

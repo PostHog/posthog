@@ -511,7 +511,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -588,10 +587,8 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_dashboarditem"."last_modified_by_id" = T5."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL)
+  WHERE ((NOT "posthog_dashboarditem"."deleted"
+          OR "posthog_dashboardtile"."insight_id" IS NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."dashboard_id" IN (1,
                                                         2,
@@ -705,7 +702,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -860,8 +856,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -1005,8 +1000,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1025,8 +1019,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1045,8 +1038,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1065,8 +1057,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1085,8 +1076,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1139,8 +1129,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1202,8 +1191,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1222,8 +1210,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1242,8 +1229,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1262,8 +1248,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -1283,7 +1268,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -1972,8 +1956,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -2032,7 +2015,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -2273,8 +2255,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
@@ -2580,7 +2561,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -2657,10 +2637,8 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_dashboarditem"."last_modified_by_id" = T5."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL)
+  WHERE ((NOT "posthog_dashboarditem"."deleted"
+          OR "posthog_dashboardtile"."insight_id" IS NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."dashboard_id" IN (1,
                                                         2,
@@ -2787,7 +2765,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -3021,7 +2998,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -3168,8 +3144,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
@@ -3185,8 +3160,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -3240,7 +3214,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -3344,8 +3317,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -3399,7 +3371,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -3503,8 +3474,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -3577,7 +3547,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -3681,8 +3650,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -3735,8 +3703,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -3755,8 +3722,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -3775,8 +3741,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -3795,8 +3760,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
@@ -3955,7 +3919,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -4133,8 +4096,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
@@ -4163,8 +4125,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
@@ -4346,8 +4307,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -4370,8 +4330,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -4430,7 +4389,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -4646,7 +4604,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -5132,8 +5089,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -5192,7 +5148,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -5667,8 +5622,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -5727,7 +5681,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -6188,8 +6141,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -6291,7 +6243,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -6580,7 +6531,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -6869,7 +6819,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -6946,10 +6895,8 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_dashboarditem"."last_modified_by_id" = T5."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL)
+  WHERE ((NOT "posthog_dashboarditem"."deleted"
+          OR "posthog_dashboardtile"."insight_id" IS NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."dashboard_id" IN (1,
                                                         2,
@@ -6971,7 +6918,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -7101,8 +7047,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
@@ -7131,8 +7076,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
@@ -7307,7 +7251,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -7485,8 +7428,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
@@ -7515,8 +7457,7 @@
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
+         "posthog_dashboardtile"."refresh_attempt"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
@@ -7830,7 +7771,6 @@
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
          "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
