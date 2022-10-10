@@ -72,9 +72,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     @extend_schema(
         parameters=[
             OpenApiParameter(
-                "group_type_index",
-                OpenApiTypes.INT,
-                description="Specify the group type to list",
+                "group_type_index", OpenApiTypes.INT, description="Specify the group type to list", required=True
             ),
         ]
     )
