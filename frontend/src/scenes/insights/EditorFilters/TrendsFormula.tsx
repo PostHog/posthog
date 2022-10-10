@@ -2,9 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { EditorFilterProps } from '~/types'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
-import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { Tooltip } from 'lib/components/Tooltip'
+import { LemonInput } from '@posthog/lemon-ui'
 
 // When updating this regex, remember to update the regex with the same name in mixins/common.py
 const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z\ \-\*\^0-9\+\/\(\)\.]+$/
@@ -64,33 +62,8 @@ export function TrendsFormula({ filters, insightProps }: EditorFilterProps): JSX
     ) : null
 }
 
-export function TrendsFormulaLabel({ insightProps }: EditorFilterProps): JSX.Element {
-    const { setIsFormulaOn } = useActions(trendsLogic(insightProps))
-    const { isFormulaOn, filters, localFilters } = useValues(trendsLogic(insightProps))
+export function TrendsFormulaLabel({ insightProps }: EditorFilterProps): JSX.Element | null {
+    const { isFormulaOn } = useValues(trendsLogic(insightProps))
 
-    const formulaRemovalDisabled: boolean =
-        !!filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) && localFilters.length > 1
-
-    return (
-        <>
-            <span>Formula</span>
-            <Tooltip
-                title={
-                    formulaRemovalDisabled
-                        ? 'This chart type does not support multiple series. To disable the formula, remove variables or switch to a different chart type.'
-                        : undefined
-                }
-            >
-                <div>
-                    <LemonSwitch
-                        checked={isFormulaOn}
-                        onChange={setIsFormulaOn}
-                        disabled={formulaRemovalDisabled}
-                        size="small"
-                        id="trends-formula-switch"
-                    />
-                </div>
-            </Tooltip>
-        </>
-    )
+    return isFormulaOn ? <>Formula</> : null
 }

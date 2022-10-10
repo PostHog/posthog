@@ -2,7 +2,6 @@
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
-    width: fit-content; // Prevent width from being 100% of container so that the touch target is not unexpectedly wide
     font-weight: 600;
 
     .LemonLabel__extra {

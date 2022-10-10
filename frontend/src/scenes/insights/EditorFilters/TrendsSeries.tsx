@@ -8,6 +8,9 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { LemonButton } from '@posthog/lemon-ui'
+import { Tooltip } from 'lib/components/Tooltip'
+import { IconCalculate } from 'lib/components/icons'
 
 export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
@@ -57,7 +60,34 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
 }
 
 export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Element {
-    const { isFormulaOn } = useValues(trendsLogic(insightProps))
+    const { filters, localFilters, isFormulaOn } = useValues(trendsLogic(insightProps))
+    const { setIsFormulaOn } = useActions(trendsLogic(insightProps))
 
-    return <>{isFormulaOn ? 'Variables' : 'Series'}</>
+    const formulaRemovalDisabled: boolean =
+        !!filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) && localFilters.length > 1
+
+    return (
+        <div className="flex items-center justify-between w-full">
+            <span>{isFormulaOn ? 'Variables' : 'Series'}</span>
+            <Tooltip
+                title={
+                    formulaRemovalDisabled
+                        ? 'This chart type does not support multiple series. To disable formula mode, remove variables or switch to a different chart type.'
+                        : undefined
+                }
+            >
+                <div>
+                    <LemonButton
+                        size="small"
+                        onClick={() => setIsFormulaOn(!isFormulaOn)}
+                        disabled={formulaRemovalDisabled}
+                        icon={<IconCalculate />}
+                        id="trends-formula-switch"
+                    >
+                        {isFormulaOn ? 'Disable' : 'Enable'} formula mode
+                    </LemonButton>
+                </div>
+            </Tooltip>
+        </div>
+    )
 }
