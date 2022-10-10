@@ -1,0 +1,33 @@
+# This workflow runs e2e smoke test for hobby deployment
+#
+name: e2e - hobby ingestion test
+author: fuziontech
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types:
+      - opened
+    paths:
+      - docker-compose.hobby.yml
+      - bin/deploy-hobby
+      - .github/workflows/ci-hobby.yml
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
+jobs:
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        name: Setup DO Hobby Instance and test
+        steps:
+          - uses: actions/checkout@v3
+          - uses: actions/setup-python@v4
+            with:
+              python-version: '3.9'
+              cache: 'pip' # caching pip dependencies
+          - run: pip install python-digitalocean==1.17.0 requests==2.28.1 &&
+          - run: python3 bin/hobby-ci.py

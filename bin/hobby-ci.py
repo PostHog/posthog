@@ -110,10 +110,12 @@ def main():
 	print("Destroying the droplet")
 	droplet.destroy()
 	print("Destroying the DNS entry")
-	domain.delete_domain_record(new_record)
+	domain.delete_domain_record(new_record.id)
 	if health_success:
+		print("We succeeded")
 		exit(1)
 	else:
+		print("We failed")
 		exit(666)
 
 
