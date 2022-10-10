@@ -40,15 +40,15 @@ export function PersonsScene(): JSX.Element {
             {!cohortId && <PersonPageHeader />}
             <div className="space-y-2">
                 <div className="flex justify-between items-center gap-2">
-                    <PersonsSearch autoFocus={!cohortId} />
+                    <PersonsSearch />
 
                     <Popconfirm
                         placement="topRight"
                         title={
                             <>
-                                Exporting by csv is limited to 10,000 users.
+                                Exporting by CSV is limited to 10,000 users.
                                 <br />
-                                To return more, please use <a href={apiDocsURL}>the API</a>. Do you want to export by
+                                To export more, please use <a href={apiDocsURL}>the API</a>. Do you want to export by
                                 CSV?
                             </>
                         }

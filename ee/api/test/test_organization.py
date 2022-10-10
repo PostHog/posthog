@@ -161,14 +161,10 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             }
             if level < OrganizationMembership.Level.ADMIN:
                 potential_err_message = f"Somehow managed to update the org as a level {level} (which is below admin)"
-                self.assertEqual(
-                    response_rename.json(), expected_response, potential_err_message,
-                )
+                self.assertEqual(response_rename.json(), expected_response, potential_err_message)
                 self.assertEqual(response_rename.status_code, 403, potential_err_message)
                 self.assertTrue(self.organization.name, self.CONFIG_ORGANIZATION_NAME)
-                self.assertEqual(
-                    response_email.json(), expected_response, potential_err_message,
-                )
+                self.assertEqual(response_email.json(), expected_response, potential_err_message)
                 self.assertEqual(response_email.status_code, 403, potential_err_message)
             else:
                 potential_err_message = f"Somehow did not update the org as a level {level} (which is at least admin)"

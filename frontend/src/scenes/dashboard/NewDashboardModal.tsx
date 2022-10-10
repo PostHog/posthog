@@ -28,7 +28,7 @@ export function NewDashboardModal(): JSX.Element {
                         form="new-dashboard-form"
                         type="secondary"
                         data-attr="dashboard-cancel"
-                        loading={isNewDashboardSubmitting}
+                        disabled={isNewDashboardSubmitting}
                         onClick={hideNewDashboardModal}
                     >
                         Cancel
@@ -37,7 +37,6 @@ export function NewDashboardModal(): JSX.Element {
                         form="new-dashboard-form"
                         type="secondary"
                         data-attr="dashboard-submit-and-go"
-                        loading={isNewDashboardSubmitting}
                         disabled={isNewDashboardSubmitting}
                         onClick={createAndGoToDashboard}
                     >
@@ -63,7 +62,6 @@ export function NewDashboardModal(): JSX.Element {
                 enableFormOnSubmit
                 className="space-y-2"
             >
-                <p>Use dashboards to compose multiple insights into a single view.</p>
                 <Field name="name" label="Name">
                     <LemonInput autoFocus={true} data-attr="dashboard-name-input" className="ph-ignore-input" />
                 </Field>
@@ -74,12 +72,13 @@ export function NewDashboardModal(): JSX.Element {
                     <LemonSelect
                         placeholder="Optionally start from template"
                         allowClear
-                        options={{
-                            DEFAULT_APP: {
+                        options={[
+                            {
+                                value: 'DEFAULT_APP',
                                 label: 'Website',
                                 'data-attr': 'dashboard-select-default-app',
                             },
-                        }}
+                        ]}
                         fullWidth
                         data-attr="copy-from-template"
                     />
@@ -91,7 +90,6 @@ export function NewDashboardModal(): JSX.Element {
                                 value={value}
                                 onChange={onChange}
                                 options={DASHBOARD_RESTRICTION_OPTIONS}
-                                loading={isNewDashboardSubmitting}
                                 fullWidth
                             />
                         </PayGateMini>

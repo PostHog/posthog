@@ -52,7 +52,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
             <Row gutter={[16, 24]} style={{ maxWidth: 640 }} className="ph-ignore-input">
                 <Col span={24}>
                     <Field name="name" label="Name">
-                        <LemonInput data-attr="definition-name" value={definition.name} readOnly disabled />
+                        <LemonInput data-attr="definition-name" value={definition.name} disabled />
                     </Field>
                     <div className="definition-sent-as">
                         Raw event name: <pre>{definition.name}</pre>
@@ -108,21 +108,13 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             {({ value, onChange }) => (
                                 <LemonSelect
                                     onChange={(val) => onChange(val)}
-                                    value={value}
-                                    options={{
-                                        DateTime: {
-                                            label: 'DateTime',
-                                        },
-                                        String: {
-                                            label: 'String',
-                                        },
-                                        Numeric: {
-                                            label: 'Numeric',
-                                        },
-                                        Boolean: {
-                                            label: 'Boolean',
-                                        },
-                                    }}
+                                    value={value as 'DateTime' | 'String' | 'Numeric' | 'Boolean'}
+                                    options={[
+                                        { value: 'DateTime', label: 'DateTime' },
+                                        { value: 'String', label: 'String' },
+                                        { value: 'Numeric', label: 'Numeric' },
+                                        { value: 'Boolean', label: 'Boolean' },
+                                    ]}
                                 />
                             )}
                         </Field>

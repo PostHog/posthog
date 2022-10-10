@@ -36,7 +36,6 @@ TRENDS_LINEAR = "ActionsLineGraph"
 TRENDS_TABLE = "ActionsTable"
 TRENDS_FUNNEL = "FunnelViz"
 TRENDS_PIE = "ActionsPie"
-TRENDS_RETENTION = "RetentionTable"
 TRENDS_PATHS = "PathsViz"
 TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
@@ -62,7 +61,7 @@ INSIGHT_TO_DISPLAY = {
     INSIGHT_LIFECYCLE: TRENDS_LINEAR,
     INSIGHT_FUNNELS: TRENDS_FUNNEL,
     INSIGHT_PATHS: TRENDS_PATHS,
-    INSIGHT_RETENTION: TRENDS_RETENTION,
+    INSIGHT_RETENTION: TRENDS_TABLE,
     # :KLUDGE: Sessions insight is no longer supported, but this is needed to make updating these insights possible.
     "SESSIONS": TRENDS_LINEAR,
 }
@@ -79,7 +78,8 @@ DISPLAY_TYPES = Literal[
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
-    "PathsViz", "FunnelViz",
+    "PathsViz",
+    "FunnelViz",
 ]
 
 
@@ -105,6 +105,7 @@ INTERVAL = "interval"
 SMOOTHING_INTERVALS = "smoothing_intervals"
 DISPLAY = "display"
 SHOWN_AS = "shown_as"
+CLIENT_QUERY_ID = "client_query_id"
 FILTER_TEST_ACCOUNTS = "filter_test_accounts"
 BREAKDOWN_TYPE = "breakdown_type"
 BREAKDOWN_VALUE = "breakdown_value"
@@ -257,8 +258,10 @@ BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 CSV_EXPORT_LIMIT = 10000
 
 
-class CombinedEventType(str, Enum):
-    # Mimics CombinedEventType in frontend/src/types.ts
+class EventDefinitionType(str, Enum):
+    # Mimics EventDefinitionType in frontend/src/types.ts
     ALL = "all"
-    EVENT = "event"
     ACTION_EVENT = "action_event"
+    EVENT = "event"
+    EVENT_POSTHOG = "event_posthog"
+    EVENT_CUSTOM = "event_custom"

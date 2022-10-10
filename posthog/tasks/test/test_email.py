@@ -28,7 +28,7 @@ def create_org_team_and_user(creation_date: str, email: str, ingested_event: boo
         org = Organization.objects.create(name="too_late_org")
         Team.objects.create(organization=org, name="Default Project", ingested_event=ingested_event)
         user = User.objects.create_and_join(
-            organization=org, email=email, password=None, level=OrganizationMembership.Level.OWNER,
+            organization=org, email=email, password=None, level=OrganizationMembership.Level.OWNER
         )
         return org, user
 
@@ -36,9 +36,9 @@ def create_org_team_and_user(creation_date: str, email: str, ingested_event: boo
 @patch("posthog.tasks.email.EmailMessage")
 class TestEmail(APIBaseTest, ClickhouseTestMixin):
     """
-        NOTE: Every task in the "email" tasks should have at least one test.
-        using the `mock_email_messages` helper writes the email output to `tasks/test/__emails__`
-        so you can check out what it is rendered 🙌
+    NOTE: Every task in the "email" tasks should have at least one test.
+    using the `mock_email_messages` helper writes the email output to `tasks/test/__emails__`
+    so you can check out what it is rendered 🙌
     """
 
     @classmethod
@@ -68,7 +68,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
 
         user = User.objects.create_and_join(
-            organization=org, email="new-user@posthog.com", password=None, level=OrganizationMembership.Level.MEMBER,
+            organization=org, email="new-user@posthog.com", password=None, level=OrganizationMembership.Level.MEMBER
         )
         send_member_join(user.uuid, org.id)
 
@@ -97,6 +97,25 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    def test_send_fatal_plugin_error_with_settings(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
+        self._create_user("test2@posthog.com")
+        self.user.partial_notification_settings = {"plugin_disabled": False}
+        self.user.save()
+
+        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
+
+        # Should only be sent to user2
+        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+
+        self.user.partial_notification_settings = {"plugin_disabled": True}
+        self.user.save()
+        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
+        # should be sent to both
+        assert len(mocked_email_messages[1].to) == 2
 
     def test_send_canary_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

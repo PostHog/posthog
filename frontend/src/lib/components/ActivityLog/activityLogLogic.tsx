@@ -3,6 +3,7 @@ import api, { ACTIVITY_PAGE_SIZE, CountedPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
     ActivityScope,
+    Describer,
     humanize,
     HumanizedActivityLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
@@ -12,6 +13,31 @@ import type { activityLogLogicType } from './activityLogLogicType'
 import { PaginationManual } from 'lib/components/PaginationControl'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
+import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
+import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
+import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
+import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+
+/**
+ * Having this function inside the `humanizeActivity module was causing very weird test errors in other modules
+ * see https://github.com/PostHog/posthog/pull/12062
+ * So, we inject the function instead
+ * **/
+export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
+    switch (logItem?.scope) {
+        case ActivityScope.FEATURE_FLAG:
+            return flagActivityDescriber
+        case ActivityScope.PLUGIN:
+        case ActivityScope.PLUGIN_CONFIG:
+            return pluginActivityDescriber
+        case ActivityScope.INSIGHT:
+            return insightActivityDescriber
+        case ActivityScope.PERSON:
+            return personActivityDescriber
+        default:
+            return undefined
+    }
+}
 
 export const activityLogLogic = kea<activityLogLogicType>({
     path: (key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key],
@@ -22,19 +48,19 @@ export const activityLogLogic = kea<activityLogLogicType>({
     },
     loaders: ({ values, props }) => ({
         nextPage: [
-            { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
+            { results: [], total_count: 0 } as CountedPaginatedResponse<ActivityLogItem>,
             {
                 fetchNextPage: async () => await api.activity.list(props, values.page),
             },
         ],
         previousPage: [
-            { results: [] as ActivityLogItem[], total_count: 0 } as CountedPaginatedResponse,
+            { results: [], total_count: 0 } as CountedPaginatedResponse<ActivityLogItem>,
             {
                 fetchPreviousPage: async () => await api.activity.list(props, values.page - 1),
             },
         ],
     }),
-    reducers: ({ props }) => ({
+    reducers: () => ({
         page: [
             1,
             {
@@ -45,9 +71,9 @@ export const activityLogLogic = kea<activityLogLogicType>({
             [] as HumanizedActivityLogItem[],
             {
                 fetchNextPageSuccess: (state, { nextPage }) =>
-                    nextPage ? humanize(nextPage.results, props.describer) : state,
+                    nextPage ? humanize(nextPage.results, describerFor) : state,
                 fetchPreviousPageSuccess: (state, { previousPage }) =>
-                    previousPage ? humanize(previousPage.results, props.describer) : state,
+                    previousPage ? humanize(previousPage.results, describerFor) : state,
             },
         ],
         totalCount: [

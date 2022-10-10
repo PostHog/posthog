@@ -76,5 +76,11 @@ export function taxonomicFilterTypeToPropertyFilterType(filterType?: TaxonomicFi
     if (filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix)) {
         return 'group'
     }
+
+    if (filterType === TaxonomicFilterGroupType.EventFeatureFlags) {
+        // Feature flags are just subgroup of event properties
+        return 'event'
+    }
+
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0]
 }

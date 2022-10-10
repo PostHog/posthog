@@ -76,9 +76,9 @@ export function TaxonomicFilter({
                         data-attr="taxonomic-filter-searchfield"
                         type="search"
                         fullWidth
-                        placeholder={`Search ${searchPlaceholder} foo`}
+                        placeholder={`Search ${searchPlaceholder}`}
                         value={searchQuery}
-                        sideIcon={
+                        suffix={
                             <Tooltip
                                 title={
                                     <>
@@ -103,14 +103,6 @@ export function TaxonomicFilter({
                             if (e.key === 'ArrowDown') {
                                 e.preventDefault()
                                 moveDown()
-                            }
-                            if (e.key === 'ArrowLeft') {
-                                e.preventDefault()
-                                tabLeft()
-                            }
-                            if (e.key === 'ArrowRight') {
-                                e.preventDefault()
-                                tabRight()
                             }
                             if (e.key === 'Tab') {
                                 e.preventDefault()

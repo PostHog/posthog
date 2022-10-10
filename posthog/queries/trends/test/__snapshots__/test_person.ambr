@@ -2,10 +2,10 @@
   '
   
   SELECT $group_0 AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+         groupUniqArray(100)((timestamp,
+                              uuid,
+                              $session_id,
+                              $window_id)) as matching_events
   FROM
     (SELECT e.timestamp as timestamp,
             e."$group_0" as "$group_0",
@@ -18,7 +18,7 @@
        AND timestamp >= toDateTime('2021-01-21 00:00:00')
        AND timestamp <= toDateTime('2021-01-21 23:59:59') )
   GROUP BY actor_id
-  LIMIT 200
+  LIMIT 100
   OFFSET 0
   '
 ---
@@ -54,7 +54,7 @@
        AND timestamp >= toDateTime('2021-01-21 00:00:00')
        AND timestamp <= toDateTime('2021-01-21 23:59:59') )
   GROUP BY actor_id
-  LIMIT 200
+  LIMIT 100
   OFFSET 0
   '
 ---

@@ -29,6 +29,7 @@ Object {
           "https://posthog.com/",
           "https://app.posthog.com",
         ],
+        "capture_console_log_opt_in": true,
         "completed_snippet_onboarding": true,
         "correlation_config": Object {
           "excluded_event_names": Array [
@@ -67,6 +68,9 @@ Object {
           "username",
         ],
         "primary_dashboard": 1,
+        "recording_domains": Array [
+          "https://recordings.posthog.com/",
+        ],
         "session_recording_opt_in": true,
         "slack_incoming_webhook": "",
         "test_account_filters": Array [
@@ -77,7 +81,8 @@ Object {
             "value": "posthog.com",
           },
         ],
-        "timezone": "Europe/Brussels",
+        "test_account_filters_default_checked": false,
+        "timezone": "UTC",
         "updated_at": "2022-03-17T16:09:21.566253Z",
         "uuid": "TEAM_UUID",
       },

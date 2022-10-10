@@ -77,27 +77,6 @@
         height: 48px;
         padding: 0 0.75rem;
 
-        .icon-window {
-            height: 24px;
-            width: 24px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            position: relative;
-            flex-shrink: 0;
-
-            .icon-window-number {
-                position: absolute;
-                font-size: 6px;
-                font-weight: 600;
-                top: 2px;
-            }
-
-            .icon-window-icon {
-                position: absolute;
-                font-size: 18px;
-            }
-        }
         .window-number {
             white-space: nowrap;
         }

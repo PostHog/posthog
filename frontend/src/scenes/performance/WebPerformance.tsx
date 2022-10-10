@@ -64,7 +64,6 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                                         type="secondary"
                                         size="small"
                                         onClick={() => {
-                                            console.log({ event }, 'setting event to display')
                                             setEventToDisplay(event)
                                         }}
                                     >
@@ -75,7 +74,6 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                         },
                     },
                 ]}
-                data-tooltip="web-performance-table"
             />
         </>
     )
@@ -90,7 +88,9 @@ export const WebPerformance = (): JSX.Element => {
                 title={
                     <div className="flex items-center gap-2">
                         Web Performance
-                        <LemonTag type="warning">Early Preview</LemonTag>
+                        <LemonTag type="warning" className="uppercase">
+                            Alpha
+                        </LemonTag>
                     </div>
                 }
                 caption={

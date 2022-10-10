@@ -26,6 +26,7 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
+from posthog.plugins.web import get_decide_web_js_inject
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
@@ -197,6 +198,12 @@ class Plugin(models.Model):
 
 
 class PluginConfig(models.Model):
+    class Meta:
+        indexes = [
+            models.Index(fields=["web_token"]),
+            models.Index(fields=["enabled"]),
+        ]
+
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     enabled: models.BooleanField = models.BooleanField(default=False)
@@ -206,6 +213,8 @@ class PluginConfig(models.Model):
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
     error: models.JSONField = models.JSONField(default=None, null=True)
+    # Used to access web.ts from a public URL
+    web_token: models.CharField = models.CharField(max_length=64, default=None, null=True)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
@@ -249,48 +258,64 @@ class PluginLogEntryType(str, Enum):
 class PluginSourceFileManager(models.Manager):
     def sync_from_plugin_archive(
         self, plugin: Plugin, plugin_json_parsed: Optional[Dict[str, Any]] = None
-    ) -> Tuple["PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"]]:
+    ) -> Tuple[
+        "PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"], Optional["PluginSourceFile"]
+    ]:
         """Create PluginSourceFile objects from a plugin that has an archive.
 
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
         try:
-            plugin_json, index_ts, frontend_tsx = extract_plugin_code(plugin.archive, plugin_json_parsed)
+            plugin_json, index_ts, frontend_tsx, web_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
         # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
         filenames_to_delete = []
         # Save plugin.json
         plugin_json_instance, _ = PluginSourceFile.objects.update_or_create(
-            plugin=plugin, filename="plugin.json", defaults={"source": plugin_json}
+            plugin=plugin,
+            filename="plugin.json",
+            defaults={"source": plugin_json, "transpiled": None, "status": None, "error": None},
         )
         # Save frontend.tsx
         frontend_tsx_instance: Optional["PluginSourceFile"] = None
         if frontend_tsx is not None:
             frontend_tsx_instance, _ = PluginSourceFile.objects.update_or_create(
-                plugin=plugin, filename="frontend.tsx", defaults={"source": frontend_tsx}
+                plugin=plugin,
+                filename="frontend.tsx",
+                defaults={"source": frontend_tsx, "transpiled": None, "status": None, "error": None},
             )
         else:
             filenames_to_delete.append("frontend.tsx")
+        # Save frontend.tsx
+        web_ts_instance: Optional["PluginSourceFile"] = None
+        if web_ts is not None:
+            web_ts_instance, _ = PluginSourceFile.objects.update_or_create(
+                plugin=plugin,
+                filename="web.ts",
+                defaults={"source": web_ts, "transpiled": None, "status": None, "error": None},
+            )
+        else:
+            filenames_to_delete.append("web.ts")
         # Save index.ts
         index_ts_instance: Optional["PluginSourceFile"] = None
         if index_ts is not None:
             # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
             # and we don't need to model the whole filesystem (at this point)
             index_ts_instance, _ = PluginSourceFile.objects.update_or_create(
-                plugin=plugin, filename="index.ts", defaults={"source": index_ts}
+                plugin=plugin,
+                filename="index.ts",
+                defaults={"source": index_ts, "transpiled": None, "status": None, "error": None},
             )
         else:
             filenames_to_delete.append("index.ts")
         # Make sure files are gone
         PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
-        return plugin_json_instance, index_ts_instance, frontend_tsx_instance
+        return plugin_json_instance, index_ts_instance, frontend_tsx_instance, web_ts_instance
 
 
 class PluginSourceFile(UUIDModel):
     class Meta:
-        constraints = [
-            models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename")),
-        ]
+        constraints = [models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename"))]
 
     class Status(models.TextChoices):
         LOCKED = "LOCKED", "locked"
@@ -360,6 +385,24 @@ def fetch_plugin_log_entries(
     return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
 
 
+def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: Dict[str, Any], *, is_staff: bool):
+    if not plugin.public_jobs:
+        raise ValidationError("Plugin has no public jobs")
+    if job_type not in plugin.public_jobs:
+        raise ValidationError(f"Unknown plugin job: {repr(job_type)}")
+
+    payload_spec = plugin.public_jobs[job_type].get("payload", {})
+    for key, field_options in payload_spec.items():
+        if field_options.get("required", False) and key not in payload:
+            raise ValidationError(f"Missing required job field: {key}")
+        if field_options.get("staff_only", False) and not is_staff and key in payload:
+            raise ValidationError(f"Field is only settable for admins: {key}")
+
+    for key in payload:
+        if key not in payload_spec:
+            raise ValidationError(f"Unknown field for job: {key}")
+
+
 @receiver(models.signals.post_save, sender=Organization)
 def preinstall_plugins_for_new_organization(sender, instance: Organization, created: bool, **kwargs):
     if created and not settings.MULTI_TENANCY and can_install_plugins(instance):
@@ -401,6 +444,15 @@ def plugin_reload_needed(sender, instance, created=None, **kwargs):
 @mutable_receiver([post_save, post_delete], sender=PluginConfig)
 def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()
+    sync_team_inject_web_apps(instance.team)
+
+
+def sync_team_inject_web_apps(team: Optional[Team]):
+    if not team:
+        return
+    inject_web_apps = len(get_decide_web_js_inject(team)) > 0
+    if inject_web_apps != team.inject_web_apps:
+        Team.objects.filter(pk=team.pk).update(inject_web_apps=inject_web_apps)
 
 
 @mutable_receiver([post_save, post_delete], sender=PluginAttachment)

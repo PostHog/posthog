@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import Iterable, List, Union
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -10,11 +10,11 @@ RELATED_OBJECTS = ("dashboard", "insight", "event_definition", "property_definit
 
 
 # Checks that exactly one object field is populated
-def build_check():
+def build_check(related_objects: Iterable[str]):
     built_check_list: List[Union[Q, Q]] = []
-    for field in RELATED_OBJECTS:
+    for field in related_objects:
         built_check_list.append(
-            Q(*[(f"{other_field}__isnull", other_field != field) for other_field in RELATED_OBJECTS], _connector="AND")
+            Q(*[(f"{other_field}__isnull", other_field != field) for other_field in related_objects], _connector="AND")
         )
     return Q(*built_check_list, _connector="OR")
 
@@ -23,7 +23,7 @@ def build_check():
 # uniqueness across null columns.
 def build_partial_uniqueness_constraint(field: str):
     return UniqueConstraint(
-        fields=["tag", field], name=f"unique_{field}_tagged_item", condition=Q((f"{field}__isnull", False)),
+        fields=["tag", field], name=f"unique_{field}_tagged_item", condition=Q((f"{field}__isnull", False))
     )
 
 
@@ -67,7 +67,7 @@ class TaggedItem(UUIDModel):
         # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
         constraints = [
             *[build_partial_uniqueness_constraint(field=field) for field in RELATED_OBJECTS],
-            models.CheckConstraint(check=build_check(), name="exactly_one_related_object",),
+            models.CheckConstraint(check=build_check(RELATED_OBJECTS), name="exactly_one_related_object"),
         ]
 
     def clean(self):

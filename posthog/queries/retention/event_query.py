@@ -44,15 +44,8 @@ class RetentionEventsQuery(EventQuery):
 
         _fields = [
             self.get_timestamp_field(),
-            (
-                f"argMin(e.event, {self._trunc_func}(toDateTime(e.timestamp, %(timezone)s))) as min_event"
-                if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-                else f"{self.EVENT_TABLE_ALIAS}.event AS event"
-            ),
             self.target_field(),
         ]
-        if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            _fields.append(f"argMin(e.uuid, {self._trunc_func}(toDateTime(e.timestamp, %(timezone)s))) as min_uuid")
 
         if self._filter.breakdowns and self._filter.breakdown_type:
             # NOTE: `get_single_or_multi_property_string_expr` doesn't
@@ -64,16 +57,19 @@ class RetentionEventsQuery(EventQuery):
             breakdown_type = self._filter.breakdown_type
             table = "events"
             column = "properties"
+            materalised_table_column = "properties"
 
             if breakdown_type == "person":
                 table = "person" if not self._using_person_on_events else "events"
                 column = "person_props" if not self._using_person_on_events else "person_properties"
+                materalised_table_column = "properties" if not self._using_person_on_events else "person_properties"
 
             breakdown_values_expression = get_single_or_multi_property_string_expr(
                 breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
                 table=cast(Union[Literal["events"], Literal["person"]], table),
                 query_alias=None,
                 column=column,
+                materialised_table_column=materalised_table_column,
             )
 
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
@@ -144,6 +140,10 @@ class RetentionEventsQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
+        null_person_filter = (
+            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
+        )
+
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
@@ -153,7 +153,9 @@ class RetentionEventsQuery(EventQuery):
             {f"AND {entity_query}"}
             {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
             {prop_query}
+            {null_person_filter}
             {f"GROUP BY target HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
+            {f"GROUP BY target, event_date" if self._event_query_type == RetentionQueryType.RETURNING else ''}
         """
 
         return query, self.params

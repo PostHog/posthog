@@ -3,11 +3,13 @@ import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { pathsLogicType } from './pathsLogicType'
 import { InsightLogicProps, FilterType, PathType, PropertyFilter, InsightType } from '~/types'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { urls } from 'scenes/urls'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -42,8 +44,12 @@ export const pathsLogic = kea<pathsLogicType>({
     key: keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY),
 
     connect: (props: InsightLogicProps) => ({
-        logic: [personsModalLogic],
-        values: [insightLogic(props), ['filters as filter', 'insight', 'insightLoading']],
+        values: [
+            insightLogic(props),
+            ['filters as filter', 'insight', 'insightLoading'],
+            trendsLogic(props),
+            ['aggregationTargetLabel'],
+        ],
         actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
 
@@ -52,11 +58,8 @@ export const pathsLogic = kea<pathsLogicType>({
         setFilter: (filter: Partial<FilterType>) => ({ filter }),
         showPathEvents: (event) => ({ event }),
         updateExclusions: (exclusions: string[]) => ({ exclusions }),
-        openPersonsModal: (path_start_key?: string, path_end_key?: string, path_dropoff_key?: string) => ({
-            path_start_key,
-            path_end_key,
-            path_dropoff_key,
-        }),
+        openPersonsModal: (props: { path_start_key?: string; path_end_key?: string; path_dropoff_key?: string }) =>
+            props,
         viewPathToFunnel: (pathItemCard: any) => ({ pathItemCard }),
     },
     listeners: ({ actions, values, props }) => ({
@@ -70,13 +73,20 @@ export const pathsLogic = kea<pathsLogicType>({
             actions.setFilter({ exclude_events: exclusions })
         },
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
-            personsModalLogic.actions.loadPeople({
-                label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
+            const personsUrl = buildPeopleUrl({
                 date_from: '',
                 date_to: '',
-                pathsDropoff: Boolean(path_dropoff_key),
                 filters: { ...values.filter, path_start_key, path_end_key, path_dropoff_key },
             })
+            if (personsUrl) {
+                openPersonsModal({
+                    url: personsUrl,
+                    title: pathsTitle({
+                        label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
+                        isDropOff: Boolean(path_dropoff_key),
+                    }),
+                })
+            }
         },
         showPathEvents: ({ event }) => {
             const { filter } = values

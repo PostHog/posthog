@@ -25,7 +25,8 @@ class OrganizationMemberObjectPermissions(BasePermission):
             return True
         organization = extract_organization(membership)
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
-            user_id=cast(User, request.user).id, organization=organization,
+            user_id=cast(User, request.user).id,
+            organization=organization,
         )
         try:
             requesting_membership.validate_update(membership)
@@ -52,7 +53,8 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         updated_membership = cast(OrganizationMembership, updated_membership)
         raise_errors_on_nested_writes("update", self, validated_data)
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
-            organization=updated_membership.organization, user=self.context["request"].user,
+            organization=updated_membership.organization,
+            user=self.context["request"].user,
         )
         for attr, value in validated_data.items():
             if attr == "level":
@@ -74,7 +76,9 @@ class OrganizationMemberViewSet(
     queryset = (
         OrganizationMembership.objects.order_by("user__first_name", "-joined_at")
         .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
-        .filter(user__is_active=True,)
+        .filter(
+            user__is_active=True,
+        )
     )
     lookup_field = "user__uuid"
 

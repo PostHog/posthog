@@ -1,4 +1,3 @@
-import { Alert, Modal } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import './InviteModal.scss'
@@ -13,6 +12,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { OrganizationInviteType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { LemonModal } from 'lib/components/LemonModal'
+import { LemonDialog } from 'lib/components/LemonDialog'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -22,7 +22,7 @@ const MAX_INVITES_AT_ONCE = 20
 
 export function EmailUnavailableMessage(): JSX.Element {
     return (
-        <AlertMessage type="info" style={{ marginTop: 16 }}>
+        <AlertMessage type="info" className="my-2">
             <>
                 This PostHog instance isn't{' '}
                 <a href="https://posthog.com/docs/self-host/configure/email" target="_blank" rel="noopener">
@@ -67,10 +67,11 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                     data-attr="invite-email-input"
                 />
             </div>
-            <div className="flex-1 flex justify-between">
+            <div className="flex-1 flex gap-1 items-center justify-between">
                 {!preflight?.email_service_available ? (
                     <LemonButton
                         type="secondary"
+                        className="flex-1"
                         disabled={!isEmail(invitesToSend[index].target_email)}
                         onClick={() => {
                             inviteTeamMembers()
@@ -125,17 +126,17 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                 title={<>Invite others to {user?.organization?.name || 'PostHog'}</>}
                 description={
                     preflight?.email_service_available ? (
-                        <span>
+                        <p>
                             Invite others to your project to collaborate together in PostHog. An invite is specific to
                             an email address and expires after 3 days. Name can be provided for the team member's
                             convenience.
-                        </span>
+                        </p>
                     ) : (
-                        <span>
+                        <p>
                             This PostHog instance isn't configured to send emails. In the meantime, you can generate a
                             link for each team member you want to invite. You can always invite others at a later time.{' '}
                             <strong>Make sure you share links with the project members you want to invite.</strong>
-                        </span>
+                        </p>
                     )
                 }
                 footer={
@@ -171,17 +172,10 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                 }
             >
                 {preflight?.licensed_users_available === 0 && (
-                    <Alert
-                        type="warning"
-                        showIcon
-                        message={
-                            <>
-                                You've hit the limit of team members you can invite to your PostHog instance given your
-                                license. Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to
-                                upgrade your license.
-                            </>
-                        }
-                    />
+                    <AlertMessage type="warning">
+                        You've hit the limit of team members you can invite to your PostHog instance given your license.
+                        Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to upgrade your license.
+                    </AlertMessage>
                 )}
                 <div className="space-y-2">
                     <div className="flex gap-2">
@@ -214,7 +208,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                                     description="invite link"
                                                     style={{
                                                         color: 'var(--primary)',
-                                                        background: 'var(--bg-side)',
+                                                        background: 'var(--side)',
                                                         borderRadius: 4,
                                                         padding: '0.5rem',
                                                     }}
@@ -234,14 +228,16 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                         onClick={() => {
                                             invite.is_expired
                                                 ? deleteInvite(invite)
-                                                : Modal.confirm({
+                                                : LemonDialog.open({
                                                       title: `Do you want to cancel the invite for ${invite.target_email}?`,
-                                                      okText: 'Yes, cancel invite',
-                                                      okType: 'danger',
-                                                      onOk() {
-                                                          deleteInvite(invite)
+                                                      primaryButton: {
+                                                          children: 'Yes, cancel invite',
+                                                          status: 'danger',
+                                                          onClick: () => deleteInvite(invite),
                                                       },
-                                                      cancelText: 'No, keep invite',
+                                                      secondaryButton: {
+                                                          children: 'No, keep invite',
+                                                      },
                                                   })
                                         }}
                                     />
@@ -254,7 +250,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                         <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
                     ))}
 
-                    <div className="my-4">
+                    <div className="mt-4">
                         {areInvitesCreatable && (
                             <LemonButton
                                 type="secondary"

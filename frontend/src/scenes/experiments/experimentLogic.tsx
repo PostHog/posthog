@@ -27,7 +27,7 @@ import {
 import type { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
-import { FunnelLayout } from 'lib/constants'
+import { FunnelLayout, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -36,6 +36,7 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { lemonToast } from 'lib/components/lemonToast'
+import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -75,6 +76,9 @@ export const experimentLogic = kea<experimentLogicType>({
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
         setEditExperiment: (editing: boolean) => ({ editing }),
         setSecondaryMetrics: (secondaryMetrics: SecondaryExperimentMetric[]) => ({ secondaryMetrics }),
+        setExperimentResultCalculationError: (error: string) => ({ error }),
+        setFlagImplementationWarning: (warning: boolean) => ({ warning }),
+        setFlagAvailabilityWarning: (warning: boolean) => ({ warning }),
         resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
@@ -188,6 +192,24 @@ export const experimentLogic = kea<experimentLogicType>({
             false,
             {
                 setEditExperiment: (_, { editing }) => editing,
+            },
+        ],
+        experimentResultCalculationError: [
+            null as string | null,
+            {
+                setExperimentResultCalculationError: (_, { error }) => error,
+            },
+        ],
+        flagImplementationWarning: [
+            false as boolean,
+            {
+                setFlagImplementationWarning: (_, { warning }) => warning,
+            },
+        ],
+        flagAvailabilityWarning: [
+            false as boolean,
+            {
+                setFlagAvailabilityWarning: (_, { warning }) => warning,
             },
         ],
     },
@@ -332,8 +354,46 @@ export const experimentLogic = kea<experimentLogicType>({
         updateExperimentSuccess: async ({ experimentData }) => {
             actions.updateExperiments(experimentData)
         },
+        setNewExperimentData: async ({ experimentData }, breakpoint) => {
+            const experimentEntitiesChanged =
+                (experimentData.filters?.events && experimentData.filters.events.length > 0) ||
+                (experimentData.filters?.actions && experimentData.filters.actions.length > 0)
+
+            if (!experimentData.filters || Object.keys(experimentData.filters).length === 0) {
+                return
+            }
+
+            if (experimentEntitiesChanged) {
+                const url = `/api/projects/${values.currentTeamId}/experiments/requires_flag_implementation?${toParams(
+                    experimentData.filters || {}
+                )}`
+                await breakpoint(100)
+
+                try {
+                    const response = await api.get(url)
+                    actions.setFlagImplementationWarning(response.result)
+                } catch (e) {
+                    // default to not showing the warning
+                    actions.setFlagImplementationWarning(false)
+                }
+            }
+
+            if (experimentData.filters?.properties) {
+                const targetProperties = convertPropertyGroupToProperties(experimentData.filters.properties) || []
+
+                if (targetProperties.length > 0) {
+                    const hasNonInstantProperty = !!targetProperties.find(
+                        (property) =>
+                            property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
+                    )
+                    actions.setFlagAvailabilityWarning(hasNonInstantProperty)
+                } else {
+                    actions.setFlagAvailabilityWarning(false)
+                }
+            }
+        },
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ actions, values }) => ({
         experimentData: [
             null as Experiment | null,
             {
@@ -346,7 +406,7 @@ export const experimentLogic = kea<experimentLogicType>({
                             return response as Experiment
                         } catch (error: any) {
                             if (error.status === 404) {
-                                router.actions.push(urls.experiments())
+                                throw error
                             } else {
                                 lemonToast.error(`Failed to load experiment ${values.experimentId}`)
                                 throw new Error(`Failed to load experiment ${values.experimentId}`)
@@ -374,11 +434,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         )
                         return { ...response, itemID: Math.random().toString(36).substring(2, 15) }
                     } catch (error: any) {
-                        if (error.code === 'no_data') {
-                            return null
-                        }
-
-                        lemonToast.error(error.detail || 'Failed to load experiment results')
+                        actions.setExperimentResultCalculationError(error.detail)
                         return null
                     }
                 },

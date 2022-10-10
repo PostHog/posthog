@@ -1,6 +1,6 @@
 # name: TestPerson.test_filter_person_email
   '
-  /* request:api_person_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
   WHERE team_id = 2
@@ -13,7 +13,7 @@
 ---
 # name: TestPerson.test_filter_person_email_materialized
   '
-  /* request:api_person_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
   WHERE team_id = 2
@@ -24,9 +24,27 @@
   LIMIT 100
   '
 ---
+# name: TestPerson.test_filter_person_prop
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT id
+  FROM person
+  WHERE team_id = 2
+    AND id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+         AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'some_prop'), '^"|"$', ''))) )
+  GROUP BY id
+  HAVING max(is_deleted) = 0
+  AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'some_prop'), '^"|"$', '')))
+  ORDER BY max(created_at) DESC, id
+  LIMIT 100
+  '
+---
 # name: TestPerson.test_person_property_values
   '
-  /* request:api_person_values_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
   FROM
@@ -45,7 +63,7 @@
 ---
 # name: TestPerson.test_person_property_values.1
   '
-  /* request:api_person_values_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
   FROM
@@ -63,7 +81,7 @@
 ---
 # name: TestPerson.test_person_property_values_materialized
   '
-  /* request:api_person_values_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
   FROM
@@ -82,7 +100,7 @@
 ---
 # name: TestPerson.test_person_property_values_materialized.1
   '
-  /* request:api_person_values_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
   FROM

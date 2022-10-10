@@ -150,10 +150,11 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
     return []
 
 
-def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500,) -> None:
+def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500) -> None:
     resource = exported_asset.export_context
 
     path: str = resource["path"]
+    columns: List[str] = resource.get("columns", [])
 
     method: str = resource.get("method", "GET")
     body = resource.get("body", None)
@@ -196,7 +197,11 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
             # If values are serialised then keep the order of the keys, else allow it to be unordered
             renderer.header = all_csv_rows[0].keys()
 
-    rendered_csv_content = renderer.render(all_csv_rows)
+    render_context = {}
+    if columns:
+        render_context["header"] = columns
+
+    rendered_csv_content = renderer.render(all_csv_rows, renderer_context=render_context)
     save_content(exported_asset, rendered_csv_content)
 
 
@@ -207,7 +212,7 @@ def make_api_call(
     try:
         url = add_query_params(request_url, {"limit": str(limit)})
         response = requests.request(
-            method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
+            method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"}
         )
         return response
     except Exception as ex:
@@ -224,7 +229,7 @@ def make_api_call(
 
 
 @timed("csv_exporter")
-def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 3_500,) -> None:
+def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 3_500) -> None:
     if not limit:
         limit = 1000
 

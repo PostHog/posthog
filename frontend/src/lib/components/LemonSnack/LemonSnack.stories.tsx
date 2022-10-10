@@ -34,3 +34,17 @@ ComplexContent.args = {
     ),
     onClose: () => alert('Close clicked!'),
 }
+
+export const OverflowOptions = (): JSX.Element => {
+    return (
+        <>
+            <p>By default the LemonSnack does not wrap content but this can be changed with the wrap property</p>
+            <div className="bg-border p-2 space-y-2" style={{ width: 200 }}>
+                <LemonSnack onClose={() => {}}>qwertzuiopasdfghjklyxcvbnm1234567890</LemonSnack>
+                <LemonSnack onClose={() => {}} wrap>
+                    Overflow-qwertzuiopasdfghjklyxcvbnm1234567890
+                </LemonSnack>
+            </div>
+        </>
+    )
+}

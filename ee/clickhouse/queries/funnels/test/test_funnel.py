@@ -10,17 +10,26 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.queries.funnels.funnel import ClickhouseFunnel
 from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
-from posthog.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
-from posthog.queries.funnels.test.test_funnel import _create_action, funnel_test_factory
-from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
+from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
+from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.queries.funnels.test.test_funnel import _create_action
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from posthog.test.test_journeys import journeys_for
 
 
-class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_action, _create_person), funnel_breakdown_group_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_action, _create_person)):  # type: ignore
-    maxDiff = None
+class TestFunnelGroupBreakdown(ClickhouseTestMixin, funnel_breakdown_group_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_action, _create_person)):  # type: ignore
+    pass
 
 
-class TestClickhouseFunnel(funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
+class TestUnorderedFunnelGroupBreakdown(ClickhouseTestMixin, funnel_breakdown_group_test_factory(ClickhouseFunnel, ClickhouseFunnelUnorderedActors, _create_event, _create_action, _create_person)):  # type: ignore
+    pass
+
+
+class TestStrictFunnelGroupBreakdown(ClickhouseTestMixin, funnel_breakdown_group_test_factory(ClickhouseFunnel, ClickhouseFunnelStrictActors, _create_event, _create_action, _create_person)):  # type: ignore
+    pass
+
+
+class TestClickhouseFunnel(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def test_funnel_aggregation_with_groups_with_cohort_filtering(self):
@@ -39,9 +48,7 @@ class TestClickhouseFunnel(funnel_test_factory(ClickhouseFunnel, _create_event, 
         _create_person(distinct_ids=[f"user_3"], team=self.team, properties={"email": "fake_2@test.com"})
 
         action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="$pageview", action=action1,
-        )
+        ActionStep.objects.create(event="$pageview", action=action1)
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -65,7 +72,7 @@ class TestClickhouseFunnel(funnel_test_factory(ClickhouseFunnel, _create_event, 
                     "event": "paid",
                     "timestamp": datetime(2020, 1, 3, 14),
                     "properties": {"$group_0": "org:5"},
-                },
+                }
             ],
             "user_3": [
                 {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$group_0": "org:7"}},

@@ -5,6 +5,7 @@ from freezegun.api import freeze_time
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.models import Cohort, Person
 from posthog.models.filters.filter import Filter
+from posthog.models.group.util import create_group
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
@@ -18,6 +19,9 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         Person.objects.create(
             team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
         )
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+
         with freeze_time("2020-01-02T13:01:01Z"):
             _create_event(
                 team=self.team,
@@ -28,39 +32,40 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "location": "Paris",
                     "$current_url": "http://example.org",
                     "$session_id": "1",
+                    "$group_0": "org:5",
                 },
             )
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 300, "location": "Paris", "$session_id": "1",},
+                properties={"session duration": 300, "location": "Paris", "$session_id": "1", "$group_0": "org:5"},
             )
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 400, "location": "London", "$session_id": "1",},
+                properties={"session duration": 400, "location": "London", "$session_id": "1", "$group_0": "org:5"},
             )
         with freeze_time("2020-01-03T13:01:01Z"):
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 400, "location": "London", "$session_id": "1",},
+                properties={"session duration": 400, "location": "London", "$session_id": "1", "$group_0": "org:5"},
             )
         with freeze_time("2020-01-03T13:04:01Z"):
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 500, "location": "London", "$session_id": "1",},
+                properties={"session duration": 500, "location": "London", "$session_id": "1", "$group_0": "org:5"},
             )
             _create_event(
                 team=self.team,
                 event="session end",
                 distinct_id="blabla",
-                properties={"session duration": 500, "location": "London", "$session_id": "1",},
+                properties={"session duration": 500, "location": "London", "$session_id": "1", "$group_0": "org:5"},
             )
 
     def _run(self, extra: Dict = {}, run_at: Optional[str] = None):
@@ -260,7 +265,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     def test_breakdown_mismatching_sizes(self):
         response = self._run(
-            {"events": [{"id": "session start"}, {"id": "session end"},], "breakdown": "location", "formula": "A + B",}
+            {"events": [{"id": "session start"}, {"id": "session end"}], "breakdown": "location", "formula": "A + B"}
         )
 
         self.assertEqual(response[0]["label"], "London")
@@ -334,4 +339,31 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 }
             )[0]["data"],
             [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0],
+        )
+
+    def test_session_formulas(self):
+        self.assertEqual(
+            self._run(
+                {
+                    "events": [
+                        {"id": "session start", "math": "unique_session"},
+                        {"id": "session start", "math": "unique_session"},
+                    ]
+                }
+            )[0]["data"],
+            [0, 0, 0, 0, 0, 2, 2, 0],
+        )
+
+    def test_group_formulas(self):
+
+        self.assertEqual(
+            self._run(
+                {
+                    "events": [
+                        {"id": "session start", "math": "unique_group", "math_group_type_index": 0},
+                        {"id": "session start", "math": "unique_group", "math_group_type_index": 0},
+                    ]
+                }
+            )[0]["data"],
+            [0, 0, 0, 0, 0, 2, 2, 0],
         )

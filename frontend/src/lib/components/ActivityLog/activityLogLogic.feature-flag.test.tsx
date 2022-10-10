@@ -1,5 +1,4 @@
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import React from 'react'
@@ -10,7 +9,6 @@ describe('the activity log logic', () => {
     describe('humanizing feature flags', () => {
         const featureFlagsTestSetup = makeTestSetup(
             ActivityScope.FEATURE_FLAG,
-            flagActivityDescriber,
             `/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`
         )
 
@@ -364,7 +362,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 100% ofID 98, and 100% ofID 411 on with cohort'
+                'peter changed the filter conditions to apply to 100% of ID 98, and 100% of ID 411 on with cohort'
             )
         })
 
@@ -455,7 +453,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 100% ofemail = someone@somewhere.dev on with null rollout change'
+                'peter changed the filter conditions to apply to 100% of email = someone@somewhere.dev on with null rollout change'
             )
         })
 
@@ -525,7 +523,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100 on with two changes'
+                'peter changed the filter conditions to apply to 76% of Initial Browser = Chrome , and 99% of Initial Browser Version = 100 on with two changes'
             )
         })
     })

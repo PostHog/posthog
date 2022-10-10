@@ -1,12 +1,13 @@
 from posthog.client import sync_execute
 from posthog.models.person.util import create_person_distinct_id
 from posthog.models.utils import UUIDT
+from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.tasks.status_report import status_report
 from posthog.tasks.test.test_status_report import factory_status_report
 from posthog.test.base import _create_event, _create_person
 
 
-class TestStatusReport(factory_status_report(_create_event, _create_person)):  # type: ignore
+class TestStatusReport(factory_status_report(_create_event, _create_person, create_snapshot)):  # type: ignore
     # CH only
     def test_status_report_duplicate_distinct_ids(self) -> None:
         create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
@@ -58,9 +59,6 @@ class TestStatusReport(factory_status_report(_create_event, _create_person)):  #
 
         multiple_ids_report = report["multiple_ids_per_person"]
 
-        expected_result = {
-            "total_persons_with_more_than_2_ids": 2,
-            "max_distinct_ids_for_one_person": 5,
-        }
+        expected_result = {"total_persons_with_more_than_2_ids": 2, "max_distinct_ids_for_one_person": 5}
 
         self.assertEqual(multiple_ids_report, expected_result)

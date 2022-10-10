@@ -12,6 +12,7 @@
         flex-wrap: wrap;
         flex-direction: row;
         background-color: var(--bg-light);
+        z-index: 0;
 
         .player-container {
             height: 100%;
@@ -74,7 +75,8 @@
             margin-bottom: var(--recording-spacing);
         }
 
-        .player-events {
+        .player-events,
+        .player-list {
             width: 100%;
             height: inherit;
             position: relative;
@@ -87,13 +89,15 @@
         overflow: hidden;
         border: 1px solid var(--border);
         background-color: var(--bg-depth);
+        display: flex;
+        justify-content: center;
+        align-items: center;
 
         position: relative;
 
-        .replayer-wrapper {
-            transform-origin: top left;
+        .player-frame {
+            position: absolute;
         }
-
         iframe {
             border: 0px;
             background-color: white;
@@ -113,28 +117,13 @@
             z-index: 10;
 
             .rrweb-overlay {
-                transition: all 200ms;
-                position: absolute;
-
-                display: flex;
-                justify-content: center;
-                align-items: center;
-
-                height: 100%;
-                width: 100%;
-
-                background-color: var(--bg-overlay);
-                opacity: 0.2;
-
-                font-size: 40px;
-                color: white;
-                cursor: pointer;
+                transition: background-color 200ms;
+                background-color: rgba(0, 0, 0, 0.08);
 
                 &:hover {
-                    opacity: 0.5;
+                    background-color: rgba(0, 0, 0, 0.15);
                 }
-
-                .rrweb-overlay-play-icon {
+                .rrweb-overlay-icon {
                     svg {
                         width: 5rem;
                         height: 5rem;
@@ -166,76 +155,67 @@
     }
 }
 
-// Session player v3 can exist inside of a modal
-.ant-modal.session-player-wrapper-v3 {
-    width: calc(100vw - 2rem) !important;
-    max-width: 880px;
-    height: calc(100vh - 2rem);
-    top: 1rem;
-    padding: 0;
+.session-player-v3 {
+    .session-player-body {
+        height: 500px;
+        min-height: 500px;
 
-    .ant-modal-content {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-
-        .ant-modal-header {
-            padding: 0;
-            border-color: var(--border);
-            flex-shrink: 0;
+        .player-container {
+            padding: 10px;
         }
+    }
 
-        .ant-modal-body {
-            padding: 0;
-            overflow-y: auto;
-            flex: 1;
+    .player-sidebar {
+        min-height: 20rem;
+        height: 100%;
+        width: 100%;
+        padding: 0;
+        border: none;
+    }
 
-            .session-drawer-body {
-                height: 100%;
+    .player-filter {
+        background-color: var(--side);
+        padding: 0.5rem;
+        gap: 0.75rem;
+        row-gap: 0.5rem !important;
 
-                .session-player-body {
-                    height: 500px;
-                    min-height: 500px;
+        .player-filter-matching-events {
+            min-height: 2.5rem;
+            padding-top: 0.25rem;
+            padding-bottom: 0.25rem;
+            background-color: var(--bg-light);
+        }
+    }
 
-                    .player-container {
-                        padding: 10px;
-                    }
-                }
+    .player-controller {
+        padding: 0.75rem;
 
-                .player-controller {
-                    padding: 0.75rem;
+        .rrweb-controller {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
 
-                    .rrweb-controller {
-                        display: flex;
-                        flex-direction: column;
-                        width: 100%;
+            .rrweb-controller__top {
+                display: flex;
+                align-items: center;
+                flex-direction: row;
+                width: 100%;
+                height: 32px;
+                margin-bottom: 0.5rem;
+            }
 
-                        .rrweb-controller__top {
-                            display: flex;
-                            align-items: center;
-                            flex-direction: row;
-                            width: 100%;
-                            height: 32px;
-                            margin-bottom: 0.5rem;
-                        }
-
-                        .rrweb-controller__bottom {
-                            width: 100%;
-                            height: 32px;
-                        }
-                    }
-                }
-
-                .player-sidebar {
-                    height: 100%;
-                    min-height: 20rem;
-                    width: 100%;
-                    padding: 0;
-                    border: none;
-                }
+            .rrweb-controller__bottom {
+                width: 100%;
+                height: 32px;
             }
         }
     }
+}
+// Session player v3 can exist inside of a modal
+.SessionPlayerModal {
+    width: 100%;
+    height: calc(100vh - 2rem);
+    padding: 0;
 }
 
 .ant-drawer.session-player-wrapper-v2 {

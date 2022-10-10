@@ -1,18 +1,20 @@
 import React from 'react'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ChartDisplayType, ChartParams, GraphType, InsightType } from '~/types'
-import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { DateDisplay } from 'lib/components/DateDisplay'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(logic)
-    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
 
     return indexedResults &&
         indexedResults[0]?.data &&
@@ -27,7 +29,6 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
             hiddenLegendKeys={hiddenLegendKeys}
             datasets={indexedResults}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
-            insightNumericId={insight.id}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
             showPersonsModal={showPersonsModal}
@@ -46,14 +47,13 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                     : undefined
             }
             isCompare={!!filters.compare}
-            timezone={insight.timezone}
             isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
                 !showPersonsModal || isMultiSeriesFormula(filters.formula)
                     ? undefined
                     : (payload) => {
-                          const { index, points, crossDataset, seriesId } = payload
+                          const { index, points, crossDataset } = payload
 
                           const dataset = points.referencePoint.dataset
                           const day = dataset?.days?.[index] ?? ''
@@ -63,27 +63,31 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                               return
                           }
 
-                          const params = {
-                              action: dataset.action,
-                              label,
-                              date_from: day,
-                              date_to: day,
-                              filters,
-                              breakdown_value: points.clickedPointNotLine
-                                  ? dataset.breakdown_value || dataset.status
-                                  : undefined,
-                              saveOriginal: true,
-                              crossDataset,
-                              seriesId,
-                              pointValue: dataset?.data?.[index] ?? undefined,
-                          }
-                          if (dataset.persons_urls?.[index].url) {
-                              loadPeopleFromUrl({
-                                  ...params,
-                                  url: dataset.persons_urls[index].url,
+                          const urls = urlsForDatasets(crossDataset, index)
+
+                          if (urls?.length) {
+                              const title =
+                                  filters.shown_as === 'Stickiness' ? (
+                                      <>
+                                          <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
+                                      </>
+                                  ) : (
+                                      (label: string) => (
+                                          <>
+                                              {label} on{' '}
+                                              <DateDisplay
+                                                  interval={filters.interval || 'day'}
+                                                  date={day?.toString() || ''}
+                                              />
+                                          </>
+                                      )
+                                  )
+
+                              openPersonsModal({
+                                  urls,
+                                  urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
+                                  title,
                               })
-                          } else {
-                              loadPeople(params)
                           }
                       }
             }

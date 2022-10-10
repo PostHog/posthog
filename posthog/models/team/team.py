@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, List, Optional
 
 import posthoganalytics
 import pytz
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
@@ -11,6 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team.util import person_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
@@ -39,7 +41,7 @@ class TeamManager(models.Manager):
                 "key": "$host",
                 "operator": "is_not",
                 "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
-            },
+            }
         ]
         if organization:
             example_emails = organization.members.only("email")
@@ -49,7 +51,7 @@ class TeamManager(models.Manager):
                 example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
                     return [
-                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
+                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"}
                     ] + filters
         return filters
 
@@ -95,7 +97,7 @@ class Team(UUIDClassicModel):
     )
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
     name: models.CharField = models.CharField(
-        max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
+        max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")]
     )
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
@@ -104,15 +106,22 @@ class Team(UUIDClassicModel):
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
+    capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
+    # This is not a manual setting. It's updated automatically to reflect if the team uses web-inject plugins or not.
+    inject_web_apps: models.BooleanField = models.BooleanField(null=True)
+
     test_account_filters: models.JSONField = models.JSONField(default=list)
+    test_account_filters_default_checked: models.BooleanField = models.BooleanField(null=True, blank=True)
+
     path_cleaning_filters: models.JSONField = models.JSONField(default=list, null=True, blank=True)
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
     person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
     live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
+    recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
 
     primary_dashboard: models.ForeignKey = models.ForeignKey(
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
@@ -197,30 +206,31 @@ class Team(UUIDClassicModel):
 
     @property
     def actor_on_events_querying_enabled(self) -> bool:
-        # Two part gate to ensure we don't accidentally enable this for everyone prematurely.
-        # Nor should we start making excessive requests to the API to get results.
-        # Temporary, until we're convinced the library works well enough.
-        enabled_teams = get_list(get_instance_setting("ENABLE_ACTOR_ON_EVENTS_TEAMS"))
-        if len(enabled_teams) > 0:
-            return str(self.pk) in enabled_teams or "all" in enabled_teams
+        # on PostHog Cloud, use the feature flag
+        if settings.MULTI_TENANCY:
+            return posthoganalytics.feature_enabled(
+                "person-on-events-enabled",
+                str(self.uuid),
+                groups={"organization": str(self.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(self.organization.id),
+                        "created_at": self.organization.created_at,
+                    }
+                },
+                only_evaluate_locally=True,
+            )
 
-        # only when instance setting list is empty, use the feature flag
-        return posthoganalytics.feature_enabled(
-            "person-on-events-enabled",
-            str(self.uuid),
-            groups={"project": str(self.uuid)},
-            group_properties={"project": {"id": str(self.pk)}},
-            only_evaluate_locally=True,
-        )
+        # If the async migration is not complete, don't enable actor on events querying.
+        if not person_on_events_ready():
+            return False
+
+        # on self-hosted, use the instance setting
+        return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
 
     @property
     def strict_caching_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
-        return str(self.pk) in enabled_teams or "all" in enabled_teams
-
-    @property
-    def geoip_property_overrides_enabled(self) -> bool:
-        enabled_teams = get_list(get_instance_setting("GEOIP_PROPERTY_OVERRIDES_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
     def __str__(self):

@@ -40,7 +40,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
     [Scene.MySettings]: () => import('./me/Settings'),
-    [Scene.Annotations]: () => import('./annotations'),
+    [Scene.Annotations]: () => import('./annotations/Annotations'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.Signup]: () => import('./authentication/Signup'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
@@ -56,4 +56,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.PasswordResetComplete]: () => import('./authentication/PasswordResetComplete'),
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
+    [Scene.IngestionWarnings]: () => import('./data-management/ingestion-warnings/IngestionWarningsView'),
 }

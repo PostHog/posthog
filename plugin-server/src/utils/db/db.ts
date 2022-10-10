@@ -222,7 +222,7 @@ export class DB {
         })
     }
 
-    public postgresTransaction<ReturnType extends any>(
+    public postgresTransaction<ReturnType>(
         tag: string,
         transaction: (client: PoolClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
@@ -1237,7 +1237,7 @@ export class DB {
                 cohort.last_calculation ?? new Date().toISOString(),
                 cohort.errors_calculating ?? 0,
                 cohort.is_static ?? false,
-                cohort.version ?? 0,
+                cohort.version,
                 cohort.pending_version ?? cohort.version ?? 0,
             ],
             'createCohort'
@@ -1245,34 +1245,27 @@ export class DB {
         return insertResult.rows[0]
     }
 
-    public async doesPersonBelongToCohort(
-        cohortId: number,
-        person: IngestionPersonData,
-        teamId: Team['id']
-    ): Promise<boolean> {
-        const chResult = await this.clickhouseQuery(
-            `SELECT 1 FROM person_static_cohort
-            WHERE
-                team_id = ${teamId}
-                AND cohort_id = ${cohortId}
-                AND person_id = '${escapeClickHouseString(person.uuid)}'
-            LIMIT 1`
-        )
-
-        if (chResult.rows > 0) {
-            // Cohort is static and our person belongs to it
-            return true
-        }
-
+    public async doesPersonBelongToCohort(cohortId: number, person: IngestionPersonData): Promise<boolean> {
         const psqlResult = await this.postgresQuery(
-            `SELECT EXISTS (SELECT 1 FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2)`,
+            `
+            SELECT count(1) AS count
+            FROM posthog_cohortpeople
+            JOIN posthog_cohort ON (posthog_cohort.id = posthog_cohortpeople.cohort_id)
+            WHERE cohort_id=$1
+              AND person_id=$2
+              AND posthog_cohortpeople.version IS NOT DISTINCT FROM posthog_cohort.version
+            `,
             [cohortId, person.id],
             'doesPersonBelongToCohort'
         )
-        return psqlResult.rows[0].exists
+        return psqlResult.rows[0].count > 0
     }
 
-    public async addPersonToCohort(cohortId: number, personId: Person['id'], version: number): Promise<CohortPeople> {
+    public async addPersonToCohort(
+        cohortId: number,
+        personId: Person['id'],
+        version: number | null
+    ): Promise<CohortPeople> {
         const insertResult = await this.postgresQuery(
             `INSERT INTO posthog_cohortpeople (cohort_id, person_id, version) VALUES ($1, $2, $3) RETURNING *;`,
             [cohortId, personId, version],

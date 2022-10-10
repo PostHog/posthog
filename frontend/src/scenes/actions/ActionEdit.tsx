@@ -7,7 +7,7 @@ import './Actions.scss'
 import { ActionStep } from './ActionStep'
 import { Button, Col, Row } from 'antd'
 import { InfoCircleOutlined, LoadingOutlined, PlusOutlined } from '@ant-design/icons'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -19,9 +19,9 @@ import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
-import { lemonToast } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { IconPlayCircle } from 'lib/components/icons'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -31,7 +31,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
         temporaryToken,
     }
     const logic = actionEditLogic(logicProps)
-    const { action, actionLoading, actionCount, actionCountLoading, shouldSimplifyActions } = useValues(logic)
+    const { action, actionLoading, actionCount, actionCountLoading } = useValues(logic)
     const { submitAction, deleteAction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -57,7 +57,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             status="danger"
             type="secondary"
             onClick={() => {
-                router.actions.push(shouldSimplifyActions ? urls.eventDefinitions() : urls.actions())
+                router.actions.push(urls.actions())
             }}
         >
             Cancel
@@ -74,7 +74,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 <EditableField
                                     name="name"
                                     value={value || ''}
-                                    placeholder={`Name this ${shouldSimplifyActions ? 'calculated event' : 'action'}`}
+                                    placeholder={`Name this action`}
                                     onChange={
                                         !id
                                             ? onChange
@@ -118,7 +118,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                                 ? 'edit'
                                                 : undefined /* When creating a new action, maintain edit mode */
                                         }
-                                        autoFocus={!!id}
                                         data-attr="action-description"
                                         className="action-description"
                                         compactButtons
@@ -139,7 +138,34 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                             </Field>
                         </>
                     }
-                    buttons={!!id ? deleteButton() : cancelButton()}
+                    buttons={
+                        <>
+                            {id ? (
+                                <LemonButton
+                                    type="secondary"
+                                    to={
+                                        combineUrl(urls.sessionRecordings(), {
+                                            filters: {
+                                                actions: [
+                                                    {
+                                                        id: id,
+                                                        type: 'actions',
+                                                        order: 0,
+                                                        name: action.name,
+                                                    },
+                                                ],
+                                            },
+                                        }).url
+                                    }
+                                    sideIcon={<IconPlayCircle />}
+                                    data-attr="action-view-recordings"
+                                >
+                                    View recordings
+                                </LemonButton>
+                            ) : null}
+                            {!!id ? deleteButton() : cancelButton()}
+                        </>
+                    }
                 />
                 {id && (
                     <div className="input-set">
@@ -148,8 +174,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 {actionCountLoading && <LoadingOutlined />}
                                 {actionCount !== null && actionCount > -1 && (
                                     <>
-                                        This {shouldSimplifyActions ? 'calculated event' : 'action'} matches{' '}
-                                        <b>{compactNumber(actionCount)}</b> events in the last 3 months
+                                        This action matches <b>{compactNumber(actionCount)}</b> events in the last 3
+                                        months
                                     </>
                                 )}
                             </span>
@@ -160,8 +186,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 <div style={{ overflow: 'visible' }}>
                     <h2 className="subtitle">Match groups</h2>
                     <div>
-                        Your {shouldSimplifyActions ? 'calculated event' : 'action'} will be triggered whenever{' '}
-                        <b>any of your match groups</b> are received.{' '}
+                        Your action will be triggered whenever <b>any of your match groups</b> are received.{' '}
                         <a href="https://posthog.com/docs/features/actions" target="_blank">
                             <InfoCircleOutlined />
                         </a>
@@ -179,41 +204,44 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         )}
                     </Field>
                     <Field name="steps">
-                        {({ value, onChange }) => (
+                        {({ value: stepsValue, onChange }) => (
                             <Row gutter={[24, 24]}>
                                 <>
-                                    {value?.map((step: ActionStepType, index: number) => (
-                                        <ActionStep
-                                            key={step.id || step.isNew}
-                                            identifier={String(step.id || step.isNew)}
-                                            index={index}
-                                            step={step}
-                                            actionId={action.id || 0}
-                                            isOnlyStep={!!value && value.length === 1}
-                                            onDelete={() => {
-                                                const identifier = step.id ? 'id' : 'isNew'
-                                                onChange(
-                                                    value?.filter(
-                                                        (s: ActionStepType) => s[identifier] !== step[identifier]
+                                    {stepsValue.map((step: ActionStepType, index: number) => {
+                                        const identifier = String(JSON.stringify(step))
+                                        return (
+                                            <ActionStep
+                                                key={index}
+                                                identifier={identifier}
+                                                index={index}
+                                                step={step}
+                                                actionId={action.id || 0}
+                                                isOnlyStep={!!stepsValue && stepsValue.length === 1}
+                                                onDelete={() => {
+                                                    const identifier = step.id ? 'id' : 'isNew'
+                                                    onChange(
+                                                        stepsValue?.filter(
+                                                            (s: ActionStepType) => s[identifier] !== step[identifier]
+                                                        ) ?? []
                                                     )
-                                                )
-                                            }}
-                                            onChange={(newStep) => {
-                                                onChange(
-                                                    value?.map((s: ActionStepType) =>
-                                                        (step.id && s.id == step.id) ||
-                                                        (step.isNew && s.isNew === step.isNew)
-                                                            ? {
-                                                                  id: step.id,
-                                                                  isNew: step.isNew,
-                                                                  ...newStep,
-                                                              }
-                                                            : s
+                                                }}
+                                                onChange={(newStep) => {
+                                                    onChange(
+                                                        stepsValue?.map((s: ActionStepType) =>
+                                                            (step.id && s.id == step.id) ||
+                                                            (step.isNew && s.isNew === step.isNew)
+                                                                ? {
+                                                                      id: step.id,
+                                                                      isNew: step.isNew,
+                                                                      ...newStep,
+                                                                  }
+                                                                : s
+                                                        ) ?? []
                                                     )
-                                                )
-                                            }}
-                                        />
-                                    ))}
+                                                }}
+                                            />
+                                        )
+                                    })}
                                 </>
 
                                 <Col span={24} md={12}>
@@ -237,14 +265,9 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 <LemonCheckbox
                                     id="webhook-checkbox"
                                     checked={!!value}
-                                    onChange={(e) => onChange(e.target.checked)}
+                                    onChange={onChange}
                                     disabled={!slackEnabled}
-                                    label={
-                                        <>
-                                            Post to webhook when this{' '}
-                                            {shouldSimplifyActions ? 'calculated event' : 'action'} is triggered.
-                                        </>
-                                    }
+                                    label={<>Post to webhook when this action is triggered.</>}
                                 />
                                 <p className="pl-7">
                                     <Link to="/project/settings#webhook">
@@ -295,15 +318,5 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 </div>
             </Form>
         </div>
-    )
-}
-
-// TODO: remove when "simplify-actions" FF is released
-export function duplicateActionErrorToast(errorActionId: string, shouldSimplifyActions: boolean): void {
-    lemonToast.error(
-        <>
-            {shouldSimplifyActions ? 'Calculated event' : 'Action'} with this name already exists.{' '}
-            <a href={urls.action(errorActionId)}>Click here to edit.</a>
-        </>
     )
 }

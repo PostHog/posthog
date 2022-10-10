@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { funnelLogic } from './funnelLogic'
-import { FunnelStepWithConversionMetrics } from '~/types'
+import { FilterType, FunnelStepWithConversionMetrics } from '~/types'
 import { LemonRow } from 'lib/components/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -24,23 +24,37 @@ interface FunnelTooltipProps {
     stepIndex: number
     series: FunnelStepWithConversionMetrics
     groupTypeLabel: string
+    filters: Partial<FilterType>
 }
 
-function FunnelTooltip({ showPersonsModal, stepIndex, series, groupTypeLabel }: FunnelTooltipProps): JSX.Element {
+function FunnelTooltip({
+    showPersonsModal,
+    stepIndex,
+    series,
+    groupTypeLabel,
+    filters,
+}: FunnelTooltipProps): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     return (
-        <div className="FunnelTooltip">
+        <div className="FunnelTooltip InsightTooltip mx-2 mt-1 mb-2 p-2">
             <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />} fullWidth>
                 <strong>
                     <EntityFilterInfo
                         filter={getActionFilterFromFunnelStep(series)}
                         style={{ display: 'inline-block' }}
                     />{' '}
-                    • {formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, series.breakdown_value)}
+                    •{' '}
+                    {formatBreakdownLabel(
+                        cohorts,
+                        formatPropertyValueForDisplay,
+                        series.breakdown_value,
+                        series.breakdown,
+                        filters.breakdown_type
+                    )}
                 </strong>
             </LemonRow>
-            <LemonDivider className="mt-1 mb-2" />
+            <LemonDivider className="my-2" />
             <table>
                 <tbody>
                     <tr>
@@ -102,6 +116,7 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
                             stepIndex={currentTooltip[0]}
                             series={currentTooltip[1]}
                             groupTypeLabel={aggregationLabel(filters.aggregation_group_type_index).plural}
+                            filters={filters}
                         />
                     )}
                 </>,

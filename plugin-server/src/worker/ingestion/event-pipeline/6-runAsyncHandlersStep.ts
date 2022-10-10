@@ -41,7 +41,8 @@ async function processWebhooks(
     elements: Element[] | undefined
 ) {
     if (event.event !== '$snapshot') {
-        const actionMatches = await runner.hub.actionMatcher.match(event, personContainer, elements)
-        await runner.hub.hookCannon.findAndFireHooks(event, personContainer, actionMatches)
+        const person = await personContainer.get()
+        const actionMatches = await runner.hub.actionMatcher.match(event, person, elements)
+        await runner.hub.hookCannon.findAndFireHooks(event, person, actionMatches)
     }
 }

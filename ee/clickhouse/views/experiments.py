@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
 from ee.clickhouse.queries.experiments.secondary_experiment_result import ClickhouseSecondaryExperimentResult
 from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
+from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -48,13 +49,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = [
-            "id",
-            "created_by",
-            "created_at",
-            "updated_at",
-            "feature_flag",
-        ]
+        read_only_fields = ["id", "created_by", "created_at", "updated_at", "feature_flag"]
 
     def validate_parameters(self, value):
         if not value:
@@ -219,7 +214,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         )
 
         result = experiment_class(
-            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,
+            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date
         ).get_results()
 
         return Response(result)
@@ -252,7 +247,23 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         filter = Filter(experiment.secondary_metrics[parsed_id]["filters"])
 
         result = ClickhouseSecondaryExperimentResult(
-            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,
+            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date
         ).get_results()
 
         return Response(result)
+
+    # ******************************************
+    # /projects/:id/experiments/requires_flag_implementation
+    #
+    # Returns current results of an experiment, and graphs
+    # 1. Probability of success
+    # 2. Funnel breakdown graph to display
+    # ******************************************
+    @action(methods=["GET"], detail=False)
+    def requires_flag_implementation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+
+        filter = Filter(request=request, team=self.team).with_data({"date_from": "-7d"})
+
+        warning = requires_flag_warning(filter, self.team)
+
+        return Response({"result": warning})

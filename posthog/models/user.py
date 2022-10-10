@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypedDict
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -11,9 +11,16 @@ from posthog.constants import AvailableFeature
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
-from .personal_api_key import PersonalAPIKey
+from .personal_api_key import PersonalAPIKey, hash_key_value
 from .team import Team
 from .utils import UUIDClassicModel, generate_random_token, sane_repr
+
+
+class Notifications(TypedDict, total=False):
+    plugin_disabled: bool
+
+
+NOTIFICATION_DEFAULTS: Notifications = {"plugin_disabled": True}
 
 
 class UserManager(BaseUserManager):
@@ -57,9 +64,7 @@ class UserManager(BaseUserManager):
                 team = create_team(organization, user)
             else:
                 team = Team.objects.create_with_data(user=user, organization=organization, **(team_fields or {}))
-            user.join(
-                organization=organization, level=OrganizationMembership.Level.OWNER,
-            )
+            user.join(organization=organization, level=OrganizationMembership.Level.OWNER)
             return organization, team, user
 
     def create_and_join(
@@ -79,7 +84,9 @@ class UserManager(BaseUserManager):
     def get_from_personal_api_key(self, key_value: str) -> Optional["User"]:
         try:
             personal_api_key: PersonalAPIKey = (
-                PersonalAPIKey.objects.select_related("user").filter(user__is_active=True).get(value=key_value)
+                PersonalAPIKey.objects.select_related("user")
+                .filter(user__is_active=True)
+                .get(secure_value=hash_key_value(key_value))
             )
         except PersonalAPIKey.DoesNotExist:
             return None
@@ -99,13 +106,10 @@ class User(AbstractUser, UUIDClassicModel):
 
     DISABLED = "disabled"
     TOOLBAR = "toolbar"
-    TOOLBAR_CHOICES = [
-        (DISABLED, DISABLED),
-        (TOOLBAR, TOOLBAR),
-    ]
+    TOOLBAR_CHOICES = [(DISABLED, DISABLED), (TOOLBAR, TOOLBAR)]
 
     current_organization = models.ForeignKey(
-        "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+",
+        "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+"
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
@@ -114,6 +118,8 @@ class User(AbstractUser, UUIDClassicModel):
 
     # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    # These override the notification settings
+    partial_notification_settings: models.JSONField = models.JSONField(null=True, blank=True)
     anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
@@ -179,7 +185,7 @@ class User(AbstractUser, UUIDClassicModel):
         return self.current_team
 
     def join(
-        self, *, organization: Organization, level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
+        self, *, organization: Organization, level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER
     ) -> OrganizationMembership:
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
@@ -197,6 +203,13 @@ class User(AbstractUser, UUIDClassicModel):
             self.save()
             return membership
 
+    @property
+    def notification_settings(self) -> Notifications:
+        return {
+            **NOTIFICATION_DEFAULTS,  # type: ignore
+            **(self.partial_notification_settings if self.partial_notification_settings else {}),
+        }
+
     def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
         if membership.level == OrganizationMembership.Level.OWNER:
@@ -213,7 +226,7 @@ class User(AbstractUser, UUIDClassicModel):
     def get_analytics_metadata(self):
 
         team_member_count_all: int = (
-            OrganizationMembership.objects.filter(organization__in=self.organizations.all(),)
+            OrganizationMembership.objects.filter(organization__in=self.organizations.all())
             .values("user_id")
             .distinct()
             .count()
@@ -233,7 +246,7 @@ class User(AbstractUser, UUIDClassicModel):
             "project_count": self.teams.count(),
             "team_member_count_all": team_member_count_all,
             "completed_onboarding_once": self.teams.filter(
-                completed_snippet_onboarding=True, ingested_event=True,
+                completed_snippet_onboarding=True, ingested_event=True
             ).exists(),  # has completed the onboarding at least for one project
             # properties dependent on current project / org below
             "billing_plan": self.organization.billing_plan if self.organization else None,

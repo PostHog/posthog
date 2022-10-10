@@ -39,6 +39,7 @@ export class GraphileQueue extends JobQueueBase {
             runAt: new Date(job.timestamp),
             maxAttempts: 1,
             priority: 1,
+            jobKey: job.jobKey,
         })
     }
 
@@ -75,9 +76,11 @@ export class GraphileQueue extends JobQueueBase {
                     schema: this.serverConfig.JOB_QUEUE_GRAPHILE_SCHEMA,
                     noPreparedStatements: !this.serverConfig.JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS,
                     concurrency: 1,
-                    // Install signal handlers for graceful shutdown on SIGINT, SIGTERM, etc
-                    noHandleSignals: false,
-                    pollInterval: this.serverConfig.PLUGIN_SERVER_MODE === 'async' ? 100 : 2000,
+                    // Do not install signal handlers, we are handled signals in
+                    // higher level code. If we let graphile handle signals it
+                    // ends up sending another SIGTERM.
+                    noHandleSignals: true,
+                    pollInterval: 2000,
                     // you can set the taskList or taskDirectory but not both
                     taskList: this.jobHandlers,
                 })
@@ -102,9 +105,7 @@ export class GraphileQueue extends JobQueueBase {
     async createPool(): Promise<Pool> {
         return await new Promise(async (resolve, reject) => {
             let resolved = false
-            const configOrDatabaseUrl = this.serverConfig.JOB_QUEUE_GRAPHILE_URL
-                ? this.serverConfig.JOB_QUEUE_GRAPHILE_URL
-                : this.serverConfig
+
             const onError = (error: Error) => {
                 if (resolved) {
                     this.onConnectionError(error)
@@ -112,7 +113,7 @@ export class GraphileQueue extends JobQueueBase {
                     reject(error)
                 }
             }
-            const pool = createPostgresPool(configOrDatabaseUrl, onError)
+            const pool = createPostgresPool(this.serverConfig, onError)
             try {
                 await pool.query('select 1')
             } catch (error) {

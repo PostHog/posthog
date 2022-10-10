@@ -72,7 +72,7 @@ module.exports = {
         // 'backgroundAttachment', // The background-attachment utilities like bg-local
         // 'backgroundBlendMode', // The background-blend-mode utilities like bg-blend-color-burn
         // 'backgroundClip', // The background-clip utilities like bg-clip-padding
-        // 'backgroundColor', // The background-color utilities like bg-green-700
+        'backgroundColor', // The background-color utilities like bg-green-700
         // 'backgroundImage', // The background-image utilities like bg-gradient-to-br
         // 'backgroundOpacity', // The background-color opacity utilities like bg-opacity-25
         // 'backgroundOrigin', // The background-origin utilities like bg-origin-padding
@@ -146,7 +146,7 @@ module.exports = {
         // 'justifyItems', // The justify-items utilities like justify-items-end
         // 'justifySelf', // The justify-self utilities like justify-self-end
         // 'letterSpacing', // The letter-spacing utilities like tracking-normal
-        // 'lineHeight', // The line-height utilities like leading-9
+        'lineHeight', // The line-height utilities like leading-9
         // 'listStylePosition', // The list-style-position utilities like list-inside
         'listStyleType', // The list-style-type utilities like list-disc
         'margin', // The margin utilities like mt-28
@@ -163,7 +163,7 @@ module.exports = {
         // 'outlineOffset', // The outline-offset utilities like outline-offset-2
         // 'outlineStyle', // The outline-style utilities like outline-dashed
         // 'outlineWidth', // The outline-width utilities like outline-2
-        // 'overflow', // The overflow utilities like overflow-x-hidden
+        'overflow', // The overflow utilities like overflow-x-hidden
         // 'overscrollBehavior', // The overscroll-behavior utilities like overscroll-y-contain
         'padding', // The padding utilities like pt-28
         // 'placeContent', // The place-content utilities like place-content-between
@@ -203,7 +203,7 @@ module.exports = {
         // 'textDecorationThickness', // The text-decoration-thickness utilities like decoration-4
         // 'textIndent', // The text-indent utilities like indent-28
         // 'textOpacity', // The text-opacity utilities like text-opacity-50
-        // 'textOverflow', // The text-overflow utilities like overflow-ellipsis
+        'textOverflow', // The text-overflow utilities like overflow-ellipsis
         // 'textTransform', // The text-transform utilities like lowercase
         // 'textUnderlineOffset', // The text-underline-offset utilities like underline-offset-2
         // 'touchAction', // The touch-action utilities like touch-pan-right

@@ -18,6 +18,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { ThirtyDayQueryCountTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 
 export const scene: SceneExport = {
     component: EventPropertyDefinitionsTable,
@@ -64,7 +65,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
         ...(hasIngestionTaxonomy
             ? [
                   {
-                      title: '30 day queries',
+                      title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
                       key: 'query_usage_30_day',
                       align: 'right',
                       render: function Render(_, definition: PropertyDefinition) {
@@ -87,9 +88,8 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                 caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
                 tabbedPage
             />
-            <DataManagementPageTabs tab={DataManagementTab.EventPropertyDefinitions} />
             {preflight && !preflight?.is_event_property_usage_enabled ? (
-                <UsageDisabledWarning tab="Event Property Definitions" />
+                <UsageDisabledWarning />
             ) : (
                 eventPropertyDefinitions.results?.[0]?.query_usage_30_day === null && (
                     <div className="mb-4">
@@ -99,7 +99,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                     </div>
                 )
             )}
-
+            <DataManagementPageTabs tab={DataManagementTab.EventPropertyDefinitions} />
             <div className="mb-4">
                 <LemonInput
                     type="search"

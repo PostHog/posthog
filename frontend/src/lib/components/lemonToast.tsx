@@ -1,6 +1,6 @@
 import React from 'react'
 import { toast, ToastContentProps as ToastifyRenderProps, ToastOptions } from 'react-toastify'
-import { IconCheckmark, IconClose, IconErrorOutline, IconInfo, IconWarningAmber } from './icons'
+import { IconCheckmark, IconClose, IconErrorOutline, IconInfo, IconWarning } from './icons'
 import { LemonButton } from './LemonButton'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
@@ -11,6 +11,7 @@ export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): J
 interface ToastButton {
     label: string
     action: () => void
+    dataAttr?: string
 }
 
 interface ToastOptionsWithButton extends ToastOptions {
@@ -43,6 +44,7 @@ export function ToastContent({ type, message, button, id }: ToastContentProps): 
                     }}
                     type="secondary"
                     size="small"
+                    data-attr={button.dataAttr}
                 >
                     {button.label}
                 </LemonButton>
@@ -75,7 +77,7 @@ export const lemonToast = {
     warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
         toastOptions = ensureToastId(toastOptions)
         toast.warning(<ToastContent type="warning" message={message} button={button} id={toastOptions.toastId} />, {
-            icon: <IconWarningAmber />,
+            icon: <IconWarning />,
             ...toastOptions,
         })
     },

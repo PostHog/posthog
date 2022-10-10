@@ -17,71 +17,6 @@
             left: 30px;
         }
     }
-
-    .empty-state {
-        position: relative;
-
-        .skeleton-actions {
-            text-align: right;
-            .ant-skeleton-avatar {
-                margin-right: 8px;
-            }
-        }
-
-        .pie-chart {
-            height: 200px;
-            width: 200px;
-            max-width: 100%;
-            margin-top: 1rem;
-
-            @media (max-width: 992px) {
-                height: 140px;
-                width: 140px;
-            }
-        }
-
-        .bar-chart {
-            display: flex;
-            margin-top: 1rem;
-            align-items: flex-end;
-            .bar-el {
-                width: 12.5%;
-                margin-left: 4px;
-                height: 100px;
-            }
-        }
-
-        .ant-col {
-            flex-grow: 1;
-            .ant-card {
-                height: 100%;
-            }
-        }
-
-        .fade-out-graphs {
-            margin-top: 1rem;
-            height: 150px;
-            overflow: hidden;
-            position: relative;
-
-            &::after {
-                @extend %mixin-gradient-overlay;
-                width: calc(100% - 16px); // .ant-row gutter
-                left: 8px;
-                height: 150px;
-            }
-        }
-
-        .cta {
-            width: 360px;
-            max-width: calc(100% - 32px);
-            position: absolute;
-            top: 16px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: var(--z-content-overlay);
-        }
-    }
 }
 
 .dashboard-header {
@@ -121,21 +56,4 @@
 #auto-refresh-check {
     padding: 5px 12px;
     cursor: pointer;
-}
-
-.CollaboratorRow {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 2rem;
-    margin-top: 0.5rem;
-    padding-left: 0.5rem;
-}
-
-.CollaboratorRow__details {
-    display: flex;
-    align-items: center;
-    > span {
-        margin-right: 0.5rem;
-    }
 }

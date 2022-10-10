@@ -2,18 +2,24 @@
 import clsx from 'clsx'
 import React, { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
 import './icons.scss'
-import { LemonBubble } from './LemonBubble/LemonBubble'
+import { LemonBadge, LemonBadgeProps } from './LemonBadge/LemonBadge'
 
 interface IconWithCountProps {
     count: number
     showZero?: boolean
+    status?: LemonBadgeProps['status']
 }
 
-export function IconWithCount({ count, children, showZero }: PropsWithChildren<IconWithCountProps>): JSX.Element {
+export function IconWithCount({
+    count,
+    children,
+    showZero,
+    status = 'primary',
+}: PropsWithChildren<IconWithCountProps>): JSX.Element {
     return (
         <span style={{ position: 'relative', display: 'inline-flex' }}>
             {children}
-            <LemonBubble count={count} size="small" position="top-right" showZero={showZero} />
+            <LemonBadge count={count} size="small" position="top-right" showZero={showZero} status={status} />
         </span>
     )
 }
@@ -37,6 +43,40 @@ const SvgIcon: React.FC<SVGAttributes<SVGSVGElement>> = ({ className, ...props }
         {...props}
     />
 )
+
+export function IconSpinner({ monocolor = false, ...props }: SvgIconProps & { monocolor?: boolean }): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            {/* top-right */}
+            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : '#1D4AFF'} fillOpacity={1} />
+            {/* top-left */}
+            <circle
+                cx="7"
+                cy="7.574"
+                r="3"
+                fill={monocolor ? 'currentColor' : '#F9BD2B'}
+                fillOpacity={monocolor ? 0.75 : 1}
+            />
+
+            {/* bottom-left */}
+            <circle
+                cx="7"
+                cy="17.574"
+                r="3"
+                fill={monocolor ? 'currentColor' : '#F54E00'}
+                fillOpacity={monocolor ? 0.5 : 1}
+            />
+            {/* bottom-right */}
+            <circle
+                cx="17"
+                cy="17.574"
+                r="3"
+                fill={monocolor ? 'currentColor' : '#000000'}
+                fillOpacity={monocolor ? 0.25 : 1}
+            />
+        </SvgIcon>
+    )
+}
 
 export function IconJavascript(props: SvgIconProps): JSX.Element {
     return (
@@ -498,6 +538,14 @@ export function IconSubdirectoryArrowRight(props: SvgIconProps): JSX.Element {
     )
 }
 
+export function IconSubArrowRight(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path d="M2 0H0V10H12.01V13L16 9L12.01 5V8H2V0Z" fill="currentColor" />{' '}
+        </SvgIcon>
+    )
+}
+
 export function IconGroupedEvents(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
@@ -618,7 +666,7 @@ export function IconErrorOutline(props: SvgIconProps): JSX.Element {
 }
 
 /** Material Design Warning Amber Outline icon. */
-export function IconWarningAmber(props: SvgIconProps): JSX.Element {
+export function IconWarning(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon viewBox="0 0 24 24" {...props}>
             <path d="m12 5.99 7.53 13.01h-15.06zm0-3.99-11 19h22zm1 14h-2v2h2zm0-6h-2v4h2z" fill="currentColor" />
@@ -1082,7 +1130,7 @@ export function IconClose(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon version="1.1" viewBox="0 0 24 24" {...props}>
             <path
-                d="M16.9248 15.4656L13.4592 12L16.9248 8.53443C17.0251 8.43411 17.0251 8.26995 16.9248 8.16963L15.8304 7.07524C15.7301 6.97492 15.5659 6.97492 15.4656 7.07524L12 10.5408L8.53443 7.07524C8.43411 6.97492 8.26995 6.97492 8.16963 7.07524L7.07524 8.16963C6.97492 8.26995 6.97492 8.43411 7.07524 8.53443L10.5408 12L7.07524 15.4656C6.97492 15.5659 6.97492 15.7301 7.07524 15.8304L8.16963 16.9248C8.26995 17.0251 8.43411 17.0251 8.53443 16.9248L12 13.4592L15.4656 16.9248C15.5659 17.0251 15.7301 17.0251 15.8304 16.9248L16.9248 15.8304C17.0251 15.7301 17.0251 15.5659 16.9248 15.4656Z"
+                d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"
                 fill="currentColor"
             />
         </SvgIcon>
@@ -1125,35 +1173,12 @@ export function IconEdit(props: SvgIconProps): JSX.Element {
     )
 }
 
-/** Material Design Save icon. */
-export function IconSave(props: SvgIconProps): JSX.Element {
-    return (
-        <SvgIcon version="1.1" viewBox="0 0 24 24" {...props}>
-            <path
-                d="m17 3h-12c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-12zm2 16h-14v-14h11.17l2.83 2.83zm-7-7c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3zm-6-6h9v4h-9z"
-                fill="currentColor"
-            />
-        </SvgIcon>
-    )
-}
-
 /** Material Design Lock icon. */
 export function IconLock(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon version="1.1" viewBox="0 0 24 24" {...props}>
             <path
                 d="m18 8h-1v-2c0-2.76-2.24-5-5-5s-5 2.24-5 5v2h-1c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-10c0-1.1-.9-2-2-2zm-9-2c0-1.66 1.34-3 3-3s3 1.34 3 3v2h-6zm9 14h-12v-10h12zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"
-                fill="currentColor"
-            />
-        </SvgIcon>
-    )
-}
-/** Material Design Lock icon. */
-export function IconLockLemon(props: SvgIconProps): JSX.Element {
-    return (
-        <SvgIcon viewBox="0 0 24 24" {...props}>
-            <path
-                d="M18 8H17V6C17 3.24 14.76 1 12 1C9.24 1 7 3.24 7 6V8H6C4.9 8 4 8.9 4 10V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V10C20 8.9 19.1 8 18 8ZM9 6C9 4.34 10.34 3 12 3C13.66 3 15 4.34 15 6V8H9V6ZM18 20H6V10H18V20ZM12 17C13.1 17 14 16.1 14 15C14 13.9 13.1 13 12 13C10.9 13 10 13.9 10 15C10 16.1 10.9 17 12 17Z"
                 fill="currentColor"
             />
         </SvgIcon>
@@ -1208,11 +1233,21 @@ export function IconRefresh(props: SvgIconProps): JSX.Element {
     )
 }
 
-/** Material Design Play icon. */
 export function IconPlay(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon version="1.1" viewBox="0 0 24 24" {...props}>
-            <path d="m10 8.64 5.27 3.36-5.27 3.36zm-2-3.64v14l11-7z" fill="currentColor" />{' '}
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M6 20L18.4444 12L6 4V20Z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+export function IconPlayCircle(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 20C7.59 20 4 16.41 4 12C4 7.59 7.59 4 12 4C16.41 4 20 7.59 20 12C20 16.41 16.41 20 12 20ZM9.5 16.5L16.5 12L9.5 7.5V16.5Z"
+                fill="currentColor"
+            />
         </SvgIcon>
     )
 }
@@ -1437,17 +1472,6 @@ export function IconFilter(props: SvgIconProps): JSX.Element {
     )
 }
 
-export function IconPlayCircle(props: SvgIconProps): JSX.Element {
-    return (
-        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 20 20" {...props}>
-            <path
-                d="M9.99988 0C4.47988 0 -0.00012207 4.48 -0.00012207 10C-0.00012207 15.52 4.47988 20 9.99988 20C15.5199 20 19.9999 15.52 19.9999 10C19.9999 4.48 15.5199 0 9.99988 0ZM9.99988 18C5.58988 18 1.99988 14.41 1.99988 10C1.99988 5.59 5.58988 2 9.99988 2C14.4099 2 17.9999 5.59 17.9999 10C17.9999 14.41 14.4099 18 9.99988 18ZM7.49988 14.5L14.4999 10L7.49988 5.5V14.5Z"
-                fill="currentColor"
-            />
-        </SvgIcon>
-    )
-}
-
 export function IconBookmarkBorder(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon viewBox="-4 -3 24 24" {...props}>
@@ -1591,6 +1615,74 @@ export function IconCoffee(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon viewBox="0 0 1024 1024" fill="currentColor" {...props}>
             <path d="M275 281c19.9 0 36-16.1 36-36V36c0-19.9-16.1-36-36-36s-36 16.1-36 36v209c0 19.9 16.1 36 36 36zm613 144H768c0-39.8-32.2-72-72-72H200c-39.8 0-72 32.2-72 72v248c0 3.4.2 6.7.7 9.9-.5 7-.7 14-.7 21.1 0 176.7 143.3 320 320 320 160.1 0 292.7-117.5 316.3-271H888c39.8 0 72-32.2 72-72V497c0-39.8-32.2-72-72-72zM696 681h-1.1c.7 7.6 1.1 15.2 1.1 23 0 137-111 248-248 248S200 841 200 704c0-7.8.4-15.4 1.1-23H200V425h496v256zm192-8H776V497h112v176zM613 281c19.9 0 36-16.1 36-36V36c0-19.9-16.1-36-36-36s-36 16.1-36 36v209c0 19.9 16.1 36 36 36zm-170 0c19.9 0 36-16.1 36-36V36c0-19.9-16.1-36-36-36s-36 16.1-36 36v209c0 19.9 16.1 36 36 36z" />
+        </SvgIcon>
+    )
+}
+
+export function IconEyeHidden(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M12 6.90455C15.1009 6.90455 17.8664 8.64727 19.2164 11.4045C18.7336 12.4027 18.0545 13.2618 17.2445 13.9573L18.3982 15.1109C19.5355 14.1045 20.4355 12.8445 21 11.4045C19.5845 7.81273 16.0909 5.26818 12 5.26818C10.9609 5.26818 9.96273 5.43182 9.02182 5.73455L10.3718 7.08454C10.9036 6.97818 11.4436 6.90455 12 6.90455ZM11.1245 7.83727L12.8182 9.53091C13.2845 9.73545 13.6609 10.1118 13.8655 10.5782L15.5591 12.2718C15.6245 11.9936 15.6736 11.6991 15.6736 11.3964C15.6818 9.36727 14.0291 7.72273 12 7.72273C11.6973 7.72273 11.4109 7.76364 11.1245 7.83727ZM3.82636 5.16182L6.01909 7.35455C4.68545 8.40182 3.63 9.79273 3 11.4045C4.41545 14.9964 7.90909 17.5409 12 17.5409C13.2436 17.5409 14.4382 17.3036 15.5345 16.87L18.3327 19.6682L19.4864 18.5145L4.98 4L3.82636 5.16182ZM9.96273 11.2982L12.0982 13.4336C12.0655 13.4418 12.0327 13.45 12 13.45C10.8709 13.45 9.95455 12.5336 9.95455 11.4045C9.95455 11.3636 9.96273 11.3391 9.96273 11.2982ZM7.18091 8.51636L8.61273 9.94818C8.42455 10.3982 8.31818 10.8891 8.31818 11.4045C8.31818 13.4336 9.97091 15.0864 12 15.0864C12.5155 15.0864 13.0064 14.98 13.4482 14.7918L14.25 15.5936C13.53 15.79 12.7773 15.9045 12 15.9045C8.89909 15.9045 6.13364 14.1618 4.78364 11.4045C5.35636 10.2345 6.19091 9.26909 7.18091 8.51636Z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+export function IconEyeVisible(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M12 7.03675C15.1009 7.03675 17.8664 8.77948 19.2164 11.5368C17.8664 14.294 15.1009 16.0368 12 16.0368C8.89909 16.0368 6.13364 14.294 4.78364 11.5368C6.13364 8.77948 8.89909 7.03675 12 7.03675ZM12 5.40039C7.90909 5.40039 4.41545 7.94494 3 11.5368C4.41545 15.1286 7.90909 17.6731 12 17.6731C16.0909 17.6731 19.5845 15.1286 21 11.5368C19.5845 7.94494 16.0909 5.40039 12 5.40039ZM12 9.4913C13.1291 9.4913 14.0455 10.4077 14.0455 11.5368C14.0455 12.6658 13.1291 13.5822 12 13.5822C10.8709 13.5822 9.95455 12.6658 9.95455 11.5368C9.95455 10.4077 10.8709 9.4913 12 9.4913ZM12 7.85494C9.97091 7.85494 8.31818 9.50766 8.31818 11.5368C8.31818 13.5658 9.97091 15.2186 12 15.2186C14.0291 15.2186 15.6818 13.5658 15.6818 11.5368C15.6818 9.50766 14.0291 7.85494 12 7.85494Z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+export function IconFunnelHorizontal(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M19 5L19 8L5 8L5 5L19 5ZM15 10.6L15 13.4L5 13.4L5 10.6L15 10.6ZM11 16.2L11 19L5 19L5 16.2L11 16.2Z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+export function IconArrowLeft(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M7.99 11H20V13H7.99V16L4 12L7.99 8V11Z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+export function IconFunnelVertical(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M5 5H8V19H5V5ZM10.6 9H13.4V19H10.6V9ZM16.2 13H19V19H16.2V13Z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+export function IconArrowRight(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M16.01 11H4V13H16.01V16L20 12L16.01 8V11Z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+export function IconNotification(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M10 21H14C14 22.1 13.1 23 12 23S10 22.1 10 21M21 19V20H3V19L5 17V11C5 7.9 7 5.2 10 4.3V4C10 2.9 10.9 2 12 2S14 2.9 14 4V4.3C17 5.2 19 7.9 19 11V17L21 19M17 11C17 8.2 14.8 6 12 6S7 8.2 7 11V18H17V11Z"
+            />
         </SvgIcon>
     )
 }

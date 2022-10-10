@@ -1,12 +1,7 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import (
-    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL,
-    KAFKA_COLUMNS,
-    STORAGE_POLICY,
-    kafka_engine,
-    trim_quotes_expr,
-)
+from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
@@ -68,7 +63,7 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED,
+    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
 )
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
@@ -160,8 +155,58 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 
 INSERT_EVENT_SQL = (
     lambda: f"""
-INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset)
-VALUES (%(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_chain)s, %(created_at)s, now(), 0)
+INSERT INTO {EVENTS_DATA_TABLE()}
+(
+    uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    person_id,
+    person_properties,
+    person_created_at,
+    group0_properties,
+    group1_properties,
+    group2_properties,
+    group3_properties,
+    group4_properties,
+    group0_created_at,
+    group1_created_at,
+    group2_created_at,
+    group3_created_at,
+    group4_created_at,
+    created_at,
+    _timestamp,
+    _offset
+)
+VALUES
+(
+    %(uuid)s,
+    %(event)s,
+    %(properties)s,
+    %(timestamp)s,
+    %(team_id)s,
+    %(distinct_id)s,
+    %(elements_chain)s,
+    %(person_id)s,
+    %(person_properties)s,
+    %(person_created_at)s,
+    %(group0_properties)s,
+    %(group1_properties)s,
+    %(group2_properties)s,
+    %(group3_properties)s,
+    %(group4_properties)s,
+    %(group0_created_at)s,
+    %(group1_created_at)s,
+    %(group2_created_at)s,
+    %(group3_created_at)s,
+    %(group4_created_at)s,
+    %(created_at)s,
+    now(),
+    0
+)
 """
 )
 
@@ -351,7 +396,7 @@ GROUP BY tag_name, elements_chain
 ORDER BY tag_count desc, tag_name
 LIMIT %(limit)s
 """.format(
-    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX,
+    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
 )
 
 GET_CUSTOM_EVENTS = """
@@ -359,11 +404,19 @@ SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN [
 """
 
 GET_EVENTS_VOLUME = "SELECT event, count() AS count, max(timestamp) AS last_seen_at FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"
-
-GET_TOTAL_EVENTS_VOLUME = "SELECT count() AS count FROM events WHERE team_id = %(team_id)s"
+GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES = """
+    WITH property_tuples AS (
+        SELECT DISTINCT ON (property_tuple.1)
+            arrayJoin(JSONExtractKeysAndValuesRaw(properties)) AS property_tuple
+        FROM events
+        WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s
+    ) SELECT property_tuple.1 AS property_key, property_tuple.2 AS sample_json_value FROM property_tuples"""
+GET_EVENT_PROPERTIES = """
+    SELECT DISTINCT event, arrayJoin(JSONExtractKeys(properties)) AS property_key FROM events
+    WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s"""
 
 #
-# Copying demo data
+# Demo data
 #
 
 COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(

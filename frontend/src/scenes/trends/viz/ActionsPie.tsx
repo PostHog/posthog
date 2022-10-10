@@ -1,20 +1,21 @@
 import './ActionsPie.scss'
 import React, { useState, useEffect } from 'react'
-import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
-import { useValues, useActions } from 'kea'
+import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { ChartParams, GraphType, GraphDataset, ActionFilter } from '~/types'
-import { personsModalLogic } from '../personsModalLogic'
+import { ChartParams, GraphType, GraphDataset } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
 export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const { indexedResults, labelGroupType, hiddenLegendKeys } = useValues(logic)
 
     function updateData(): void {
@@ -32,11 +33,6 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                 personsValues: _data.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,
-                hoverBackgroundColor: colorList,
-                hoverBorderColor: colorList,
-                borderColor: colorList,
-                hoverBorderWidth: 10,
-                borderWidth: 1,
             },
         ])
         setTotal(_data.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0))
@@ -52,7 +48,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
         data[0] && data[0].labels ? (
             <div className="actions-pie-component">
                 <div className="pie-chart">
-                    <LineGraph
+                    <PieChart
                         data-attr="trend-pie-graph"
                         hiddenLegendKeys={hiddenLegendKeys}
                         type={GraphType.Pie}
@@ -60,45 +56,31 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                         labels={data[0].labels}
                         labelGroupType={labelGroupType}
                         inSharedMode={!!inSharedMode}
-                        insightNumericId={insight.id}
                         showPersonsModal={showPersonsModal}
                         aggregationAxisFormat={insight.filters?.aggregation_axis_format}
                         onClick={
                             !showPersonsModal || insight.filters?.formula
                                 ? undefined
                                 : (payload) => {
-                                      const { points, index, seriesId } = payload
+                                      const { points, index, crossDataset } = payload
                                       const dataset = points.referencePoint.dataset
-                                      const action = dataset.actions?.[index]
                                       const label = dataset.labels?.[index]
-                                      const date_from = insight.filters?.date_from || ''
-                                      const date_to = insight.filters?.date_to || ''
-                                      const breakdown_value = dataset.breakdownValues?.[index]
-                                          ? dataset.breakdownValues[index]
-                                          : null
-                                      const params = {
-                                          action: action as ActionFilter,
-                                          label: label ?? '',
-                                          date_from,
-                                          date_to,
-                                          filters: insight.filters ?? {},
-                                          seriesId,
-                                          breakdown_value: breakdown_value ?? '',
-                                      }
-                                      if (dataset.persons_urls?.[index].url) {
-                                          loadPeopleFromUrl({
-                                              ...params,
-                                              url: dataset.persons_urls?.[index].url,
+
+                                      const urls = urlsForDatasets(crossDataset, index)
+                                      const selectedUrl = urls[index]?.value
+
+                                      if (selectedUrl) {
+                                          openPersonsModal({
+                                              urls,
+                                              urlsIndex: index,
+                                              title: <PropertyKeyInfo value={label || ''} disablePopover />,
                                           })
-                                      } else {
-                                          loadPeople(params)
                                       }
                                   }
                         }
                     />
                 </div>
-                <h1>
-                    <span className="label">Total: </span>
+                <h1 className="text-7xl text-center">
                     {formatAggregationAxisValue(insight.filters?.aggregation_axis_format, total)}
                 </h1>
             </div>

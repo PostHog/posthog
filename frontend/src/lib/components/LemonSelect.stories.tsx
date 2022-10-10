@@ -8,16 +8,16 @@ export default {
     component: LemonSelect,
     argTypes: {
         options: {
-            defaultValue: {
-                husky: { label: 'Husky' },
-                poodle: { label: 'Poodle' },
-                labrador: { label: 'Labrador' },
-            },
+            defaultValue: [
+                { value: 'husky', label: 'Husky' },
+                { value: 'poodle', label: 'Poodle' },
+                { value: 'labrador', label: 'Labrador' },
+            ] as LemonSelectOptions<string>,
         },
     },
 } as ComponentMeta<typeof LemonSelect>
 
-const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<LemonSelectOptions>) => {
+const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
     return (
         <div className="flex flex-row items-center w-full border p-4 gap-2">
             {(['small', undefined] as const).map((size, index) => (
@@ -38,49 +38,70 @@ SectionedOptions.args = {
     dropdownMatchSelectWidth: false,
     options: [
         {
-            label: 'Fruits',
-            options: {
-                orange: { label: 'Orange' },
-                pineapple: { label: 'Pineapple' },
-                apple: { label: 'Apple' },
-            },
+            title: 'Fruits',
+            options: [
+                { value: 'orange', label: 'Orange' },
+                { value: 'pineapple', label: 'Pineapple' },
+                { value: 'apple', label: 'Apple' },
+            ],
         },
         {
-            label: 'Vegetables',
-            options: {
-                potato: { label: 'Potato' },
-                lettuce: { label: 'Lettuce' },
-            },
+            title: 'Vegetables',
+            options: [
+                { value: 'potato', label: 'Potato' },
+                { value: 'lettuce', label: 'Lettuce' },
+            ],
         },
         {
-            label: (
+            title: (
                 <div>
                     <h5>I am a Custom label!</h5>
                     <div className="text-muted mx-2 mb-2">I can put whatever I want here</div>
                 </div>
             ),
-            options: {
-                tomato: { label: 'Tomato??' },
-            },
+            options: [{ value: 'tomato', label: 'Tomato??', disabled: true }],
+            footer: (
+                <div className="bg-side rounded p-2">
+                    <p className="text-muted" style={{ maxWidth: '15rem' }}>
+                        I am a custom footer! <br />
+                        This might be a good time to tell you about our premium features...
+                    </p>
+                </div>
+            ),
         },
-    ],
+    ] as LemonSelectOptions<string>,
+}
+
+export const MixedValuesTypes = Template.bind({})
+MixedValuesTypes.args = {
+    dropdownMatchSelectWidth: false,
+    options: [
+        { value: 'orange', label: 'Orange' },
+        { value: 2, label: 'Pineapple - 2' },
+        { value: 'apple', label: 'Apple' },
+        { value: '4', label: 'Potato - string 4' },
+        { value: 'lettuce', label: 'Lettuce' },
+        { value: 6, label: 'Tomato - 6' },
+    ] as LemonSelectOptions<string | number>,
 }
 
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true, value: 'poodle' }
 
 export const LongOptions = Template.bind({})
-
 LongOptions.args = {
     allowClear: true,
     value: '1',
-    options: [...Array(100)]
-        .map((_, i) => i)
-        .reduce(
-            (acc, x) => ({
-                ...acc,
-                [`${x}`]: { label: `${x}` },
-            }),
-            {}
-        ),
+    options: [...Array(100)].map((_, x) => ({ value: `${x}`, label: `${x}` })),
 }
+
+export const _FullWidth: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
+    return (
+        <div className="items-center w-full border p-4 gap-2">
+            <LemonSelect {...props} fullWidth={true} allowClear={true} value={'poodle'} />
+        </div>
+    )
+}
+
+export const FullWidth = _FullWidth.bind({})
+FullWidth.args = {}

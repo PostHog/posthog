@@ -12,7 +12,11 @@ def move_funnel_steps(apps, schema_editor):
     for funnel in Funnel.objects.all():
         funnel.filters = {
             "actions": [
-                {"id": step.action_id, "order": step.order, "type": TREND_FILTER_TYPE_ACTIONS,}
+                {
+                    "id": step.action_id,
+                    "order": step.order,
+                    "type": TREND_FILTER_TYPE_ACTIONS,
+                }
                 for step in funnel.steps.all()
             ]
         }
@@ -36,7 +40,9 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="funnel", name="filters", field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
+            model_name="funnel",
+            name="filters",
+            field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
         ),
         migrations.RunPython(move_funnel_steps, revert_funnel_steps),
     ]

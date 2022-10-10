@@ -2,13 +2,12 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
-import { Divider, Select, SelectProps, Tag } from 'antd'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
-import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
-import { Button } from 'antd'
-import { IconSelectEvents, IconSelectProperties } from 'lib/components/icons'
+import { IconPlus, IconSelectEvents, IconSelectProperties } from 'lib/components/icons'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export function CorrelationConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -36,30 +35,11 @@ export function CorrelationConfig(): JSX.Element {
         }
     }
 
-    const tagRender: SelectProps<any>['tagRender'] = (props) => {
-        const { label, onClose } = props
-        return (
-            <Tag
-                closable={true}
-                onClose={onClose}
-                style={{
-                    margin: '0.25rem',
-                    padding: '0.25rem 0.5em',
-                    background: '#D9D9D9',
-                    border: '1px solid #D9D9D9',
-                    borderRadius: '40px',
-                }}
-            >
-                {label}
-            </Tag>
-        )
-    }
-
     return (
         <>
             <h2 className="subtitle" id="internal-users-filtering">
                 Correlation analysis exclusions{' '}
-                <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                <LemonTag type="warning" className="uppercase ml-2">
                     Beta
                 </LemonTag>
             </h2>
@@ -69,47 +49,48 @@ export function CorrelationConfig(): JSX.Element {
                 Correlation analysis can automatically surface relevant signals for conversion, and help you understand
                 why your users dropped off and what makes them convert.
             </AlertMessage>
-            <Divider />
             {currentTeam && (
-                <>
-                    <h3 style={{ display: 'flex', alignItems: 'center', color: 'var(--muted-alt)' }}>
-                        <IconSelectProperties style={{ marginRight: 4, fontSize: '1.2em' }} />
-                        Excluded person properties
-                    </h3>
-                    <PersonPropertySelect
-                        onChange={(properties) => handleChange(properties)}
-                        selectedProperties={currentTeam.correlation_config.excluded_person_property_names || []}
-                        addText="Add exclusion"
-                    />
-                    <h3 style={{ display: 'flex', alignItems: 'center', color: 'var(--muted-alt)' }}>
-                        <IconSelectEvents style={{ marginRight: 4, fontSize: '1.2em' }} />
-                        Excluded events
-                    </h3>
-                    <EventSelect
-                        onChange={(excludedEvents) => handleChange(undefined, excludedEvents)}
-                        selectedEvents={currentTeam.correlation_config.excluded_event_names || []}
-                        addElement={
-                            <Button type="link" className="new-prop-filter" icon={<PlusCircleOutlined />}>
-                                Add exclusion
-                            </Button>
-                        }
-                    />
-                    <h3 style={{ display: 'flex', alignItems: 'center', color: 'var(--muted-alt)' }}>
-                        <IconSelectEvents style={{ marginRight: 4, fontSize: '1.2em' }} />
-                        Excluded event properties
-                    </h3>
-                    <div style={{ marginBottom: 8 }}>
-                        <Select
-                            mode="tags"
-                            style={{ width: '100%' }}
-                            allowClear
-                            tagRender={tagRender}
-                            onChange={(properties) => handleChange(undefined, undefined, properties)}
-                            value={currentTeam.correlation_config.excluded_event_property_names || []}
-                            tokenSeparators={[',']}
+                <div className="mt-4 space-y-2">
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectProperties className="text-lg" />
+                            Excluded person properties
+                        </h3>
+                        <PersonPropertySelect
+                            onChange={(properties) => handleChange(properties)}
+                            selectedProperties={currentTeam.correlation_config.excluded_person_property_names || []}
+                            addText="Add exclusion"
                         />
                     </div>
-                </>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Excluded events
+                        </h3>
+                        <EventSelect
+                            onChange={(excludedEvents) => handleChange(undefined, excludedEvents)}
+                            selectedEvents={currentTeam.correlation_config.excluded_event_names || []}
+                            addElement={
+                                <LemonButton size="small" type="secondary" icon={<IconPlus />}>
+                                    Add exclusion
+                                </LemonButton>
+                            }
+                        />
+                    </div>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Excluded event properties
+                        </h3>
+                        <div style={{ maxWidth: '40rem' }}>
+                            <LemonSelectMultiple
+                                mode="multiple-custom"
+                                onChange={(properties) => handleChange(undefined, undefined, properties)}
+                                value={currentTeam.correlation_config.excluded_event_property_names || []}
+                            />
+                        </div>
+                    </div>
+                </div>
             )}
         </>
     )

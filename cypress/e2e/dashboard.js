@@ -24,17 +24,21 @@ describe('Dashboard', () => {
     })
 
     it('Adding new insight to dashboard works', () => {
+        cy.intercept(/api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+
         cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
-        cy.wait(100)
+        cy.url().should('not.include', '/new') // wait for insight to complete and update URL
         cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
-        cy.focused().clear().type('Test Insight Zeus')
-        cy.get('button').contains('Save').click() // Save the new name
+        cy.get('[data-attr="insight-name"] input').type('Test Insight Zeus')
+        cy.get('[data-attr="insight-name"] [title="Save"]').click()
         cy.get('[data-attr="save-to-dashboard-button"]').click() // Open the Save to dashboard modal
         cy.get('[data-attr="dashboard-list-item"] button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
-        cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
-        cy.get('[data-attr="dashboard-list-item"] a').first().click({ force: true }) // Go to the dashboard
-        cy.get('[data-attr="insight-name"]').should('contain', 'Test Insight Zeus') // Check if the insight is there
+        cy.wait('@patchInsight').then(() => {
+            cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
+            cy.get('[data-attr="dashboard-list-item"] a').first().click({ force: true }) // Go to the dashboard
+            cy.get('[data-attr="insight-name"]').should('contain', 'Test Insight Zeus') // Check if the insight is there
+        })
     })
 
     it('Cannot see tags or description (non-FOSS feature)', () => {
@@ -79,10 +83,10 @@ describe('Dashboard', () => {
         cy.get('button').contains('Create').click()
 
         cy.contains('New Dashboard').should('exist')
-        cy.get('.empty-state').should('exist')
+        cy.get('.EmptyDashboard').should('exist')
 
         // Check that dashboard is not pinned by default
-        cy.get('.page-buttons [data-attr="more-button"]').click()
+        cy.get('.page-buttons [data-attr="dashboard-three-dots-options-menu"]').click()
         cy.get('button').contains('Pin dashboard').should('exist')
     })
 

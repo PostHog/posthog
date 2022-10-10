@@ -47,12 +47,7 @@ class GroupCursorPagination(CursorPagination):
 class GroupSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = Group
-        fields = [
-            "group_type_index",
-            "group_key",
-            "group_properties",
-            "created_at",
-        ]
+        fields = ["group_type_index", "group_key", "group_properties", "created_at"]
 
 
 class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):

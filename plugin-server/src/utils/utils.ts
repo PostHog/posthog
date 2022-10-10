@@ -64,12 +64,12 @@ export function setLogLevel(logLevel: LogLevel): void {
     }
 }
 
-export function cloneObject<T extends any | any[]>(obj: T): T {
+export function cloneObject<T>(obj: T): T {
     if (obj !== Object(obj)) {
         return obj
     }
     if (Array.isArray(obj)) {
-        return obj.map(cloneObject) as T
+        return (obj as any[]).map(cloneObject) as unknown as T
     }
     const clone: Record<string, any> = {}
     for (const i in obj) {
@@ -91,7 +91,7 @@ export class UUID {
      * This does not care about RFC4122, since neither does UUIDT above.
      * https://stackoverflow.com/questions/7905929/how-to-test-valid-uuid-guid
      */
-    // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
+
     static validateString(candidate: any, throwOnInvalid = true): boolean {
         const isValid = Boolean(
             candidate &&
@@ -126,7 +126,7 @@ export class UUID {
     }
 
     /** Convert to 128-bit BigInt. */
-    valueOf(): BigInt {
+    valueOf(): bigint {
         let value = 0n
         for (const byte of this.array) {
             value <<= 8n
@@ -307,11 +307,7 @@ export function code(strings: TemplateStringsArray): string {
     return dedentedCode.trim()
 }
 
-export async function tryTwice<T extends any>(
-    callback: () => Promise<T>,
-    errorMessage: string,
-    timeoutMs = 5000
-): Promise<T> {
+export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: string, timeoutMs = 5000): Promise<T> {
     const timeout = new Promise((_, reject) => setTimeout(reject, timeoutMs))
     try {
         const response = await Promise.race([timeout, callback()])
@@ -368,31 +364,22 @@ export function pluginDigest(plugin: Plugin, teamId?: number): string {
     return `plugin ${plugin.name} ID ${plugin.id} (${extras.join(' - ')})`
 }
 
-export function createPostgresPool(
-    configOrDatabaseUrl: PluginsServerConfig | string,
-    onError?: (error: Error) => any
-): Pool {
-    if (typeof configOrDatabaseUrl !== 'string') {
-        if (!configOrDatabaseUrl.DATABASE_URL && !configOrDatabaseUrl.POSTHOG_DB_NAME) {
-            throw new Error('Invalid configuration for Postgres: either DATABASE_URL or POSTHOG_DB_NAME required')
-        }
+export function createPostgresPool(config: PluginsServerConfig, onError?: (error: Error) => any): Pool {
+    if (!config.DATABASE_URL && !config.POSTHOG_DB_NAME) {
+        throw new Error('Invalid configuration for Postgres: either DATABASE_URL or POSTHOG_DB_NAME required')
     }
-    const credentials: Partial<PoolConfig> =
-        typeof configOrDatabaseUrl === 'string'
-            ? {
-                  connectionString: configOrDatabaseUrl,
-              }
-            : configOrDatabaseUrl.DATABASE_URL
-            ? {
-                  connectionString: configOrDatabaseUrl.DATABASE_URL,
-              }
-            : {
-                  database: configOrDatabaseUrl.POSTHOG_DB_NAME ?? undefined,
-                  user: configOrDatabaseUrl.POSTHOG_DB_USER,
-                  password: configOrDatabaseUrl.POSTHOG_DB_PASSWORD,
-                  host: configOrDatabaseUrl.POSTHOG_POSTGRES_HOST,
-                  port: configOrDatabaseUrl.POSTHOG_POSTGRES_PORT,
-              }
+
+    const credentials: Partial<PoolConfig> = config.DATABASE_URL
+        ? {
+              connectionString: config.DATABASE_URL,
+          }
+        : {
+              database: config.POSTHOG_DB_NAME ?? undefined,
+              user: config.POSTHOG_DB_USER,
+              password: config.POSTHOG_DB_PASSWORD,
+              host: config.POSTHOG_POSTGRES_HOST,
+              port: config.POSTHOG_POSTGRES_PORT,
+          }
 
     const pgPool = new Pool({
         ...credentials,
@@ -517,7 +504,6 @@ export function stringClamp(value: string, def: number, min: number, max: number
     return clamp(nanToNull(parseInt(value)) ?? def, min, max)
 }
 
-// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export function stringify(value: any): string {
     switch (typeof value) {
         case 'string':

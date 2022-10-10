@@ -12,14 +12,14 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { combineUrl, router } from 'kea-router'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import { urls } from 'scenes/urls'
-import { CombinedEventType } from '~/types'
+import { EventDefinitionType } from '~/types'
 
 describe('eventDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof eventDefinitionsTableLogic.build>
     const startingUrl = `api/projects/${MOCK_TEAM_ID}/event_definitions${
         combineUrl('', {
             limit: EVENT_DEFINITIONS_PER_PAGE,
-            event_type: CombinedEventType.Event,
+            event_type: EventDefinitionType.Event,
         }).search
     }`
 
@@ -39,7 +39,7 @@ describe('eventDefinitionsTableLogic', () => {
                                         ...req.url.searchParams,
                                         limit: 50,
                                         offset: 50,
-                                        event_type: CombinedEventType.Event,
+                                        event_type: EventDefinitionType.Event,
                                     }).search
                                 }`,
                             },
@@ -56,7 +56,7 @@ describe('eventDefinitionsTableLogic', () => {
                                         ...req.url.searchParams,
                                         limit: 50,
                                         offset: undefined,
-                                        event_type: CombinedEventType.Event,
+                                        event_type: EventDefinitionType.Event,
                                     }).search
                                 }`,
                                 next: null,
@@ -224,6 +224,7 @@ describe('eventDefinitionsTableLogic', () => {
                 event_names: ['event1'],
                 excluded_properties: keyMappingKeys,
                 is_event_property: true,
+                is_feature_flag: false,
             }).search
         }`
         const url = urls.eventDefinitions()

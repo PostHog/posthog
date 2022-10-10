@@ -8,7 +8,7 @@ import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermar
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/components/icons'
-import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { ValueInspectorButton } from './ValueInspectorButton'
 import clsx from 'clsx'
 import { useScrollable } from 'lib/hooks/useScrollable'
@@ -43,15 +43,19 @@ interface StepBarCSSProperties extends React.CSSProperties {
 
 function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element {
     const { openPersonsModalForSeries, showTooltip, hideTooltip } = useActions(funnelLogic)
+    const { disableFunnelBreakdownBaseline } = useValues(funnelLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
+
+    const seriesOrderForColor = disableFunnelBreakdownBaseline ? (series.order ?? 0) + 1 : series.order ?? 0
 
     return (
         <div
             className="StepBar"
+            /* eslint-disable-next-line react/forbid-dom-props */
             style={
                 {
-                    '--series-color': getSeriesColor(series.order ?? 0),
+                    '--series-color': getSeriesColor(seriesOrderForColor),
                     '--conversion-rate': percentage(series.conversionRates.fromBasisStep, 1, true),
                 } as StepBarCSSProperties
             }
@@ -89,7 +93,7 @@ function StepBars({ step, stepIndex }: Omit<StepBarProps, 'series'>): JSX.Elemen
                         />
                     ))}
             </div>
-            {step?.nested_breakdown?.map((series) => (
+            {step.nested_breakdown?.map((series) => (
                 <StepBar key={`bar-${stepIndex}-${series.order}`} step={step} stepIndex={stepIndex} series={series} />
             ))}
         </div>
@@ -118,6 +122,23 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
         aggregationTargetLabel.plural
     )
 
+    const convertedCountPresentationWithPercentage = (
+        <>
+            {convertedCountPresentation}{' '}
+            <span title="Rate of conversion from initial step" className="text-muted">
+                ({percentage(step.conversionRates.fromBasisStep, 2)})
+            </span>
+        </>
+    )
+    const droppedOffCountPresentationWithPercentage = (
+        <>
+            {droppedOffCountPresentation}{' '}
+            <span title="Rate of drop-off from previous step" className="text-muted">
+                ({percentage(1 - step.conversionRates.fromPrevious, 2)})
+            </span>
+        </>
+    )
+
     return (
         <div className="StepLegend">
             <LemonRow
@@ -132,40 +153,44 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
                 icon={<IconTrendingFlat />}
                 status="success"
                 style={{ color: 'unset' }} // Prevent status color from affecting text
-                title="Users who converted in this step"
+                title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} who completed this step`}
             >
                 {showPersonsModal ? (
                     <ValueInspectorButton
-                        onClick={() => openPersonsModalForStep({ step, converted: true })}
+                        onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
                         style={{ padding: 0 }}
                     >
-                        {convertedCountPresentation}
+                        {convertedCountPresentationWithPercentage}
                     </ValueInspectorButton>
                 ) : (
-                    convertedCountPresentation
+                    <span>{convertedCountPresentationWithPercentage}</span>
                 )}
             </LemonRow>
-            <LemonRow
-                icon={<IconTrendingFlatDown />}
-                status="danger"
-                style={{ color: 'unset' }} // Prevent status color from affecting text
-                title="Users who dropped of at this step"
-            >
-                {showPersonsModal ? (
-                    <ValueInspectorButton
-                        onClick={() => openPersonsModalForStep({ step, converted: false })}
-                        style={{ padding: 0 }}
+            {stepIndex > 0 && (
+                <>
+                    <LemonRow
+                        icon={<IconTrendingFlatDown />}
+                        status="danger"
+                        style={{ color: 'unset' }} // Prevent status color from affecting text
+                        title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} who didn't complete this step`}
                     >
-                        {droppedOffCountPresentation}
-                    </ValueInspectorButton>
-                ) : (
-                    droppedOffCountPresentation
-                )}
-            </LemonRow>
-            {showTime && (
-                <LemonRow icon={<IconSchedule />} title="Median time of conversion from previous step">
-                    {humanFriendlyDuration(step.median_conversion_time, 3) || '–'}
-                </LemonRow>
+                        {showPersonsModal && stepIndex ? (
+                            <ValueInspectorButton
+                                onClick={() => openPersonsModalForStep({ step, stepIndex, converted: false })}
+                                style={{ padding: 0 }}
+                            >
+                                {droppedOffCountPresentationWithPercentage}
+                            </ValueInspectorButton>
+                        ) : (
+                            <span>{droppedOffCountPresentationWithPercentage}</span>
+                        )}
+                    </LemonRow>
+                    {showTime && (
+                        <LemonRow icon={<IconSchedule />} title="Median time of conversion from previous step">
+                            {humanFriendlyDuration(step.median_conversion_time, 3) || '–'}
+                        </LemonRow>
+                    )}
+                </>
             )}
         </div>
     )
@@ -211,11 +236,13 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
 
     const table = useMemo(() => {
         /** Average conversion time is only shown if it's known for at least one step. */
+        // != is intentional to catch undefined too
         const showTime = visibleStepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
         const barRowHeight = `calc(${height}px - 3rem - (1.75rem * ${showTime ? 3 : 2}) - 1px)`
 
         return (
             <table
+                /* eslint-disable-next-line react/forbid-dom-props */
                 style={
                     {
                         '--bar-width': `${barWidthPx}px`,

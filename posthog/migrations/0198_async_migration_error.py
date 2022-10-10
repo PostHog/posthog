@@ -11,7 +11,10 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(model_name="asyncmigration", name="last_error",),
+        migrations.RemoveField(
+            model_name="asyncmigration",
+            name="last_error",
+        ),
         migrations.CreateModel(
             name="AsyncMigrationError",
             fields=[

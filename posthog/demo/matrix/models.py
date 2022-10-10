@@ -3,32 +3,48 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, auto
 from itertools import chain
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
     DefaultDict,
-    Deque,
     Dict,
+    Generic,
     Iterable,
     List,
     Literal,
     Optional,
     Set,
-    Tuple,
     TypeVar,
 )
 from urllib.parse import urlparse
 from uuid import UUID
 
-import pytz
-
-from posthog.models.utils import UUIDT
-
 if TYPE_CHECKING:
     from posthog.demo.matrix.matrix import Cluster, Matrix
+
+SP = TypeVar("SP", bound="SimPerson")
+EffectCallback = Callable[[SP], Any]
+EffectCondition = Callable[[SP], bool]
+
+
+@dataclass
+class Effect(Generic[SP]):
+    """An effect is in essence a callback that runs on the person and can change the person's state."""
+
+    class Target(Enum):
+        SELF = auto()
+        ALL_NEIGHBORS = auto()
+        RANDOM_NEIGHBOR = auto()
+
+    timestamp: dt.datetime
+    callback: EffectCallback[SP]
+    source: "SimPerson"
+    target: Target
+    condition: Optional[EffectCondition[SP]]
+
 
 # Event name constants to be used in simulations
 EVENT_PAGEVIEW = "$pageview"
@@ -59,8 +75,6 @@ PROPERTIES_WITH_IMPLICIT_INITIAL_VALUE_TRACKING = {
 }
 
 Properties = Dict[str, Any]
-SP = TypeVar("SP", bound="SimPerson")
-Effect = Callable[[SP], Any]
 
 
 class SimSessionIntent(Enum):
@@ -84,7 +98,7 @@ class SimEvent:
         separator = (
             "-" if self.timestamp < dt.datetime.now(dt.timezone.utc) else "+"
         )  # Future events are denoted by a '+'
-        display = f"{self.timestamp} {separator} {self.event} # {self.properties['$distinct_id']}"
+        display = f"{self.timestamp} {separator} {self.event} # {self.distinct_id}"
         if current_url := self.properties.get("$current_url"):
             display += f" @ {current_url}"
         return display
@@ -95,22 +109,27 @@ class SimClient(ABC):
 
     LIB_NAME: str  # Used for `$lib` property
 
+    matrix: "Matrix"
+
     @abstractmethod
     def _get_person(self, distinct_id: str) -> "SimPerson":
         raise NotImplementedError()
 
     def _capture_raw(self, event: str, properties: Optional[Properties] = None, *, distinct_id: str) -> None:
         person = self._get_person(distinct_id)
-        timestamp = person.simulation_time
+        timestamp = person.cluster.simulation_time
         combined_properties: Properties = {
-            "$distinct_id": distinct_id,
             "$lib": self.LIB_NAME,
-            "$groups": deepcopy(person._groups),
             "$timestamp": timestamp.isoformat(),
             "$time": timestamp.timestamp(),
         }
         if properties:
             combined_properties.update(properties or {})
+        if person._groups:
+            combined_properties["$groups"] = deepcopy(person._groups)
+            for group_type, group_key in person._groups.items():
+                group_type_index = self.matrix._get_group_type_index(group_type)
+                combined_properties[f"$group_{group_type_index}"] = group_key
         if feature_flags := person.decide_feature_flags():
             for flag_key, flag_value in feature_flags.items():
                 combined_properties[f"$feature/{flag_key}"] = flag_value
@@ -122,9 +141,6 @@ class SimServerClient(SimClient):
     """A Python server client for simulating server-side tracking."""
 
     LIB_NAME = "posthog-python"
-
-    # Parent
-    matrix: "Matrix"
 
     def __init__(self, matrix: "Matrix"):
         self.matrix = matrix
@@ -159,6 +175,7 @@ class SimBrowserClient(SimClient):
 
     def __init__(self, person: "SimPerson"):
         self.person = person
+        self.matrix = person.cluster.matrix
         self.device_type, self.os, self.browser = self.person.cluster.properties_provider.device_type_os_browser()
         self.device_id = str(UUID(int=self.person.cluster.random.getrandbits(128)))
         self.active_distinct_id = self.device_id  # Pre-`$identify`, the device ID is used as the distinct ID
@@ -169,7 +186,7 @@ class SimBrowserClient(SimClient):
 
     def __enter__(self):
         """Start session within client."""
-        self.active_session_id = str(self.person.roll_uuidt())
+        self.active_session_id = str(self.person.cluster.roll_uuidt())
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         """End session within client. Handles `$pageleave` event."""
@@ -228,7 +245,7 @@ class SimBrowserClient(SimClient):
         Use with distinct_id=None for `posthog.people.set()`-like behavior."""
         if set_properties is None:
             set_properties = {}
-        identify_properties = {"$distinct_id": self.active_distinct_id, "$set": set_properties}
+        identify_properties: Properties = {"$set": set_properties}
         if distinct_id:
             self.is_logged_in = True
             if self.device_id == self.active_distinct_id:
@@ -272,6 +289,7 @@ class SimPerson(ABC):
     y: int
 
     # Constant properties
+    person_id: str
     country_code: str
     timezone: str
 
@@ -284,13 +302,11 @@ class SimPerson(ABC):
     properties_at_now: Properties
 
     # Internal state
-    is_complete: bool  # Whether this person has been simulated to completion
     active_client: SimBrowserClient  # Client being used by person
     all_time_pageview_counts: DefaultDict[str, int]  # Pageview count per URL across all time
     session_pageview_counts: DefaultDict[str, int]  # Pageview count per URL across the ongoing session
     active_session_intent: Optional[SimSessionIntent]
-    _simulation_time: dt.datetime  # Current simulation time, populated by running .simulate()
-    _scheduled_effects: Deque[Tuple[dt.datetime, Effect]]
+    wake_up_by: dt.datetime
     _groups: Dict[str, str]
     _distinct_ids: Set[str]
     _properties: Properties
@@ -299,15 +315,15 @@ class SimPerson(ABC):
     def __init__(self, *, kernel: bool, cluster: "Cluster", x: int, y: int):
         self.past_events = []
         self.future_events = []
-        self._scheduled_effects = Deque()
         self.kernel = kernel
         self.cluster = cluster
         self.x = x
         self.y = y
-        self.is_complete = False
+        self.person_id = self.cluster.random.randstr(False, 16)
         self.active_client = SimBrowserClient(self)
         self.all_time_pageview_counts = defaultdict(int)
         self.session_pageview_counts = defaultdict(int)
+        self.active_session_intent = None
         self._groups = {}
         self._distinct_ids = set()
         self._properties = {}
@@ -315,6 +331,9 @@ class SimPerson(ABC):
     def __str__(self) -> str:
         """Return person ID. Overriding this is recommended but optional."""
         return " / ".join(self._distinct_ids) if self._distinct_ids else "???"
+
+    def __hash__(self) -> int:
+        return hash(self.person_id)
 
     # Helpers
 
@@ -332,29 +351,16 @@ class SimPerson(ABC):
 
     # Public methods
 
-    def simulate(self):
-        """Synchronously simulate this person's behavior for the whole duration of the simulation."""
-        if hasattr(self, "simulation_time"):
-            raise Exception(f"Person {self} already has been simulated")
-        self.simulation_time = self.cluster.start.astimezone(pytz.timezone(self.timezone))
-        self._distinct_ids.add(self.active_client.device_id)
-        while self.simulation_time <= self.cluster.end:
-            next_session_datetime = self.determine_next_session_datetime()
-            self._fast_forward(next_session_datetime)
-            if new_session_intent := self.determine_session_intent():
-                self.active_session_intent = new_session_intent
-            else:
-                continue  # If there's no intent, let's skip ahead
-            self.session_pageview_counts.clear()
+    def attempt_session(self):
+        # If there's no intent, let's skip
+        if new_session_intent := self.determine_session_intent():
+            self.active_session_intent = new_session_intent
             with self.active_client:
                 self.simulate_session()
-        self.is_complete = True
-
-    def schedule_effect(self, timestamp: dt.datetime, effect: Effect):
-        """Schedule an effect to apply at a given time.
-
-        An effect is a function that runs on the person, so it can change the person's state."""
-        self._scheduled_effects.append((timestamp, effect))
+            # Clean up
+            self.session_pageview_counts.clear()
+            self.active_session_intent = None
+        self.wake_up_by = self.determine_next_session_datetime()
 
     # Abstract methods
 
@@ -364,7 +370,7 @@ class SimPerson(ABC):
 
     @abstractmethod
     def determine_next_session_datetime(self) -> dt.datetime:
-        """Intelligently advance timer to the time of the next session."""
+        """Intelligently return time of the next session."""
         raise NotImplementedError()
 
     @abstractmethod
@@ -377,47 +383,28 @@ class SimPerson(ABC):
         """Simulate a single session based on current agent state. This is how subclasses can define user behavior."""
         raise NotImplementedError()
 
-    # Neighbor state
-
-    def affect_all_neighbors(self, effect: Effect):
-        """Schedule the provided effect lambda for all neighbors.
-
-        Because agents are simulated synchronously, the effect will only apply to neighbors who haven't been
-        simulated yet, but that's OK - the results are interesting this way too.
-        """
-        amenable_neighbors = self.cluster._list_amenable_neighbors(self.x, self.y)
-        for neighbor in amenable_neighbors:
-            neighbor.schedule_effect(self.simulation_time, effect)
-
-    def affect_random_neighbor(self, effect: Effect, *, condition: Optional[Callable[["SimPerson"], bool]] = None):
-        """Schedule the provided effect lambda for a randomly selected neighbor.
-
-        Because agents are simulated synchronously, the effect will only apply to neighbors who haven't been
-        simulated yet, but that's OK - the results are interesting this way too.
-        """
-        amenable_neighbors = self.cluster._list_amenable_neighbors(self.x, self.y)
-        if condition:
-            amenable_neighbors = list(filter(condition, amenable_neighbors))
-        self.cluster.random.choice(amenable_neighbors).schedule_effect(self.simulation_time, effect)
-
-    # Person state
-
-    @property
-    def simulation_time(self) -> dt.datetime:
-        return self._simulation_time
-
-    @simulation_time.setter
-    def simulation_time(self, value: dt.datetime):
-        self._simulation_time = value
-        if not hasattr(self, "distinct_ids_at_now") and self.simulation_time >= self.cluster.now:
-            # If we've just reached matrix's `now`, take a snapshot of the current state
-            # for dividing past and future events
-            self.distinct_ids_at_now = self._distinct_ids.copy()
-            self.properties_at_now = deepcopy(self._properties)
+    # Cluster state
 
     def advance_timer(self, seconds: float):
         """Advance simulation time by the given amount of time."""
-        self.simulation_time += dt.timedelta(seconds=seconds)
+        self.cluster.advance_timer(seconds)
+
+    def schedule_effect(
+        self,
+        timestamp: dt.datetime,
+        callback: EffectCallback,
+        target: Effect.Target,
+        *,
+        condition: Optional[EffectCondition] = None,
+    ):
+        """Schedule an effect to apply at a given time.
+
+        An effect is a function that runs on the person, so it can change the person's state."""
+        self.cluster.raw_schedule_effect(
+            Effect(timestamp=timestamp, callback=callback, source=self, target=target, condition=condition)
+        )
+
+    # Person state
 
     def set_attribute(self, attr: str, value: Any) -> Literal[True]:
         """Set the person's attribute.
@@ -432,18 +419,6 @@ class SimPerson(ABC):
         Useful for defining effects, which are lambdas. Chain them with `and`."""
         setattr(self, attr, getattr(self, attr) + delta)
         return True
-
-    def _fast_forward(self, next_session_datetime: dt.datetime):
-        """Apply all effects that are due at the current time."""
-        while True:
-            if not self._scheduled_effects or self._scheduled_effects[0][0] > next_session_datetime:
-                break
-            effect_datetime, effect_lambda = self._scheduled_effects.popleft()
-            if self.simulation_time < effect_datetime:
-                self.simulation_time = effect_datetime
-            effect_lambda(self)
-        if self.simulation_time < next_session_datetime:
-            self.simulation_time = next_session_datetime
 
     def _append_event(self, event: str, properties: Properties, *, distinct_id: str, timestamp: dt.datetime):
         """Append event to `past_events` or `future_events`, whichever is appropriate."""
@@ -471,7 +446,6 @@ class SimPerson(ABC):
 
     # Utilities
 
-    def roll_uuidt(self, at_timestamp: Optional[dt.datetime] = None) -> UUIDT:
-        if at_timestamp is None:
-            at_timestamp = self.simulation_time
-        return UUIDT(int(at_timestamp.timestamp() * 1000), seeded_random=self.cluster.random)
+    def take_snapshot_at_now(self):
+        self.distinct_ids_at_now = self._distinct_ids.copy()
+        self.properties_at_now = deepcopy(self._properties)

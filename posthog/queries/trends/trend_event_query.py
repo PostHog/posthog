@@ -9,8 +9,8 @@ from posthog.models.property.util import get_property_string_expr
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.util import get_active_user_params
-from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 
 
 class TrendsEventQuery(EventQuery):
@@ -61,6 +61,13 @@ class TrendsEventQuery(EventQuery):
             + (self._get_extra_person_columns())
         )
 
+        if self._using_person_on_events:
+            for column_name in sorted(self._column_optimizer.person_on_event_columns_to_query):
+                _fields += f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
+
+            for column_name in sorted(self._column_optimizer.group_on_event_columns_to_query):
+                _fields += f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
+
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
@@ -86,6 +93,10 @@ class TrendsEventQuery(EventQuery):
         session_query, session_params = self._get_sessions_query()
         self.params.update(session_params)
 
+        null_person_filter = (
+            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
+        )
+
         query = f"""
             SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
@@ -96,6 +107,7 @@ class TrendsEventQuery(EventQuery):
             {entity_query}
             {date_query}
             {prop_query}
+            {null_person_filter}
         """
 
         return query, self.params
@@ -117,6 +129,7 @@ class TrendsEventQuery(EventQuery):
                         allow_denormalized_props=False,
                         column="person_properties",
                         table_alias=self.EVENT_TABLE_ALIAS,
+                        materialised_table_column="person_properties",
                     ),
                     column_name=column_name,
                 )
@@ -137,12 +150,12 @@ class TrendsEventQuery(EventQuery):
     def _get_date_filter(self) -> Tuple[str, Dict]:
         date_filter = ""
         date_params: Dict[str, Any] = {}
-        interval_annotation = get_trunc_func_ch(self._filter.interval)
-        _, _, round_interval = get_time_diff(
-            self._filter.interval, self._filter.date_from, self._filter.date_to, team_id=self._team_id
-        )
-        _, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team=self._team)
-        parsed_date_from = date_from_clause(interval_annotation, round_interval)
+        query_date_range = QueryDateRange(self._filter, self._team)
+        parsed_date_from, date_from_params = query_date_range.date_from
+        parsed_date_to, date_to_params = query_date_range.date_to
+
+        date_params.update(date_from_params)
+        date_params.update(date_to_params)
 
         self.parsed_date_from = parsed_date_from
         self.parsed_date_to = parsed_date_to

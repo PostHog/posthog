@@ -27,6 +27,11 @@
                     (SELECT id
                      FROM person
                      WHERE team_id = 2
+                       AND id IN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                            AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))) )
                      GROUP BY id
                      HAVING max(is_deleted) = 0
                      AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))))
@@ -107,6 +112,11 @@
                                 (SELECT id
                                  FROM person
                                  WHERE team_id = 2
+                                   AND id IN
+                                     (SELECT id
+                                      FROM person
+                                      WHERE team_id = 2
+                                        AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))) )
                                  GROUP BY id
                                  HAVING max(is_deleted) = 0
                                  AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))))
@@ -259,6 +269,11 @@
              (SELECT id
               FROM person
               WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))) )
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -266,6 +281,162 @@
              AND event = 'watched movie'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestFOSSTrends.test_person_property_filtering_clashing_with_event_property
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-04 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        FROM
+          (SELECT e.timestamp as timestamp,
+                  pdi.person_id as person_id
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id
+              FROM person
+              WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))) )
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+              AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+           WHERE team_id = 2
+             AND event = 'watched movie'
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestFOSSTrends.test_person_property_filtering_clashing_with_event_property.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-04 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        FROM
+          (SELECT e.timestamp as timestamp,
+                  e."properties" as "properties"
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'watched movie'
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-04 23:59:59')
+             AND (has(['1'], replaceRegexpAll(JSONExtractRaw(e.properties, 'name'), '^"|"$', ''))) )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestFOSSTrends.test_person_property_filtering_clashing_with_event_property_materialized
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-04 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        FROM
+          (SELECT e.timestamp as timestamp,
+                  pdi.person_id as person_id
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id
+              FROM person
+              WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND (has(['person1'], person."pmat_name")) )
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+              AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
+           WHERE team_id = 2
+             AND event = 'watched movie'
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestFOSSTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-04 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        FROM
+          (SELECT e.timestamp as timestamp,
+                  e."mat_name" as "mat_name"
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'watched movie'
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-04 23:59:59')
+             AND (has(['1'], "mat_name")) )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -302,6 +473,11 @@
              (SELECT id
               FROM person
               WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND (has(['person1'], person."pmat_name")) )
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
@@ -659,7 +835,7 @@
 ---
 # name: TestFOSSTrends.test_timezones_hourly.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -679,7 +855,7 @@
        AND timestamp >= toDateTime('2020-01-05 15:00:00')
        AND timestamp <= toDateTime('2020-01-05 16:00:00') )
   GROUP BY actor_id
-  LIMIT 200
+  LIMIT 100
   OFFSET 0
   '
 ---
@@ -731,6 +907,12 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(person.properties, '$os'), '^"|"$', ''))
+                     OR has(['safari'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
@@ -790,6 +972,12 @@
                      argMax(properties, version) as person_props
               FROM person
               WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(person.properties, '$os'), '^"|"$', ''))
+                           OR has(['safari'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))) )
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
@@ -831,6 +1019,13 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(person.properties, '$os'), '^"|"$', ''))
+                      AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))))
+                    AND (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
@@ -890,6 +1085,13 @@
                      argMax(properties, version) as person_props
               FROM person
               WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(person.properties, '$os'), '^"|"$', ''))
+                            AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))))
+                          AND (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) )
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))

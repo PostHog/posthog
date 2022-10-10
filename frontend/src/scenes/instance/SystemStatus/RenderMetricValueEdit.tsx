@@ -1,4 +1,4 @@
-import { Checkbox, Input } from 'antd'
+import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import React from 'react'
 import { MetricValue } from './RenderMetricValue'
@@ -16,20 +16,23 @@ export function RenderMetricValueEdit({
 }: MetricValueEditInterface): JSX.Element | string {
     if (value_type === 'bool') {
         return (
-            <>
-                <Checkbox defaultChecked={!!value} onChange={(e) => onValueChanged(key, e.target.checked)} />
-                <LemonTag style={{ marginLeft: 4 }} type={value ? 'success' : 'danger'}>
-                    {value ? 'Yes' : 'No'}
-                </LemonTag>
-            </>
+            <LemonCheckbox
+                defaultChecked={!!value}
+                onChange={(val) => onValueChanged(key, val)}
+                label={
+                    <LemonTag type={value ? 'success' : 'danger'} className="uppercase">
+                        {value ? 'Yes' : 'No'}
+                    </LemonTag>
+                }
+            />
         )
     }
 
-    const parsedValue = isSecret && value ? '' : (value as string | number | ReadonlyArray<string>)
+    const parsedValue = isSecret && value ? '' : (value as string | number)
 
     return (
-        <Input
-            defaultValue={parsedValue}
+        <LemonInput
+            defaultValue={parsedValue as any}
             type={value_type === 'int' ? 'number' : 'text'}
             placeholder={isSecret && value ? 'Keep existing secret value' : undefined}
             onBlur={(e) => onValueChanged(key, e.target.value)}

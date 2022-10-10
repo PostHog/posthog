@@ -80,7 +80,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8.12
+                  python-version: 3.8.14
 
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests

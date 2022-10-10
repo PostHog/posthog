@@ -5,7 +5,6 @@
     h2 {
         font-size: 1.125rem;
         font-weight: 600;
-        margin: 0;
     }
 
     .top-bar {
@@ -139,7 +138,6 @@
 
         .ant-card-body {
             padding: 0;
-            overflow-x: auto;
         }
 
         .insights-graph-container-row {
@@ -157,7 +155,7 @@
             }
         }
 
-        .graph-container {
+        .LineGraph {
             // hacky because container not respecting position: relative;
             width: calc(100% - 3rem);
             height: calc(100% - 3rem);
@@ -220,7 +218,7 @@
     min-height: min(calc(90vh - 16rem), 36rem);
     display: flex;
     justify-content: center;
-    .graph-container {
+    .LineGraph {
         height: calc(100% - 1rem) !important;
     }
 }

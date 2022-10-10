@@ -1,21 +1,21 @@
 import React from 'react'
-import { Modal, Button } from 'antd'
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
-import { Link } from 'lib/components/Link'
 import {
     RetentionTablePayload,
     RetentionTablePeoplePayload,
     RetentionTableAppearanceType,
 } from 'scenes/retention/types'
 import { dayjs } from 'lib/dayjs'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import './RetentionTable.scss'
 import { urls } from 'scenes/urls'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
+import clsx from 'clsx'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export function RetentionModal({
     results,
@@ -39,136 +39,132 @@ export function RetentionModal({
     aggregationTargetLabel: { singular: string; plural: string }
 }): JSX.Element | null {
     return (
-        <Modal
-            visible={visible}
-            closable={true}
-            onCancel={dismissModal}
+        <LemonModal
+            isOpen={visible}
+            onClose={dismissModal}
             footer={
-                <div className="flex justify-between">
-                    <div />
-                    <div className="flex gap-2">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() =>
-                                triggerExport({
-                                    export_format: ExporterFormat.CSV,
-                                    export_context: {
-                                        path: results[selectedRow]?.people_url,
-                                        max_limit: 10000,
-                                    },
-                                })
-                            }
-                        >
-                            Export to CSV
-                        </LemonButton>
-                        <LemonButton type="secondary" onClick={dismissModal}>
-                            Close
-                        </LemonButton>
-                    </div>
-                </div>
+                <>
+                    <LemonButton type="secondary" onClick={dismissModal}>
+                        Close
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={() =>
+                            triggerExport({
+                                export_format: ExporterFormat.CSV,
+                                export_context: {
+                                    path: results[selectedRow]?.people_url,
+                                    max_limit: 10000,
+                                },
+                            })
+                        }
+                    >
+                        Export to CSV
+                    </LemonButton>
+                </>
             }
-            style={{
-                top: 20,
-                minWidth: results[selectedRow]?.values[0]?.count === 0 ? '10%' : '90%',
-                fontSize: 16,
-            }}
+            width={results[selectedRow]?.values[0]?.count === 0 ? undefined : '90%'}
             title={results[selectedRow] ? dayjs(results[selectedRow].date).format('MMMM D, YYYY') : ''}
         >
-            {!actorsLoading ? (
-                <div>
-                    {results[selectedRow]?.values[0]?.count === 0 ? (
-                        <span>No {aggregationTargetLabel.plural} during this period.</span>
-                    ) : (
-                        <div>
-                            <table className="table-bordered w-full">
-                                <tbody>
-                                    <tr>
-                                        <th />
-                                        {results &&
-                                            results
-                                                .slice(0, results[selectedRow]?.values.length)
-                                                .map((data, index) => <th key={index}>{data.label}</th>)}
-                                    </tr>
-                                    <tr>
-                                        <td>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</td>
-                                        {results &&
-                                            results[selectedRow]?.values.map((data: any, index: number) => (
-                                                <td key={index}>
-                                                    {data.count}&nbsp;{' '}
-                                                    {data.count > 0 && (
-                                                        <span>
-                                                            (
-                                                            {percentage(
-                                                                data.count / results[selectedRow]?.values[0]['count']
-                                                            )}
-                                                            )
-                                                        </span>
-                                                    )}
-                                                </td>
-                                            ))}
-                                    </tr>
-                                    {actors.result &&
-                                        actors.result.map((personAppearances: RetentionTableAppearanceType) => (
-                                            <tr key={personAppearances.person.id}>
-                                                <td className="text-overflow" style={{ minWidth: 200 }}>
-                                                    {isGroupType(personAppearances.person) ? (
-                                                        <Link
-                                                            to={urls.group(
-                                                                String(personAppearances.person.group_type_index),
-                                                                personAppearances.person.group_key
-                                                            )}
-                                                            data-attr="retention-person-link"
-                                                        >
-                                                            {groupDisplayId(
-                                                                personAppearances.person.group_key,
-                                                                personAppearances.person.properties
-                                                            )}
-                                                        </Link>
-                                                    ) : (
-                                                        <Link
-                                                            to={urls.person(personAppearances.person.distinct_ids[0])}
-                                                            data-attr="retention-person-link"
-                                                        >
-                                                            {asDisplay(personAppearances.person)}
-                                                        </Link>
-                                                    )}
-                                                </td>
-                                                {personAppearances.appearances.map(
-                                                    (appearance: number, index: number) => {
-                                                        return (
-                                                            <td
-                                                                key={index}
-                                                                className={
-                                                                    appearance
-                                                                        ? 'retention-success'
-                                                                        : 'retention-dropped'
-                                                                }
-                                                            />
-                                                        )
-                                                    }
-                                                )}
-                                            </tr>
-                                        ))}
-                                </tbody>
-                            </table>
-                            <div
-                                style={{
-                                    margin: '1rem',
-                                    textAlign: 'center',
-                                }}
-                            >
-                                {actors.next ? (
-                                    <Button type="primary" onClick={loadMore} loading={loadingMore}>
-                                        Load more {aggregationTargetLabel.plural}
-                                    </Button>
-                                ) : null}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            ) : (
-                <Spinner size="sm" />
+            {actors && !!actors.missing_persons && (
+                <AlertMessage type="info" className="mb-2">
+                    {actors.missing_persons}{' '}
+                    {actors.missing_persons > 1
+                        ? `${aggregationTargetLabel.plural} are`
+                        : `${aggregationTargetLabel.singular} is`}{' '}
+                    not shown because they've been lost.{' '}
+                    <a href="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
+                        Read more here for when this can happen
+                    </a>
+                    .
+                </AlertMessage>
             )}
-        </Modal>
+            <div className="min-h-20">
+                {actorsLoading ? (
+                    <SpinnerOverlay />
+                ) : results[selectedRow]?.values[0]?.count === 0 ? (
+                    <span>No {aggregationTargetLabel.plural} during this period.</span>
+                ) : (
+                    <>
+                        <table className="RetentionTable RetentionTable--non-interactive">
+                            <tbody>
+                                <tr>
+                                    <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>
+                                    {results?.[selectedRow]?.values?.map((data: any, index: number) => (
+                                        <th key={index}>
+                                            <div>{results[index].label}</div>
+                                            <div>
+                                                {data.count}
+                                                &nbsp;
+                                                {data.count > 0 && (
+                                                    <span className="text-muted">
+                                                        (
+                                                        {percentage(
+                                                            data.count / results[selectedRow]?.values[0]['count']
+                                                        )}
+                                                        )
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </th>
+                                    ))}
+                                </tr>
+                                {actors.result &&
+                                    actors.result.map((personAppearances: RetentionTableAppearanceType) => (
+                                        <tr key={personAppearances.person.id}>
+                                            {/* eslint-disable-next-line react/forbid-dom-props */}
+                                            <td style={{ minWidth: 200 }}>
+                                                {isGroupType(personAppearances.person) ? (
+                                                    <LemonButton
+                                                        size="small"
+                                                        to={urls.group(
+                                                            String(personAppearances.person.group_type_index),
+                                                            personAppearances.person.group_key
+                                                        )}
+                                                        data-attr="retention-person-link"
+                                                    >
+                                                        {groupDisplayId(
+                                                            personAppearances.person.group_key,
+                                                            personAppearances.person.properties
+                                                        )}
+                                                    </LemonButton>
+                                                ) : (
+                                                    <LemonButton
+                                                        size="small"
+                                                        to={urls.person(personAppearances.person.distinct_ids[0])}
+                                                        data-attr="retention-person-link"
+                                                    >
+                                                        {asDisplay(personAppearances.person)}
+                                                    </LemonButton>
+                                                )}
+                                            </td>
+                                            {personAppearances.appearances.map((appearance: number, index: number) => {
+                                                return (
+                                                    <td key={index}>
+                                                        <div
+                                                            className={clsx('RetentionTable__Tab')}
+                                                            style={{
+                                                                opacity: appearance ? 1 : 0.2,
+                                                                color: appearance ? 'var(--white)' : 'var(--default)',
+                                                            }}
+                                                        />
+                                                    </td>
+                                                )
+                                            })}
+                                        </tr>
+                                    ))}
+                            </tbody>
+                        </table>
+                        <div className="m-4 flex justify-center">
+                            {actors.next ? (
+                                <LemonButton type="primary" onClick={loadMore} loading={loadingMore}>
+                                    Load more {aggregationTargetLabel.plural}
+                                </LemonButton>
+                            ) : null}
+                        </div>
+                    </>
+                )}
+            </div>
+        </LemonModal>
     )
 }

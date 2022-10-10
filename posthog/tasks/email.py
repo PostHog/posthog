@@ -98,6 +98,7 @@ def send_fatal_plugin_error(
         template_name="fatal_plugin_error",
         template_context={"plugin": plugin, "team": team, "error": error, "is_system_error": is_system_error},
     )
+
     memberships_to_email = [
         membership
         for membership in OrganizationMembership.objects.select_related("user", "organization").filter(
@@ -106,6 +107,7 @@ def send_fatal_plugin_error(
         # Only send the email to users who have access to the affected project
         # Those without access have `effective_membership_level` of `None`
         if team.get_effective_membership_level_for_parent_membership(membership) is not None
+        and membership.user.notification_settings["plugin_disabled"]
     ]
     if memberships_to_email:
         for membership in memberships_to_email:
@@ -157,7 +159,7 @@ def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_c
     # Get all users for organization that haven't ingested any events
     users = []
     recently_created_organizations = Organization.objects.filter(
-        created_at__gte=org_created_from, created_at__lte=org_created_to,
+        created_at__gte=org_created_from, created_at__lte=org_created_to
     )
 
     for organization in recently_created_organizations:

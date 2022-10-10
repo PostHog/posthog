@@ -1,7 +1,7 @@
 # name: test_create_kafka_events_with_disabled_protobuf
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -26,7 +26,9 @@
       group4_created_at DateTime64
       
       
-  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_proto_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
+  
+      SETTINGS kafka_skip_broken_messages = 100
   
   '
 ---
@@ -102,6 +104,21 @@
       group_properties VARCHAR
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_ingestion_warnings]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      source LowCardinality(VARCHAR),
+      type VARCHAR,
+      details VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC')
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -378,6 +395,43 @@
   
   '
 ---
+# name: test_create_table_query[ingestion_warnings]
+  '
+  
+  CREATE TABLE IF NOT EXISTS ingestion_warnings ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      source LowCardinality(VARCHAR),
+      type VARCHAR,
+      details VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_ingestion_warnings')
+  
+  '
+---
+# name: test_create_table_query[ingestion_warnings_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW ingestion_warnings_mv ON CLUSTER 'posthog'
+  TO posthog_test.ingestion_warnings
+  AS SELECT
+  team_id,
+  source,
+  type,
+  details,
+  timestamp,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.kafka_ingestion_warnings
+  
+  '
+---
 # name: test_create_table_query[kafka_events_dead_letter_queue]
   '
   
@@ -450,6 +504,21 @@
       group_properties VARCHAR
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_table_query[kafka_ingestion_warnings]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      source LowCardinality(VARCHAR),
+      type VARCHAR,
+      details VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC')
+      
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -810,6 +879,27 @@
   
   '
 ---
+# name: test_create_table_query[sharded_ingestion_warnings]
+  '
+  
+  CREATE TABLE IF NOT EXISTS sharded_ingestion_warnings ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      source LowCardinality(VARCHAR),
+      type VARCHAR,
+      details VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = MergeTree()
+  PARTITION BY toYYYYMMDD(timestamp)
+  ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
+  
+  '
+---
 # name: test_create_table_query[sharded_session_recording_events]
   '
   
@@ -1115,6 +1205,27 @@
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)
   SETTINGS storage_policy = 'hot_to_cold'
+  
+  '
+---
+# name: test_create_table_query_replicated_and_storage[sharded_ingestion_warnings]
+  '
+  
+  CREATE TABLE IF NOT EXISTS sharded_ingestion_warnings ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      source LowCardinality(VARCHAR),
+      type VARCHAR,
+      details VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_ingestion_warnings', '{replica}')
+  PARTITION BY toYYYYMMDD(timestamp)
+  ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
   
   '
 ---

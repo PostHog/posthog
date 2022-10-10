@@ -1,17 +1,20 @@
 import { PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
+import * as Sentry from '@sentry/node'
 
 import {
     Hub,
+    JobSpec,
     PluginConfig,
     PluginConfigVMInternalResponse,
     PluginLogEntrySource,
     PluginLogEntryType,
+    PluginTask,
     PluginTaskType,
 } from '../../../../types'
+import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
 import {
-    ExportEventsJobPayload,
+    ExportHistoricalEventsJobPayload,
     ExportHistoricalEventsUpgrade,
-    fetchEventsForInterval,
     fetchTimestampBoundariesForTeam,
 } from '../utils/utils'
 
@@ -29,6 +32,21 @@ const OLD_TIMESTAMP_CURSOR_KEY = 'old_timestamp_cursor'
 
 const INTERFACE_JOB_NAME = 'Export historical events'
 
+const JOB_SPEC: JobSpec = {
+    payload: {
+        dateFrom: {
+            title: 'Export start date',
+            type: 'date',
+            required: true,
+        },
+        dateTo: {
+            title: 'Export end date',
+            type: 'date',
+            required: true,
+        },
+    },
+}
+
 export function addHistoricalEventsExportCapability(
     hub: Hub,
     pluginConfig: PluginConfig,
@@ -37,10 +55,15 @@ export function addHistoricalEventsExportCapability(
     const { methods, tasks, meta } = response
 
     const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
-    // we can void this as the job appearing on the interface is not time-sensitive
 
-    if (!(INTERFACE_JOB_NAME in currentPublicJobs)) {
-        void hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
+    // If public job hasn't been registered or has changed, update it!
+    if (
+        Object.keys(currentPublicJobs[INTERFACE_JOB_NAME]?.payload || {}).length !==
+        Object.keys(JOB_SPEC.payload!).length
+    ) {
+        hub.promiseManager.trackPromise(
+            hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, JOB_SPEC)
+        )
     }
 
     const oldSetupPlugin = methods.setupPlugin
@@ -48,14 +71,6 @@ export function addHistoricalEventsExportCapability(
     const oldRunEveryMinute = tasks.schedule.runEveryMinute?.exec
 
     methods.setupPlugin = async () => {
-        // Fetch the max and min timestamps for a team's events
-        const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id)
-
-        // make sure we set these boundaries at setupPlugin, because from here on out
-        // the new events will already be exported via exportEvents, and we don't want
-        // the historical export to duplicate them
-        meta.global.timestampBoundariesForTeam = timestampBoundaries
-
         await meta.utils.cursor.init(BATCH_ID_CURSOR_KEY)
 
         const storedTimestampCursor = await meta.storage.get(TIMESTAMP_CURSOR_KEY, null)
@@ -105,14 +120,14 @@ export function addHistoricalEventsExportCapability(
     tasks.job['exportHistoricalEvents'] = {
         name: 'exportHistoricalEvents',
         type: PluginTaskType.Job,
-        exec: (payload) => meta.global.exportHistoricalEvents(payload as ExportEventsJobPayload),
+        exec: (payload) => meta.global.exportHistoricalEvents(payload as ExportHistoricalEventsJobPayload),
     }
 
     tasks.job[INTERFACE_JOB_NAME] = {
         name: INTERFACE_JOB_NAME,
         type: PluginTaskType.Job,
         // TODO: Accept timestamp as payload
-        exec: async (payload) => {
+        exec: async (payload: ExportHistoricalEventsJobPayload) => {
             // only let one export run at a time
             const exportAlreadyRunning = await meta.storage.get(EXPORT_RUNNING_KEY, false)
             if (exportAlreadyRunning) {
@@ -137,9 +152,9 @@ export function addHistoricalEventsExportCapability(
                 .exportHistoricalEvents({ retriesPerformedSoFar: 0, incrementTimestampCursor: true, batchId: batchId })
                 .runNow()
         },
-    }
+    } as unknown as PluginTask // :KLUDGE: Work around typing limitations
 
-    meta.global.exportHistoricalEvents = async (payload): Promise<void> => {
+    meta.global.exportHistoricalEvents = async (payload: ExportHistoricalEventsJobPayload): Promise<void> => {
         if (payload.retriesPerformedSoFar >= 15) {
             // create some log error here
             return
@@ -193,6 +208,7 @@ export function addHistoricalEventsExportCapability(
             )
         } catch (error) {
             fetchEventsError = error
+            Sentry.captureException(error)
         }
 
         let exportEventsError: Error | unknown | null = null
@@ -202,10 +218,12 @@ export function addHistoricalEventsExportCapability(
             createLog(`Failed fetching events. Stopping export - please try again later.`)
             return
         } else {
-            try {
-                await methods.exportEvents!(events)
-            } catch (error) {
-                exportEventsError = error
+            if (events.length > 0) {
+                try {
+                    await methods.exportEvents!(events)
+                } catch (error) {
+                    exportEventsError = error
+                }
             }
         }
 
@@ -214,9 +232,9 @@ export function addHistoricalEventsExportCapability(
 
             // "Failed processing events 0-100 from 2021-08-19T12:34:26.061Z to 2021-08-19T12:44:26.061Z. Retrying in 3s"
             createLog(
-                `Failed processing events ${intraIntervalOffset}-${
-                    intraIntervalOffset + EVENTS_PER_RUN
-                } from ${new Date(timestampCursor).toISOString()} to ${new Date(
+                `Failed processing events ${intraIntervalOffset}-${intraIntervalOffset + events.length} from ${new Date(
+                    timestampCursor
+                ).toISOString()} to ${new Date(
                     timestampCursor + EVENTS_TIME_INTERVAL
                 ).toISOString()}. Retrying in ${nextRetrySeconds}s`
             )
@@ -242,22 +260,27 @@ export function addHistoricalEventsExportCapability(
                 .runIn(1, 'seconds')
         }
 
-        createLog(
-            `Successfully processed events ${intraIntervalOffset}-${
-                intraIntervalOffset + EVENTS_PER_RUN
-            } from ${new Date(timestampCursor).toISOString()} to ${new Date(
-                timestampCursor + EVENTS_TIME_INTERVAL
-            ).toISOString()}.`
-        )
+        if (events.length > 0) {
+            createLog(
+                `Successfully processed events ${intraIntervalOffset}-${
+                    intraIntervalOffset + events.length
+                } from ${new Date(timestampCursor).toISOString()} to ${new Date(
+                    timestampCursor + EVENTS_TIME_INTERVAL
+                ).toISOString()}.`
+            )
+        }
     }
 
     // initTimestampsAndCursor decides what timestamp boundaries to use before
     // the export starts. if a payload is passed with boundaries, we use that,
     // but if no payload is specified, we use the boundaries determined at setupPlugin
-    meta.global.initTimestampsAndCursor = async (payload) => {
+    meta.global.initTimestampsAndCursor = async (payload?: ExportHistoricalEventsJobPayload) => {
         // initTimestampsAndCursor will only run on **one** thread, because of our guard against
         // multiple exports. as a result, we need to set the boundaries on postgres, and
         // only set them in global when the job runs, so all threads have global state in sync
+
+        // Fetch the max and min timestamps for a team's events
+        const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id, '_timestamp')
 
         if (payload && payload.dateFrom) {
             try {
@@ -270,13 +293,13 @@ export function addHistoricalEventsExportCapability(
             }
         } else {
             // no timestamp override specified via the payload, default to the first event ever ingested
-            if (!meta.global.timestampBoundariesForTeam.min) {
+            if (!timestampBoundaries) {
                 throw new Error(
                     `Unable to determine the lower timestamp bound for the export automatically. Please specify a 'dateFrom' value.`
                 )
             }
 
-            const dateFrom = meta.global.timestampBoundariesForTeam.min.getTime()
+            const dateFrom = timestampBoundaries.min.getTime()
             await meta.utils.cursor.init(TIMESTAMP_CURSOR_KEY, dateFrom - EVENTS_TIME_INTERVAL)
             await meta.storage.set(MIN_UNIX_TIMESTAMP_KEY, dateFrom)
         }
@@ -290,12 +313,12 @@ export function addHistoricalEventsExportCapability(
             }
         } else {
             // no timestamp override specified via the payload, default to the last event before the plugin was enabled
-            if (!meta.global.timestampBoundariesForTeam.max) {
+            if (!timestampBoundaries) {
                 throw new Error(
                     `Unable to determine the upper timestamp bound for the export automatically. Please specify a 'dateTo' value.`
                 )
             }
-            await meta.storage.set(MAX_UNIX_TIMESTAMP_KEY, meta.global.timestampBoundariesForTeam.max.getTime())
+            await meta.storage.set(MAX_UNIX_TIMESTAMP_KEY, timestampBoundaries.max.getTime())
         }
     }
 
@@ -319,6 +342,7 @@ export function addHistoricalEventsExportCapability(
         const progressDenominator = meta.global.maxTimestamp! - meta.global.minTimestamp!
 
         const progress = progressDenominator === 0 ? 20 : Math.round(progressNumerator / progressDenominator) * 20
+        const percentage = Math.round((1000 * progressNumerator) / progressDenominator) / 10
 
         const progressBarCompleted = Array.from({ length: progress })
             .map(() => '■')
@@ -326,16 +350,18 @@ export function addHistoricalEventsExportCapability(
         const progressBarRemaining = Array.from({ length: 20 - progress })
             .map(() => '□')
             .join('')
-        createLog(`Export progress: ${progressBarCompleted}${progressBarRemaining}`)
+        createLog(`Export progress: ${progressBarCompleted}${progressBarRemaining} (${percentage}%)`)
     }
 
     function createLog(message: string, type: PluginLogEntryType = PluginLogEntryType.Log) {
-        void hub.db.queuePluginLogEntry({
-            pluginConfig,
-            message: `(${hub.instanceId}) ${message}`,
-            source: PluginLogEntrySource.System,
-            type: type,
-            instanceId: hub.instanceId,
-        })
+        hub.promiseManager.trackPromise(
+            hub.db.queuePluginLogEntry({
+                pluginConfig,
+                message: `(${hub.instanceId}) ${message}`,
+                source: PluginLogEntrySource.System,
+                type: type,
+                instanceId: hub.instanceId,
+            })
+        )
     }
 }

@@ -202,9 +202,8 @@ function Version(): JSX.Element {
                 </div>
                 {latestVersion && (
                     <Link
-                        href={`https://posthog.com/blog/the-posthog-array-${latestVersion.replace(/\./g, '-')}`}
+                        to={`https://posthog.com/blog/the-posthog-array-${latestVersion.replace(/\./g, '-')}`}
                         target="_blank"
-                        rel="noopener"
                         onClick={() => {
                             closeSitePopover()
                         }}
@@ -336,12 +335,7 @@ export function SitePopover(): JSX.Element {
                 </>
             }
         >
-            <div
-                data-tooltip="profile-button"
-                className="SitePopover__crumb"
-                onClick={toggleSitePopover}
-                data-attr="top-menu-toggle"
-            >
+            <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
                 <div
                     className="SitePopover__profile-picture"
                     title={!systemStatus ? 'Potential system issue' : expired ? 'License expired' : undefined}

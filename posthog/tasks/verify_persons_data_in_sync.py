@@ -112,9 +112,7 @@ def _team_integrity_statistics(person_data: List[Any]) -> Counter:
         pg_person = pg_persons[uuid]
         if uuid not in ch_persons:
             result["missing_in_clickhouse"] += 1
-            logger.info(
-                "Found person missing in clickhouse", team_id=team_id, uuid=uuid,
-            )
+            logger.info("Found person missing in clickhouse", team_id=team_id, uuid=uuid)
             continue
         _, ch_version, ch_properties = ch_persons[uuid]
         ch_properties = json.loads(ch_properties)

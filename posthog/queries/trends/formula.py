@@ -69,9 +69,7 @@ class TrendsFormula:
         result = sync_execute(sql, params)
         response = []
         for item in result:
-            additional_values: Dict[str, Any] = {
-                "label": self._label(filter, item),
-            }
+            additional_values: Dict[str, Any] = {"label": self._label(filter, item)}
             if is_aggregate:
                 additional_values["data"] = []
                 additional_values["aggregated_value"] = item[1][0]

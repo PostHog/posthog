@@ -10,7 +10,7 @@ import {
     BehavioralEventType,
     CohortCriteriaGroupFilter,
     CohortType,
-    dateMappingOption,
+    DateMappingOption,
     EventType,
     FilterLogicalOperator,
     FilterType,
@@ -24,13 +24,13 @@ import {
     PropertyType,
     TimeUnitType,
 } from '~/types'
+import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
-import { Spinner } from './components/Spinner/Spinner'
 import { getAppContext } from './utils/getAppContext'
 import { isValidPropertyFilter } from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
@@ -169,44 +169,35 @@ export function percentage(
     })
 }
 
-export function Loading(props: Record<string, any>): JSX.Element {
-    return (
-        <div className="loading-overlay" style={props.style}>
-            <Spinner size="lg" />
-        </div>
-    )
-}
-
-export function deleteWithUndo({
+export async function deleteWithUndo<T extends Record<string, any>>({
     undo = false,
     ...props
 }: {
     undo?: boolean
     endpoint: string
-    object: Record<string, any>
-    callback?: () => void
-}): void {
-    api.update(`api/${props.endpoint}/${props.object.id}`, {
+    object: T
+    callback?: (undo: boolean, object: T) => void
+}): Promise<void> {
+    await api.update(`api/${props.endpoint}/${props.object.id}`, {
         ...props.object,
         deleted: !undo,
-    }).then(() => {
-        props.callback?.()
-        lemonToast[undo ? 'success' : 'info'](
-            <>
-                <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
-                {undo ? 'restored' : 'deleted'}
-            </>,
-            {
-                toastId: `delete-item-${props.object.id}-${undo}`,
-                button: undo
-                    ? undefined
-                    : {
-                          label: 'Undo',
-                          action: () => deleteWithUndo({ undo: true, ...props }),
-                      },
-            }
-        )
     })
+    props.callback?.(undo, props.object)
+    lemonToast[undo ? 'success' : 'info'](
+        <>
+            <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
+            {undo ? 'restored' : 'deleted'}
+        </>,
+        {
+            toastId: `delete-item-${props.object.id}-${undo}`,
+            button: undo
+                ? undefined
+                : {
+                      label: 'Undo',
+                      action: () => deleteWithUndo({ undo: true, ...props }),
+                  },
+        }
+    )
 }
 
 export function DeleteWithUndo(
@@ -596,6 +587,18 @@ export function stripHTTP(url: string): string {
     return url
 }
 
+export function isDomain(url: string): boolean {
+    try {
+        const parsedUrl = new URL(url)
+        if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
+            return true
+        }
+    } catch {
+        return false
+    }
+    return false
+}
+
 export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
@@ -712,6 +715,10 @@ export function determineDifferenceType(
 const DATE_FORMAT = 'MMMM D, YYYY'
 const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 
+export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
+    return date.format(format ?? DATE_FORMAT)
+}
+
 export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, format?: string): string => {
     let formatFrom = format ?? DATE_FORMAT
     const formatTo = format ?? DATE_FORMAT
@@ -721,7 +728,7 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
     return `${dateFrom.format(formatFrom)} - ${dateTo.format(formatTo)}`
 }
 
-export const dateMapping: dateMappingOption[] = [
+export const dateMapping: DateMappingOption[] = [
     { key: 'Custom', values: [] },
     {
         key: 'Today',
@@ -813,6 +820,7 @@ export function getFormattedLastWeekDate(lastDay: dayjs.Dayjs = dayjs()): string
 }
 
 const dateOptionsMap = {
+    y: 'year',
     q: 'quarter',
     m: 'month',
     w: 'week',
@@ -823,7 +831,7 @@ export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
     dateTo: string | dayjs.Dayjs | null | undefined,
     defaultValue: string,
-    dateOptions: dateMappingOption[] = dateMapping,
+    dateOptions: DateMappingOption[] = dateMapping,
     isDateFormatted: boolean = false,
     dateFormat: string = DATE_FORMAT
 ): string {
@@ -887,6 +895,47 @@ export function dateFilterToText(
     }
 
     return defaultValue
+}
+
+/** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
+export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
+    if (isDate.test(date || '')) {
+        return dayjs(date)
+    }
+    const parseDate = /^([\-\+]?)([0-9]*)([dmwqy])(|Start|End)$/
+    const matches = (date || '').match(parseDate)
+    let response: null | dayjs.Dayjs = null
+    if (matches) {
+        const [, sign, rawAmount, rawUnit, clip] = matches
+        const amount = rawAmount ? parseInt(sign + rawAmount) : 0
+        const unit = dateOptionsMap[rawUnit] || 'day'
+
+        switch (unit) {
+            case 'year':
+                response = dayjs().add(amount, 'year')
+                break
+            case 'quarter':
+                response = dayjs().add(amount * 3, 'month')
+                break
+            case 'month':
+                response = dayjs().add(amount, 'month')
+                break
+            case 'week':
+                response = dayjs().add(amount * 7, 'day')
+                break
+            default:
+                response = dayjs().add(amount, 'day')
+                break
+        }
+
+        if (clip === 'Start') {
+            return response.startOf(unit)
+        } else if (clip === 'End') {
+            return response.endOf(unit)
+        }
+        return response.startOf('day')
+    }
+    return response
 }
 
 export function copyToClipboard(value: string, description: string = 'text'): boolean {
@@ -1145,18 +1194,22 @@ export function endWithPunctation(text?: string | null): string {
     return trimmedText
 }
 
-export function shortTimeZone(timeZone?: string | null, atDate?: Date): string | null {
-    /**
-     * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
-     * @param timeZone E.g. 'America/New_York'
-     * @param atDate
-     */
-    if (!timeZone) {
+/**
+ * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
+ * @param timeZone E.g. 'America/New_York'
+ * @param atDate
+ */
+export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
+    const date = atDate ? new Date(atDate) : new Date()
+    try {
+        const localeTimeString = date
+            .toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone: timeZone || undefined })
+            .replace('GMT', 'UTC')
+        return localeTimeString.split(' ')[2]
+    } catch (e) {
+        Sentry.captureException(e)
         return null
     }
-    const date = atDate ? new Date(atDate) : new Date()
-    const localeTimeString = date.toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone }).replace('GMT', 'UTC')
-    return localeTimeString.split(' ')[2]
 }
 
 export function humanTzOffset(timezone?: string): string {
@@ -1311,10 +1364,6 @@ export function isGroupType(actor: ActorType): actor is GroupActorType {
     return actor.type === 'group'
 }
 
-export function mapRange(value: number, x1: number, y1: number, x2: number, y2: number): number {
-    return Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
-}
-
 export function getEventNamesForAction(actionId: string | number, allActions: ActionType[]): string[] {
     const id = parseInt(String(actionId))
     return allActions
@@ -1446,4 +1495,12 @@ export function processCohort(cohort: CohortType): CohortType {
             },
         },
     }
+}
+
+export function interleave(arr: any[], delimiter: any): any[] {
+    return arr.flatMap((item, index, _arr) =>
+        _arr.length - 1 !== index // check for the last item
+            ? [item, delimiter]
+            : item
+    )
 }

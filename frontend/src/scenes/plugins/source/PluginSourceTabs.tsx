@@ -1,24 +1,25 @@
 import React from 'react'
-import { useActions, useValues } from 'kea'
-import { pluginSourceLogic } from 'scenes/plugins/source/pluginSourceLogic'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
+import type { pluginSourceLogicType } from './pluginSourceLogicType'
 
-export function PluginSourceTabs(): JSX.Element {
-    const { setCurrentFile } = useActions(pluginSourceLogic)
-    const { currentFile, fileNames, pluginSourceAllErrors } = useValues(pluginSourceLogic)
+export function PluginSourceTabs({ logic }: { logic: BuiltLogic<pluginSourceLogicType> }): JSX.Element {
+    const { setCurrentFile } = useActions(logic)
+    const { currentFile, fileNames, pluginSourceAllErrors } = useValues(logic)
 
     return (
-        <div className="flex items-center mb-2" style={{ gap: '0.5rem' }}>
+        <div className="flex items-center mb-2 space-x-2 w-full">
             {fileNames.map((fileName) => (
-                <LemonButton
-                    key={fileName}
-                    active={currentFile === fileName}
-                    onClick={() => setCurrentFile(fileName)}
-                    size="small"
-                    status={pluginSourceAllErrors[fileName] ? 'danger' : undefined}
-                >
-                    {fileName}
-                </LemonButton>
+                <React.Fragment key={fileName}>
+                    <LemonButton
+                        active={currentFile === fileName}
+                        onClick={() => setCurrentFile(fileName)}
+                        size="small"
+                        status={pluginSourceAllErrors[fileName] ? 'danger' : undefined}
+                    >
+                        {fileName}
+                    </LemonButton>
+                </React.Fragment>
             ))}
         </div>
     )

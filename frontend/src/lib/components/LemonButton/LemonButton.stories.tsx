@@ -10,10 +10,12 @@ import {
 import { IconCalculate, IconInfo, IconPlus } from '../icons'
 import { More, MoreProps } from './More'
 import { LemonDivider } from '../LemonDivider'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
+import { Link } from '@posthog/lemon-ui'
+import { AlertMessage } from '../AlertMessage'
 
-const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted-alt']
+const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
 export default {
@@ -116,7 +118,7 @@ export const Disabled = (): JSX.Element => {
 }
 
 export const Loading = (): JSX.Element => {
-    return <StatusesTemplate disabled />
+    return <TypesAndStatusesTemplate loading />
 }
 
 export const Active = (): JSX.Element => {
@@ -211,10 +213,30 @@ export const WithSideAction = (): JSX.Element => {
 
 export const AsLinks = (): JSX.Element => {
     return (
-        <div className="flex gap-2">
-            <LemonButton href="https://posthog.com">External link with "href"</LemonButton>
+        <div className="space-y-2">
+            <AlertMessage type="info">
+                <b>Reminder</b> - if you just want a link, use the{' '}
+                <Link to={'/?path=/docs/lemon-ui-link'} disableClientSideRouting>
+                    Link component
+                </Link>
+            </AlertMessage>
 
+            <p>
+                Buttons can act as links via the <b>to</b> prop. If this is an internal endpoint it will be routed
+                client-side
+            </p>
             <LemonButton to={urls.projectHomepage()}>Internal link with "to"</LemonButton>
+
+            <p>External links will be automatically detected and routed to normally</p>
+            <LemonButton to="https://posthog.com">External link</LemonButton>
+
+            <p>
+                The <code>targetBlank</code> prop will open the link in a new window/tab, setting the appropriate
+                attributed like <code>rel="noopener"</code>
+            </p>
+            <LemonButton to="https://posthog.com" targetBlank>
+                External link with "targetBlank"
+            </LemonButton>
         </div>
     )
 }
@@ -259,6 +281,23 @@ WithPopupToTheBottom.args = {
                 <LemonButton status="stealth" fullWidth>
                     Koala
                 </LemonButton>
+            </>
+        ),
+        placement: 'bottom',
+        sameWidth: true,
+    },
+}
+
+export const WithVeryLongPopupToTheBottom = PopupTemplate.bind({})
+WithVeryLongPopupToTheBottom.args = {
+    popup: {
+        overlay: (
+            <>
+                {range(200).map((n) => (
+                    <LemonButton key={n} status="stealth" fullWidth>
+                        {n.toString()}
+                    </LemonButton>
+                ))}
             </>
         ),
         placement: 'bottom',

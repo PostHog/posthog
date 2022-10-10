@@ -1,7 +1,7 @@
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { lemonToast } from 'lib/components/lemonToast'
 import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
@@ -13,14 +13,12 @@ const errorToastSpy = jest.spyOn(lemonToast, 'error')
 
 const timeNow = '2021-05-05T00:00:00.000Z'
 
-jest.mock('lib/dayjs', () => {
-    const dayjs = jest.requireActual('lib/dayjs')
-    return { ...dayjs, now: () => dayjs.dayjs(timeNow) }
-})
+import * as dayjs from 'lib/dayjs'
+jest.spyOn(dayjs, 'now').mockImplementation(() => dayjs.dayjs(timeNow))
 
-import { triggerExport } from 'lib/components/ExportButton/exporter'
+import * as exporter from 'lib/components/ExportButton/exporter'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-jest.mock('lib/components/ExportButton/exporter')
+jest.spyOn(exporter, 'triggerExport')
 
 const randomBool = (): boolean => Math.random() < 0.5
 
@@ -67,6 +65,48 @@ describe('eventsTableLogic', () => {
             },
         })
         initKeaTests()
+    })
+
+    describe('when loaded on a person page', () => {
+        const personUrl = urls.person('first-part|second-part')
+
+        beforeEach(() => {
+            logic = eventsTableLogic({
+                key: 'test-person-key',
+                sceneUrl: personUrl,
+            })
+            logic.mount()
+        })
+
+        it('sets a key', () => {
+            expect(logic.key).toEqual('all-test-person-key-/person/first-part%7Csecond-part')
+        })
+
+        it('same properties does not trigger url to action', async () => {
+            // before https://github.com/PostHog/posthog/pull/11585 any sceneURLs with encoded characters
+            // e.g. `|` becoming `%7C` could not trigger `urlToAction` for this logic
+            router.actions.push(combineUrl(personUrl, { properties: [] }).url)
+            await expectLogic(logic).toNotHaveDispatchedActions(['setProperties'])
+        })
+
+        it('same event filter does not trigger url to action', async () => {
+            // before https://github.com/PostHog/posthog/pull/11585 any sceneURLs with encoded characters
+            // e.g. `|` becoming `%7C` could not trigger `urlToAction` for this logic
+            router.actions.push(combineUrl(personUrl, { eventFilter: '' }).url)
+            await expectLogic(logic).toNotHaveDispatchedActions(['setEventFilter'])
+        })
+
+        it('different properties triggers url to action', async () => {
+            const properties = [makePropertyFilter()]
+            router.actions.push(combineUrl(personUrl, { properties }).url)
+            await expectLogic(logic).toDispatchActions(['setProperties', 'fetchEvents'])
+        })
+
+        it('different event filter triggers url to action', async () => {
+            const eventFilter = '$pageview'
+            router.actions.push(combineUrl(personUrl, { eventFilter }).url)
+            await expectLogic(logic).toDispatchActions(['setEventFilter', 'fetchEvents'])
+        })
     })
 
     describe('when loaded on events page', () => {
@@ -785,7 +825,7 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.startDownload()
                 })
-                expect(triggerExport).toHaveBeenCalledWith({
+                expect(exporter.triggerExport).toHaveBeenCalledWith({
                     export_context: {
                         max_limit: 3500,
                         path: `/api/projects/${MOCK_TEAM_ID}/events?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D`,

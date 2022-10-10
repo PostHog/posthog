@@ -15,7 +15,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
 import { SettingUpdateField } from './SettingUpdateField'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { AsyncMigrationDetails } from './AsyncMigrationDetails'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { More } from 'lib/components/LemonButton/More'
@@ -31,17 +31,20 @@ export const scene: SceneExport = {
     logic: asyncMigrationsLogic,
 }
 
+type AsyncMigrationColumnType = LemonTableColumn<AsyncMigration, keyof AsyncMigration | undefined>
+
 const STATUS_RELOAD_INTERVAL_MS = 3000
 
 export function AsyncMigrations(): JSX.Element {
     const { user } = useValues(userLogic)
     const {
-        asyncMigrations,
         asyncMigrationsLoading,
         activeTab,
         asyncMigrationSettings,
         isAnyMigrationRunning,
         activeAsyncMigrationModal,
+        actionableMigrations,
+        futureMigrations,
     } = useValues(asyncMigrationsLogic)
     const {
         triggerMigration,
@@ -61,158 +64,189 @@ export function AsyncMigrations(): JSX.Element {
         }
     }, [isAnyMigrationRunning])
 
-    const columns: LemonTableColumns<AsyncMigration> = [
-        {
-            title: 'Migration',
-            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
-                const link =
-                    'https://github.com/PostHog/posthog/blob/master/posthog/async_migrations/migrations/' +
-                    asyncMigration.name +
-                    '.py'
-                return (
-                    <>
-                        <div className="row-name">
-                            <a href={link}>{asyncMigration.name}</a>
-                        </div>
-                        <div className="row-description">{asyncMigration.description}</div>
-                    </>
-                )
-            },
-        },
-        {
-            title: 'Progress',
-            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
-                const progress = asyncMigration.progress
-                return (
-                    <div>
-                        <Progress percent={progress} />
+    const nameColumn: AsyncMigrationColumnType = {
+        title: 'Migration',
+        render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+            const link =
+                'https://github.com/PostHog/posthog/blob/master/posthog/async_migrations/migrations/' +
+                asyncMigration.name +
+                '.py'
+            return (
+                <>
+                    <div className="row-name">
+                        <a href={link}>{asyncMigration.name}</a>
                     </div>
-                )
-            },
+                    <div className="row-description">{asyncMigration.description}</div>
+                </>
+            )
         },
-        {
-            title: 'Status',
-            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
-                const status = asyncMigration.status
-                const type: LemonTagPropsType =
-                    status === AsyncMigrationStatus.Running
-                        ? 'success'
-                        : status === AsyncMigrationStatus.Errored || status === AsyncMigrationStatus.FailedAtStartup
-                        ? 'danger'
-                        : status === AsyncMigrationStatus.Starting
-                        ? 'warning'
-                        : status === AsyncMigrationStatus.RolledBack
-                        ? 'warning'
-                        : 'default'
-                return <LemonTag type={type}>{migrationStatusNumberToMessage[status]}</LemonTag>
-            },
+    }
+    const progressColumn: AsyncMigrationColumnType = {
+        title: 'Progress',
+        render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+            const progress = asyncMigration.progress
+            return (
+                <div>
+                    <Progress percent={progress} />
+                </div>
+            )
         },
-        {
-            title: 'Last operation index',
-            dataIndex: 'current_operation_index',
+    }
+    const statusColumn: AsyncMigrationColumnType = {
+        title: 'Status',
+        render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+            const status = asyncMigration.status
+            const type: LemonTagPropsType =
+                status === AsyncMigrationStatus.Running
+                    ? 'success'
+                    : status === AsyncMigrationStatus.Errored || status === AsyncMigrationStatus.FailedAtStartup
+                    ? 'danger'
+                    : status === AsyncMigrationStatus.Starting
+                    ? 'warning'
+                    : status === AsyncMigrationStatus.RolledBack
+                    ? 'warning'
+                    : 'default'
+            return (
+                <LemonTag type={type} className="uppercase">
+                    {migrationStatusNumberToMessage[status]}
+                </LemonTag>
+            )
         },
-        {
-            title: 'Last query ID',
-            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
-                return (
-                    <div>
-                        <small>{asyncMigration.current_query_id}</small>
-                    </div>
-                )
-            },
+    }
+    const lastOpColumn: AsyncMigrationColumnType = {
+        title: 'Last operation index',
+        render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+            return <div>{asyncMigration.current_operation_index}</div>
         },
-        {
-            title: 'Started at',
-            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
-                const startedAt = asyncMigration.started_at
-                return <div>{humanFriendlyDetailedTime(startedAt)}</div>
-            },
+    }
+    const queryIdColumn: AsyncMigrationColumnType = {
+        title: 'Last query ID',
+        render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+            return (
+                <div>
+                    <small>{asyncMigration.current_query_id}</small>
+                </div>
+            )
         },
-        {
-            title: 'Finished at',
-            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
-                const finishedAt = asyncMigration.finished_at
-                return <div>{humanFriendlyDetailedTime(finishedAt)}</div>
-            },
+    }
+    const startedAtColumn: AsyncMigrationColumnType = {
+        title: 'Started at',
+        render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+            const startedAt = asyncMigration.started_at
+            return <div>{humanFriendlyDetailedTime(startedAt)}</div>
         },
-        {
-            title: '',
-            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
-                const status = asyncMigration.status
-                return (
-                    <div>
-                        {status === AsyncMigrationStatus.NotStarted ||
-                        status === AsyncMigrationStatus.FailedAtStartup ? (
-                            <Tooltip title="Start">
-                                <Button
-                                    type="link"
-                                    icon={<PlayCircleOutlined />}
-                                    onClick={() => triggerMigration(asyncMigration)}
-                                >
-                                    Run
-                                </Button>
-                            </Tooltip>
-                        ) : status === AsyncMigrationStatus.Running ? (
-                            <More
-                                overlay={
-                                    <>
-                                        <LemonButton
-                                            status="stealth"
-                                            onClick={() => forceStopMigration(asyncMigration)}
-                                            fullWidth
-                                        >
-                                            Stop and rollback
-                                        </LemonButton>
-                                        <LemonButton
-                                            status="stealth"
-                                            onClick={() => forceStopMigrationWithoutRollback(asyncMigration)}
-                                            fullWidth
-                                        >
-                                            Stop
-                                        </LemonButton>
-                                    </>
-                                }
+    }
+    const finishedAtColumn: AsyncMigrationColumnType = {
+        title: 'Finished at',
+        render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+            const finishedAt = asyncMigration.finished_at
+            return <div>{humanFriendlyDetailedTime(finishedAt)}</div>
+        },
+    }
+    const ActionsColumn: AsyncMigrationColumnType = {
+        title: '',
+        render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+            const status = asyncMigration.status
+            return (
+                <div>
+                    {status === AsyncMigrationStatus.NotStarted || status === AsyncMigrationStatus.FailedAtStartup ? (
+                        <Tooltip title="Start">
+                            <Button
+                                type="link"
+                                icon={<PlayCircleOutlined />}
+                                onClick={() => triggerMigration(asyncMigration)}
+                            >
+                                Run
+                            </Button>
+                        </Tooltip>
+                    ) : status === AsyncMigrationStatus.Starting || status === AsyncMigrationStatus.Running ? (
+                        <More
+                            overlay={
+                                <>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => forceStopMigration(asyncMigration)}
+                                        fullWidth
+                                    >
+                                        Stop and rollback
+                                    </LemonButton>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => forceStopMigrationWithoutRollback(asyncMigration)}
+                                        fullWidth
+                                    >
+                                        Stop
+                                    </LemonButton>
+                                </>
+                            }
+                        />
+                    ) : status === AsyncMigrationStatus.CompletedSuccessfully ? (
+                        <></>
+                    ) : status === AsyncMigrationStatus.Errored ? (
+                        <More
+                            overlay={
+                                <>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => resumeMigration(asyncMigration)}
+                                        fullWidth
+                                    >
+                                        Resume
+                                    </LemonButton>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => rollbackMigration(asyncMigration)}
+                                        fullWidth
+                                    >
+                                        Rollback
+                                    </LemonButton>
+                                </>
+                            }
+                        />
+                    ) : status === AsyncMigrationStatus.RolledBack ? (
+                        <Tooltip title="Restart">
+                            <LemonButton
+                                status="stealth"
+                                icon={<IconReplay />}
+                                onClick={() => triggerMigration(asyncMigration)}
+                                fullWidth
                             />
-                        ) : status === AsyncMigrationStatus.CompletedSuccessfully ? (
-                            <></>
-                        ) : status === AsyncMigrationStatus.Errored ? (
-                            <More
-                                overlay={
-                                    <>
-                                        <LemonButton
-                                            status="stealth"
-                                            onClick={() => resumeMigration(asyncMigration)}
-                                            fullWidth
-                                        >
-                                            Resume
-                                        </LemonButton>
-                                        <LemonButton
-                                            status="stealth"
-                                            onClick={() => rollbackMigration(asyncMigration)}
-                                            fullWidth
-                                        >
-                                            Rollback
-                                        </LemonButton>
-                                    </>
-                                }
-                            />
-                        ) : status === AsyncMigrationStatus.RolledBack ? (
-                            <Tooltip title="Restart">
-                                <LemonButton
-                                    status="stealth"
-                                    icon={<IconReplay />}
-                                    onClick={() => triggerMigration(asyncMigration)}
-                                    fullWidth
-                                />
-                            </Tooltip>
-                        ) : status === AsyncMigrationStatus.Starting ? (
-                            <Spinner size="sm" />
-                        ) : null}
-                    </div>
-                )
-            },
+                        </Tooltip>
+                    ) : null}
+                </div>
+            )
         },
+    }
+
+    const minVersionColumn: AsyncMigrationColumnType = {
+        title: 'Minimum PostHog version',
+        render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+            return <div>{asyncMigration.posthog_min_version}</div>
+        },
+    }
+    const maxVersionColumn: AsyncMigrationColumnType = {
+        title: 'Maximum PostHog version',
+        render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+            return <div>{asyncMigration.posthog_max_version}</div>
+        },
+    }
+
+    const columns = {}
+    columns[AsyncMigrationsTab.FutureMigrations] = [nameColumn, statusColumn, minVersionColumn, maxVersionColumn]
+    columns[AsyncMigrationsTab.Management] = [
+        nameColumn,
+        progressColumn,
+        statusColumn,
+        lastOpColumn,
+        queryIdColumn,
+        startedAtColumn,
+        finishedAtColumn,
+        ActionsColumn,
     ]
+    const migrations = {}
+    migrations[AsyncMigrationsTab.FutureMigrations] = futureMigrations
+    migrations[AsyncMigrationsTab.Management] = actionableMigrations
+
     const rowExpansion = {
         expandedRowRender: function renderExpand(asyncMigration: AsyncMigration) {
             return asyncMigration && <AsyncMigrationDetails asyncMigration={asyncMigration} />
@@ -242,16 +276,25 @@ export function AsyncMigrations(): JSX.Element {
                         }
                     />
 
-                    <Tabs activeKey={activeTab} onChange={(t) => setActiveTab(t as AsyncMigrationsTab)}>
-                        <TabPane tab="Management" key={AsyncMigrationsTab.Management} />
+                    <Tabs activeKey={activeTab} onTabClick={(t) => setActiveTab(t as AsyncMigrationsTab)}>
+                        <TabPane
+                            tab={`Management (${actionableMigrations.length})`}
+                            key={AsyncMigrationsTab.Management}
+                        />
+                        {futureMigrations.length > 0 && (
+                            <TabPane
+                                tab={`Future Migrations (${futureMigrations.length})`}
+                                key={AsyncMigrationsTab.FutureMigrations}
+                            />
+                        )}
                         <TabPane tab="Settings" key={AsyncMigrationsTab.Settings} />
                     </Tabs>
 
-                    {activeTab === AsyncMigrationsTab.Management ? (
+                    {[AsyncMigrationsTab.Management, AsyncMigrationsTab.FutureMigrations].includes(activeTab) ? (
                         <>
                             <div className="mb-4 float-right">
                                 <LemonButton
-                                    icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <IconRefresh />}
+                                    icon={asyncMigrationsLoading ? <Spinner /> : <IconRefresh />}
                                     onClick={loadAsyncMigrations}
                                     type="secondary"
                                     size="small"
@@ -263,8 +306,8 @@ export function AsyncMigrations(): JSX.Element {
                             <LemonTable
                                 pagination={{ pageSize: 10 }}
                                 loading={asyncMigrationsLoading}
-                                columns={columns}
-                                dataSource={asyncMigrations}
+                                columns={columns[activeTab]}
+                                dataSource={migrations[activeTab]}
                                 expandable={rowExpansion}
                             />
                             {activeAsyncMigrationModal ? (

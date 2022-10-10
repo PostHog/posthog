@@ -1,14 +1,14 @@
 import React, { useState } from 'react'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
-import { Button, Row, Tooltip } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
 import { PathRegexPopup } from 'lib/components/PathCleanFilters/PathCleanFilter'
-import { PlusCircleOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
+import { IconPlus } from 'lib/components/icons'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function PathCleaningFilter(): JSX.Element {
     const [open, setOpen] = useState(false)
@@ -19,9 +19,8 @@ export function PathCleaningFilter(): JSX.Element {
     const hasFilters = (currentTeam?.path_cleaning_filters || []).length > 0
 
     return (
-        <>
+        <div className="space-y-2">
             <PathCleanFilters
-                style={{ paddingLeft: 10 }}
                 pageKey="pathcleanfilters-local"
                 pathCleaningFilters={filter.local_path_cleaning_filters || []}
                 onChange={(newItem) => {
@@ -34,61 +33,54 @@ export function PathCleaningFilter(): JSX.Element {
                     setFilter({ local_path_cleaning_filters: newState })
                 }}
             />
-            <Row align="middle" justify="space-between" style={{ paddingLeft: 0 }}>
-                <Popup
-                    visible={open}
-                    placement={'top-end'}
-                    fallbackPlacements={['top-start']}
-                    onClickOutside={() => setOpen(false)}
-                    overlay={
-                        <PathRegexPopup
-                            item={{}}
-                            onClose={() => setOpen(false)}
-                            onComplete={(newItem) => {
-                                setFilter({
-                                    local_path_cleaning_filters: [
-                                        ...(filter.local_path_cleaning_filters || []),
-                                        newItem,
-                                    ],
-                                })
-                                setOpen(false)
-                            }}
-                        />
-                    }
+            <Popup
+                visible={open}
+                placement={'top-end'}
+                fallbackPlacements={['top-start']}
+                onClickOutside={() => setOpen(false)}
+                overlay={
+                    <PathRegexPopup
+                        item={{}}
+                        onClose={() => setOpen(false)}
+                        onComplete={(newItem) => {
+                            setFilter({
+                                local_path_cleaning_filters: [...(filter.local_path_cleaning_filters || []), newItem],
+                            })
+                            setOpen(false)
+                        }}
+                    />
+                }
+            >
+                <LemonButton
+                    onClick={() => setOpen(!open)}
+                    className="new-prop-filter"
+                    data-attr={'new-prop-filter-' + 'pathcleanfilters-local'}
+                    type="secondary"
+                    icon={<IconPlus />}
+                    size="small"
                 >
-                    <Button
-                        onClick={() => setOpen(!open)}
-                        className="new-prop-filter"
-                        data-attr={'new-prop-filter-' + 'pathcleanfilters-local'}
-                        type="link"
-                        style={{ paddingLeft: 0 }}
-                        icon={<PlusCircleOutlined />}
-                    >
-                        {'Add Rule'}
-                    </Button>
-                </Popup>
+                    Add Rule
+                </LemonButton>
+            </Popup>
 
-                <Tooltip
-                    title={
-                        hasFilters
-                            ? 'Clean paths based using regex replacement.'
-                            : "You don't have path cleaning filters. Click the gear icon to configure it."
-                    }
-                >
-                    <div className="flex gap-4">
-                        <label>Apply global path URL cleaning</label>
-                        <LemonSwitch
-                            disabled={!hasFilters}
-                            checked={hasFilters ? filter.path_replacements || false : false}
-                            onChange={(checked: boolean) => {
-                                localStorage.setItem('default_path_clean_filters', checked.toString())
-                                setFilter({ path_replacements: checked })
-                            }}
-                            size="small"
-                        />
-                    </div>
-                </Tooltip>
-            </Row>
-        </>
+            <Tooltip
+                title={
+                    hasFilters
+                        ? 'Clean paths based using regex replacement.'
+                        : "You don't have path cleaning filters. Click the gear icon to configure it."
+                }
+            >
+                <LemonSwitch
+                    disabled={!hasFilters}
+                    checked={hasFilters ? filter.path_replacements || false : false}
+                    onChange={(checked: boolean) => {
+                        localStorage.setItem('default_path_clean_filters', checked.toString())
+                        setFilter({ path_replacements: checked })
+                    }}
+                    label="Apply global path URL cleaning"
+                    bordered
+                />
+            </Tooltip>
+        </div>
     )
 }

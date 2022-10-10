@@ -17,6 +17,7 @@ import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
+import equal from 'fast-deep-equal'
 
 const DAYS_FIRST_FETCH = 5
 const DAYS_SECOND_FETCH = 365
@@ -119,7 +120,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
         setEventFilter: (event: string) => ({ event }),
         toggleAutomaticLoad: (automaticLoadEnabled: boolean) => ({ automaticLoadEnabled }),
         noop: (s) => s,
-        startDownload: true,
+        startDownload: (columns?: string[]) => ({ columns }),
     },
 
     reducers: ({ props }) => ({
@@ -276,27 +277,36 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            actions.setProperties(searchParams.properties || values.properties || {})
+        [decodeURI(props.sceneUrl)]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
+            const nextProperties = searchParams.properties || values.properties || {}
+            if (!equal(nextProperties, values.properties)) {
+                actions.setProperties(nextProperties)
+            }
 
-            if (searchParams.eventFilter) {
-                actions.setEventFilter(searchParams.eventFilter)
+            const nextEventFilter = searchParams.eventFilter || ''
+            if (!equal(nextEventFilter, values.eventFilter)) {
+                actions.setEventFilter(nextEventFilter)
             }
         },
     }),
 
-    events: ({ values }) => ({
+    events: ({ values, actions }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
+        afterMount: () => actions.fetchEvents(),
     }),
 
     listeners: ({ actions, values, props }) => ({
-        startDownload: () => {
+        startDownload: ({ columns }) => {
+            const exportContext = {
+                path: values.eventsUrl(),
+                max_limit: 3500,
+            }
+            if (columns && columns.length > 0) {
+                exportContext['columns'] = columns
+            }
             triggerExport({
                 export_format: ExporterFormat.CSV,
-                export_context: {
-                    path: values.eventsUrl(),
-                    max_limit: 3500,
-                },
+                export_context: exportContext,
             })
         },
         setProperties: () => actions.fetchEvents(),
