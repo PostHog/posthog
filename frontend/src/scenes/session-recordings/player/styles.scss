@@ -88,6 +88,7 @@
         width: 100%;
         overflow: hidden;
         border: 1px solid var(--border);
+        border-radius: var(--radius);
         background-color: var(--bg-depth);
         display: flex;
         justify-content: center;
@@ -161,7 +162,7 @@
         min-height: 500px;
 
         .player-container {
-            padding: 10px;
+            padding: 0.5rem;
         }
     }
 

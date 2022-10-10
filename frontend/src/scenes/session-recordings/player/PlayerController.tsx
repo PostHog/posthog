@@ -184,7 +184,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                             </LemonButton>
                         </span>
                     </Tooltip>
-                    <Tooltip title={!isFullScreen ? `Go full screen` : 'Close full screen'}>
+                    <Tooltip title={!isFullScreen ? `Go full screen` : 'Exit full screen'}>
                         <LemonButton
                             size="small"
                             status={'primary-alt'}

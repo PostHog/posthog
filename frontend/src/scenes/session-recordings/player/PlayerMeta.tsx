@@ -13,6 +13,9 @@ import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SessionRecordingPlayerProps } from '~/types'
 import { CSSTransition } from 'react-transition-group'
+import clsx from 'clsx'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { Link } from '@posthog/lemon-ui'
 
 export function PlayerMetaV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { sessionPerson, description, resolution, scale, recordingStartTime, loading } = useValues(
@@ -89,36 +92,48 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
         isFullScreen,
     } = useValues(metaLogic({ sessionRecordingId, playerKey }))
     return (
-        <div className="player-meta-container-v3 border-b">
+        <div
+            className={clsx('PlayerMetaV3', {
+                'PlayerMetaV3--fullscreen': isFullScreen,
+            })}
+        >
             <CSSTransition
                 in={isFullScreen}
                 timeout={5000}
-                classNames="player-meta-escape-notice-"
+                classNames="PlayerMetaV3__escape-"
                 mountOnEnter
                 unmountOnExit
             >
-                <div className="player-meta-escape-notice">
-                    Press <kbd>ESC</kbd> to exit full screen
+                <div className="PlayerMetaV3__escape">
+                    <div className="bg-muted-dark text-white px-2 py-1 rounded shadow my-1 mx-auto">
+                        Press <kbd className="font-bold">Esc</kbd> to exit full screen
+                    </div>
                 </div>
             </CSSTransition>
-            <Row className="player-meta-user-section">
-                <Col className="player-meta-avatar">
+
+            <div
+                className={clsx('flex items-center gap-2', {
+                    'p-3 border-b': !isFullScreen,
+                    'px-3 p-1 text-xs': isFullScreen,
+                })}
+            >
+                <div className="mr-2">
                     {!sessionPerson ? (
-                        <Skeleton.Avatar active size={48} shape="circle" />
+                        <LemonSkeleton.Circle className="w-12 h-12" />
                     ) : (
                         <ProfilePicture
                             name={sessionPerson?.name}
                             email={sessionPerson?.properties?.$email}
-                            size="xxl"
+                            size={!isFullScreen ? 'xxl' : 'md'}
                         />
                     )}
-                </Col>
-                <Col className="player-meta-details">
-                    <Row className="player-meta-details-top">
+                </div>
+                <div className="flex-1">
+                    <div className="font-bold">
                         {!sessionPerson || !recordingStartTime ? (
-                            <Skeleton title={false} active paragraph={{ rows: 1, width: 250 }} />
+                            <LemonSkeleton className="w-1/3 my-1" />
                         ) : (
-                            <Space size={4}>
+                            <div className="flex gap-1">
                                 <PersonHeader person={sessionPerson} withIcon={false} noEllipsis={true} />
                                 {'·'}
                                 <TZLabel
@@ -127,60 +142,55 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                                     formatTime="h:mm A"
                                     showPopover={false}
                                 />
-                            </Space>
+                            </div>
                         )}
-                    </Row>
-                    <Row className="player-meta-details-bottom text-muted">
-                        {loading ? (
-                            <Skeleton title={false} active paragraph={{ rows: 1, width: 160 }} />
-                        ) : (
-                            <span>{description}</span>
+                    </div>
+                    <div className=" text-muted">
+                        {loading ? <LemonSkeleton className="w-1/4 my-1" /> : <span>{description}</span>}
+                    </div>
+                </div>
+            </div>
+            <div
+                className={clsx('flex items-center justify-between gap-2', {
+                    'p-3 h-12': !isFullScreen,
+                    'p-1 px-3 text-xs': isFullScreen,
+                })}
+            >
+                {loading || currentWindowIndex === -1 ? (
+                    <LemonSkeleton className="w-1/3" />
+                ) : (
+                    <Space size={4} align="center">
+                        <IconWindow
+                            value={currentWindowIndex + 1}
+                            className="text-muted"
+                            style={{ marginRight: '0.25rem' }}
+                        />
+                        <div className="window-number">Window {currentWindowIndex + 1}</div>
+                        {currentUrl && (
+                            <>
+                                {'· '}
+                                <Link to={currentUrl} target="_blank">
+                                    {truncate(currentUrl, 32)}
+                                </Link>
+                                <span className="flex items-center">
+                                    <CopyToClipboardInline description="current url" explicitValue={currentUrl} />
+                                </span>
+                            </>
                         )}
-                    </Row>
-                </Col>
-            </Row>
-            <LemonDivider className="my-0" />
-            <Row className="player-meta-window-section" justify="space-between" align="middle">
-                <Row align="middle">
-                    {loading || currentWindowIndex === -1 ? (
-                        <Skeleton title={false} active paragraph={{ rows: 1, width: 250 }} />
-                    ) : (
-                        <Space size={4} align="center">
-                            <IconWindow
-                                value={currentWindowIndex + 1}
-                                className="text-muted"
-                                style={{ marginRight: '0.25rem' }}
-                            />
-                            <div className="window-number">Window {currentWindowIndex + 1}</div>
-                            {currentUrl && (
-                                <>
-                                    {'· '}
-                                    <a href={currentUrl} target="_blank">
-                                        {truncate(currentUrl, 32)}
-                                    </a>
-                                    <span className="window-url-copy-icon">
-                                        <CopyToClipboardInline description="current url" explicitValue={currentUrl} />
-                                    </span>
-                                </>
-                            )}
-                        </Space>
-                    )}
-                </Row>
-                <Row align="middle">
-                    {loading ? (
-                        <Skeleton title={false} active paragraph={{ rows: 1, width: 250 }} />
-                    ) : (
-                        <span>
-                            {resolution && (
-                                <>
-                                    Resolution: {resolution.width} x {resolution.height} ({percentage(scale, 1, true)})
-                                </>
-                            )}
-                        </span>
-                    )}
-                </Row>
-            </Row>
-            {/*<LemonDivider className="my-0" />*/}
+                    </Space>
+                )}
+                {loading ? (
+                    <LemonSkeleton className="w-1/3" />
+                ) : (
+                    <span>
+                        {resolution && (
+                            <>
+                                Resolution: {resolution.width} x {resolution.height} ({percentage(scale, 1, true)})
+                            </>
+                        )}
+                    </span>
+                )}
+            </div>
         </div>
     )
 }
