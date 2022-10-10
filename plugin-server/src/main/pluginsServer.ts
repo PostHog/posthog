@@ -78,7 +78,7 @@ export async function startPluginsServer(
         stopEventLoopMetrics?.()
         await queue?.stop()
         await pubSub?.stop()
-        await jobQueueConsumer?.stop()
+        jobQueueConsumer?.stop()
         await bufferConsumer?.disconnect()
         await pluginScheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
@@ -200,11 +200,6 @@ export async function startPluginsServer(
         })
 
         await pubSub.start()
-
-        if (hub.jobQueueManager) {
-            const queueString = hub.jobQueueManager.getJobQueueTypesAsString()
-            await hub!.db!.redisSet('@posthog-plugin-server/enabled-job-queues', queueString)
-        }
 
         // every 5 minutes all ActionManager caches are reloaded for eventual consistency
         schedule.scheduleJob('*/5 * * * *', async () => {

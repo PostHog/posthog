@@ -883,8 +883,8 @@ export interface PluginScheduleControl {
 }
 
 export interface JobQueueConsumerControl {
-    stop: () => Promise<void>
-    resume: () => Promise<void> | void
+    stop: () => void
+    resume: () => void
 }
 
 export type IngestEventResponse =
