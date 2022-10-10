@@ -1,7 +1,7 @@
 import { defaultConfig, formatConfigHelp } from './config/config'
 import { healthcheckWithExit } from './healthcheck'
 import { initApp } from './init'
-import { GraphileWorker } from './main/job-queues/concurrent/graphile-worker'
+import { GraphileWorker } from './main/jobs/concurrent/graphile-worker'
 import { startPluginsServer } from './main/pluginsServer'
 import { Status } from './utils/status'
 import { makePiscina } from './worker/piscina'
