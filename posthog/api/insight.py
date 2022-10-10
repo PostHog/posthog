@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Type
 
 import structlog
-from django.db.models import Count, OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import Count, OuterRef, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -433,8 +433,8 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related(
-            Prefetch("dashboards", queryset=Dashboard.objects.exclude(deleted=True))
-        ).prefetch_related("dashboards__created_by", "dashboards__team", "dashboards__team__organization")
+            "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization"
+        )
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
