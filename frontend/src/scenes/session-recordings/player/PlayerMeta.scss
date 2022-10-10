@@ -43,6 +43,7 @@
 }
 
 .player-meta-container-v3 {
+    position: relative;
     .player-meta-user-section {
         padding: 0.75rem;
 
@@ -91,6 +92,39 @@
         li {
             height: 20px;
             margin: 2px 0;
+        }
+    }
+
+    .player-meta-escape-notice {
+        position: absolute;
+        left: 50%;
+        top: 10px;
+        z-index: 10;
+        width: 220px;
+        margin-left: -110px;
+        background-color: var(--bg-depth);
+        color: var(--white);
+        font-weight: bold;
+        padding: 0.5rem;
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-elevation);
+        transition: all 500ms ease-out;
+        opacity: 0;
+        transform: translateY(-100px);
+
+        &--enter {
+            opacity: 0;
+            transform: translateY(-100px);
+        }
+
+        &--enter-active {
+            opacity: 1;
+            transform: translateY(0px);
+        }
+
+        &--enter-done {
+            opacity: 1;
+            transform: translateY(-100px);
         }
     }
 }

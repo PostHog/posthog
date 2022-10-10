@@ -12,6 +12,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SessionRecordingPlayerProps } from '~/types'
+import { CSSTransition } from 'react-transition-group'
 
 export function PlayerMetaV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { sessionPerson, description, resolution, scale, recordingStartTime, loading } = useValues(
@@ -85,9 +86,21 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
         currentWindowIndex,
         recordingStartTime,
         loading,
+        isFullScreen,
     } = useValues(metaLogic({ sessionRecordingId, playerKey }))
     return (
         <div className="player-meta-container-v3 border-b">
+            <CSSTransition
+                in={isFullScreen}
+                timeout={5000}
+                classNames="player-meta-escape-notice-"
+                mountOnEnter
+                unmountOnExit
+            >
+                <div className="player-meta-escape-notice">
+                    Press <kbd>ESC</kbd> to exit full screen
+                </div>
+            </CSSTransition>
             <Row className="player-meta-user-section">
                 <Col className="player-meta-avatar">
                     {!sessionPerson ? (

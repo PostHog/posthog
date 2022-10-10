@@ -15,6 +15,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -59,12 +60,23 @@ export function SessionRecordingPlayerV3({
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
     matching,
 }: SessionRecordingPlayerProps): JSX.Element {
-    const { handleKeyDown } = useActions(
+    const { handleKeyDown, setFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
     )
     const { isNotFound } = useValues(sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }))
     const { isFullScreen } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const frame = useFrameRef({ sessionRecordingId, playerKey })
+
+    useKeyboardHotkeys(
+        isFullScreen
+            ? {
+                  escape: {
+                      action: () => setFullScreen(false),
+                  },
+              }
+            : {},
+        [isFullScreen]
+    )
 
     if (isNotFound) {
         return (
@@ -83,6 +95,7 @@ export function SessionRecordingPlayerV3({
             </div>
         )
     }
+
     return (
         <div
             className={clsx('SessionPlayerV3', { 'SessionPlayerV3--fullscreen': isFullScreen })}
