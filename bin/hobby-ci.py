@@ -9,7 +9,6 @@ import string
 import sys
 import time
 
-from retry import retry
 import digitalocean
 import requests
 
