@@ -2,7 +2,7 @@ import Piscina from '@posthog/piscina'
 
 import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../../src/main/ingestion-queues/queue'
-import { startJobsConsumer } from '../../src/main/job-queues/job-queue-consumer'
+import { startJobsConsumer } from '../../src/main/jobs/job-queue-consumer'
 import { Hub, LogLevel } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 
@@ -46,36 +46,36 @@ describe('capabilities', () => {
     })
 
     describe('startJobsConsumer()', () => {
-        it('sets up bufferJob handler if ingestion is on', async () => {
+        it('sets up bufferJob handler if ingestion is on', () => {
             hub.jobQueueManager.startConsumer = jest.fn()
             hub.capabilities.ingestion = true
             hub.capabilities.processPluginJobs = false
 
-            await startJobsConsumer(hub, piscina)
+            startJobsConsumer(hub, piscina)
 
             expect(hub.jobQueueManager.startConsumer).toHaveBeenCalledWith({
                 bufferJob: expect.anything(),
             })
         })
 
-        it('sets up pluginJob handler if processPluginJobs is on', async () => {
+        it('sets up pluginJob handler if processPluginJobs is on', () => {
             hub.jobQueueManager.startConsumer = jest.fn()
             hub.capabilities.ingestion = false
             hub.capabilities.processPluginJobs = true
 
-            await startJobsConsumer(hub, piscina)
+            startJobsConsumer(hub, piscina)
 
             expect(hub.jobQueueManager.startConsumer).toHaveBeenCalledWith({
                 pluginJob: expect.anything(),
             })
         })
 
-        it('sets up bufferJob and pluginJob handlers if ingestion and processPluginJobs are on', async () => {
+        it('sets up bufferJob and pluginJob handlers if ingestion and processPluginJobs are on', () => {
             hub.jobQueueManager.startConsumer = jest.fn()
             hub.capabilities.ingestion = true
             hub.capabilities.processPluginJobs = true
 
-            await startJobsConsumer(hub, piscina)
+            startJobsConsumer(hub, piscina)
 
             expect(hub.jobQueueManager.startConsumer).toHaveBeenCalledWith({
                 bufferJob: expect.anything(),
