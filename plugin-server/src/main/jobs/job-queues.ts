@@ -1,5 +1,5 @@
 import { JobQueueExport, JobQueuePersistence, JobQueueType } from '../../types'
-import { GraphileWorker } from './concurrent/graphile-worker'
+import { GraphileWorker } from './graphile-worker'
 import { FsQueue } from './local/fs-queue'
 
 export const jobQueues: JobQueueExport[] = [
