@@ -4,6 +4,7 @@ import datetime
 import os
 import random
 import re
+import signal
 import string
 import sys
 import time
@@ -29,6 +30,11 @@ user_data = f'#!/bin/bash \n' \
 			f'chmod +x deploy-hobby \n' \
 			f'./deploy-hobby {release_tag} {hostname}\n'
 token = os.getenv("DIGITALOCEAN_TOKEN")
+
+# Placeholders for DO resources
+domain = None
+droplet = None
+entry = None
 
 
 def block_until_droplet_is_started(droplet):
@@ -99,13 +105,40 @@ def waitForInstance(hostname, timeout=20, retry_interval=15):
 		print("Instance not ready - sleeping")
 		time.sleep(retry_interval)
 
+
+def destroy_environment(droplet, domain, record):
+	print("Destroying the droplet")
+	try:
+		droplet.destroy()
+	except Exception as e:
+		print(f"Could not destroy droplet because\n{e}")
+	print("Destroying the DNS entry")
+	try:
+		domain.delete_domain_record(record.id)
+	except Exception as e:
+		print(f"Could not destroy the dns entry because\n{e}")
+
+
+def handle_sigint():
+	global droplet
+	global domain
+	global record
+	destroy_environment(droplet, domain, record)
+
+
 def main():
+	global droplet
+	global domain
+	global record
+	signal.signal(signal.SIGINT, handle_sigint)
+	signal.signal(signal.SIGHUP, handle_sigint)
+
 	print("Creating droplet on Digitalocean for testing Hobby Deployment")
 	droplet = create_droplet(ssh_enabled=True)
 	block_until_droplet_is_started(droplet)
 	public_ip = get_public_ip(droplet)
 	domain = digitalocean.Domain(token=token, name="posthog.cc")
-	new_record = domain.create_new_domain_record(
+	record = domain.create_new_domain_record(
 		type='A',
 		name=name,
 		data=public_ip
@@ -113,10 +146,7 @@ def main():
 	print("Instance has started. You will be able to access it here after PostHog boots (~15 minutes):")
 	print(f"https://{hostname}")
 	health_success = waitForInstance(hostname)
-	print("Destroying the droplet")
-	droplet.destroy()
-	print("Destroying the DNS entry")
-	domain.delete_domain_record(new_record.id)
+	destroy_environment(droplet, domain, record)
 	if health_success:
 		print("We succeeded")
 		exit()
