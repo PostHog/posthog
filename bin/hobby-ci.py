@@ -82,4 +82,5 @@ new_record = domain.create_new_domain_record(
 )
 print("Instance has started. You can access it here:")
 print(f"https://{hostname}")
+
 # droplet.destroy()
