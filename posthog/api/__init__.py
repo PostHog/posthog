@@ -6,6 +6,7 @@ from posthog.settings import EE_AVAILABLE
 from . import (
     activity_log,
     annotation,
+    app_metrics,
     async_migration,
     authentication,
     dashboard,
@@ -71,6 +72,7 @@ projects_router.register(r"integrations", integration.IntegrationViewSet, "integ
 projects_router.register(
     r"ingestion_warnings", ingestion_warnings.IngestionWarningsViewSet, "ingestion_warnings", ["team_id"]
 )
+projects_router.register(r"app_metrics", app_metrics.AppMetricsViewSet, "app_metrics", ["team_id"])
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
