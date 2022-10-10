@@ -2187,6 +2187,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "macnube",
+      "name": "Paul McCloud",
+      "avatar_url": "https://avatars.githubusercontent.com/u/7122725?v=4",
+      "profile": "https://github.com/macnube",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
