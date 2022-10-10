@@ -20,57 +20,61 @@ export function PlayerFilter({ sessionRecordingId, playerKey }: SessionRecording
     const { windowIds } = useValues(metaLogic(logicProps))
 
     return (
-        <>
-            {tab === SessionRecordingTab.EVENTS && (
-                <LemonInput
-                    onChange={(query) => setLocalFilters({ query })}
-                    placeholder="Search events"
-                    type="search"
-                    value={localFilters.query}
+        <div className="flex justify-between gap-2 bg-side p-2 flex-wrap">
+            <div className="flex items-center gap-2">
+                {tab === SessionRecordingTab.EVENTS && (
+                    <>
+                        <LemonInput
+                            onChange={(query) => setLocalFilters({ query })}
+                            placeholder="Search events"
+                            type="search"
+                            value={localFilters.query}
+                        />
+                        <LemonSwitch
+                            checked={showOnlyMatching}
+                            bordered
+                            label={
+                                <span className="flex items-center gap-2 whitespace-nowrap">
+                                    Only show matching events
+                                    <Tooltip
+                                        title="Display only the events that match the global filter."
+                                        className="text-base text-muted-alt mr-2"
+                                    >
+                                        <IconInfo />
+                                    </Tooltip>
+                                </span>
+                            }
+                            onChange={setShowOnlyMatching}
+                        />
+                    </>
+                )}
+            </div>
+
+            <div className="flex items-center gap-2">
+                <LemonSelect
+                    data-attr="player-window-select"
+                    value={windowIdFilter ?? undefined}
+                    onChange={(val) => setWindowIdFilter(val as WindowOption)}
+                    options={[
+                        {
+                            value: RecordingWindowFilter.All,
+                            label: 'All windows',
+                            icon: <IconWindow value="A" className="text-muted" />,
+                        },
+                        ...windowIds.map((windowId, index) => ({
+                            value: windowId,
+                            label: `Window ${index + 1}`,
+                            icon: <IconWindow value={index + 1} className="text-muted" />,
+                        })),
+                    ]}
                 />
-            )}
-            <LemonSelect
-                className="player-filter-window"
-                data-attr="player-window-select"
-                value={windowIdFilter ?? undefined}
-                onChange={(val) => setWindowIdFilter(val as WindowOption)}
-                options={[
-                    {
-                        value: RecordingWindowFilter.All,
-                        label: 'All windows',
-                        icon: <IconWindow value="A" className="text-muted" />,
-                    },
-                    ...windowIds.map((windowId, index) => ({
-                        value: windowId,
-                        label: `Window ${index + 1}`,
-                        icon: <IconWindow value={index + 1} className="text-muted" />,
-                    })),
-                ]}
-            />
-            <Tooltip
-                title="Each recording window translates to a distinct browser tab or window."
-                className="text-base text-muted-alt mr-2"
-            >
-                <IconInfo />
-            </Tooltip>
-            {tab === SessionRecordingTab.EVENTS && (
-                <>
-                    <LemonSwitch
-                        className="player-filter-matching-events"
-                        checked={showOnlyMatching}
-                        bordered
-                        label="Only show matching events"
-                        onChange={setShowOnlyMatching}
-                        size="small"
-                    />
-                    <Tooltip
-                        title="Display only the events that match the global filter."
-                        className="text-base text-muted-alt mr-2"
-                    >
-                        <IconInfo />
-                    </Tooltip>
-                </>
-            )}
-        </>
+                <Tooltip
+                    title="Each recording window translates to a distinct browser tab or window."
+                    className="text-base text-muted-alt mr-2"
+                >
+                    <IconInfo />
+                </Tooltip>
+            </div>
+        </div>
     )
 }
