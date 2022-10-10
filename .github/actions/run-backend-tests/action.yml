@@ -101,6 +101,7 @@ runs:
               pytest ee/ posthog/ -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
+                  --splitting-algorithm least_duration \
                   --store-durations \
                   --cov \
                   --cov-report=xml:coverage-clickhouse.xml \
