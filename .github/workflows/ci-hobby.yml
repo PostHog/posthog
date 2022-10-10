@@ -22,7 +22,7 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         # this is a slow one
-        timeout-minutes: 20
+        timeout-minutes: 30
         name: Setup DO Hobby Instance and test
         steps:
           - uses: actions/checkout@v3
