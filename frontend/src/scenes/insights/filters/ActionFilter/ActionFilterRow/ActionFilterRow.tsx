@@ -314,8 +314,9 @@ export function ActionFilterRow({
                                     {mathDefinitions[math || '']?.onProperty && (
                                         <div className="flex-auto overflow-hidden">
                                             <TaxonomicStringPopup
-                                                groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                                                groupType={TaxonomicFilterGroupType.EventCount}
                                                 groupTypes={[
+                                                    TaxonomicFilterGroupType.EventCount,
                                                     TaxonomicFilterGroupType.NumericalEventProperties,
                                                     TaxonomicFilterGroupType.Sessions,
                                                 ]}
