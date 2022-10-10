@@ -68,13 +68,12 @@ export function SessionRecordingPlayerV3({
     const frame = useFrameRef({ sessionRecordingId, playerKey })
 
     useKeyboardHotkeys(
-        isFullScreen
-            ? {
-                  escape: {
-                      action: () => setFullScreen(false),
-                  },
-              }
-            : {},
+        {
+            f: {
+                action: () => setFullScreen(!isFullScreen),
+            },
+            ...(isFullScreen ? { escape: { action: () => setFullScreen(false) } } : {}),
+        },
         [isFullScreen]
     )
 
