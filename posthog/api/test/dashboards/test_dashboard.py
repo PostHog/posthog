@@ -7,6 +7,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
@@ -18,6 +19,10 @@ from posthog.utils import generate_cache_key
 
 class TestDashboard(APIBaseTest, QueryMatchingTest):
     CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     @snapshot_postgres_queries
     def test_retrieve_dashboard_list(self):
@@ -743,6 +748,22 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(
             self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code, status.HTTP_200_OK
         )
+
+    def test_soft_delete_does_not_delete_tiles(self) -> None:
+        dashboard_id, _ = self._create_dashboard({"name": "to delete"})
+        other_dashboard_id, _ = self._create_dashboard({"name": "not to delete"})
+        insight_one_id, _ = self._create_insight({"dashboards": [dashboard_id, other_dashboard_id]})
+        insight_two_id, _ = self._create_insight({"dashboards": [dashboard_id]})
+        tile_id, _ = self.dashboard_api.create_text_tile(dashboard_id)
+
+        self._soft_delete(dashboard_id, "dashboards")
+
+        insight_one_json = self.dashboard_api.get_insight(insight_id=insight_one_id)
+        assert insight_one_json["dashboards"] == [other_dashboard_id]
+        assert insight_one_json["deleted"] is False
+        insight_two_json = self.dashboard_api.get_insight(insight_id=insight_two_id)
+        assert insight_two_json["dashboards"] == []
+        assert insight_two_json["deleted"] is False
 
     def test_can_move_tile_between_dashboards(self) -> None:
         filter_dict = {
