@@ -14,7 +14,7 @@ interface FsJob {
     pluginConfigId?: number
     pluginConfigTeam?: number
 }
-export class FsQueue {
+export class MockGraphileWorker {
     interval: Timeout | null
     filename: string
 
@@ -32,7 +32,7 @@ export class FsQueue {
         this.intervalSeconds = 10
 
         if (process.env.NODE_ENV !== 'test') {
-            throw new Error('Cannot use FsQueue outside tests')
+            throw new Error('Cannot use MockGraphileWorker outside tests')
         }
         this.paused = false
         this.started = false

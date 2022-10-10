@@ -1,6 +1,6 @@
 import { JobQueueExport, JobQueuePersistence, JobQueueType } from '../../types'
 import { GraphileWorker } from './graphile-worker'
-import { FsQueue } from './local/fs-queue'
+import { MockGraphileWorker } from './local/fs-queue'
 
 export const jobQueues: JobQueueExport[] = [
     {
@@ -16,7 +16,7 @@ export const jobQueues: JobQueueExport[] = [
     {
         type: JobQueueType.FS,
         persistence: JobQueuePersistence.Local,
-        getQueue: () => new FsQueue(),
+        getQueue: () => new MockGraphileWorker(),
     },
 ]
 
