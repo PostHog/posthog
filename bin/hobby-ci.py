@@ -119,10 +119,10 @@ def main():
 	domain.delete_domain_record(new_record.id)
 	if health_success:
 		print("We succeeded")
-		exit(1)
+		exit()
 	else:
 		print("We failed")
-		exit(666)
+		exit(1)
 
 
 if __name__ == "__main__":
