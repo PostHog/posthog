@@ -163,7 +163,7 @@ export async function startPluginsServer(
             pluginScheduleControl = await startPluginSchedules(hub, piscina)
         }
         if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs) {
-            jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+            jobQueueConsumer = startJobQueueConsumer(hub, piscina)
         }
         if (hub.capabilities.ingestion) {
             bufferConsumer = await startAnonymousEventBufferConsumer({
