@@ -190,3 +190,25 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         tiles = dashboard_json["tiles"]
         assert len(tiles) == 3
         assert [t["text"]["body"] for t in tiles] == ["io sono testo", "soy texto", "i am text"]
+
+    def test_do_not_see_deleted_text_tiles_when_adding_new_ones(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        self.dashboard_api.create_text_tile(dashboard_id, text="io sono testo")
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="soy texto")
+
+        assert len(dashboard_json["tiles"]) == 2
+
+        self.dashboard_api.update_text_tile(dashboard_id, {**dashboard_json["tiles"][0], "deleted": True})
+
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        assert len(dashboard_json["tiles"]) == 1
+
+        _, with_another_tile_dashboard_json = self.dashboard_api.create_text_tile(
+            dashboard_id, text="i am a third text"
+        )
+        assert len(with_another_tile_dashboard_json["tiles"]) == 2
+        assert [t["text"]["body"] for t in with_another_tile_dashboard_json["tiles"]] == [
+            "soy texto",
+            "i am a third text",
+        ]
