@@ -1150,6 +1150,16 @@ describe('insightLogic', () => {
                     insight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
+
+        it('does not reacts to deletion of dashboard it is not on', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                })
+        })
     })
 
     it('will not save with empty filters', async () => {
