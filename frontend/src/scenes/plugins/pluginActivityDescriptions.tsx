@@ -1,3 +1,4 @@
+import { dayjs } from 'lib/dayjs'
 import { ActivityLogItem, ActivityScope, HumanizedChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import React from 'react'
@@ -89,6 +90,37 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
             extendedDescription: (
                 <>
                     Payload: <code>{JSON.stringify(logItem.detail.trigger.payload, null, 2)}</code>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'export_success' && logItem.detail.trigger) {
+        const { dateFrom, dateTo } = logItem.detail.trigger.payload
+        const startDate = dayjs(dateFrom).format('YYYY-MM-DD')
+        // :TRICKY: Internally export date range is non-inclusive so transform it to be inclusive
+        const endDate = dayjs(dateTo).subtract(1, 'day').format('YYYY-MM-DD')
+
+        return {
+            description: (
+                <>
+                    Finished exporting historical events between {startDate} and {endDate} (inclusive).
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'export_fail' && logItem.detail.trigger) {
+        const { dateFrom, dateTo } = logItem.detail.trigger.payload
+        const startDate = dayjs(dateFrom).format('YYYY-MM-DD')
+        // :TRICKY: Internally export date range is non-inclusive so transform it to be inclusive
+        const endDate = dayjs(dateTo).subtract(1, 'day').format('YYYY-MM-DD')
+
+        return {
+            description: (
+                <>
+                    Fatal error exporting historical events between {startDate} and {endDate} (inclusive). Check logs
+                    for more details.
                 </>
             ),
         }

@@ -1,7 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { JobName, Person } from '../../../../src/types'
+import { KAFKA_BUFFER } from '../../../../src/config/kafka-topics'
+import { Person } from '../../../../src/types'
 import { UUIDT } from '../../../../src/utils/utils'
 import {
     emitToBufferStep,
@@ -44,30 +45,39 @@ beforeEach(() => {
         hub: {
             CONVERSION_BUFFER_ENABLED: true,
             BUFFER_CONVERSION_SECONDS: 60,
+            conversionBufferTopicEnabledTeams: new Set([2]),
             db: { fetchPerson: jest.fn().mockResolvedValue(existingPerson) },
             eventsProcessor: {},
             jobQueueManager: {
                 enqueue: jest.fn(),
+            },
+            kafkaProducer: {
+                queueMessage: jest.fn(),
             },
         },
     }
 })
 
 describe('emitToBufferStep()', () => {
-    it('enqueues graphile job if event should be buffered, stops processing', async () => {
+    it('produces to anonymous events buffer if event should be buffered, stops processing', async () => {
         const unixNow = 1657710000000
         Date.now = jest.fn(() => unixNow)
 
         const response = await emitToBufferStep(runner, pluginEvent, () => true)
 
-        expect(runner.hub.jobQueueManager.enqueue).toHaveBeenCalledWith(
-            JobName.BUFFER_JOB,
-            {
-                eventPayload: pluginEvent,
-                timestamp: unixNow + 60000, // runner.hub.BUFFER_CONVERSION_SECONDS * 1000
-            },
-            { key: 'team_id', tag: '2' }
-        )
+        expect(runner.hub.kafkaProducer.queueMessage).toHaveBeenCalledWith({
+            topic: KAFKA_BUFFER,
+            messages: [
+                {
+                    key: '2',
+                    value: JSON.stringify(pluginEvent),
+                    headers: {
+                        eventId: pluginEvent.uuid,
+                        processEventAt: (unixNow + 60000).toString(),
+                    },
+                },
+            ],
+        })
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
     })

@@ -59,8 +59,9 @@ export const pluginConfig39: PluginConfig = {
 function mockSourceFileFields(
     name: string,
     { indexJs, pluginJson }: { indexJs?: string; pluginJson?: string }
-): Pick<Plugin, 'source__plugin_json' | 'source__index_ts' | 'source__frontend_tsx'> {
-    const fields: Pick<Plugin, 'source__plugin_json' | 'source__index_ts' | 'source__frontend_tsx'> = {}
+): Pick<Plugin, 'source__plugin_json' | 'source__index_ts' | 'source__frontend_tsx' | 'source__web_ts'> {
+    const fields: Pick<Plugin, 'source__plugin_json' | 'source__index_ts' | 'source__frontend_tsx' | 'source__web_ts'> =
+        {}
     if (indexJs) {
         fields['source__index_ts'] = indexJs
     }
