@@ -68,7 +68,7 @@ def create_droplet(ssh_enabled=False):
 	return droplet
 
 
-def waitForInstance(hostname, timeout=5):
+def waitForInstance(hostname, timeout=10):
 	# timeout in minutes
 	# return true if success or false if failure
 	print("Attempting to reach the instance")
@@ -77,7 +77,12 @@ def waitForInstance(hostname, timeout=5):
 	timeout_seconds = timeout * 60
 	start_time = datetime.datetime.now()
 	while True:
-		r = requests.get(url)
+		try:
+			r = requests.get(url)
+		except Exception as e:
+			print(f"Host is probably not up. Received exception\n{e}")
+			time.sleep(3)
+			continue
 		elapsed = datetime.datetime.now() - start_time
 		if r.status_code == 200:
 			print("Success - received heartbeat from the instance")
