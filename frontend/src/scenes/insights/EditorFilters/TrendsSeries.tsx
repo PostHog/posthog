@@ -14,7 +14,7 @@ import { IconCalculate } from 'lib/components/icons'
 
 export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
-    const { filters } = useValues(trendsLogic(insightProps))
+    const { filters, isFormulaOn } = useValues(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const propertiesTaxonomicGroupTypes = [
@@ -37,7 +37,7 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                 typeKey={`trends_${InsightType.TRENDS}`}
-                buttonCopy="Add graph series"
+                buttonCopy={`Add graph ${isFormulaOn ? 'variable' : 'series'}`}
                 showSeriesIndicator
                 showNestedArrow
                 entitiesLimit={
