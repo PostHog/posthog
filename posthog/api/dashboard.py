@@ -12,7 +12,6 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 
-from posthog.api.dashboard_tiles import TextSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
@@ -34,6 +33,16 @@ class CanEditDashboard(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         return dashboard.can_user_edit(cast(User, request.user).id)
+
+
+class TextSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    last_modified_by = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = Text
+        fields = "__all__"
+        read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
 
 
 class DashboardTileSerializer(serializers.ModelSerializer):
