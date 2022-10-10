@@ -213,7 +213,7 @@ class PluginConfig(models.Model):
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
     error: models.JSONField = models.JSONField(default=None, null=True)
-    # Used to access web.ts from a public URL
+    # Used to access site.ts from a public URL
     web_token: models.CharField = models.CharField(max_length=64, default=None, null=True)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
@@ -265,7 +265,7 @@ class PluginSourceFileManager(models.Manager):
 
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
         try:
-            plugin_json, index_ts, frontend_tsx, web_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
+            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
         # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
@@ -287,15 +287,15 @@ class PluginSourceFileManager(models.Manager):
         else:
             filenames_to_delete.append("frontend.tsx")
         # Save frontend.tsx
-        web_ts_instance: Optional["PluginSourceFile"] = None
-        if web_ts is not None:
-            web_ts_instance, _ = PluginSourceFile.objects.update_or_create(
+        site_ts_instance: Optional["PluginSourceFile"] = None
+        if site_ts is not None:
+            site_ts_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
-                filename="web.ts",
-                defaults={"source": web_ts, "transpiled": None, "status": None, "error": None},
+                filename="site.ts",
+                defaults={"source": site_ts, "transpiled": None, "status": None, "error": None},
             )
         else:
-            filenames_to_delete.append("web.ts")
+            filenames_to_delete.append("site.ts")
         # Save index.ts
         index_ts_instance: Optional["PluginSourceFile"] = None
         if index_ts is not None:
@@ -310,7 +310,7 @@ class PluginSourceFileManager(models.Manager):
             filenames_to_delete.append("index.ts")
         # Make sure files are gone
         PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
-        return plugin_json_instance, index_ts_instance, frontend_tsx_instance, web_ts_instance
+        return plugin_json_instance, index_ts_instance, frontend_tsx_instance, site_ts_instance
 
 
 class PluginSourceFile(UUIDModel):

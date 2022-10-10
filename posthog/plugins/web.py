@@ -28,7 +28,7 @@ def get_transpiled_web_source(id: int, token: str) -> Optional[WebJsSource]:
             id=id,
             web_token=token,
             enabled=True,
-            plugin__pluginsourcefile__filename="web.ts",
+            plugin__pluginsourcefile__filename="site.ts",
             plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
         )
         .values_list("id", "plugin__pluginsourcefile__transpiled", "web_token", "plugin__config_schema", "config")
@@ -48,7 +48,7 @@ def get_decide_web_js_inject(team: "Team") -> List[dict]:
         PluginConfig.objects.filter(
             team=team,
             enabled=True,
-            plugin__pluginsourcefile__filename="web.ts",
+            plugin__pluginsourcefile__filename="site.ts",
             plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
         )
         .values_list("id", "web_token")

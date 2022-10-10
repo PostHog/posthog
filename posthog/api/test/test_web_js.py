@@ -19,7 +19,7 @@ class TestWebJs(BaseTest):
         plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
         PluginSourceFile.objects.create(
             plugin=plugin,
-            filename="web.ts",
+            filename="site.ts",
             source="export function inject (){}",
             transpiled="function inject(){}",
             status=PluginSourceFile.Status.TRANSPILED,

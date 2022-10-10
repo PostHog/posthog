@@ -307,8 +307,8 @@ export interface Plugin {
     source__index_ts?: string
     /** Cached source for frontend.tsx from a joined PluginSourceFile query */
     source__frontend_tsx?: string
-    /** Cached source for web.ts from a joined PluginSourceFile query */
-    source__web_ts?: string
+    /** Cached source for site.ts from a joined PluginSourceFile query */
+    source__site_ts?: string
     error?: PluginError
     from_json?: boolean
     from_web?: boolean

@@ -121,7 +121,7 @@ export async function resetTestDatabase(
 
 export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>): Promise<void> {
     // Handling of related fields
-    const { source__plugin_json, source__index_ts, source__frontend_tsx, source__web_ts, ...object } = objectProvided
+    const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 
     const keys = Object.keys(object)
         .map((key) => `"${key}"`)
@@ -177,12 +177,12 @@ export async function insertRow(db: Pool, table: string, objectProvided: Record<
                 })
             )
         }
-        if (source__web_ts) {
+        if (source__site_ts) {
             dependentQueries.push(
                 insertRow(db, 'posthog_pluginsourcefile', {
                     id: new UUIDT().toString(),
-                    filename: 'web.ts',
-                    source: source__web_ts,
+                    filename: 'site.ts',
+                    source: source__site_ts,
                     plugin_id: rowSaved.id,
                     error: null,
                     transpiled: null,
