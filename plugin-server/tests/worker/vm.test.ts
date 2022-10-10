@@ -2,7 +2,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as fetch from 'node-fetch'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
-import { JobQueueManager } from '../../src/main/jobs/job-queue-manager'
+import { GraphileWorker } from '../../src/main/jobs/graphile-worker'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
@@ -1142,8 +1142,8 @@ describe('vm tests', () => {
             await delay(1010)
 
             // get the enqueued job
-            expect(JobQueueManager).toHaveBeenCalled()
-            const mockJobQueueInstance = (JobQueueManager as any).mock.instances[0]
+            expect(GraphileWorker).toHaveBeenCalled()
+            const mockJobQueueInstance = (GraphileWorker as any).mock.instances[0]
             const mockEnqueue = mockJobQueueInstance.enqueue
             expect(mockEnqueue).toHaveBeenCalledTimes(1)
             expect(mockEnqueue).toHaveBeenCalledWith(
@@ -1212,7 +1212,7 @@ describe('vm tests', () => {
             await vm.methods.onEvent!(defaultEvent)
             await delay(1010)
 
-            const mockJobQueueInstance = (JobQueueManager as any).mock.instances[0]
+            const mockJobQueueInstance = (GraphileWorker as any).mock.instances[0]
             const mockEnqueue = mockJobQueueInstance.enqueue
 
             // won't retry after the nth time where n = MAXIMUM_RETRIES
