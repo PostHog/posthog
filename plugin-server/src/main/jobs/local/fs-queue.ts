@@ -113,6 +113,11 @@ export class MockGraphileWorker {
         }
     }
 
+    async pauseConsumer(): Promise<void> {
+        this.paused = true
+        await this.syncState()
+    }
+
     isConsumerPaused(): boolean {
         return this.paused
     }
