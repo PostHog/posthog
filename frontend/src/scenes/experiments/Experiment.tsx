@@ -41,6 +41,7 @@ import { router } from 'kea-router'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonTextArea } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -76,6 +77,9 @@ export function Experiment(): JSX.Element {
         secondaryMetricResults,
         experimentDataLoading,
         secondaryMetricResultsLoading,
+        experimentResultCalculationError,
+        flagImplementationWarning,
+        flagAvailabilityWarning,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -453,6 +457,22 @@ export function Experiment(): JSX.Element {
                                                         taxonomicGroupTypes={taxonomicGroupTypesForSelection}
                                                     />
                                                 </div>
+                                                {flagAvailabilityWarning && (
+                                                    <AlertMessage type="info" className="mt-3 mb-3">
+                                                        These properties aren't immediately available on first page load
+                                                        for unidentified persons. This experiment requires that at least
+                                                        one event is sent prior to becoming available to your product or
+                                                        website.{' '}
+                                                        <a
+                                                            href="https://posthog.com/docs/integrate/client/js#bootstrapping-flags"
+                                                            target="_blank"
+                                                        >
+                                                            {' '}
+                                                            Learn more about how to make feature flags available
+                                                            instantly.
+                                                        </a>
+                                                    </AlertMessage>
+                                                )}
                                             </Col>
                                         </Row>
                                     </Col>
@@ -498,6 +518,21 @@ export function Experiment(): JSX.Element {
                                                     </div>
                                                 )}
                                             </div>
+                                            {flagImplementationWarning && (
+                                                <AlertMessage type="info" className="mt-3 mb-3">
+                                                    We can't detect any feature flag information for this target metric.
+                                                    Ensure that you're using the latest PostHog client libraries, and
+                                                    make sure you manually send feature flag information for server-side
+                                                    libraries if necessary.{' '}
+                                                    <a
+                                                        href="https://posthog.com/docs/integrate/server/python#capture"
+                                                        target="_blank"
+                                                    >
+                                                        {' '}
+                                                        Read the docs for how to do this for server-side libraries.
+                                                    </a>
+                                                </AlertMessage>
+                                            )}
                                             {experimentInsightType === InsightType.FUNNELS && (
                                                 <ActionFilter
                                                     bordered
@@ -506,7 +541,7 @@ export function Experiment(): JSX.Element {
                                                         setNewExperimentData({ filters: payload })
                                                         setFilters(payload)
                                                     }}
-                                                    typeKey={`EditFunnel-action`}
+                                                    typeKey={`experiment-funnel-goal`}
                                                     mathAvailability={MathAvailability.None}
                                                     hideDeleteBtn={filterSteps.length === 1}
                                                     buttonCopy="Add funnel step"
@@ -722,8 +757,9 @@ export function Experiment(): JSX.Element {
                         {showWarning && experimentData.end_date && (
                             <Row align="top" className="feature-flag-mods">
                                 <Col span={23} style={{ fontWeight: 500 }}>
-                                    <strong>Your experiment is complete.</strong> We recommend removing the feature flag
-                                    from your code completely, instead of relying on this distribution.{' '}
+                                    <strong>Your experiment is complete, but the feature flag is still enabled.</strong>{' '}
+                                    We recommend removing the feature flag from your code completely, instead of relying
+                                    on this distribution.{' '}
                                     <Link
                                         to={
                                             experimentData.feature_flag
@@ -1081,6 +1117,9 @@ export function Experiment(): JSX.Element {
                                             <div className="text-center">
                                                 <b>There are no results for this experiment yet.</b>
                                                 <div className="text-sm ">
+                                                    {!!experimentResultCalculationError &&
+                                                        `${experimentResultCalculationError}. `}{' '}
+                                                    Wait a bit longer for your users to be exposed to the experiment.
                                                     Double check your feature flag implementation if you're still not
                                                     seeing results.
                                                 </div>
