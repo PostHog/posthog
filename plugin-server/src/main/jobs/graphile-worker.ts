@@ -1,10 +1,10 @@
 import * as Sentry from '@sentry/node'
 import { makeWorkerUtils, run, Runner, TaskList, WorkerUtils } from 'graphile-worker'
 import { Pool } from 'pg'
-import { runRetriableFunction } from 'utils/retries'
 
 import { EnqueuedJob, Hub } from '../../types'
 import { instrument } from '../../utils/metrics'
+import { runRetriableFunction } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { createPostgresPool } from '../../utils/utils'
 
