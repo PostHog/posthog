@@ -1,7 +1,5 @@
 # This workflow runs e2e smoke test for hobby deployment
-#
 name: e2e - hobby smoke test
-author: fuziontech
 on:
   push:
     branches:
