@@ -35,6 +35,9 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
     def test_basic_funnel_default_funnel_days_breakdown_action(self):
         pass
 
+    def test_basic_funnel_default_funnel_days_breakdown_action_materialized(self):
+        pass
+
     def test_strict_breakdown_events_with_multiple_properties(self):
 
         filters = {
