@@ -27,10 +27,14 @@ def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Opt
 
         if job_id in by_category["export_success"]:
             record["status"] = "success"
-            record["duration"] = by_category["export_success"][job_id].created_at - trigger_entry.created_at
+            record["duration"] = (
+                by_category["export_success"][job_id].created_at - trigger_entry.created_at
+            ).total_seconds()
         elif job_id in by_category["export_fail"]:
             record["status"] = "fail"
-            record["duration"] = by_category["export_fail"][job_id].created_at - trigger_entry.created_at
+            record["duration"] = (
+                by_category["export_fail"][job_id].created_at - trigger_entry.created_at
+            ).total_seconds()
         else:
             record["status"] = "not_finished"
         historical_exports.append(record)
