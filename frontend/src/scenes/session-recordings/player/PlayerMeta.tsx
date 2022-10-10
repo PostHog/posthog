@@ -150,7 +150,7 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                 </div>
             </div>
             <div
-                className={clsx('flex items-center justify-between gap-2', {
+                className={clsx('flex items-center justify-between gap-2 whitespace-nowrap', {
                     'p-3 h-12': !isFullScreen,
                     'p-1 px-3 text-xs': isFullScreen,
                 })}
@@ -158,7 +158,7 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                 {loading || currentWindowIndex === -1 ? (
                     <LemonSkeleton className="w-1/3" />
                 ) : (
-                    <Space size={4} align="center">
+                    <>
                         <IconWindow
                             value={currentWindowIndex + 1}
                             className="text-muted"
@@ -176,8 +176,9 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                                 </span>
                             </>
                         )}
-                    </Space>
+                    </>
                 )}
+                <div className="flex-1" />
                 {loading ? (
                     <LemonSkeleton className="w-1/3" />
                 ) : (
