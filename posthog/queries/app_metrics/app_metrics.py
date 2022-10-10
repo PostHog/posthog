@@ -1,3 +1,5 @@
+from django.utils.timezone import now
+
 from posthog.client import sync_execute
 from posthog.models.app_metrics.sql import QUERY_APP_METRICS_TIME_SERIES
 from posthog.models.team.team import Team
@@ -16,7 +18,7 @@ class AppMetricsQuery:
         query, params = self.metrics_query()
         dates, successes, successes_on_retry, failures = sync_execute(query, params)[0]
         return {
-            "dates": dates,
+            "dates": [timestamp.strftime("%Y-%m-%d") for timestamp in dates],
             "successes": successes,
             "successes_on_retry": successes_on_retry,
             "failures": failures,
@@ -39,10 +41,17 @@ class AppMetricsQuery:
             "category": self.filter.validated_data.get("category"),
             "job_id": job_id,
             "date_from": self.date_from,
+            "date_to": self.date_to,
             "timezone": self.team.timezone,
         }
 
     @property
     def date_from(self):
         datetime = relative_date_parse(self.filter.validated_data.get("date_from"))
+        return format_ch_timestamp(datetime, convert_to_timezone=self.team.timezone)
+
+    @property
+    def date_to(self):
+        date_to_string = self.filter.validated_data.get("date_to")
+        datetime = relative_date_parse(date_to_string) if date_to_string is not None else now()
         return format_ch_timestamp(datetime, convert_to_timezone=self.team.timezone)

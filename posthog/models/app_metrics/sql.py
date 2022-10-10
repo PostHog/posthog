@@ -86,6 +86,12 @@ FROM {settings.CLICKHOUSE_DATABASE}.kafka_app_metrics
 """
 )
 
+
+INSERT_APP_METRICS_SQL = """
+INSERT INTO sharded_app_metrics (team_id, timestamp, plugin_config_id, category, job_id, successes, successes_on_retry, failures, _timestamp, _offset, _partition)
+SELECT %(team_id)s, %(timestamp)s, %(plugin_config_id)s, %(category)s, %(job_id)s, %(successes)s, %(successes_on_retry)s, %(failures)s, now(), 0, 0
+"""
+
 QUERY_APP_METRICS_TIME_SERIES = """
 SELECT groupArray(date), groupArray(successes), groupArray(successes_on_retry), groupArray(failures)
 FROM (
@@ -104,7 +110,7 @@ FROM (
             dateDiff(
                 'day',
                 dateTrunc('day', toDateTime(%(date_from)s), %(timezone)s),
-                dateTrunc('day', now() + INTERVAL 1 DAY, %(timezone)s)
+                dateTrunc('day', toDateTime(%(date_to)s) + INTERVAL 1 DAY, %(timezone)s)
             )
         )
         UNION ALL
@@ -119,6 +125,7 @@ FROM (
         AND category = %(category)s
         {job_id_clause}
         AND timestamp >= %(date_from)s
+        AND timestamp < %(date_to)s
         GROUP BY toStartOfDay(timestamp, %(timezone)s)
     )
     GROUP BY date
