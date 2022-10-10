@@ -24,7 +24,6 @@ admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(Insight)
-admin.site.register(InstanceSetting)
 
 
 @admin.register(InstanceSetting)
