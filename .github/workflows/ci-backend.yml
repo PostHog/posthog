@@ -183,7 +183,7 @@ jobs:
         timeout-minutes: 30
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || github.event_name == 'workflow_dispatch' }}
 
-        name: Backend - ${{ matrix.name }}
+        name: Backend - ${{ matrix.name }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
 
         strategy:

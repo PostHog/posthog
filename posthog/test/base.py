@@ -145,6 +145,12 @@ class TestMixin:
             raise Exception(
                 "Some events created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all events."
             )
+
+        if len(session_recordings_cache_tests) > 0:
+            session_recordings_cache_tests.clear()
+            raise Exception(
+                "Some session recording events created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all events."
+            )
         global persons_ordering_int
         persons_ordering_int = 0
         super().tearDown()  # type: ignore
