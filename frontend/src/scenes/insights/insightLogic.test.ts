@@ -118,14 +118,6 @@ describe('insightLogic', () => {
                 '/api/projects/:team/insights/path': { result: ['result from api'] },
                 '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
                 '/api/projects/:team/insights/retention/': { result: ['result from api'] },
-                '/api/projects/:team/insights/42/': {
-                    id: 42,
-                    short_id: Insight42,
-                    result: ['result 42'],
-                    filters: API_FILTERS,
-                    name: 'original name',
-                    dashboards: [1, 2, 3],
-                },
                 '/api/projects/:team/insights/43/': partialInsight43,
                 '/api/projects/:team/insights/44/': {
                     id: 44,
