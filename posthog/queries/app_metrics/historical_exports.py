@@ -39,4 +39,6 @@ def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Opt
             record["status"] = "not_finished"
         historical_exports.append(record)
 
+    historical_exports.sort(key=lambda record: record["started_at"], reverse=True)
+
     return historical_exports
