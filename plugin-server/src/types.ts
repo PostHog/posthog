@@ -9,7 +9,6 @@ import {
     Properties,
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
-import { TaskList } from 'graphile-worker'
 import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
@@ -235,37 +234,6 @@ export interface EnqueuedBufferJob {
 export enum JobName {
     PLUGIN_JOB = 'pluginJob',
     BUFFER_JOB = 'bufferJob',
-}
-
-export interface JobQueue {
-    startConsumer: (jobHandlers: TaskList) => Promise<void> | void
-    stopConsumer: () => Promise<void> | void
-    pauseConsumer: () => Promise<void> | void
-    resumeConsumer: () => Promise<void> | void
-    isConsumerPaused: () => boolean
-
-    connectProducer: () => Promise<void> | void
-    enqueue: (jobName: string, job: EnqueuedJob) => Promise<void> | void
-    disconnectProducer: () => Promise<void> | void
-}
-
-export enum JobQueueType {
-    FS = 'fs',
-    Graphile = 'graphile',
-    GraphileBackup = 'graphile-backup',
-}
-
-export enum JobQueuePersistence {
-    /** Job queues that store jobs on the local server */
-    Local = 'local',
-    /** Remote persistent job queues that can be read from concurrently */
-    Concurrent = 'concurrent',
-}
-
-export type JobQueueExport = {
-    type: JobQueueType
-    persistence: JobQueuePersistence
-    getQueue: (serverConfig: PluginsServerConfig) => JobQueue
 }
 
 export type PluginId = Plugin['id']
