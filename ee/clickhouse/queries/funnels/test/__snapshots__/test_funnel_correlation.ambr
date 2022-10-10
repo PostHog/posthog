@@ -2992,8 +2992,7 @@
             timestamp,
             steps,
             final_timestamp,
-            first_timestamp,
-            group0_properties
+            first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -3001,8 +3000,7 @@
                median(step_1_conversion_time) step_1_median_conversion_time_inner ,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
-               argMax(latest_0, steps) as first_timestamp,
-               any(group0_properties) as group0_properties
+               argMax(latest_0, steps) as first_timestamp
         FROM
           (SELECT aggregation_target,
                   steps,
@@ -3010,15 +3008,13 @@
                                   step_1_conversion_time ,
                                   latest_0,
                                   latest_1,
-                                  latest_0,
-                                  group0_properties
+                                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time ,
-                     group0_properties
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -3026,30 +3022,25 @@
                         latest_0,
                         step_1,
                         min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                           group0_properties
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
-                           if(step_1 = 1, timestamp, null) as latest_1 ,
-                           group0_properties
+                           if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target,
-                              e.group0_properties AS group0_properties,
-                              e.person_id as person_id
+                              e."$group_0" as aggregation_target
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3065,8 +3056,15 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')])) as prop
-     FROM funnel_actors) aggregation_target_with_props
+            arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
+     FROM funnel_actors
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -3084,8 +3082,7 @@
             timestamp,
             steps,
             final_timestamp,
-            first_timestamp,
-            group0_properties
+            first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -3093,8 +3090,7 @@
                median(step_1_conversion_time) step_1_median_conversion_time_inner ,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
-               argMax(latest_0, steps) as first_timestamp,
-               any(group0_properties) as group0_properties
+               argMax(latest_0, steps) as first_timestamp
         FROM
           (SELECT aggregation_target,
                   steps,
@@ -3102,15 +3098,13 @@
                                   step_1_conversion_time ,
                                   latest_0,
                                   latest_1,
-                                  latest_0,
-                                  group0_properties
+                                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time ,
-                     group0_properties
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -3118,32 +3112,34 @@
                         latest_0,
                         step_1,
                         min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                           group0_properties
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
-                           if(step_1 = 1, timestamp, null) as latest_1 ,
-                           group0_properties
+                           if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.group0_properties AS group0_properties,
-                              e.person_id as person_id,
-                              e."group0_properties" as "group0_properties"
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
                          AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3169,8 +3165,7 @@
             timestamp,
             steps,
             final_timestamp,
-            first_timestamp,
-            group0_properties
+            first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -3178,8 +3173,7 @@
                median(step_1_conversion_time) step_1_median_conversion_time_inner ,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
-               argMax(latest_0, steps) as first_timestamp,
-               any(group0_properties) as group0_properties
+               argMax(latest_0, steps) as first_timestamp
         FROM
           (SELECT aggregation_target,
                   steps,
@@ -3187,15 +3181,13 @@
                                   step_1_conversion_time ,
                                   latest_0,
                                   latest_1,
-                                  latest_0,
-                                  group0_properties
+                                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time ,
-                     group0_properties
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -3203,32 +3195,34 @@
                         latest_0,
                         step_1,
                         min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                           group0_properties
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
-                           if(step_1 = 1, timestamp, null) as latest_1 ,
-                           group0_properties
+                           if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.group0_properties AS group0_properties,
-                              e.person_id as person_id,
-                              e."group0_properties" as "group0_properties"
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
                          AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3254,8 +3248,7 @@
             timestamp,
             steps,
             final_timestamp,
-            first_timestamp,
-            group0_properties
+            first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -3263,8 +3256,7 @@
                median(step_1_conversion_time) step_1_median_conversion_time_inner ,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
-               argMax(latest_0, steps) as first_timestamp,
-               any(group0_properties) as group0_properties
+               argMax(latest_0, steps) as first_timestamp
         FROM
           (SELECT aggregation_target,
                   steps,
@@ -3272,15 +3264,13 @@
                                   step_1_conversion_time ,
                                   latest_0,
                                   latest_1,
-                                  latest_0,
-                                  group0_properties
+                                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time ,
-                     group0_properties
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -3288,32 +3278,34 @@
                         latest_0,
                         step_1,
                         min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                           group0_properties
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
-                           if(step_1 = 1, timestamp, null) as latest_1 ,
-                           group0_properties
+                           if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.group0_properties AS group0_properties,
-                              e.person_id as person_id,
-                              e."group0_properties" as "group0_properties"
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
                          AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3339,8 +3331,7 @@
             timestamp,
             steps,
             final_timestamp,
-            first_timestamp,
-            group0_properties
+            first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -3348,8 +3339,7 @@
                median(step_1_conversion_time) step_1_median_conversion_time_inner ,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
-               argMax(latest_0, steps) as first_timestamp,
-               any(group0_properties) as group0_properties
+               argMax(latest_0, steps) as first_timestamp
         FROM
           (SELECT aggregation_target,
                   steps,
@@ -3357,15 +3347,13 @@
                                   step_1_conversion_time ,
                                   latest_0,
                                   latest_1,
-                                  latest_0,
-                                  group0_properties
+                                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time ,
-                     group0_properties
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -3373,32 +3361,34 @@
                         latest_0,
                         step_1,
                         min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                           group0_properties
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
-                           if(step_1 = 1, timestamp, null) as latest_1 ,
-                           group0_properties
+                           if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.group0_properties AS group0_properties,
-                              e.person_id as person_id,
-                              e."group0_properties" as "group0_properties"
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
                          AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3424,8 +3414,7 @@
             timestamp,
             steps,
             final_timestamp,
-            first_timestamp,
-            group0_properties
+            first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -3433,8 +3422,7 @@
                median(step_1_conversion_time) step_1_median_conversion_time_inner ,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
-               argMax(latest_0, steps) as first_timestamp,
-               any(group0_properties) as group0_properties
+               argMax(latest_0, steps) as first_timestamp
         FROM
           (SELECT aggregation_target,
                   steps,
@@ -3442,15 +3430,13 @@
                                   step_1_conversion_time ,
                                   latest_0,
                                   latest_1,
-                                  latest_0,
-                                  group0_properties
+                                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time ,
-                     group0_properties
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -3458,30 +3444,25 @@
                         latest_0,
                         step_1,
                         min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                           group0_properties
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
-                           if(step_1 = 1, timestamp, null) as latest_1 ,
-                           group0_properties
+                           if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target,
-                              e.group0_properties AS group0_properties,
-                              e.person_id as person_id
+                              e."$group_0" as aggregation_target
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3497,9 +3478,16 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(group0_properties)) as person_prop_keys,
-            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(group0_properties, x), '^"|"$', ''), person_prop_keys))) as prop
-     FROM funnel_actors) aggregation_target_with_props
+            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
+            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
+     FROM funnel_actors
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -3517,8 +3505,7 @@
             timestamp,
             steps,
             final_timestamp,
-            first_timestamp,
-            mat_gp0_industry
+            first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -3526,8 +3513,7 @@
                median(step_1_conversion_time) step_1_median_conversion_time_inner ,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
-               argMax(latest_0, steps) as first_timestamp,
-               any(mat_gp0_industry) as mat_gp0_industry
+               argMax(latest_0, steps) as first_timestamp
         FROM
           (SELECT aggregation_target,
                   steps,
@@ -3535,15 +3521,13 @@
                                   step_1_conversion_time ,
                                   latest_0,
                                   latest_1,
-                                  latest_0,
-                                  mat_gp0_industry
+                                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time ,
-                     mat_gp0_industry
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -3551,30 +3535,25 @@
                         latest_0,
                         step_1,
                         min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                           mat_gp0_industry
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
-                           if(step_1 = 1, timestamp, null) as latest_1 ,
-                           mat_gp0_industry
+                           if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target,
-                              e.mat_gp0_industry AS mat_gp0_industry,
-                              e.person_id as person_id
+                              e."$group_0" as aggregation_target
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3590,8 +3569,15 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayJoin(arrayZip(['industry'], ["mat_gp0_industry"])) as prop
-     FROM funnel_actors) aggregation_target_with_props
+            arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
+     FROM funnel_actors
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -3609,8 +3595,7 @@
             timestamp,
             steps,
             final_timestamp,
-            first_timestamp,
-            mat_gp0_industry
+            first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -3618,8 +3603,7 @@
                median(step_1_conversion_time) step_1_median_conversion_time_inner ,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
-               argMax(latest_0, steps) as first_timestamp,
-               any(mat_gp0_industry) as mat_gp0_industry
+               argMax(latest_0, steps) as first_timestamp
         FROM
           (SELECT aggregation_target,
                   steps,
@@ -3627,15 +3611,13 @@
                                   step_1_conversion_time ,
                                   latest_0,
                                   latest_1,
-                                  latest_0,
-                                  mat_gp0_industry
+                                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time ,
-                     mat_gp0_industry
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -3643,32 +3625,34 @@
                         latest_0,
                         step_1,
                         min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                           mat_gp0_industry
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
-                           if(step_1 = 1, timestamp, null) as latest_1 ,
-                           mat_gp0_industry
+                           if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.mat_gp0_industry AS mat_gp0_industry,
-                              e.person_id as person_id,
-                              e."mat_gp0_industry" as "mat_gp0_industry"
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
                          AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                         AND (has(['positive'], "mat_gp0_industry"))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3694,8 +3678,7 @@
             timestamp,
             steps,
             final_timestamp,
-            first_timestamp,
-            mat_gp0_industry
+            first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -3703,8 +3686,7 @@
                median(step_1_conversion_time) step_1_median_conversion_time_inner ,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
-               argMax(latest_0, steps) as first_timestamp,
-               any(mat_gp0_industry) as mat_gp0_industry
+               argMax(latest_0, steps) as first_timestamp
         FROM
           (SELECT aggregation_target,
                   steps,
@@ -3712,15 +3694,13 @@
                                   step_1_conversion_time ,
                                   latest_0,
                                   latest_1,
-                                  latest_0,
-                                  mat_gp0_industry
+                                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time ,
-                     mat_gp0_industry
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -3728,32 +3708,34 @@
                         latest_0,
                         step_1,
                         min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                           mat_gp0_industry
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
-                           if(step_1 = 1, timestamp, null) as latest_1 ,
-                           mat_gp0_industry
+                           if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.mat_gp0_industry AS mat_gp0_industry,
-                              e.person_id as person_id,
-                              e."mat_gp0_industry" as "mat_gp0_industry"
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
                          AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                         AND (has(['positive'], "mat_gp0_industry"))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3779,8 +3761,7 @@
             timestamp,
             steps,
             final_timestamp,
-            first_timestamp,
-            mat_gp0_industry
+            first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -3788,8 +3769,7 @@
                median(step_1_conversion_time) step_1_median_conversion_time_inner ,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
-               argMax(latest_0, steps) as first_timestamp,
-               any(mat_gp0_industry) as mat_gp0_industry
+               argMax(latest_0, steps) as first_timestamp
         FROM
           (SELECT aggregation_target,
                   steps,
@@ -3797,15 +3777,13 @@
                                   step_1_conversion_time ,
                                   latest_0,
                                   latest_1,
-                                  latest_0,
-                                  mat_gp0_industry
+                                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time ,
-                     mat_gp0_industry
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -3813,32 +3791,34 @@
                         latest_0,
                         step_1,
                         min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                           mat_gp0_industry
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
-                           if(step_1 = 1, timestamp, null) as latest_1 ,
-                           mat_gp0_industry
+                           if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.mat_gp0_industry AS mat_gp0_industry,
-                              e.person_id as person_id,
-                              e."mat_gp0_industry" as "mat_gp0_industry"
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
                          AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                         AND (has(['negative'], "mat_gp0_industry"))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3864,8 +3844,7 @@
             timestamp,
             steps,
             final_timestamp,
-            first_timestamp,
-            mat_gp0_industry
+            first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -3873,8 +3852,7 @@
                median(step_1_conversion_time) step_1_median_conversion_time_inner ,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
-               argMax(latest_0, steps) as first_timestamp,
-               any(mat_gp0_industry) as mat_gp0_industry
+               argMax(latest_0, steps) as first_timestamp
         FROM
           (SELECT aggregation_target,
                   steps,
@@ -3882,15 +3860,13 @@
                                   step_1_conversion_time ,
                                   latest_0,
                                   latest_1,
-                                  latest_0,
-                                  mat_gp0_industry
+                                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time ,
-                     mat_gp0_industry
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -3898,32 +3874,34 @@
                         latest_0,
                         step_1,
                         min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                           mat_gp0_industry
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
-                           if(step_1 = 1, timestamp, null) as latest_1 ,
-                           mat_gp0_industry
+                           if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.mat_gp0_industry AS mat_gp0_industry,
-                              e.person_id as person_id,
-                              e."mat_gp0_industry" as "mat_gp0_industry"
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
                          AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                         AND (has(['negative'], "mat_gp0_industry"))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3949,8 +3927,7 @@
             timestamp,
             steps,
             final_timestamp,
-            first_timestamp,
-            group0_properties
+            first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -3958,8 +3935,7 @@
                median(step_1_conversion_time) step_1_median_conversion_time_inner ,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
-               argMax(latest_0, steps) as first_timestamp,
-               any(group0_properties) as group0_properties
+               argMax(latest_0, steps) as first_timestamp
         FROM
           (SELECT aggregation_target,
                   steps,
@@ -3967,15 +3943,13 @@
                                   step_1_conversion_time ,
                                   latest_0,
                                   latest_1,
-                                  latest_0,
-                                  group0_properties
+                                  latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time ,
-                     group0_properties
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -3983,30 +3957,25 @@
                         latest_0,
                         step_1,
                         min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                           group0_properties
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT aggregation_target,
                            timestamp,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
-                           if(step_1 = 1, timestamp, null) as latest_1 ,
-                           group0_properties
+                           if(step_1 = 1, timestamp, null) as latest_1
                     FROM
                       (SELECT e.event as event,
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target,
-                              e.group0_properties AS group0_properties,
-                              e.person_id as person_id
+                              e."$group_0" as aggregation_target
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -4022,9 +3991,16 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(group0_properties)) as person_prop_keys,
-            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(group0_properties, x), '^"|"$', ''), person_prop_keys))) as prop
-     FROM funnel_actors) aggregation_target_with_props
+            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
+            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
+     FROM funnel_actors
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
