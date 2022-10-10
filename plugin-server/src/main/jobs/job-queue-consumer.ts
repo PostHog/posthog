@@ -9,7 +9,7 @@ import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
 import { runInstrumentedFunction } from '../utils'
 import { runBufferEventPipeline } from './buffer'
 
-export function startJobQueueConsumer(hub: Hub, piscina: Piscina): JobsConsumerControl {
+export function startJobsConsumer(hub: Hub, piscina: Piscina): JobsConsumerControl {
     status.info('🔄', 'Starting job queue consumer, trying to get lock...')
 
     const ingestionJobHandlers: TaskList = {
