@@ -113,7 +113,7 @@ export function SessionRecordingPlayerV3({
             <LemonDivider className="my-0" />
             <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} matching={matching} />
             <LemonDivider className="my-0" />
-            <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+            {!isFullScreen && <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
         </div>
     )
 }

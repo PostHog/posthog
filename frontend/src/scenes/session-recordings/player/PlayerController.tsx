@@ -10,7 +10,7 @@ import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/Time'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconGauge, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
+import { IconFullScreen, IconGauge, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -96,30 +96,34 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
             </div>
             <div className="flex justify-between items-center h-8 gap-2">
                 <div className="flex items-center gap-2 flex-1">
-                    <LemonButton
-                        size="small"
-                        icon={<UnverifiedEvent />}
-                        status={tab === SessionRecordingTab.EVENTS ? 'primary' : 'primary-alt'}
-                        active={tab === SessionRecordingTab.EVENTS}
-                        onClick={() => setTab(SessionRecordingTab.EVENTS)}
-                    >
-                        Events
-                    </LemonButton>
-                    {featureFlags[FEATURE_FLAGS.SESSION_CONSOLE] && (
-                        <LemonButton
-                            size="small"
-                            icon={<IconTerminal />}
-                            status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
-                            active={tab === SessionRecordingTab.CONSOLE}
-                            onClick={() => {
-                                setTab(SessionRecordingTab.CONSOLE)
-                            }}
-                        >
-                            Console
-                        </LemonButton>
+                    {!isFullScreen && (
+                        <>
+                            <LemonButton
+                                size="small"
+                                icon={<UnverifiedEvent />}
+                                status={tab === SessionRecordingTab.EVENTS ? 'primary' : 'primary-alt'}
+                                active={tab === SessionRecordingTab.EVENTS}
+                                onClick={() => setTab(SessionRecordingTab.EVENTS)}
+                            >
+                                Events
+                            </LemonButton>
+                            {featureFlags[FEATURE_FLAGS.SESSION_CONSOLE] && (
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconTerminal />}
+                                    status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
+                                    active={tab === SessionRecordingTab.CONSOLE}
+                                    onClick={() => {
+                                        setTab(SessionRecordingTab.CONSOLE)
+                                    }}
+                                >
+                                    Console
+                                </LemonButton>
+                            )}
+                        </>
                     )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                     <SeekBack sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                     <LemonButton status="primary-alt" size="small">
                         {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
@@ -130,7 +134,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                     </LemonButton>
                     <SeekForward sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                 </div>
-                <div className="flex items-center gap-2 flex-1 justify-end">
+                <div className="flex items-center gap-1 flex-1 justify-end">
                     <Tooltip title={'Playback speed'}>
                         <LemonButtonWithPopup
                             data-attr="session-recording-speed-select"
@@ -180,15 +184,15 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                             </LemonButton>
                         </span>
                     </Tooltip>
-                    <Tooltip title={`Fullscreen`}>
+                    <Tooltip title={!isFullScreen ? `Go full screen` : 'Close full screen'}>
                         <LemonButton
                             size="small"
-                            status={skipInactivitySetting ? 'primary' : 'primary-alt'}
+                            status={'primary-alt'}
                             onClick={() => {
                                 setFullScreen(!isFullScreen)
                             }}
                         >
-                            <IconGauge className="text-2xl" />
+                            <IconFullScreen className="text-2xl" />
                         </LemonButton>
                     </Tooltip>
                 </div>
