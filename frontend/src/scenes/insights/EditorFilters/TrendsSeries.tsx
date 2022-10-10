@@ -72,8 +72,8 @@ export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Elem
             <Tooltip
                 title={
                     formulaRemovalDisabled
-                        ? 'This chart type does not support multiple series. To disable formula mode, remove variables or switch to a different chart type.'
-                        : undefined
+                        ? 'This chart type does not support multiple series, so in order to disable formula mode, remove variables or switch to a different chart type.'
+                        : 'Make your own formula the output of the insight with formula mode. Use graph series as variables.'
                 }
             >
                 <div>
