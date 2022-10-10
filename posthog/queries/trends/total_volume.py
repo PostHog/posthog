@@ -4,7 +4,14 @@ from typing import Any, Callable, Dict, List, Tuple
 
 import pytz
 
-from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, WEEKLY_ACTIVE
+from posthog.constants import (
+    EVENT_COUNT_PER_ACTOR,
+    MONTHLY_ACTIVE,
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    TRENDS_CUMULATIVE,
+    UNIQUE_USERS,
+    WEEKLY_ACTIVE,
+)
 from posthog.models.entity import Entity
 from posthog.models.event.sql import NULL_SQL
 from posthog.models.filters import Filter
@@ -15,6 +22,7 @@ from posthog.queries.trends.sql import (
     CUMULATIVE_SQL,
     SESSION_DURATION_VOLUME_SQL,
     SESSION_VOLUME_TOTAL_AGGREGATE_SQL,
+    VOLUME_PER_ACTOR_SQL,
     VOLUME_SQL,
     VOLUME_TOTAL_AGGREGATE_SQL,
 )
@@ -72,11 +80,26 @@ class TrendsTotalVolume:
                     aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
                     **trend_event_query.active_user_params,
                 )
-            elif filter.display == TRENDS_CUMULATIVE and entity.math == "dau":
+            elif filter.display == TRENDS_CUMULATIVE and entity.math == UNIQUE_USERS:
                 # TODO: for groups aggregation as well
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
                 content_sql = VOLUME_SQL.format(
                     event_query=cumulative_sql, start_of_week_fix=start_of_week_fix(filter), **content_sql_params
+                )
+            elif entity.math_property == EVENT_COUNT_PER_ACTOR and entity.math != "sum":
+                # Calculate average number of events per actor
+                # (only including actors with at least one matching event in a period)
+                # Ideas:
+                # 1. Support groups
+                # 2. Support specifying a different event qualifying an active user
+                #    (e.g. for calculating the average number of insights saved per user who clicked "New insight")
+                # Note: When `math_property == EVENT_COUNT_PER_ACTOR` is combined with `math == "sum"`, there's no point
+                # in per-actor aggregation (this case is equivalent to the default - and simpler - `math == "total")
+                content_sql = VOLUME_PER_ACTOR_SQL.format(
+                    event_query=event_query,
+                    start_of_week_fix=start_of_week_fix(filter),
+                    **content_sql_params,
+                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
                 )
             elif entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,

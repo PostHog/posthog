@@ -1,6 +1,6 @@
 from typing import Any, Dict, Tuple
 
-from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
+from posthog.constants import MONTHLY_ACTIVE, UNIQUE_USERS, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
@@ -143,7 +143,7 @@ class TrendsEventQuery(EventQuery):
 
     def _determine_should_join_distinct_ids(self) -> None:
         if (
-            self._entity.math == "dau" and not self._aggregate_users_by_distinct_id
+            self._entity.math == UNIQUE_USERS and not self._aggregate_users_by_distinct_id
         ) or self._column_optimizer.is_using_cohort_propertes:
             self._should_join_distinct_ids = True
 

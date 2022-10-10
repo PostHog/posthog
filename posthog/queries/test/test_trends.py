@@ -10,7 +10,14 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
+from posthog.constants import (
+    ENTITY_ID,
+    ENTITY_TYPE,
+    TREND_FILTER_TYPE_EVENTS,
+    TRENDS_BAR_VALUE,
+    TRENDS_LINEAR,
+    TRENDS_TABLE,
+)
 from posthog.models import Action, ActionStep, Cohort, Entity, Filter, Organization, Person
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
 from posthog.models.person.util import create_person_distinct_id
@@ -4704,6 +4711,180 @@ def trend_test_factory(trends):
                     ),
                     self.team,
                 )
+
+        def test_trends_volume_per_user_average(self):
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"])
+            _create_person(team_id=self.team.pk, distinct_ids=["tintin"])
+            _create_person(team_id=self.team.pk, distinct_ids=["murmur"])
+            _create_person(team_id=self.team.pk, distinct_ids=["reeree"])
+
+            with freeze_time("2020-01-01 00:06:02"):
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="anonymous_id",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="blabla",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="reeree",
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="tintin",
+                )
+
+            with freeze_time("2020-01-03 19:06:34"):
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="murmur",
+                )
+
+            with freeze_time("2020-01-04 23:17:00"):
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="tintin",
+                )
+
+            with freeze_time("2020-01-05 19:06:34"):
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="blabla",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="tintin",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="tintin",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="tintin",
+                )
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "events": [{"id": "viewed video", "math": "avg", "math_property": "__event_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            assert daily_response[0]["days"] == [
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+                "2020-01-05",
+                "2020-01-06",
+                "2020-01-07",
+            ]
+            assert daily_response[0]["data"] == [1.5, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]
+
+        def test_trends_volume_per_user_maximum(self):
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"])
+            _create_person(team_id=self.team.pk, distinct_ids=["tintin"])
+            _create_person(team_id=self.team.pk, distinct_ids=["murmur"])
+            _create_person(team_id=self.team.pk, distinct_ids=["reeree"])
+
+            with freeze_time("2020-01-01 00:06:02"):
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="anonymous_id",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="blabla",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="reeree",
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="tintin",
+                )
+
+            with freeze_time("2020-01-03 19:06:34"):
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="murmur",
+                )
+
+            with freeze_time("2020-01-04 23:17:00"):
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="tintin",
+                )
+
+            with freeze_time("2020-01-05 19:06:34"):
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="blabla",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="tintin",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="tintin",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="tintin",
+                )
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "events": [{"id": "viewed video", "math": "max", "math_property": "__event_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            assert daily_response[0]["days"] == [
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+                "2020-01-05",
+                "2020-01-06",
+                "2020-01-07",
+            ]
+            assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 3.0, 0.0, 0.0]
 
     return TestTrends
 

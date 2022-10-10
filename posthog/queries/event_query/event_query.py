@@ -2,6 +2,7 @@ from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.constants import EVENT_COUNT_PER_ACTOR
 from posthog.models import Cohort, Filter, Property
 from posthog.models.cohort.util import is_precalculated_query
 from posthog.models.filters.mixins.utils import cached_property
@@ -18,6 +19,7 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.session_query import SessionQuery
+from posthog.queries.trends.util import MATH_FUNCTIONS
 
 
 class EventQuery(metaclass=ABCMeta):
@@ -113,14 +115,15 @@ class EventQuery(metaclass=ABCMeta):
             self._should_join_persons = True
             return
 
-        if any(
-            self._should_property_join_persons(prop)
-            for entity in self._filter.entities
-            for prop in entity.property_groups.flat
-        ):
-            self._should_join_distinct_ids = True
-            self._should_join_persons = True
-            return
+        for entity in self._filter.entities:
+            if (
+                entity.math in MATH_FUNCTIONS
+                and entity.math_property == EVENT_COUNT_PER_ACTOR
+                or any(self._should_property_join_persons(prop) for prop in entity.property_groups.flat)
+            ):
+                self._should_join_distinct_ids = True
+                self._should_join_persons = True
+                return
 
     def _should_property_join_persons(self, prop: Property) -> bool:
         return prop.type == "cohort" and self._does_cohort_need_persons(prop)
