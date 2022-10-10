@@ -160,7 +160,7 @@ class InsightSerializer(InsightBasicSerializer):
         help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
         many=True,
         required=False,
-        queryset=Dashboard.objects.filter(deleted=False),
+        queryset=Dashboard.objects.all(),
     )
     filters_hash = serializers.CharField(
         read_only=True,
@@ -280,8 +280,9 @@ class InsightSerializer(InsightBasicSerializer):
 
                 # does this user have permission on dashboards to add... if they are restricted
                 # it will mean this dashboard becomes restricted because of the patch
+                candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add).exclude(deleted=True)
                 dashboard: Dashboard
-                for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
+                for dashboard in candidate_dashboards:
                     if (
                         dashboard.get_effective_privilege_level(self.context["request"].user.id)
                         == Dashboard.PrivilegeLevel.CAN_VIEW
@@ -290,7 +291,7 @@ class InsightSerializer(InsightBasicSerializer):
                             f"You don't have permission to add insights to dashboard: {dashboard.id}"
                         )
 
-                for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
+                for dashboard in candidate_dashboards:
                     if dashboard.team != instance.team:
                         raise serializers.ValidationError("Dashboard not found")
                     DashboardTile.objects.create(insight=instance, dashboard=dashboard)
@@ -299,7 +300,8 @@ class InsightSerializer(InsightBasicSerializer):
                     DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
 
                 # also update in-model dashboards set so activity log can detect the change
-                instance.dashboards.set(dashboards)
+                # ignoring any deleted dashboards
+                instance.dashboards.set([d for d in dashboards if not d.deleted])
 
         updated_insight = super().update(instance, validated_data)
 

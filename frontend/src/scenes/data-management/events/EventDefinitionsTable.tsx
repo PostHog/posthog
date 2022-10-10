@@ -22,6 +22,7 @@ import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posth
 import { More } from 'lib/components/LemonButton/More'
 import { urls } from 'scenes/urls'
 import { combineUrl } from 'kea-router'
+import { IconPlayCircle } from 'lib/components/icons'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
@@ -133,9 +134,10 @@ export function EventDefinitionsTable(): JSX.Element {
                                         }).url
                                     }
                                     fullWidth
-                                    data-attr="event-definitions-table-see-recordings"
+                                    sideIcon={<IconPlayCircle />}
+                                    data-attr="event-definitions-table-view-recordings"
                                 >
-                                    See recordings with this event
+                                    View recordings
                                 </LemonButton>
                             </>
                         }

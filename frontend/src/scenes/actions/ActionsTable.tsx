@@ -26,6 +26,7 @@ import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-managemen
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput } from '@posthog/lemon-ui'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
+import { IconPlayCircle } from 'lib/components/icons'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -152,6 +153,28 @@ export function ActionsTable(): JSX.Element {
                             <>
                                 <LemonButton status="stealth" to={urls.action(action.id)} fullWidth>
                                     Edit
+                                </LemonButton>
+                                <LemonButton
+                                    status="stealth"
+                                    to={
+                                        combineUrl(urls.sessionRecordings(), {
+                                            filters: {
+                                                actions: [
+                                                    {
+                                                        id: action.id,
+                                                        type: 'actions',
+                                                        order: 0,
+                                                        name: action.name,
+                                                    },
+                                                ],
+                                            },
+                                        }).url
+                                    }
+                                    sideIcon={<IconPlayCircle />}
+                                    fullWidth
+                                    data-attr="action-table-view-recordings"
+                                >
+                                    View recordings
                                 </LemonButton>
                                 <LemonButton
                                     status="stealth"
