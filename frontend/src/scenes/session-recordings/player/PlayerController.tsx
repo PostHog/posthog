@@ -80,10 +80,10 @@ export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRec
 }
 
 export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab } = useActions(
+    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
-    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, tab } = useValues(
+    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, tab, isFullScreen } = useValues(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
     const { featureFlags } = useValues(featureFlagLogic)
@@ -179,6 +179,17 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                                 <IconGauge className="text-2xl" />
                             </LemonButton>
                         </span>
+                    </Tooltip>
+                    <Tooltip title={`Fullscreen`}>
+                        <LemonButton
+                            size="small"
+                            status={skipInactivitySetting ? 'primary' : 'primary-alt'}
+                            onClick={() => {
+                                setFullScreen(!isFullScreen)
+                            }}
+                        >
+                            <IconGauge className="text-2xl" />
+                        </LemonButton>
                     </Tooltip>
                 </div>
             </div>

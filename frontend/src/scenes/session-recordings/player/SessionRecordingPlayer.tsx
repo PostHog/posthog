@@ -14,6 +14,7 @@ import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { NotFound } from 'lib/components/NotFound'
 import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
+import clsx from 'clsx'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -62,6 +63,7 @@ export function SessionRecordingPlayerV3({
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
     )
     const { isNotFound } = useValues(sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }))
+    const { isFullScreen } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const frame = useFrameRef({ sessionRecordingId, playerKey })
 
     if (isNotFound) {
@@ -82,7 +84,11 @@ export function SessionRecordingPlayerV3({
         )
     }
     return (
-        <div className="session-player-v3" onKeyDown={handleKeyDown} tabIndex={0}>
+        <div
+            className={clsx('SessionPlayerV3', { 'SessionPlayerV3--fullscreen': isFullScreen })}
+            onKeyDown={handleKeyDown}
+            tabIndex={0}
+        >
             {includeMeta ? <PlayerMetaV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} /> : null}
             <div className="session-player-body flex">
                 <div className="player-container ph-no-capture">
