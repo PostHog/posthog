@@ -1,21 +1,29 @@
 import * as Sentry from '@sentry/node'
-import { makeWorkerUtils, run, Runner, WorkerUtils } from 'graphile-worker'
+import { makeWorkerUtils, run, Runner, TaskList, WorkerUtils } from 'graphile-worker'
 import { Pool } from 'pg'
 
 import { EnqueuedJob, PluginsServerConfig } from '../../types'
 import { status } from '../../utils/status'
 import { createPostgresPool } from '../../utils/utils'
-import { JobQueueBase } from './job-queue-base'
 
-export class GraphileWorker extends JobQueueBase {
+export class GraphileWorker {
     serverConfig: PluginsServerConfig
     runner: Runner | null
     consumerPool: Pool | null
     producerPool: Pool | null
     workerUtilsPromise: Promise<WorkerUtils> | null
+    started: boolean
+    paused: boolean
+    jobHandlers: TaskList
+    timeout: NodeJS.Timeout | null
+    intervalSeconds: number
 
     constructor(serverConfig: PluginsServerConfig) {
-        super()
+        this.started = false
+        this.paused = false
+        this.jobHandlers = {}
+        this.timeout = null
+        this.intervalSeconds = 10
         this.serverConfig = serverConfig
         this.runner = null
         this.consumerPool = null
@@ -122,5 +130,38 @@ export class GraphileWorker extends JobQueueBase {
             resolved = true
             resolve(pool)
         })
+    }
+
+    startConsumer(jobHandlers: TaskList): void
+    async startConsumer(jobHandlers: TaskList): Promise<void> {
+        this.jobHandlers = jobHandlers
+        if (!this.started) {
+            this.started = true
+            await this.syncState()
+        }
+    }
+
+    stopConsumer(): void
+    async stopConsumer(): Promise<void> {
+        this.started = false
+        await this.syncState()
+    }
+
+    pauseConsumer(): void
+    async pauseConsumer(): Promise<void> {
+        this.paused = true
+        await this.syncState()
+    }
+
+    isConsumerPaused(): boolean {
+        return this.paused
+    }
+
+    resumeConsumer(): void
+    async resumeConsumer(): Promise<void> {
+        if (this.paused) {
+            this.paused = false
+            await this.syncState()
+        }
     }
 }
