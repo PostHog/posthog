@@ -73,7 +73,7 @@
         "redlock": "^4.2.0",
         "snowflake-sdk": "^1.6.10",
         "uuid": "^8.3.2",
-        "vm2": "3.9.6"
+        "vm2": "3.9.11"
     },
     "devDependencies": {
         "@babel/cli": "^7.18.10",

@@ -1,4 +1,4 @@
-import { expectLogic, partial } from 'kea-test-utils'
+import { expectLogic, partial, truth } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 import {
@@ -27,6 +27,8 @@ import { useAvailableFeatures } from '~/mocks/features'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { insightsModel } from '~/models/insightsModel'
+import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -64,6 +66,40 @@ const patchResponseFor = (
     }
 }
 
+function insightModelWith(properties: Record<string, any>): InsightModel {
+    return {
+        id: 42,
+        short_id: Insight42,
+        result: ['result 42'],
+        filters: API_FILTERS,
+        dashboards: [],
+        saved: true,
+        name: 'new name',
+        order: null,
+        last_refresh: null,
+        created_at: '2021-03-09T14: 00: 00.000Z',
+        created_by: null,
+        deleted: false,
+        description: '',
+        is_sample: false,
+        is_shared: null,
+        pinned: null,
+        refresh_interval: null,
+        updated_at: '2021-03-09T14: 00: 00.000Z',
+        updated_by: null,
+        visibility: null,
+        refreshing: false,
+        last_modified_at: '2021-03-31T15:00:00.000Z',
+        last_modified_by: null,
+        effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
+        effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
+        layouts: {},
+        color: null,
+        filters_hash: 'hash',
+        ...properties,
+    } as InsightModel
+}
+
 describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
 
@@ -94,7 +130,13 @@ describe('insightLogic', () => {
                             200,
                             {
                                 results: [
-                                    { id: 42, short_id: Insight42, result: ['result 42'], filters: API_FILTERS },
+                                    {
+                                        id: 42,
+                                        short_id: Insight42,
+                                        result: ['result 42'],
+                                        filters: API_FILTERS,
+                                        name: 'original name',
+                                    },
                                     { id: 43, short_id: Insight43, result: ['result 43'], filters: API_FILTERS },
                                 ],
                             },
@@ -113,6 +155,7 @@ describe('insightLogic', () => {
                                     id: parseInt(shortId),
                                     short_id: shortId.toString(),
                                     filters: JSON.parse(req.url.searchParams.get('filters') || 'false') || API_FILTERS,
+                                    name: 'original name',
                                 },
                             ],
                         },
@@ -121,13 +164,17 @@ describe('insightLogic', () => {
                 '/api/projects/:team/dashboards/33/': {
                     id: 33,
                     filters: {},
-                    items: [
+                    tiles: [
                         {
-                            id: 42,
-                            short_id: Insight42,
-                            result: 'result!',
-                            filters: { insight: InsightType.TRENDS, interval: 'month' },
-                            tags: ['bla'],
+                            layouts: {},
+                            color: null,
+                            insight: {
+                                id: 42,
+                                short_id: Insight42,
+                                result: 'result!',
+                                filters: { insight: InsightType.TRENDS, interval: 'month' },
+                                tags: ['bla'],
+                            },
                         },
                     ],
                 },
@@ -893,6 +940,7 @@ describe('insightLogic', () => {
             }).toNotHaveDispatchedActions(['loadResults'])
         })
     })
+
     describe('isUsingSessionAnalysis selector', () => {
         it('is false by default', async () => {
             const insight = {
@@ -1020,6 +1068,54 @@ describe('insightLogic', () => {
             })
             logic.mount()
             expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
+        })
+    })
+
+    describe('reacts to external changes', () => {
+        beforeEach(async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsight']).toFinishAllListeners()
+        })
+        it('reacts to rename of its own insight', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.renameInsightSuccess(
+                    insightModelWith({
+                        id: 42,
+                        short_id: Insight42,
+                        result: ['result 42'],
+                        filters: API_FILTERS,
+                        name: 'new name',
+                    })
+                )
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: truth(({ name }) => {
+                        return name === 'new name'
+                    }),
+                })
+        })
+        it('does not react to rename of a different insight', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.renameInsightSuccess(
+                    insightModelWith({
+                        id: 43,
+                        short_id: Insight43,
+                        result: ['result 43'],
+                        filters: API_FILTERS,
+                        name: 'not the insight for this logic',
+                    })
+                )
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: truth(({ name }) => {
+                        return name === 'original name'
+                    }),
+                })
         })
     })
 

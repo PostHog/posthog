@@ -39,6 +39,7 @@ import {
     PluginTask,
     PluginTaskType,
 } from '../../../../types'
+import { createPluginActivityLog } from '../../../../utils/db/activity-log'
 import { processError } from '../../../../utils/db/error'
 import { isTestEnv } from '../../../../utils/env-utils'
 import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
@@ -80,7 +81,7 @@ export interface TestFunctions {
     ) => Promise<CoordinationUpdate>
     getExportDateRange: (params: ExportParams) => Array<[ISOTimestamp, ISOTimestamp]>
     progressBar: (progress: number, length?: number) => string
-    stopExport: (message: string) => Promise<void>
+    stopExport: (params: ExportParams, message: string, status: 'success' | 'fail') => Promise<void>
     shouldResume: (status: ExportChunkStatus, now: number) => void
 }
 
@@ -240,7 +241,7 @@ export function addHistoricalEventsExportCapabilityV2(
         })
 
         if (update.exportIsDone) {
-            await stopExport('Export has finished! 💯', { type: PluginLogEntryType.Info })
+            await stopExport(params, 'Export has finished! 💯', 'success')
             return
         }
 
@@ -373,7 +374,7 @@ export function addHistoricalEventsExportCapabilityV2(
             const message = `Exporting chunk ${dateRange(payload.startTime, payload.endTime)} failed after ${
                 hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT
             } retries. Stopping export.`
-            await stopExport(message, { type: PluginLogEntryType.Error })
+            await stopExport(activeExportParameters, message, 'fail')
             await processError(hub, pluginConfig, message)
             return
         }
@@ -413,9 +414,11 @@ export function addHistoricalEventsExportCapabilityV2(
         } catch (error) {
             Sentry.captureException(error)
             await processError(hub, pluginConfig, error)
-            await stopExport('Failed fetching events. Stopping export - please try again later.', {
-                type: PluginLogEntryType.Error,
-            })
+            await stopExport(
+                activeExportParameters,
+                'Failed fetching events. Stopping export - please try again later.',
+                'fail'
+            )
             return
         }
 
@@ -431,7 +434,7 @@ export function addHistoricalEventsExportCapabilityV2(
                     { type: PluginLogEntryType.Debug }
                 )
             } catch (error) {
-                await handleExportError(error, payload, events.length)
+                await handleExportError(error, activeExportParameters, payload, events.length)
                 return
             }
         }
@@ -451,6 +454,7 @@ export function addHistoricalEventsExportCapabilityV2(
 
     async function handleExportError(
         error: Error,
+        params: ExportParams,
         payload: ExportHistoricalEventsJobPayload,
         eventCount: number
     ): Promise<void> {
@@ -475,13 +479,29 @@ export function addHistoricalEventsExportCapabilityV2(
                 .runIn(nextRetrySeconds, 'seconds')
         } else {
             await processError(hub, pluginConfig, error)
-            await stopExport(`exportEvents returned unknown error, stopping export. error=${error}`)
+            await stopExport(params, `exportEvents returned unknown error, stopping export. error=${error}`, 'fail')
         }
     }
 
-    async function stopExport(message: string, logOverrides: Partial<PluginLogEntry> = {}) {
+    async function stopExport(params: ExportParams, message: string, status: 'success' | 'fail') {
         await meta.storage.del(EXPORT_PARAMETERS_KEY)
-        createLog(message, logOverrides)
+        await createPluginActivityLog(
+            hub,
+            pluginConfig.team_id,
+            pluginConfig.id,
+            status === 'success' ? 'export_success' : 'export_fail',
+            {
+                trigger: {
+                    job_id: params.id.toString(),
+                    job_type: INTERFACE_JOB_NAME,
+                    payload: params,
+                },
+            }
+        )
+
+        createLog(message, {
+            type: status === 'success' ? PluginLogEntryType.Info : PluginLogEntryType.Error,
+        })
     }
 
     function getTimestampBoundaries(payload: ExportHistoricalEventsUIPayload): [ISOTimestamp, ISOTimestamp] {

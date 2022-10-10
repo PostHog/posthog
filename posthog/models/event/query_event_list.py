@@ -16,7 +16,7 @@ from posthog.models.event.sql import (
 from posthog.models.property.util import parse_prop_grouped_clauses
 
 
-def determine_event_conditions(
+def determine_time_conditions(
     team: Team, conditions: Dict[str, Union[str, List[str]]], long_date_from: bool
 ) -> Tuple[str, Dict]:
     result = ""
@@ -32,7 +32,16 @@ def determine_event_conditions(
             timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp < %(before)s"
             params.update({"before": timestamp})
-        elif k == "person_id":
+    return result, params
+
+
+def determine_event_conditions(team: Team, conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:
+    result = ""
+    params: Dict[str, Union[str, List[str]]] = {}
+    for idx, (k, v) in enumerate(conditions.items()):
+        if not isinstance(v, str):
+            continue
+        if k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s)"""
             person = get_pk_or_uuid(Person.objects.all(), v).first()
             distinct_ids = person.distinct_ids if person is not None else []
@@ -59,7 +68,7 @@ def query_events_list(
     limit_sql = "LIMIT %(limit)s"
     order = "DESC" if order_by[0] == "-timestamp" else "ASC"
 
-    conditions, condition_params = determine_event_conditions(
+    time_conditions, time_condition_params = determine_time_conditions(
         team,
         {
             "after": (now() - timedelta(days=1)).isoformat(),
@@ -67,6 +76,15 @@ def query_events_list(
             **request_get_query_dict,
         },
         long_date_from,
+    )
+
+    event_conditions, event_condition_params = determine_event_conditions(
+        team,
+        {
+            "after": (now() - timedelta(days=1)).isoformat(),
+            "before": (now() + timedelta(seconds=5)).isoformat(),
+            **request_get_query_dict,
+        },
     )
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False
@@ -88,14 +106,26 @@ def query_events_list(
     if prop_filters != "":
         return query_with_columns(
             SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
-                conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
+                time_conditions=time_conditions,
+                event_conditions=event_conditions,
+                limit=limit_sql,
+                filters=prop_filters,
+                order=order,
             ),
-            {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
+            {
+                "team_id": team.pk,
+                "limit": limit,
+                **time_condition_params,
+                **event_condition_params,
+                **prop_filter_params,
+            },
         )
     else:
         return query_with_columns(
-            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
-            {"team_id": team.pk, "limit": limit, **condition_params},
+            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(
+                time_conditions=time_conditions, event_conditions=event_conditions, limit=limit_sql, order=order
+            ),
+            {"team_id": team.pk, "limit": limit, **time_condition_params, **event_condition_params},
         )
 
 
