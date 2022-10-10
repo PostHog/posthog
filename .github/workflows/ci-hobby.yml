@@ -25,5 +25,5 @@ jobs:
             with:
               python-version: '3.9'
               cache: 'pip' # caching pip dependencies
-          - run: pip install python-digitalocean==1.17.0 requests==2.28.1 &&
+          - run: pip install python-digitalocean==1.17.0 requests==2.28.1
           - run: python3 bin/hobby-ci.py
