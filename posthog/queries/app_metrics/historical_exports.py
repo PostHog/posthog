@@ -1,5 +1,7 @@
 from typing import Dict, Optional
 
+import pytz
+
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 
@@ -8,7 +10,7 @@ def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Opt
         team_id=team_id,
         scope="PluginConfig",
         item_id=plugin_config_id,
-        activity__in=["job_triggered", "export_success"],
+        activity__in=["job_triggered", "export_success", "export_fail"],
         detail__trigger__job_type="Export historical events V2",
         **({"detail__trigger__job_id": job_id} if job_id is not None else {}),
     )
@@ -20,7 +22,7 @@ def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Opt
     historical_exports = []
     for job_id, trigger_entry in by_category["job_triggered"].items():
         record = {
-            "started_at": trigger_entry.created_at,
+            "started_at": trigger_entry.created_at.astimezone(pytz.utc).isoformat(),
             "job_id": job_id,
             "payload": trigger_entry.detail["trigger"]["payload"],
         }

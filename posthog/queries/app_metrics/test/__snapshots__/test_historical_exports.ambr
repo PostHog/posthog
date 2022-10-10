@@ -1,0 +1,69 @@
+# name: TestHistoricalExports.test_historical_exports_activity_for_failed_export
+  '
+  SELECT "posthog_activitylog"."id",
+         "posthog_activitylog"."team_id",
+         "posthog_activitylog"."organization_id",
+         "posthog_activitylog"."user_id",
+         "posthog_activitylog"."is_system",
+         "posthog_activitylog"."activity",
+         "posthog_activitylog"."item_id",
+         "posthog_activitylog"."scope",
+         "posthog_activitylog"."detail",
+         "posthog_activitylog"."created_at"
+  FROM "posthog_activitylog"
+  WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
+                                              'export_success',
+                                              'export_fail')
+         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
+                                                      'job_type']) = '"Export historical events V2"'
+         AND "posthog_activitylog"."item_id" = '3'
+         AND "posthog_activitylog"."scope" = 'PluginConfig'
+         AND "posthog_activitylog"."team_id" = 2)
+  '
+---
+# name: TestHistoricalExports.test_historical_exports_activity_for_finished_export
+  '
+  SELECT "posthog_activitylog"."id",
+         "posthog_activitylog"."team_id",
+         "posthog_activitylog"."organization_id",
+         "posthog_activitylog"."user_id",
+         "posthog_activitylog"."is_system",
+         "posthog_activitylog"."activity",
+         "posthog_activitylog"."item_id",
+         "posthog_activitylog"."scope",
+         "posthog_activitylog"."detail",
+         "posthog_activitylog"."created_at"
+  FROM "posthog_activitylog"
+  WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
+                                              'export_success',
+                                              'export_fail')
+         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
+                                                      'job_type']) = '"Export historical events V2"'
+         AND "posthog_activitylog"."item_id" = '3'
+         AND "posthog_activitylog"."scope" = 'PluginConfig'
+         AND "posthog_activitylog"."team_id" = 2)
+  '
+---
+# name: TestHistoricalExports.test_historical_exports_activity_for_not_finished_export
+  '
+  SELECT "posthog_activitylog"."id",
+         "posthog_activitylog"."team_id",
+         "posthog_activitylog"."organization_id",
+         "posthog_activitylog"."user_id",
+         "posthog_activitylog"."is_system",
+         "posthog_activitylog"."activity",
+         "posthog_activitylog"."item_id",
+         "posthog_activitylog"."scope",
+         "posthog_activitylog"."detail",
+         "posthog_activitylog"."created_at"
+  FROM "posthog_activitylog"
+  WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
+                                              'export_success',
+                                              'export_fail')
+         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
+                                                      'job_type']) = '"Export historical events V2"'
+         AND "posthog_activitylog"."item_id" = '3'
+         AND "posthog_activitylog"."scope" = 'PluginConfig'
+         AND "posthog_activitylog"."team_id" = 2)
+  '
+---
