@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import {
     PLAYBACK_SPEEDS,
@@ -10,11 +10,9 @@ import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/Time'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconGauge, IconSettings, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
-import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { IconGauge, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonSelect } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 
 export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
@@ -89,7 +87,6 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
     const { featureFlags } = useValues(featureFlagLogic)
-    const speedSelectRef = useRef<HTMLDivElement | null>(null)
 
     return (
         <div className="PlayerControllerV3">
@@ -155,9 +152,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                                         ))}
                                     </>
                                 ),
-                                placement: 'right-start',
-                                closeOnClickInside: false,
-                                ref: speedSelectRef,
+                                closeOnClickInside: true,
                             }}
                             sideIcon={null}
                             size="small"
