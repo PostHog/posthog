@@ -136,7 +136,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                             data-attr="session-recording-speed-select"
                             popup={{
                                 overlay: (
-                                    <>
+                                    <div className="space-y-px">
                                         {PLAYBACK_SPEEDS.map((speedToggle) => (
                                             <LemonButton
                                                 fullWidth
@@ -150,7 +150,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                                                 {speedToggle}x
                                             </LemonButton>
                                         ))}
-                                    </>
+                                    </div>
                                 ),
                                 closeOnClickInside: true,
                             }}
