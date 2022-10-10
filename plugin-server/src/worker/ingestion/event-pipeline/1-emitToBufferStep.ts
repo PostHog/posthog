@@ -56,11 +56,15 @@ export async function emitToBufferStep(
                 eventPayload: event,
                 timestamp: processEventAt,
             }
-            await runner.hub.graphileWorker.enqueue(JobName.BUFFER_JOB, job)
-            // jobQueueManager {
-            //     key: 'team_id',
-            //     tag: event.team_id.toString(),
-            // }
+            await runner.hub.graphileWorker.enqueue(
+                JobName.BUFFER_JOB,
+                job,
+                {
+                    key: 'team_id',
+                    tag: event.team_id.toString(),
+                },
+                true
+            )
         }
 
         runner.hub.statsd?.increment('events_sent_to_buffer')

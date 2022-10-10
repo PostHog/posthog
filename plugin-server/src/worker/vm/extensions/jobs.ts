@@ -48,11 +48,15 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
                 pluginConfigId: pluginConfig.id,
                 pluginConfigTeam: pluginConfig.team_id,
             }
-            await server.graphileWorker.enqueue(JobName.PLUGIN_JOB, job)
-            // jobQueueManager {
-            //     key: 'plugin',
-            //     tag: pluginConfig.plugin?.name ?? '?',
-            // }
+            await server.graphileWorker.enqueue(
+                JobName.PLUGIN_JOB,
+                job,
+                {
+                    key: 'plugin',
+                    tag: pluginConfig.plugin?.name ?? '?',
+                },
+                true
+            )
         } catch (e) {
             await pluginConfig.vm?.createLogEntry(
                 `Failed to enqueue job ${type} with error: ${e.message}`,

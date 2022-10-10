@@ -260,7 +260,7 @@ export async function createHub(
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.personManager = new PersonManager(hub as Hub)
 
-    hub.graphileWorker = new GraphileWorker(serverConfig)
+    hub.graphileWorker = new GraphileWorker(hub as Hub)
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
 
     if (serverConfig.CAPTURE_INTERNAL_METRICS) {

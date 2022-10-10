@@ -1,3 +1,4 @@
+import { Hub } from '../src/types'
 import { defaultConfig, formatConfigHelp } from './config/config'
 import { healthcheckWithExit } from './healthcheck'
 import { initApp } from './init'
@@ -55,7 +56,7 @@ switch (alternativeMode) {
         status.info(`🔗`, `Attempting to connect to Graphile job queue to run migrations`)
         void (async function () {
             try {
-                const graphile = new GraphileWorker(defaultConfig)
+                const graphile = new GraphileWorker(defaultConfig as Hub)
                 await graphile.migrate()
                 status.info(`✅`, `Graphile migrations are now up to date!`)
                 await graphile.disconnectProducer()

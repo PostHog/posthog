@@ -79,7 +79,10 @@ export const startAnonymousEventBufferConsumer = async ({
 
             status.debug('⬆️', 'Enqueuing anonymous event for processing', { job })
             try {
-                await graphileWorker.enqueue(JobName.BUFFER_JOB, job)
+                await graphileWorker.enqueue(JobName.BUFFER_JOB, job, {
+                    key: 'team_id',
+                    tag: eventPayload.team_id.toString(),
+                })
                 statsd?.increment('anonymous_event_buffer_consumer.enqueued')
             } catch (error) {
                 status.error('⚠️', 'Failed to enqueue anonymous event for processing', { error })
