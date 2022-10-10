@@ -47,7 +47,11 @@ export function GolangSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.Go} wrap>
-                {`isFlagEnabledForUser, err := client.IsFeatureEnabled('${flagKey}', 'user distinct id', false)
+                {`isFlagEnabledForUser, err := client.IsFeatureEnabled(
+                    FeatureFlagPayload{
+                        Key:        '${flagKey}',
+                        DistinctId: "distinct-id",
+                    })
 
 if (isFlagEnabledForUser) {
   // Do something differently for this user

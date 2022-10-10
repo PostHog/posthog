@@ -9,6 +9,7 @@ from django.db import models
 from django.utils import timezone
 
 from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
 
@@ -35,16 +36,24 @@ class Merge:
 
 
 @dataclasses.dataclass(frozen=True)
+class Trigger:
+    job_type: str
+    job_id: str
+    payload: Dict
+
+
+@dataclasses.dataclass(frozen=True)
 class Detail:
     changes: Optional[List[Change]] = None
     merge: Optional[Merge] = None
+    trigger: Optional[Trigger] = None
     name: Optional[str] = None
     short_id: Optional[str] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, (Detail, Change, Merge)):
+        if isinstance(obj, (Detail, Change, Merge, Trigger)):
             return obj.__dict__
         if isinstance(obj, datetime):
             return obj.isoformat()
@@ -69,6 +78,9 @@ class ActivityLog(UUIDModel):
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.SET_NULL)
+    # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
+    is_system = models.BooleanField(null=True)
+
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged
     # if not scoped to a model this log might not hold an item_id
@@ -132,6 +144,13 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
 def _description(m: List[Any]) -> Union[str, Dict]:
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
+    if isinstance(m, DashboardTile):
+        description = {"dashboard": {"id": m.dashboard.id, "name": m.dashboard.name}}
+        if m.insight:
+            description["insight"] = {"id": m.insight.id}
+        if m.text:
+            description["text"] = {"id": m.text.id}
+        return description
     else:
         return str(m)
 
@@ -175,6 +194,14 @@ def changes_between(
 
             if field == "tagged_items":
                 field = "tags"  # or the UI needs to be coupled to this internal backend naming
+
+            if field == "dashboards" and "dashboard_tiles" in filtered_fields:
+                # only process dashboard_tiles when it is present. It supersedes dashboards
+                continue
+
+            if model_type == "Insight" and field == "dashboard_tiles":
+                # the api exposes this as dashboards and that's what the activity describers expect
+                field = "dashboards"
 
             if left is None and right is not None:
                 changes.append(Change(type=model_type, field=field, action="created", after=right))

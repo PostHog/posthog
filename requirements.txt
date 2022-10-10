@@ -217,7 +217,7 @@ multidict==6.0.2
     #   yarl
 mypy-extensions==0.4.3
     # via typing-inspect
-numpy==1.21.4
+numpy==1.23.3
     # via -r requirements.in
 oauthlib==3.1.0
     # via

@@ -1,6 +1,7 @@
 import { PluginMeta, RetryError } from '@posthog/plugin-scaffold'
 
 import { Hub, ISOTimestamp, PluginConfig, PluginConfigVMInternalResponse } from '../../../../../src/types'
+import { createPluginActivityLog } from '../../../../../src/utils/db/activity-log'
 import { createHub } from '../../../../../src/utils/db/hub'
 import { createStorage } from '../../../../../src/worker/vm/extensions/storage'
 import { createUtils } from '../../../../../src/worker/vm/extensions/utilities'
@@ -21,6 +22,7 @@ import { resetTestDatabase } from '../../../../helpers/sql'
 
 jest.mock('../../../../../src/utils/status')
 jest.mock('../../../../../src/worker/vm/upgrades/utils/fetchEventsForInterval')
+jest.mock('../../../../../src/utils/db/activity-log')
 
 const ONE_HOUR = 1000 * 60 * 60
 
@@ -811,17 +813,55 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
     describe('stopExport()', () => {
         const stopExport = getTestMethod('stopExport')
 
-        it('unsets EXPORT_PARAMETERS_KEY', async () => {
-            await storage().set(EXPORT_PARAMETERS_KEY, {
-                id: 1,
-                parallelism: 3,
-                dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
-                dateTo: '2021-11-01T05:00:00.000Z' as ISOTimestamp,
-            })
+        const params = {
+            id: 1,
+            parallelism: 3,
+            dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
+            dateTo: '2021-11-01T05:00:00.000Z' as ISOTimestamp,
+        }
 
-            await stopExport('')
+        it('unsets EXPORT_PARAMETERS_KEY', async () => {
+            await storage().set(EXPORT_PARAMETERS_KEY, params)
+
+            await stopExport(params, '', 'success')
 
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
+        })
+
+        it('captures activity for export success', async () => {
+            await stopExport(params, '', 'success')
+
+            expect(createPluginActivityLog).toHaveBeenCalledWith(
+                hub,
+                pluginConfig39.team_id,
+                pluginConfig39.id,
+                'export_success',
+                {
+                    trigger: {
+                        job_id: '1',
+                        job_type: INTERFACE_JOB_NAME,
+                        payload: params,
+                    },
+                }
+            )
+        })
+
+        it('captures activity for export failure', async () => {
+            await stopExport(params, '', 'fail')
+
+            expect(createPluginActivityLog).toHaveBeenCalledWith(
+                hub,
+                pluginConfig39.team_id,
+                pluginConfig39.id,
+                'export_fail',
+                {
+                    trigger: {
+                        job_id: '1',
+                        job_type: INTERFACE_JOB_NAME,
+                        payload: params,
+                    },
+                }
+            )
         })
     })
 

@@ -12,7 +12,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
 from posthog.models import Action, ActionStep, Cohort, Entity, Filter, Organization, Person
-from posthog.models.instance_setting import override_instance_config, set_instance_setting
+from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
 from posthog.models.person.util import create_person_distinct_id
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import (
@@ -663,6 +663,107 @@ def trend_test_factory(trends):
                     event="sign up",
                     distinct_id="blabla",
                     properties={"$some_property": "value", "$browser": "Safari"},
+                )
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(data={"display": TRENDS_TABLE, "breakdown": "$browser", "events": [{"id": "sign up"}]}),
+                    self.team,
+                )
+
+            for result in daily_response:
+                if result["breakdown_value"] == "Chrome":
+                    self.assertEqual(result["aggregated_value"], 2)
+                else:
+                    self.assertEqual(result["aggregated_value"], 5)
+
+        def test_trends_breakdown_single_aggregate_with_zero_person_ids(self):
+            # only a person-on-event test
+            if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+                return True
+
+            _create_person(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            with freeze_time("2020-01-01 00:06:34"):
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Chrome"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Chrome"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla2",
+                    properties={"$some_property": "value", "$browser": "Chrome"},
+                    person_id="00000000-0000-0000-0000-000000000000",
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla2",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                    person_id="00000000-0000-0000-0000-000000000000",
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla3",
+                    properties={"$some_property": "value", "$browser": "xyz"},
+                    person_id="00000000-0000-0000-0000-000000000000",
+                )
+
+            with freeze_time("2020-01-02 00:06:34"):
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": "value", "$browser": "Safari"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla4",
+                    properties={"$some_property": "value", "$browser": "Chrome"},
+                    person_id="00000000-0000-0000-0000-000000000000",
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla2",
+                    properties={"$some_property": "value", "$browser": "urgh"},
+                    person_id="00000000-0000-0000-0000-000000000000",
                 )
 
             with freeze_time("2020-01-04T13:00:01Z"):
@@ -2742,6 +2843,64 @@ def trend_test_factory(trends):
                 if response["breakdown_value"] == "person3":
                     self.assertEqual(response["count"], 3)
 
+        def test_breakdown_by_person_property_for_person_on_events_with_zero_person_ids(self):
+            # only a person-on-event test
+            if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+                return True
+
+            self._create_multiple_people()
+
+            _create_event(
+                team=self.team,
+                event="watched movie",
+                distinct_id="person5",
+                person_id="00000000-0000-0000-0000-000000000000",
+                person_properties={"name": "person5"},
+                timestamp=datetime(2020, 1, 1, 12),
+            )
+            _create_event(
+                team=self.team,
+                event="watched movie",
+                distinct_id="person6",
+                person_id="00000000-0000-0000-0000-000000000000",
+                person_properties={"name": "person6"},
+                timestamp=datetime(2020, 1, 1, 12),
+            )
+            _create_event(
+                team=self.team,
+                event="watched movie",
+                distinct_id="person7",
+                person_id="00000000-0000-0000-0000-000000000000",
+                person_properties={"name": "person2"},
+                timestamp=datetime(2020, 1, 1, 12),
+            )
+
+            with freeze_time("2020-01-04T13:01:01Z"):
+                event_response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "breakdown": "name",
+                            "breakdown_type": "person",
+                            "events": [{"id": "watched movie", "name": "watched movie", "type": "events", "order": 0}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertListEqual(
+                sorted(res["breakdown_value"] for res in event_response), ["person1", "person2", "person3"]
+            )
+
+            for response in event_response:
+                if response["breakdown_value"] == "person1":
+                    self.assertEqual(response["count"], 1)
+                    self.assertEqual(response["label"], "watched movie - person1")
+                if response["breakdown_value"] == "person2":
+                    self.assertEqual(response["count"], 3)
+                if response["breakdown_value"] == "person3":
+                    self.assertEqual(response["count"], 3)
+
         def test_breakdown_by_property_pie(self):
             person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
             _create_event(
@@ -3751,6 +3910,41 @@ def trend_test_factory(trends):
         def test_active_user_math_action(self):
             action = _create_action(name="$pageview", team=self.team)
             self._create_active_user_events()
+
+            data = {
+                "date_from": "2020-01-09T00:00:00Z",
+                "date_to": "2020-01-16T00:00:00Z",
+                "actions": [{"id": action.id, "type": "actions", "order": 0, "math": "weekly_active"}],
+            }
+
+            filter = Filter(data=data)
+            result = trends().run(filter, self.team)
+            self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+        def test_active_user_math_action_with_zero_person_ids(self):
+            # only a person-on-event test
+            if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+                return True
+
+            action = _create_action(name="$pageview", team=self.team)
+            self._create_active_user_events()
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p5",
+                timestamp="2020-01-03T12:00:00Z",
+                properties={"key": "val"},
+                person_id="00000000-0000-0000-0000-000000000000",
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p6",
+                timestamp="2020-01-03T12:00:00Z",
+                properties={"key": "val"},
+                person_id="00000000-0000-0000-0000-000000000000",
+            )
 
             data = {
                 "date_from": "2020-01-09T00:00:00Z",

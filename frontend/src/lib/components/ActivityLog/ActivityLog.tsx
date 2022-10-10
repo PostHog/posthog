@@ -73,7 +73,13 @@ export const ActivityLogRow = ({
 }): JSX.Element => {
     return (
         <div className={clsx('activity-log-row', logItem.unread && 'unread')}>
-            <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
+            <ProfilePicture
+                showName={false}
+                name={logItem.isSystem ? logItem.name : undefined}
+                isSystem={logItem.isSystem}
+                email={logItem.email ?? undefined}
+                size={'xl'}
+            />
             <div className="details">
                 <div className="activity-description">{logItem.description}</div>
                 {showExtendedDescription && logItem.extendedDescription && (

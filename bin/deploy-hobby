@@ -95,6 +95,8 @@ DOMAIN=$DOMAIN
 EOF
 
 # write entrypoint
+# NOTE: this is duplicated in bin/upgrade-hobby, so if you change it here,
+# change it there too.
 rm -rf compose
 mkdir -p compose
 cat > compose/start <<EOF
@@ -102,7 +104,6 @@ cat > compose/start <<EOF
 /compose/wait
 ./bin/migrate
 ./bin/docker-server
-./bin/docker-frontend
 EOF
 chmod +x compose/start
 
@@ -146,7 +147,7 @@ sudo curl -L "https://github.com/docker/compose/releases/download/1.27.4/docker-
 sudo chmod +x /usr/local/bin/docker-compose
 
 # enable docker without sudo
-sudo usermod -aG docker "${USER}"
+sudo usermod -aG docker "${USER}" || true
 
 # start up the stack
 echo "Configuring Docker Compose...."
