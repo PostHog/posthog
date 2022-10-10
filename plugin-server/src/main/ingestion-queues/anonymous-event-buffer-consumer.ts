@@ -78,7 +78,14 @@ export const startAnonymousEventBufferConsumer = async ({
             }
 
             status.debug('⬆️', 'Enqueuing anonymous event for processing', { job })
-            await graphileQueue.enqueue(JobName.BUFFER_JOB, job)
+            try {
+                await graphileQueue.enqueue(JobName.BUFFER_JOB, job)
+                statsd?.increment('anonymous_event_buffer_consumer.enqueued')
+            } catch (error) {
+                status.error('⚠️', 'Failed to enqueue anonymous event for processing', { error })
+                statsd?.increment('anonymous_event_buffer_consumer.enqueue_error')
+                throw error
+            }
 
             resolveOffset(message.offset)
 
