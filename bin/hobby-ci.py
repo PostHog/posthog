@@ -1,16 +1,14 @@
 #!/usr/local/bin/python
 
-# doctl compute droplet create --image ubuntu-22-04-x64 --user-data '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby) latest-release hobby.posthog.cc"' --size s-4vcpu-8gb --region sfo3 --tag-name ci hobby-e2e-ci-test
-# doctl compute droplet get pjhul-test -o json | jq '.[0].networks.v4[] | select(.type=="private") | .ip_address'
-# doctl compute domain records create posthog.cc --record-name hobby-cli --record-type A --record-data 8.8.8.8
-# doctl compute droplet delete hobby-e2e-ci-test --force
-# doctl compute domain records delete posthog.cc 341175450 --force
-
-import digitalocean
+import datetime
 import random
 import string
 import time
 import os
+
+import digitalocean
+import requests
+
 
 letters = string.ascii_lowercase
 random_bit = ''.join(random.choice(letters) for i in range(4))
@@ -70,17 +68,48 @@ def create_droplet(ssh_enabled=False):
 	return droplet
 
 
-print("Creating droplet on Digitalocean for testing Hobby Deployment")
-droplet = create_droplet(ssh_enabled=True)
-block_until_droplet_is_started(droplet)
-public_ip = get_public_ip(droplet)
-domain = digitalocean.Domain(token=token, name="posthog.cc")
-new_record = domain.create_new_domain_record(
-	type='A',
-	name=name,
-	data=public_ip
-)
-print("Instance has started. You can access it here:")
-print(f"https://{hostname}")
+def waitForInstance(hostname, timeout=5):
+	# timeout in minutes
+	# return true if success or false if failure
+	print("Attempting to reach the instance")
+	print(f"We will time out after {timeout} minutes")
+	url = f"https://{hostname}/_health"
+	timeout_seconds = timeout * 60
+	start_time = datetime.datetime.now()
+	while True:
+		r = requests.get(url)
+		elapsed = datetime.datetime.now() - start_time
+		if r.status_code == 200:
+			print("Success - received heartbeat from the instance")
+			return True
+		if elapsed.seconds >= timeout_seconds:
+			print("Failure - we timed out before receiving a heartbeat")
+			return False
+		time.sleep(1)
 
-# droplet.destroy()
+def main():
+	print("Creating droplet on Digitalocean for testing Hobby Deployment")
+	droplet = create_droplet(ssh_enabled=True)
+	block_until_droplet_is_started(droplet)
+	public_ip = get_public_ip(droplet)
+	domain = digitalocean.Domain(token=token, name="posthog.cc")
+	new_record = domain.create_new_domain_record(
+		type='A',
+		name=name,
+		data=public_ip
+	)
+	print("Instance has started. You can access it here:")
+	print(f"https://{hostname}")
+	health_success = waitForInstance(hostname)
+	print("Destroying the droplet")
+	droplet.destroy()
+	print("Destroying the DNS entry")
+	new_record.destroy()
+	if health_success:
+		exit(1)
+	else:
+		exit(666)
+
+
+if __name__ == "__main__":
+	main()
