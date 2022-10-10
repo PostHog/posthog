@@ -256,7 +256,6 @@ def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = T
         return None
 
 
-# archive is a bytes object or null
 def get_file(url: str, archive: Union[bytes, None], filename: str, *, json_parse: bool = True) -> Any:
     if url.startswith("file:"):
         url = url[5:]
