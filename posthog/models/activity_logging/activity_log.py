@@ -9,6 +9,7 @@ from django.db import models
 from django.utils import timezone
 
 from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
 
@@ -143,6 +144,13 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
 def _description(m: List[Any]) -> Union[str, Dict]:
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
+    if isinstance(m, DashboardTile):
+        description = {"dashboard": {"id": m.dashboard.id, "name": m.dashboard.name}}
+        if m.insight:
+            description["insight"] = {"id": m.insight.id}
+        if m.text:
+            description["text"] = {"id": m.text.id}
+        return description
     else:
         return str(m)
 
@@ -186,6 +194,14 @@ def changes_between(
 
             if field == "tagged_items":
                 field = "tags"  # or the UI needs to be coupled to this internal backend naming
+
+            if field == "dashboards" and "dashboard_tiles" in filtered_fields:
+                # only process dashboard_tiles when it is present. It supersedes dashboards
+                continue
+
+            if model_type == "Insight" and field == "dashboard_tiles":
+                # the api exposes this as dashboards and that's what the activity describers expect
+                field = "dashboards"
 
             if left is None and right is not None:
                 changes.append(Change(type=model_type, field=field, action="created", after=right))
