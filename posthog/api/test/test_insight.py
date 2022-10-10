@@ -392,6 +392,43 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         assert update_response["dashboards"] == [dashboard_id, new_dashboard_id]
 
+    def test_can_update_insight_with_inconsistent_dashboards(self):
+        """
+        Regression test because there are some DashboardTiles in production that should not exist.
+        Which were created before Tiles were deleted when dashboards are soft deleted
+        """
+        dashboard_id, _ = self._create_dashboard({})
+        deleted_dashboard_id, _ = self._create_dashboard({})
+
+        insight_id, _ = self._create_insight(
+            {
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+                "dashboards": [dashboard_id, deleted_dashboard_id],
+            }
+        )
+
+        # update outside of API so that DashboardTile still exists
+        dashboard_in_db = Dashboard.objects.get(id=deleted_dashboard_id)
+        dashboard_in_db.deleted = True
+        dashboard_in_db.save(update_fields=["deleted"])
+
+        assert DashboardTile.objects.filter(dashboard_id=deleted_dashboard_id).exists()
+
+        insight_json = self._get_insight(insight_id)
+        assert insight_json["dashboards"] == [dashboard_id, deleted_dashboard_id]
+
+        # accidentally include a deleted dashboard
+        _, update_response = self._update_insight(insight_id, {"dashboards": [deleted_dashboard_id]})
+        assert update_response["dashboards"] == []
+
+        # confirm it's gone when reloaded
+        insight_json = self._get_insight(insight_id)
+        assert insight_json["dashboards"] == []
+
     def test_adding_insight_to_a_dashboard_sets_filters_hash(self) -> None:
         dashboard_id, _ = self._create_dashboard({})
 
