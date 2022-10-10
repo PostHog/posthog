@@ -9,6 +9,7 @@ import string
 import sys
 import time
 
+from retry import retry
 import digitalocean
 import requests
 
@@ -106,17 +107,23 @@ def waitForInstance(hostname, timeout=20, retry_interval=15):
 		time.sleep(retry_interval)
 
 
-def destroy_environment(droplet, domain, record):
+def destroy_environment(droplet, domain, record, retries=3):
 	print("Destroying the droplet")
-	try:
-		droplet.destroy()
-	except Exception as e:
-		print(f"Could not destroy droplet because\n{e}")
+	attempts = 0
+	while attempts <= retries:
+		attempts += 1
+		try:
+			droplet.destroy()
+		except Exception as e:
+			print(f"Could not destroy droplet because\n{e}")
 	print("Destroying the DNS entry")
-	try:
-		domain.delete_domain_record(record['id'])
-	except Exception as e:
-		print(f"Could not destroy the dns entry because\n{e}")
+	attempts = 0
+	while attempts <= retries:
+		attempts += 1
+		try:
+			domain.delete_domain_record(record['id'])
+		except Exception as e:
+			print(f"Could not destroy the dns entry because\n{e}")
 
 
 def handle_sigint():
