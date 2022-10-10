@@ -72,7 +72,8 @@ projects_router.register(r"integrations", integration.IntegrationViewSet, "integ
 projects_router.register(
     r"ingestion_warnings", ingestion_warnings.IngestionWarningsViewSet, "ingestion_warnings", ["team_id"]
 )
-projects_router.register(r"app_metrics", app_metrics.AppMetricsViewSet, "app_metrics", ["team_id"])
+app_metrics_router = projects_router.register(r"app_metrics", app_metrics.AppMetricsViewSet, "app_metrics", ["team_id"])
+app_metrics_router.register(r"historical_exports", app_metrics.HistoricalExportsAppMetricsViewSet, "historical_exports", ["team_id", "plugin_config_id"])
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
