@@ -90,7 +90,7 @@ export class KafkaQueue {
                 resolve()
             })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
-            status.info('⏬', `Connect   ing Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
+            status.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
             this.wasConsumerRan = true
 
             await this.consumer.connect()
