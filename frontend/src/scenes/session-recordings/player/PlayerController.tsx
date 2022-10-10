@@ -10,10 +10,12 @@ import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/Time'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconSettings, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
+import { IconGauge, IconSettings, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonSelect } from '@posthog/lemon-ui'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { togglePlayPause, setSpeed, setSkipInactivitySetting } = useActions(
@@ -132,61 +134,57 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                     <SeekForward sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                 </div>
                 <div className="flex items-center gap-2 flex-1 justify-end">
-                    <LemonButtonWithPopup
-                        icon={<IconSettings />}
-                        size="small"
-                        sideIcon={null}
-                        popup={{
-                            overlay: (
-                                <>
-                                    <div className="p-2">
-                                        <LemonSwitch
-                                            label="Skip inactivity"
-                                            checked={skipInactivitySetting}
-                                            onChange={() => {
-                                                setSkipInactivitySetting(!skipInactivitySetting)
-                                            }}
-                                        />
-                                    </div>
-                                    <LemonButtonWithPopup
-                                        data-attr="session-recording-speed-select"
-                                        className="session-recording-speed-select"
-                                        fullWidth
-                                        status="stealth"
-                                        popup={{
-                                            overlay: (
-                                                <>
-                                                    {PLAYBACK_SPEEDS.map((speedToggle) => (
-                                                        <LemonButton
-                                                            fullWidth
-                                                            status="stealth"
-                                                            active={speed === speedToggle}
-                                                            key={speedToggle}
-                                                            onClick={() => {
-                                                                setSpeed(speedToggle)
-                                                            }}
-                                                        >
-                                                            {speedToggle}x
-                                                        </LemonButton>
-                                                    ))}
-                                                </>
-                                            ),
-                                            placement: 'right-start',
-                                            closeOnClickInside: false,
-                                            ref: speedSelectRef,
-                                        }}
-                                    >
-                                        Playback speed
-                                    </LemonButtonWithPopup>
-                                </>
-                            ),
-                            closeOnClickInside: false,
-                            additionalRefs: [speedSelectRef],
-                            placement: 'bottom-end',
-                        }}
-                    >
-                        Settings
-                    </LemonButtonWithPopup>
+                    <Tooltip title={'Playback speed'}>
+                        <LemonButtonWithPopup
+                            data-attr="session-recording-speed-select"
+                            popup={{
+                                overlay: (
+                                    <>
+                                        {PLAYBACK_SPEEDS.map((speedToggle) => (
+                                            <LemonButton
+                                                fullWidth
+                                                status="stealth"
+                                                active={speed === speedToggle}
+                                                key={speedToggle}
+                                                onClick={() => {
+                                                    setSpeed(speedToggle)
+                                                }}
+                                            >
+                                                {speedToggle}x
+                                            </LemonButton>
+                                        ))}
+                                    </>
+                                ),
+                                placement: 'right-start',
+                                closeOnClickInside: false,
+                                ref: speedSelectRef,
+                            }}
+                            sideIcon={null}
+                            size="small"
+                            status="primary-alt"
+                        >
+                            {speed}x
+                        </LemonButtonWithPopup>
+                    </Tooltip>
+
+                    <Tooltip title={`Skip inactivity (${skipInactivitySetting ? 'on' : 'off'})`}>
+                        <span
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                transform: skipInactivitySetting ? undefined : 'rotateY(180deg)',
+                            }}
+                        >
+                            <LemonButton
+                                size="small"
+                                status={skipInactivitySetting ? 'primary' : 'primary-alt'}
+                                onClick={() => {
+                                    setSkipInactivitySetting(!skipInactivitySetting)
+                                }}
+                            >
+                                <IconGauge className="text-2xl" />
+                            </LemonButton>
+                        </span>
+                    </Tooltip>
                 </div>
             </div>
         </div>
