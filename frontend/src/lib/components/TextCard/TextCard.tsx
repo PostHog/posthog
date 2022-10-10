@@ -113,9 +113,9 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
 
 function TextCardBody({ text }: { text: string }): JSX.Element {
     return (
-        <div className={'w-full h-full'}>
+        <div className={'w-full h-full block'}>
             <Textfit mode={text?.match(/([\r\n])/gm)?.length ? 'multi' : 'single'} min={16} max={100}>
-                <div className="TextCard-Body whitespace-pre-wrap px-2 pb-2">
+                <div className="TextCard-Body px-2 pb-2">
                     <ReactMarkdown>{text}</ReactMarkdown>
                 </div>
             </Textfit>
@@ -271,9 +271,9 @@ export function TextCardInternal(
                 </div>
             </div>
             <LemonDivider />
-            <div className="flex flex-1">
-                <TextCardBody text={text.body} />
-            </div>
+
+            <TextCardBody text={text.body} />
+
             {showResizeHandles && (
                 <>
                     {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
