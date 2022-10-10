@@ -82,7 +82,7 @@ export function SessionRecordingPlayerV3({
         )
     }
     return (
-        <Col className="session-player-v3" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
+        <div className="session-player-v3" onKeyDown={handleKeyDown} tabIndex={0}>
             {includeMeta ? <PlayerMetaV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} /> : null}
             <div className="session-player-body flex">
                 <div className="player-container ph-no-capture">
@@ -90,13 +90,11 @@ export function SessionRecordingPlayerV3({
                 </div>
             </div>
             <LemonDivider className="my-0" />
-            <div className="player-controller items-center flex">
-                <PlayerControllerV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            </div>
+            <PlayerControllerV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             <LemonDivider className="my-0" />
-            <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+            <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} matching={matching} />
             <LemonDivider className="my-0" />
             <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-        </Col>
+        </div>
     )
 }

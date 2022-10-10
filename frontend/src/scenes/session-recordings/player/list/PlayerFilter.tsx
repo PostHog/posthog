@@ -11,7 +11,7 @@ import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
 
-export function PlayerFilter({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+export function PlayerFilter({ sessionRecordingId, playerKey, matching }: SessionRecordingPlayerProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
     const { windowIdFilter, showOnlyMatching, tab } = useValues(sharedListLogic(logicProps))
     const { setWindowIdFilter, setShowOnlyMatching } = useActions(sharedListLogic(logicProps))
@@ -30,22 +30,24 @@ export function PlayerFilter({ sessionRecordingId, playerKey }: SessionRecording
                             type="search"
                             value={localFilters.query}
                         />
-                        <LemonSwitch
-                            checked={showOnlyMatching}
-                            bordered
-                            label={
-                                <span className="flex items-center gap-2 whitespace-nowrap">
-                                    Only show matching events
-                                    <Tooltip
-                                        title="Display only the events that match the global filter."
-                                        className="text-base text-muted-alt mr-2"
-                                    >
-                                        <IconInfo />
-                                    </Tooltip>
-                                </span>
-                            }
-                            onChange={setShowOnlyMatching}
-                        />
+                        {matching?.length ? (
+                            <LemonSwitch
+                                checked={showOnlyMatching}
+                                bordered
+                                label={
+                                    <span className="flex items-center gap-2 whitespace-nowrap">
+                                        Only show matching events
+                                        <Tooltip
+                                            title="Display only the events that match the global filter."
+                                            className="text-base text-muted-alt mr-2"
+                                        >
+                                            <IconInfo />
+                                        </Tooltip>
+                                    </span>
+                                }
+                                onChange={setShowOnlyMatching}
+                            />
+                        ) : null}
                     </>
                 )}
             </div>

@@ -4,7 +4,7 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { Row, Select, Switch } from 'antd'
+import { Select, Switch } from 'antd'
 import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
@@ -27,17 +27,9 @@ export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRec
         <div className="rrweb-controller" data-attr="rrweb-controller">
             <span>
                 {currentPlayerState === SessionPlayerState.PLAY ? (
-                    <IconPause
-                        onClick={togglePlayPause}
-                        className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                        style={isSmallScreen ? {} : { marginRight: '0.5rem' }}
-                    />
+                    <IconPause onClick={togglePlayPause} style={isSmallScreen ? {} : { marginRight: '0.5rem' }} />
                 ) : (
-                    <IconPlay
-                        onClick={togglePlayPause}
-                        className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                        style={isSmallScreen ? {} : { marginRight: '0.5rem' }}
-                    />
+                    <IconPlay onClick={togglePlayPause} style={isSmallScreen ? {} : { marginRight: '0.5rem' }} />
                 )}
             </span>
             {!isSmallScreen && (
@@ -98,13 +90,13 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
     const speedSelectRef = useRef<HTMLDivElement | null>(null)
 
     return (
-        <div className="rrweb-controller">
-            <div className="rrweb-controller__top" data-attr="rrweb-controller">
+        <div className="PlayerControllerV3">
+            <div className="flex items-center h-8 mb-2" data-attr="rrweb-controller">
                 {!isSmallScreen && <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
                 <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             </div>
-            <Row className="rrweb-controller__bottom" wrap={false} justify="space-between" align="middle">
-                <Row wrap={false} className="space-x-2" style={{ width: '50%' }}>
+            <div className="flex justify-between items-center h-8 gap-2">
+                <div className="flex items-center gap-2 flex-1">
                     <LemonButton
                         size="small"
                         icon={<UnverifiedEvent />}
@@ -127,19 +119,19 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                             Console
                         </LemonButton>
                     )}
-                </Row>
-                <Row wrap={false} className="gap-2 mx-2">
+                </div>
+                <div className="flex items-center gap-2">
                     <SeekBack sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                     <LemonButton status="primary-alt" size="small">
                         {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
-                            <IconPause onClick={togglePlayPause} className="rrweb-controller-icon" />
+                            <IconPause onClick={togglePlayPause} />
                         ) : (
-                            <IconPlay onClick={togglePlayPause} className="rrweb-controller-icon " />
+                            <IconPlay onClick={togglePlayPause} />
                         )}
                     </LemonButton>
                     <SeekForward sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                </Row>
-                <Row wrap={false} style={{ width: '50%' }} justify="end" align="middle">
+                </div>
+                <div className="flex items-center gap-2 flex-1 justify-end">
                     <LemonButtonWithPopup
                         icon={<IconSettings />}
                         size="small"
@@ -195,8 +187,8 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                     >
                         Settings
                     </LemonButtonWithPopup>
-                </Row>
-            </Row>
+                </div>
+            </div>
         </div>
     )
 }
