@@ -856,8 +856,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -1068,6 +1067,25 @@
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.37
   '
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt"
+  FROM "posthog_dashboardtile"
+  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
+         AND "posthog_dashboardtile"."insight_id" = 2)
+  ORDER BY "posthog_dashboardtile"."id" ASC
+  LIMIT 1 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  '
+---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.38
+  '
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -1098,25 +1116,6 @@
   FROM "posthog_dashboarditem"
   WHERE "posthog_dashboarditem"."id" = 2
   LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.38
-  '
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."text_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash",
-         "posthog_dashboardtile"."last_refresh",
-         "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt"
-  FROM "posthog_dashboardtile"
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
-         AND "posthog_dashboardtile"."insight_id" = 2)
-  ORDER BY "posthog_dashboardtile"."id" ASC
-  LIMIT 1 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.39
@@ -1957,8 +1956,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -4309,8 +4307,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -4333,8 +4330,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -5093,8 +5089,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -5627,8 +5622,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -6147,8 +6141,7 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."id" = 2)
+  WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
