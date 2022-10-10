@@ -1,10 +1,12 @@
 #!/usr/local/bin/python
 
 import datetime
-import random
-import string
-import time
 import os
+import random
+import re
+import string
+import sys
+import time
 
 import digitalocean
 import requests
@@ -17,6 +19,10 @@ region = 'sfo3'
 image = 'ubuntu-22-04-x64'
 size = 's-4vcpu-8gb'
 release_tag = 'latest-release'
+branch_regex = re.compile('release-*.*')
+branch = sys.argv[1]
+if branch_regex.match(branch):
+	release_tag = f"{branch}-unstable"
 hostname = f'{name}.posthog.cc'
 user_data = f'#!/bin/bash \n' \
 			f'wget https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby \n' \
@@ -68,7 +74,7 @@ def create_droplet(ssh_enabled=False):
 	return droplet
 
 
-def waitForInstance(hostname, timeout=10):
+def waitForInstance(hostname, timeout=15):
 	# timeout in minutes
 	# return true if success or false if failure
 	print("Attempting to reach the instance")
