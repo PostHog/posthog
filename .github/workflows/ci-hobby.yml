@@ -7,8 +7,6 @@ on:
     branches:
       - master
   pull_request:
-    types:
-      - opened
     paths:
       - docker-compose.hobby.yml
       - bin/deploy-hobby
