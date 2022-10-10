@@ -291,7 +291,6 @@ class InsightSerializer(InsightBasicSerializer):
                             f"You don't have permission to add insights to dashboard: {dashboard.id}"
                         )
 
-                breakpoint()
                 for dashboard in candidate_dashboards:
                     if dashboard.team != instance.team:
                         raise serializers.ValidationError("Dashboard not found")
