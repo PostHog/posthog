@@ -284,6 +284,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         const tileIndex = state.tiles.findIndex(
                             (t) => !!t.insight && t.insight.short_id === insight.short_id
                         )
+
                         const newTiles = state.tiles.slice(0)
 
                         if (tileIndex >= 0) {
@@ -293,7 +294,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                 newTiles.splice(tileIndex, 1)
                             }
                         } else {
-                            newTiles.push({ insight: insight, layouts: {}, color: null } as DashboardTile)
+                            // we can't create tiles in this reducer
+                            // will reload all items in a listener to pick up the new tile
                         }
 
                         return {
@@ -745,6 +747,24 @@ export const dashboardLogic = kea<dashboardLogicType>({
         [dashboardsModel.actionTypes.tileAddedToDashboard]: ({ dashboardId }) => {
             // when adding an insight to a dashboard, we need to reload the dashboard to get the new insight
             if (dashboardId === props.id) {
+                actions.loadDashboardItems()
+            }
+        },
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds }) => {
+            const targetDashboards = (insight.dashboards || []).concat(extraDashboardIds || [])
+            if (!props.id) {
+                // what are we even updating?
+                return
+            }
+            if (!targetDashboards.includes(props.id)) {
+                // this update is not for this dashboard
+                return
+            }
+
+            const tileIndex = values.tiles.findIndex((t) => !!t.insight && t.insight.short_id === insight.short_id)
+
+            if (tileIndex === -1) {
+                // this is a new tile crated from an insight context we need to reload the dashboard
                 actions.loadDashboardItems()
             }
         },

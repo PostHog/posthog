@@ -145,9 +145,7 @@ export function TextCardInternal(
     if (!text) {
         throw new Error('TextCard requires text')
     }
-    if (!dashboardId) {
-        throw new Error('TextCard requires dashboardId')
-    }
+
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((dashboard) => dashboard.id !== dashboardId)
     return (
@@ -175,7 +173,9 @@ export function TextCardInternal(
                                 <LemonButton
                                     status="stealth"
                                     fullWidth
-                                    onClick={() => push(urls.dashboardTextTile(dashboardId, textTile.id))}
+                                    onClick={() =>
+                                        dashboardId && push(urls.dashboardTextTile(dashboardId, textTile.id))
+                                    }
                                     data-attr="edit-text"
                                 >
                                     Edit text

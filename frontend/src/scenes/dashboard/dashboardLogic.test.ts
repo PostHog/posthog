@@ -15,9 +15,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import anything = jasmine.anything
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import api from 'lib/api'
-// import { getAppContext } from 'lib/utils/getAppContext'
-//
-// jest.mock('lib/utils/getAppContext')
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
@@ -588,6 +585,16 @@ describe('dashboardLogic', () => {
             expect(logic.values.insightTiles[0].insight!.name).toEqual('renamed')
             expect(logic.values.insightTiles[0].insight!.last_modified_at).toEqual('2021-04-01 12:00:00')
             expect(logic.values.insightTiles[0].insight!.description).toEqual(null)
+        })
+
+        it('can respond to external insight update for a tile that is new on this dashboard', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboardInsight({
+                    short_id: 'not_already_on_the_dashboard' as InsightShortId,
+                } as InsightModel)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['loadDashboardItems'])
         })
     })
 
