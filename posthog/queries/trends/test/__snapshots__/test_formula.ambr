@@ -15,8 +15,8 @@
            FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
            UNION ALL SELECT toUInt16(0) AS total,
                             toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
-           UNION ALL SELECT count(DISTINCT "$session_id") as data,
-                            toStartOfDay(toDateTime(timestamp), 'UTC') as date
+           UNION ALL SELECT count(DISTINCT "$session_id") AS data,
+                            toStartOfDay(toDateTime(timestamp), 'UTC') AS date
            FROM
              (SELECT e.timestamp as timestamp,
                      e."$session_id" as "$session_id"
@@ -40,8 +40,8 @@
            FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
            UNION ALL SELECT toUInt16(0) AS total,
                             toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
-           UNION ALL SELECT count(DISTINCT person_id) as data,
-                            toStartOfDay(toDateTime(timestamp), 'UTC') as date
+           UNION ALL SELECT count(DISTINCT person_id) AS data,
+                            toStartOfDay(toDateTime(timestamp), 'UTC') AS date
            FROM
              (SELECT e.timestamp as timestamp,
                      e."$session_id" as "$session_id",

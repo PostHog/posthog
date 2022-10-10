@@ -252,8 +252,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(*) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -300,8 +300,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(*) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -348,8 +348,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(*) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   e."properties" as "properties"
@@ -504,8 +504,8 @@
         FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 08:00:00'), 0, 'US/Pacific'), toDateTime('2020-01-26 23:59:59'), 'US/Pacific'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfWeek(toDateTime('2020-01-12 08:00:00'), 0, 'US/Pacific')
-        UNION ALL SELECT count(*) as data,
-                         toStartOfWeek(toDateTime(timestamp), 0, 'US/Pacific') as date
+        UNION ALL SELECT count(*) AS data,
+                         toStartOfWeek(toDateTime(timestamp), 0, 'US/Pacific') AS date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
@@ -532,8 +532,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 23:59:59'), 'US/Pacific'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
+        UNION ALL SELECT count(*) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') AS date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
@@ -560,8 +560,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 23:59:59'), 'US/Pacific'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-22 08:00:00'), 'US/Pacific')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
+        UNION ALL SELECT count(DISTINCT person_id) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -656,8 +656,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 23:59:59'), 'US/Pacific'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
+        UNION ALL SELECT count(*) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') AS date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
@@ -755,8 +755,8 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-03 08:00:00'), 'US/Pacific'), toDateTime('2020-01-04 07:59:59'), 'US/Pacific'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-03 08:00:00'), 'US/Pacific')
-        UNION ALL SELECT count(*) as data,
-                         toStartOfHour(toDateTime(timestamp), 'US/Pacific') as date
+        UNION ALL SELECT count(*) AS data,
+                         toStartOfHour(toDateTime(timestamp), 'US/Pacific') AS date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
@@ -783,8 +783,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 08:00:00'), 'US/Pacific'), toDateTime('2020-01-04 07:59:59'), 'US/Pacific'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-03 08:00:00'), 'US/Pacific')
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
+        UNION ALL SELECT count(*) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') AS date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
@@ -811,8 +811,8 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 18:02:01'), 'US/Pacific'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfHour(toDateTime(timestamp), 'US/Pacific') as date
+        UNION ALL SELECT count(DISTINCT person_id) AS data,
+                         toStartOfHour(toDateTime(timestamp), 'US/Pacific') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -873,8 +873,8 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 18:02:01'), 'US/Pacific'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific')
-        UNION ALL SELECT count(*) as data,
-                         toStartOfHour(toDateTime(timestamp), 'US/Pacific') as date
+        UNION ALL SELECT count(*) AS data,
+                         toStartOfHour(toDateTime(timestamp), 'US/Pacific') AS date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
