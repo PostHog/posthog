@@ -108,6 +108,7 @@ class TestSynchronousCacheUpdate(APIBaseTest):
         DashboardTile.objects.filter(id=tile.id).update(filters_hash=None)
         tile.refresh_from_db()
         assert tile.filters_hash is None
+        assert tile.insight is not None
 
         synchronously_update_insight_cache(tile.insight, tile.dashboard)
 

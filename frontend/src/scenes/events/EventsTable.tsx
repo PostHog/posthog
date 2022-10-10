@@ -419,14 +419,13 @@ export function EventsTable({
                                             Create action from event
                                         </LemonButton>
                                     )}
-                                    {!!event.matched_recordings?.[0] && (
+                                    {!!event.properties.$session_id && (
                                         <LemonButton
                                             status="stealth"
                                             onClick={() => {
-                                                event.matched_recordings[0].session_id &&
+                                                event.properties.$session_id &&
                                                     openSessionPlayer({
-                                                        id: event.matched_recordings[0].session_id,
-                                                        matching_events: event.matched_recordings,
+                                                        id: event.properties.$session_id,
                                                     })
                                             }}
                                             fullWidth

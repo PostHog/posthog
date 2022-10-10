@@ -25,6 +25,9 @@ import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 import { EventsTable } from 'scenes/events'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
+import { IconPlayCircle } from 'lib/components/icons'
+import { combineUrl } from 'kea-router/lib/utils'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -111,8 +114,30 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             </>
                         }
                         buttons={
-                            hasTaxonomyFeatures && (
-                                <>
+                            <>
+                                <LemonButton
+                                    type="secondary"
+                                    to={
+                                        combineUrl(urls.sessionRecordings(), {
+                                            filters: {
+                                                events: [
+                                                    {
+                                                        id: definition.name,
+                                                        type: 'events',
+                                                        order: 0,
+                                                        name: definition.name,
+                                                    },
+                                                ],
+                                            },
+                                        }).url
+                                    }
+                                    sideIcon={<IconPlayCircle />}
+                                    data-attr="event-definition-view-recordings"
+                                >
+                                    View recordings
+                                </LemonButton>
+
+                                {hasTaxonomyFeatures && (
                                     <LemonButton
                                         data-attr="edit-definition"
                                         type="secondary"
@@ -122,8 +147,8 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     >
                                         Edit
                                     </LemonButton>
-                                </>
-                            )
+                                )}
+                            </>
                         }
                     />
                     <Divider />

@@ -1,13 +1,14 @@
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
-import { InsightModel, InsightType } from '~/types'
+import { DashboardType, InsightModel, InsightType } from '~/types'
 import { combineUrl, router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { useMocks } from '~/mocks/jest'
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 jest.spyOn(api, 'create')
 
@@ -190,5 +191,11 @@ describe('savedInsightsLogic', () => {
             `api/projects/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: 'should be copied (copy)' })
         )
+    })
+
+    it('loads insights when a dashboard is duplicated', async () => {
+        await expectLogic(logic, () => {
+            dashboardsModel.actions.duplicateDashboardSuccess({} as DashboardType, {} as any)
+        }).toDispatchActions(['loadInsights'])
     })
 })

@@ -33,6 +33,7 @@ TRUNCATE TABLE
     posthog_featureflag,
     posthog_featureflaghashkeyoverride,
     posthog_annotation,
+    posthog_activitylog,
     posthog_dashboarditem,
     posthog_dashboard,
     posthog_cohortpeople,
