@@ -74,15 +74,16 @@ class TestCapture(BaseTest):
         session_id="abc123",
         window_id="def456",
         distinct_id="ghi789",
-        timestamp=1658516991883,
+        timestamp=None,
     ):
         event = {
             "event": "$snapshot",
+            "timestamp": timestamp or timezone.now().timestamp(),
             "properties": {
                 "$snapshot_data": {
                     "type": snapshot_type,
                     "data": {"source": snapshot_source, "data": event_data},
-                    "timestamp": timestamp,
+                    "timestamp": timestamp or timezone.now().isoformat(),
                 },
                 "$session_id": session_id,
                 "$window_id": window_id,
@@ -1051,10 +1052,9 @@ class TestCapture(BaseTest):
 
     @patch("posthog.models.utils.UUIDT", return_value="fake-uuid")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    @freeze_time("2021-05-10")
     def test_recording_data_is_compressed_and_transformed_before_sent_to_kafka(self, kafka_produce, _) -> None:
         self.maxDiff = None
-        timestamp = 1658516991883
+        timestamp = round(timezone.now().timestamp())
         session_id = "fake-session-id"
         distinct_id = "fake-distinct-id"
         window_id = "fake-window-id"
@@ -1084,6 +1084,7 @@ class TestCapture(BaseTest):
             data_sent_to_kafka,
             {
                 "event": "$snapshot",
+                "timestamp": timestamp,
                 "properties": {
                     "$snapshot_data": {
                         "chunk_id": "fake-uuid",
