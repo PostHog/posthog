@@ -51,8 +51,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(DISTINCT person_id) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -113,8 +113,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(*) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   e."properties" as "properties"
@@ -171,8 +171,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(*) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
@@ -334,8 +334,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(DISTINCT person_id) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT person_id,
                   min(timestamp) as timestamp
@@ -663,8 +663,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(DISTINCT person_id) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -699,8 +699,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-14 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-14 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(DISTINCT person_id) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -735,8 +735,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00'), 'UTC'), toDateTime('2012-01-14 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2011-12-31 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(DISTINCT person_id) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -771,8 +771,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-02 00:00:00'), 'UTC'), toDateTime('2012-01-16 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-02 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(DISTINCT person_id) AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -807,8 +807,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC'), toDateTime('2020-01-12 00:00:00'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT "$group_0") as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(DISTINCT "$group_0") AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   e."$group_0" as "$group_0"
@@ -856,8 +856,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC'), toDateTime('2020-01-12 00:00:00'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT "$session_id") as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        UNION ALL SELECT count(DISTINCT "$session_id") AS data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') AS date
         FROM
           (SELECT e.timestamp as timestamp,
                   e."$session_id" as "$session_id"
