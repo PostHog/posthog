@@ -10,6 +10,7 @@ export interface AppMetricIdentifier {
     teamId: TeamId
     pluginConfigId: number
     jobId?: string
+    // Keep in sync with posthog/queries/app_metrics/serializers.py
     category: 'processEvent' | 'onEvent' | 'exportEvents'
 }
 

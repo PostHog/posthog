@@ -85,3 +85,43 @@ error_details
 FROM {settings.CLICKHOUSE_DATABASE}.kafka_app_metrics
 """
 )
+
+QUERY_APP_METRICS_TIME_SERIES = """
+SELECT groupArray(date), groupArray(successes), groupArray(successes_on_retry), groupArray(failures)
+FROM (
+    SELECT
+        date,
+        sum(successes) AS successes,
+        sum(successes_on_retry) AS successes_on_retry,
+        sum(failures) AS failures
+    FROM (
+        SELECT
+            toStartOfDay(toDateTime(%(date_from)s) + toIntervalDay(number), %(timezone)s) AS date,
+            0 AS successes,
+            0 AS successes_on_retry,
+            0 AS failures
+        FROM numbers(
+            dateDiff(
+                'day',
+                dateTrunc('day', toDateTime(%(date_from)s), %(timezone)s),
+                dateTrunc('day', now() + INTERVAL 1 DAY, %(timezone)s)
+            )
+        )
+        UNION ALL
+        SELECT
+            toStartOfDay(timestamp, %(timezone)s) AS date,
+            sum(successes) AS successes,
+            sum(successes_on_retry) AS successes_on_retry,
+            sum(failures) AS failures
+        FROM app_metrics
+        WHERE team_id = %(team_id)s
+        AND plugin_config_id = %(plugin_config_id)s
+        AND category = %(category)s
+        {job_id_clause}
+        AND timestamp >= %(date_from)s
+        GROUP BY toStartOfDay(timestamp, %(timezone)s)
+    )
+    GROUP BY date
+    ORDER BY date
+)
+"""
