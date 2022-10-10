@@ -22,7 +22,7 @@ user_data = f'#!/bin/bash \n' \
 			f'wget https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby \n' \
 			f'chmod +x deploy-hobby \n' \
 			f'./deploy-hobby {release_tag} {hostname}\n'
-token = os.getenv("DIGITALOCEAN_ACCESS_TOKEN")
+token = os.getenv("DIGITALOCEAN_TOKEN")
 
 
 def block_until_droplet_is_started(droplet):
