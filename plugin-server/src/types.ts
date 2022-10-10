@@ -850,7 +850,7 @@ export interface PluginScheduleControl {
     reloadSchedule: () => Promise<void>
 }
 
-export interface JobQueueConsumerControl {
+export interface JobsConsumerControl {
     stop: () => void
     resume: () => void
 }

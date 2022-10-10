@@ -1,7 +1,7 @@
 import Piscina from '@posthog/piscina'
 import { TaskList } from 'graphile-worker'
 
-import { EnqueuedBufferJob, EnqueuedPluginJob, Hub, JobQueueConsumerControl } from '../../types'
+import { EnqueuedBufferJob, EnqueuedPluginJob, Hub, JobsConsumerControl } from '../../types'
 import { killProcess } from '../../utils/kill'
 import { status } from '../../utils/status'
 import { logOrThrowJobQueueError } from '../../utils/utils'
@@ -9,7 +9,7 @@ import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
 import { runInstrumentedFunction } from '../utils'
 import { runBufferEventPipeline } from './buffer'
 
-export function startJobQueueConsumer(hub: Hub, piscina: Piscina): JobQueueConsumerControl {
+export function startJobQueueConsumer(hub: Hub, piscina: Piscina): JobsConsumerControl {
     status.info('🔄', 'Starting job queue consumer, trying to get lock...')
 
     const ingestionJobHandlers: TaskList = {

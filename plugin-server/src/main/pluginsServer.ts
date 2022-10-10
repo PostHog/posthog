@@ -9,7 +9,7 @@ import * as schedule from 'node-schedule'
 import { defaultConfig } from '../config/config'
 import {
     Hub,
-    JobQueueConsumerControl,
+    JobsConsumerControl,
     PluginScheduleControl,
     PluginServerCapabilities,
     PluginsServerConfig,
@@ -60,7 +60,7 @@ export async function startPluginsServer(
     let hub: Hub | undefined
     let piscina: Piscina | undefined
     let queue: KafkaQueue | undefined | null // ingestion queue
-    let jobQueueConsumer: JobQueueConsumerControl | undefined
+    let jobQueueConsumer: JobsConsumerControl | undefined
     let bufferConsumer: Consumer | undefined
     let closeHub: () => Promise<void> | undefined
     let pluginScheduleControl: PluginScheduleControl | undefined
