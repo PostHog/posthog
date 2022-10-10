@@ -63,7 +63,7 @@ SELECT groupArray(value) FROM (
     {groups_join_clauses}
     {sessions_join_clauses}
     WHERE
-        team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters}
+        team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters} {null_person_filter}
     GROUP BY value
     ORDER BY count DESC, value DESC
     LIMIT %(limit)s OFFSET %(offset)s
@@ -80,7 +80,7 @@ SELECT {bucketing_expression} FROM (
     {groups_join_clauses}
     {sessions_join_clauses}
     WHERE
-        team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters}
+        team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters} {null_person_filter}
     GROUP BY value
 )
 """
@@ -159,6 +159,7 @@ FROM events e
 {groups_join}
 {sessions_join}
 {breakdown_filter}
+{null_person_filter}
 GROUP BY day_start, breakdown_value
 """
 
@@ -174,6 +175,7 @@ FROM (
         {groups_join}
         {sessions_join}
         {breakdown_filter}
+        {null_person_filter}
     )
     GROUP BY {event_sessions_table_alias}.$session_id, day_start, breakdown_value
 )
@@ -201,6 +203,7 @@ FROM (
         {groups_join}
         {sessions_join}
         {breakdown_filter}
+        {null_person_filter}
     )
     GROUP BY person_id, breakdown_value
 ) AS pdi
@@ -220,6 +223,7 @@ FROM (
         {groups_join}
         {sessions_join}
         {conditions}
+        {null_person_filter}
         GROUP BY timestamp, person_id, breakdown_value
     ) e
     WHERE e.timestamp <= d.timestamp AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
@@ -259,17 +263,17 @@ ORDER BY breakdown_value
 """
 
 BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL = """
-WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_range} {parsed_date_to} {actions_query}
+WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_range} {parsed_date_to} {actions_query} {null_person_filter}
 """
 
 BREAKDOWN_PROP_JOIN_SQL = """
-WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
+WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {null_person_filter}
   AND {breakdown_value_expr} in (%(values)s)
   {actions_query}
 """
 
 BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL = """
-WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {numeric_property_filter}
+WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {numeric_property_filter} {null_person_filter}
   {actions_query}
 """
 
@@ -277,7 +281,7 @@ BREAKDOWN_COHORT_JOIN_SQL = """
 INNER JOIN (
     {cohort_queries}
 ) ep
-ON e.distinct_id = ep.distinct_id where team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {actions_query}
+ON e.distinct_id = ep.distinct_id where team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {actions_query} {null_person_filter}
 """
 
 _LIFECYCLE_EVENTS_QUERY = """

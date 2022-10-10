@@ -153,6 +153,7 @@ class TrendsBreakdown:
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
             "filters": prop_filters,
+            "null_person_filter": f"AND e.person_id != toUUIDOrZero('')" if self.using_person_on_events else "",
         }
 
         _params, _breakdown_filter_params = {}, {}
@@ -258,6 +259,7 @@ class TrendsBreakdown:
                     breakdown_value=breakdown_value,
                     start_of_week_fix=start_of_week_fix(self.filter),
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
+                    **breakdown_filter_params,
                 )
             else:
                 inner_sql = BREAKDOWN_INNER_SQL.format(
@@ -269,6 +271,7 @@ class TrendsBreakdown:
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     start_of_week_fix=start_of_week_fix(self.filter),
+                    **breakdown_filter_params,
                 )
 
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
