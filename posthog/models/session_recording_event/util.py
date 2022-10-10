@@ -3,7 +3,9 @@ import json
 import uuid
 from typing import Any, Dict, List, Union
 
+import pytz
 import structlog
+from dateutil.parser import isoparse
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
@@ -64,8 +66,12 @@ def bulk_create_session_recording_event(events: List[Dict[str, Any]]) -> None:
     inserts = []
     params: Dict[str, Any] = {}
     for index, event in enumerate(events):
-
-        timestamp = event["timestamp"].strftime("%Y-%m-%d %H:%M:%S.%f")
+        timestamp = event["timestamp"]
+        if isinstance(timestamp, str):
+            timestamp = isoparse(timestamp)
+        else:
+            timestamp = timestamp.astimezone(pytz.utc)
+        timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
         data = {
             "uuid": str(event["uuid"]),
             "team_id": event["team_id"],

@@ -795,7 +795,11 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s1", "$window_id": "w1"},
         )
         _create_session_recording_event(
-            team_id=self.team.pk, distinct_id="u1", session_id="s1", timestamp="2020-01-09T12:00:00Z"
+            team_id=self.team.pk,
+            distinct_id="u1",
+            session_id="s1",
+            timestamp="2020-01-09T12:00:00Z",
+            snapshot_data={"has_full_snapshot": True},
         )
 
         people = self.client.get(

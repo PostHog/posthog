@@ -11,7 +11,7 @@ from posthog.helpers.session_recording import Event, compress_and_chunk_snapshot
 from posthog.models import Organization, Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, flush_persons_and_events
 
 
 def factory_test_session_recordings_api(session_recording_event_factory):
@@ -378,6 +378,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             org = Organization.objects.create(name="Separate Org")
             another_team = Team.objects.create(organization=org)
             self.create_snapshot("user", "id_no_team_leaking", now() - relativedelta(days=1), team_id=another_team.pk)
+            flush_persons_and_events()
             response = self.client.get(f"/api/projects/{another_team.pk}/session_recordings/id_no_team_leaking")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
