@@ -120,7 +120,7 @@ def destroy_environment(droplet, domain, record, retries=3):
 	while attempts <= retries:
 		attempts += 1
 		try:
-			domain.delete_domain_record(record['id'])
+			domain.delete_domain_record(id=record['id'])
 		except Exception as e:
 			print(f"Could not destroy the dns entry because\n{e}")
 
