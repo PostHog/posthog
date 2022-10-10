@@ -17,7 +17,6 @@ import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import equal from 'fast-deep-equal'
 
 const DAYS_FIRST_FETCH = 5
 const DAYS_SECOND_FETCH = 365
@@ -278,21 +277,16 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
 
     urlToAction: ({ actions, values, props }) => ({
         [decodeURI(props.sceneUrl)]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            const nextProperties = searchParams.properties || values.properties || {}
-            if (!equal(nextProperties, values.properties)) {
-                actions.setProperties(nextProperties)
-            }
+            actions.setProperties(searchParams.properties || values.properties || {})
 
-            const nextEventFilter = searchParams.eventFilter || ''
-            if (!equal(nextEventFilter, values.eventFilter)) {
-                actions.setEventFilter(nextEventFilter)
+            if (searchParams.eventFilter) {
+                actions.setEventFilter(searchParams.eventFilter)
             }
         },
     }),
 
-    events: ({ values, actions }) => ({
+    events: ({ values }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
-        afterMount: () => actions.fetchEvents(),
     }),
 
     listeners: ({ actions, values, props }) => ({

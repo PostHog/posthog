@@ -1,7 +1,7 @@
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { lemonToast } from 'lib/components/lemonToast'
 import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
@@ -31,7 +31,6 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
     elements_hash: '',
     event: '',
     properties: {},
-    matched_recordings: [],
 })
 
 const makePropertyFilter = (value: string = randomString()): PropertyFilter => ({
@@ -83,30 +82,11 @@ describe('eventsTableLogic', () => {
             expect(logic.key).toEqual('all-test-person-key-/person/first-part%7Csecond-part')
         })
 
-        it('same properties does not trigger url to action', async () => {
+        it('triggers url to action', async () => {
             // before https://github.com/PostHog/posthog/pull/11585 any sceneURLs with encoded characters
             // e.g. `|` becoming `%7C` could not trigger `urlToAction` for this logic
-            router.actions.push(combineUrl(personUrl, { properties: [] }).url)
-            await expectLogic(logic).toNotHaveDispatchedActions(['setProperties'])
-        })
-
-        it('same event filter does not trigger url to action', async () => {
-            // before https://github.com/PostHog/posthog/pull/11585 any sceneURLs with encoded characters
-            // e.g. `|` becoming `%7C` could not trigger `urlToAction` for this logic
-            router.actions.push(combineUrl(personUrl, { eventFilter: '' }).url)
-            await expectLogic(logic).toNotHaveDispatchedActions(['setEventFilter'])
-        })
-
-        it('different properties triggers url to action', async () => {
-            const properties = [makePropertyFilter()]
-            router.actions.push(combineUrl(personUrl, { properties }).url)
-            await expectLogic(logic).toDispatchActions(['setProperties', 'fetchEvents'])
-        })
-
-        it('different event filter triggers url to action', async () => {
-            const eventFilter = '$pageview'
-            router.actions.push(combineUrl(personUrl, { eventFilter }).url)
-            await expectLogic(logic).toDispatchActions(['setEventFilter', 'fetchEvents'])
+            router.actions.push(personUrl)
+            await expectLogic(logic).toDispatchActions(['setProperties'])
         })
     })
 
