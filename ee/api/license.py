@@ -65,8 +65,6 @@ class LicenseViewSet(
 
         return super().get_queryset()
 
-    # TODO: Limit this to staff users only if Cloud....
-
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:
         license = get_object_or_404(License, pk=pk)
         validation = requests.post("https://license.posthog.com/licenses/deactivate", data={"key": license.key})

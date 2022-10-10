@@ -25,9 +25,7 @@ from posthog.models import Organization
 from posthog.models.event.util import get_event_count_for_team_and_period
 from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
 from posthog.models.team.team import Team
-from posthog.settings import BILLING_USAGE_CACHING_TTL, BILLING_V2_ENABLED
 
-UNLICENSED_BILLING_RESPONSE: Any = {"subscription_url": None, "products": None, "custom_limits": {}}
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 
 
@@ -101,7 +99,7 @@ def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
             cache_key,
             usage,
             min(
-                BILLING_USAGE_CACHING_TTL,
+                settings.BILLING_USAGE_CACHING_TTL,
                 (end_period - timezone.now()).total_seconds(),
             ),
         )
@@ -122,7 +120,7 @@ class BillingViewset(viewsets.GenericViewSet):
         license = License.objects.first_valid()
         org = self._get_org()
 
-        response: Dict[str, Any] = {"subscription_url": None, "custom_limits_usd": {}}
+        response: Dict[str, Any] = {}
 
         if license:
             billing_service_token = build_billing_token(license, str(org.id))
@@ -145,8 +143,9 @@ class BillingViewset(viewsets.GenericViewSet):
                 raise Exception(f"Billing service returned bad status code: {res.status_code}")
 
         # If there isn't a valid v2 subscription then we only return sucessfully if BILLING_V2_ENABLED
-        if not response.get("has_active_subscription") and not BILLING_V2_ENABLED:
+        if not response.get("has_active_subscription") and not settings.BILLING_V2_ENABLED:
             distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
+            # TODO: Change this to local evaluation
             if not (distinct_id and posthoganalytics.get_feature_flag("billing-v2-enabled", distinct_id)):
                 raise NotFound("Billing V2 is not enabled for this organization")
 
