@@ -31,7 +31,6 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
     elements_hash: '',
     event: '',
     properties: {},
-    matched_recordings: [],
 })
 
 const makePropertyFilter = (value: string = randomString()): PropertyFilter => ({
