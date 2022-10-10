@@ -167,7 +167,7 @@ SELECT
     {aggregate_operation} as total, day_start, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, day_start, breakdown_value FROM (
-        SELECT sessions.\"$session_id\", session_duration, {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
+        SELECT {event_sessions_table_alias}.$session_id, session_duration, {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
             {breakdown_value} as breakdown_value
         FROM events AS e
         {person_join}
@@ -175,7 +175,7 @@ FROM (
         {sessions_join}
         {breakdown_filter}
     )
-    GROUP BY sessions.\"$session_id\", day_start, breakdown_value
+    GROUP BY {event_sessions_table_alias}.$session_id, day_start, breakdown_value
 )
 GROUP BY day_start, breakdown_value
 """
@@ -245,14 +245,14 @@ SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL = """
 SELECT {aggregate_operation} AS total, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, breakdown_value FROM (
-        SELECT sessions.\"$session_id\", session_duration, {breakdown_value} AS breakdown_value FROM
+        SELECT {event_sessions_table_alias}.$session_id, session_duration, {breakdown_value} AS breakdown_value FROM
             events e
             {person_join}
             {groups_join}
             {sessions_join_condition}
             {breakdown_filter}
         )
-    GROUP BY sessions.\"$session_id\", breakdown_value
+    GROUP BY {event_sessions_table_alias}.$session_id, breakdown_value
 )
 GROUP BY breakdown_value
 ORDER BY breakdown_value
