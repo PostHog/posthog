@@ -19,7 +19,7 @@ class AppMetricsViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, views
         filter.is_valid(raise_exception=True)
 
         metric_results = AppMetricsQuery(self.team, plugin_config.pk, filter).run()
-        return response.Response(metric_results)
+        return response.Response({"results": metric_results})
 
 
 class HistoricalExportsAppMetricsViewSet(
