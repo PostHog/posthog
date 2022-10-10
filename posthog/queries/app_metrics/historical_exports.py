@@ -1,20 +1,19 @@
-from typing import Dict
+from typing import Dict, Optional
+
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-def historical_exports_activity(team_id: int, plugin_config_id: int):
+
+def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Optional[str] = None):
     entries = ActivityLog.objects.filter(
         team_id=team_id,
         scope="PluginConfig",
         item_id=plugin_config_id,
-        activity__in=['job_triggered', 'export_success'],
-        detail__trigger__job_type='Export historical events V2'
+        activity__in=["job_triggered", "export_success"],
+        detail__trigger__job_type="Export historical events V2",
+        **({"detail__trigger__job_id": job_id} if job_id is not None else {}),
     )
 
-    by_category: Dict = {
-        "job_triggered": {},
-        "export_success": {},
-        "export_fail": {}
-    }
+    by_category: Dict = {"job_triggered": {}, "export_success": {}, "export_fail": {}}
     for entry in entries:
         by_category[entry.activity][entry.detail["trigger"]["job_id"]] = entry
 
@@ -37,4 +36,3 @@ def historical_exports_activity(team_id: int, plugin_config_id: int):
         historical_exports.append(record)
 
     return historical_exports
-

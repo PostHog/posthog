@@ -18,15 +18,39 @@ class AppMetricsViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, views
         filter = AppMetricsRequestSerializer(data=request.query_params)
         filter.is_valid(raise_exception=True)
 
-        results = AppMetricsQuery(self.team, plugin_config.pk, filter).run()
-        return response.Response(results)
+        metric_results = AppMetricsQuery(self.team, plugin_config.pk, filter).run()
+        return response.Response(metric_results)
 
 
-class HistoricalExportsAppMetricsViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.ViewSet):
+class HistoricalExportsAppMetricsViewSet(
+    StructuredViewSetMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.ViewSet
+):
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        return response.Response({
-            "results": historical_exports_activity(
-                team_id=self.parents_query_dict["team_id"],
-                plugin_config_id=self.parents_query_dict["plugin_config_id"],
-            )
-        })
+        return response.Response(
+            {
+                "results": historical_exports_activity(
+                    team_id=self.parents_query_dict["team_id"],
+                    plugin_config_id=self.parents_query_dict["plugin_config_id"],
+                )
+            }
+        )
+
+    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        job_id = kwargs["pk"]
+        plugin_config_id = self.parents_query_dict["plugin_config_id"]
+        [export_summary] = historical_exports_activity(
+            team_id=self.parents_query_dict["team_id"], plugin_config_id=plugin_config_id, job_id=job_id
+        )
+
+        filter = AppMetricsRequestSerializer(data={"category": "exportEvents", "job_id": job_id})
+        filter.is_valid(raise_exception=True)
+        metric_results = AppMetricsQuery(self.team, plugin_config_id, filter).run()
+
+        return response.Response(
+            {
+                "results": {
+                    **export_summary,
+                    **metric_results,
+                }
+            }
+        )

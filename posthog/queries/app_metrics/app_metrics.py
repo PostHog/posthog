@@ -37,6 +37,7 @@ class AppMetricsQuery:
             "team_id": self.team.pk,
             "plugin_config_id": self.plugin_config_id,
             "category": self.filter.validated_data.get("category"),
+            "job_id": job_id,
             "date_from": self.date_from,
             "timezone": self.team.timezone,
         }
