@@ -14,11 +14,11 @@ import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { JobQueueManager } from 'main/job-queues/job-queue-manager'
 import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
+import { GraphileWorker } from './main/job-queues/concurrent/graphile-worker'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
@@ -198,8 +198,8 @@ export interface Hub extends PluginsServerConfig {
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
     personManager: PersonManager
-    jobQueueManager: JobQueueManager
     siteUrlManager: SiteUrlManager
+    graphileWorker: GraphileWorker
     // diagnostics
     lastActivity: number
     lastActivityType: string

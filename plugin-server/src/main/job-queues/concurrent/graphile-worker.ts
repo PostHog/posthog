@@ -7,7 +7,7 @@ import { status } from '../../../utils/status'
 import { createPostgresPool } from '../../../utils/utils'
 import { JobQueueBase } from '../job-queue-base'
 
-export class GraphileQueue extends JobQueueBase {
+export class GraphileWorker extends JobQueueBase {
     serverConfig: PluginsServerConfig
     runner: Runner | null
     consumerPool: Pool | null

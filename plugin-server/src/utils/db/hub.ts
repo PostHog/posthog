@@ -6,6 +6,7 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { Kafka, Partitioners, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { GraphileWorker } from 'main/job-queues/concurrent/graphile-worker'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
@@ -259,6 +260,8 @@ export async function createHub(
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.personManager = new PersonManager(hub as Hub)
+
+    hub.graphileWorker = new GraphileWorker(serverConfig)
     hub.jobQueueManager = new JobQueueManager(hub as Hub)
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
 

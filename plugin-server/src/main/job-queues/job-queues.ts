@@ -1,5 +1,5 @@
 import { JobQueueExport, JobQueuePersistence, JobQueueType } from '../../types'
-import { GraphileQueue } from './concurrent/graphile-queue'
+import { GraphileWorker } from './concurrent/graphile-worker'
 import { FsQueue } from './local/fs-queue'
 
 export const jobQueues: JobQueueExport[] = [
@@ -10,7 +10,7 @@ export const jobQueues: JobQueueExport[] = [
             const config = serverConfig.JOB_QUEUE_GRAPHILE_URL
                 ? { ...serverConfig, DATABASE_URL: serverConfig.JOB_QUEUE_GRAPHILE_URL }
                 : serverConfig
-            return new GraphileQueue(config)
+            return new GraphileWorker(config)
         },
     },
     {

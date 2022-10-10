@@ -6,7 +6,7 @@ import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 import { KAFKA_BUFFER, KAFKA_EVENTS_DEAD_LETTER_QUEUE } from '../../config/kafka-topics'
 import { JobName } from '../../types'
 import { status } from '../../utils/status'
-import { GraphileQueue } from '../job-queues/concurrent/graphile-queue'
+import { GraphileWorker } from '../job-queues/concurrent/graphile-worker'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
 export const startAnonymousEventBufferConsumer = async ({
@@ -17,7 +17,7 @@ export const startAnonymousEventBufferConsumer = async ({
 }: {
     kafka: Kafka
     producer: KafkaProducerWrapper
-    graphileQueue: GraphileQueue
+    graphileQueue: GraphileWorker
     statsd?: StatsD
 }) => {
     /*
