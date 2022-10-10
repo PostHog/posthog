@@ -69,7 +69,7 @@ class DashboardTile(models.Model):
             or self.refresh_attempt is not None
             or self.last_refresh is not None
         ):
-            raise ValidationError("fields to do with refreshing are only applicable when this is an insight tile")
+            raise ValidationError("Fields to do with refreshing are only applicable when this is an insight tile")
 
     def save(self, *args, **kwargs) -> None:
         if self.insight is not None:
