@@ -129,17 +129,17 @@ export function Experiment(): JSX.Element {
     const funnelResultsPersonsTotal =
         experimentInsightType === InsightType.FUNNELS && experimentResults?.insight
             ? (experimentResults.insight as FunnelStep[][]).reduce(
-                (sum: number, variantResult: FunnelStep[]) => variantResult[0]?.count + sum,
-                0
-            )
+                  (sum: number, variantResult: FunnelStep[]) => variantResult[0]?.count + sum,
+                  0
+              )
             : 0
 
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
             ? ((funnelResultsPersonsTotal || 0) / (experimentData?.parameters?.recommended_sample_size || 1)) * 100
             : (dayjs().diff(experimentData?.start_date, 'day') /
-                (experimentData?.parameters?.recommended_running_time || 1)) *
-            100
+                  (experimentData?.parameters?.recommended_running_time || 1)) *
+              100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
@@ -286,12 +286,13 @@ export function Experiment(): JSX.Element {
                                                             >
                                                                 <Row
                                                                     key={`${variant}-${idx}`}
-                                                                    className={`feature-flag-variant ${idx === 0
+                                                                    className={`feature-flag-variant ${
+                                                                        idx === 0
                                                                             ? 'border-t'
                                                                             : idx >= 3
-                                                                                ? 'border-b'
-                                                                                : ''
-                                                                        }`}
+                                                                            ? 'border-b'
+                                                                            : ''
+                                                                    }`}
                                                                 >
                                                                     <div
                                                                         className="variant-label"
@@ -388,7 +389,7 @@ export function Experiment(): JSX.Element {
                                                 <Select
                                                     value={
                                                         newExperimentData?.filters?.aggregation_group_type_index !=
-                                                            undefined
+                                                        undefined
                                                             ? newExperimentData.filters.aggregation_group_type_index
                                                             : -1
                                                     }
@@ -437,11 +438,11 @@ export function Experiment(): JSX.Element {
                                                         propertyFilters={
                                                             experimentInsightType === InsightType.FUNNELS
                                                                 ? convertPropertyGroupToProperties(
-                                                                    funnelsFilters.properties
-                                                                )
+                                                                      funnelsFilters.properties
+                                                                  )
                                                                 : convertPropertyGroupToProperties(
-                                                                    trendsFilters.properties
-                                                                )
+                                                                      trendsFilters.properties
+                                                                  )
                                                         }
                                                         onChange={(anyProperties) => {
                                                             setNewExperimentData({
@@ -874,11 +875,11 @@ export function Experiment(): JSX.Element {
                                                                                         variant.key
                                                                                     ] ? (
                                                                                         metric.filters.insight ===
-                                                                                            InsightType.FUNNELS ? (
+                                                                                        InsightType.FUNNELS ? (
                                                                                             <>
                                                                                                 {(
                                                                                                     secondaryMetricResults?.[
-                                                                                                    idx
+                                                                                                        idx
                                                                                                     ][variant.key] * 100
                                                                                                 ).toFixed(1)}
                                                                                                 %
@@ -887,7 +888,7 @@ export function Experiment(): JSX.Element {
                                                                                             <>
                                                                                                 {humanFriendlyNumber(
                                                                                                     secondaryMetricResults?.[
-                                                                                                    idx
+                                                                                                        idx
                                                                                                     ][variant.key]
                                                                                                 )}
                                                                                             </>
