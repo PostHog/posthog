@@ -114,7 +114,7 @@ def destroy_environment(droplet, domain, record):
 		print(f"Could not destroy droplet because\n{e}")
 	print("Destroying the DNS entry")
 	try:
-		domain.delete_domain_record(record.id)
+		domain.delete_domain_record(record['id'])
 	except Exception as e:
 		print(f"Could not destroy the dns entry because\n{e}")
 
