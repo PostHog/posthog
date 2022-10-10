@@ -565,31 +565,21 @@ export const dashboardLogic = kea<dashboardLogicType>({
         layouts: [
             (s) => [s.tiles],
             (tiles) => {
-                // The dashboard redesign includes constraints on the size of dashboard items
-                const minW = MIN_ITEM_WIDTH_UNITS
-                const minH = MIN_ITEM_HEIGHT_UNITS
-
                 const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
                 for (const col of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
+                    // The dashboard redesign includes constraints on the size of dashboard items
+                    const minW = col === 'xs' ? 1 : MIN_ITEM_WIDTH_UNITS
+                    const minH = col === 'xs' ? 1 : MIN_ITEM_HEIGHT_UNITS
+
                     const layouts = tiles.map((tile) => {
                         const isRetention =
                             !!tile.insight &&
                             tile.insight.filters.insight === InsightType.RETENTION &&
                             tile.insight.filters.display === ChartDisplayType.ActionsLineGraph
-                        const defaultWidth = !!tile.text
-                            ? 12
-                            : isRetention ||
-                              (!!tile.insight && tile.insight.filters.display === ChartDisplayType.PathsViz)
-                            ? 8
-                            : 6
-                        const defaultHeight = !!tile.text
-                            ? 2.5
-                            : isRetention
-                            ? 8
-                            : !!tile.insight && tile.insight.filters.display === ChartDisplayType.PathsViz
-                            ? 12.5
-                            : 5
+                        const isPathsViz = !!tile.insight && tile.insight.filters.display === ChartDisplayType.PathsViz
+                        const defaultWidth = !!tile.text ? 12 : isRetention || isPathsViz ? 8 : 6
+                        const defaultHeight = !!tile.text ? minW + 1 : isRetention ? 8 : isPathsViz ? 12.5 : 5
                         const layout = tile.layouts && tile.layouts[col]
                         const { x, y, w, h } = layout || {}
                         const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
@@ -653,6 +643,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             }
                         })
 
+                    console.log(
+                        'a',
+                        cleanLayouts.map((l) => ({ i: l.id, w: l.w, minW: l.minW }))
+                    )
                     allLayouts[col] = cleanLayouts
                 }
                 return allLayouts
