@@ -27,6 +27,12 @@ admin.site.register(Insight)
 admin.site.register(InstanceSetting)
 
 
+@admin.register(InstanceSetting)
+class InstanceSettingAdmin(admin.ModelAdmin):
+    list_display = ("key",)
+    ordering = ("key",)
+
+
 @admin.register(Plugin)
 class PluginAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "organization_id", "is_global")
