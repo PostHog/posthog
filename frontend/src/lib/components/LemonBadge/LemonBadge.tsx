@@ -10,6 +10,7 @@ export interface LemonBadgeProps {
     showZero?: boolean
     borderless?: boolean
     className?: string
+    status?: 'primary' | 'danger' | 'muted'
     style?: React.CSSProperties
 }
 
@@ -25,6 +26,7 @@ export function LemonBadge({
     position = 'none',
     showZero = false,
     className,
+    status = 'primary',
     ...spanProps
 }: LemonBadgeProps): JSX.Element {
     // NOTE: We use 1 for the text if not showing so the fade out animation looks right
@@ -43,7 +45,13 @@ export function LemonBadge({
     return (
         <CSSTransition in={!hide} timeout={150} classNames="LemonBadge-" mountOnEnter unmountOnExit>
             <span
-                className={clsx('LemonBadge', `LemonBadge--${size}`, `LemonBadge--position-${position}`, className)}
+                className={clsx(
+                    'LemonBadge',
+                    `LemonBadge--${size}`,
+                    `LemonBadge--${status}`,
+                    `LemonBadge--position-${position}`,
+                    className
+                )}
                 title={String(count)}
                 {...spanProps}
             >

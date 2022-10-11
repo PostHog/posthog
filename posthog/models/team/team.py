@@ -106,9 +106,12 @@ class Team(UUIDClassicModel):
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
+    capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
+    # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
+    inject_web_apps: models.BooleanField = models.BooleanField(null=True)
 
     test_account_filters: models.JSONField = models.JSONField(default=list)
     test_account_filters_default_checked: models.BooleanField = models.BooleanField(null=True, blank=True)

@@ -303,49 +303,7 @@ export function ProjectSettings(): JSX.Element {
                 </p>
                 <ToolbarSettings />
                 <LemonDivider className="my-6" />
-                <h2 id="recordings" className="subtitle">
-                    Recordings
-                </h2>
-                <p>
-                    Watch recordings of how users interact with your web app to see what can be improved. Recordings are
-                    found in the <Link to={urls.sessionRecordings()}>recordings page</Link>.
-                </p>
-                <p>
-                    Please note <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the
-                    latest version of{' '}
-                    <a
-                        href="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
-                        target="_blank"
-                    >
-                        posthog-js
-                    </a>{' '}
-                    <b>directly</b> installed. For more details, check out our{' '}
-                    <a
-                        href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
-                        target="_blank"
-                    >
-                        docs
-                    </a>
-                    .
-                </p>
                 <SessionRecording />
-                {currentTeam?.session_recording_opt_in ? (
-                    <>
-                        <h2 className="subtitle my-6" id="urls">
-                            Authorized domains for recordings
-                        </h2>
-                        <p>
-                            Use the settings below to restrict the domains where recordings will be captured. If no
-                            domains are selected, then there will be no domain restriction.
-                        </p>
-                        <p>
-                            <b>Domains and wilcard subdomains are allowed</b> (example:{' '}
-                            <code>https://*.example.com</code>). However, wildcarded top-level domains cannot be used
-                            (for security reasons).
-                        </p>
-                        <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} />
-                    </>
-                ) : null}
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />

@@ -15,16 +15,24 @@ export interface PersonMerge {
     target: PersonType
 }
 
+export interface Trigger {
+    job_type: string
+    job_id: string
+    payload: Record<string, any>
+}
+
 export interface ActivityLogDetail {
     merge: PersonMerge | null
+    trigger: Trigger | null
     changes: ActivityChange[] | null
     name: string | null
     short_id?: InsightShortId | null
 }
 
 export interface ActivityUser {
-    email: string
+    email: string | null
     first_name: string
+    is_system?: boolean
 }
 
 export enum ActivityScope {
@@ -42,6 +50,7 @@ export interface ActivityLogItem {
     scope: ActivityScope
     item_id?: string
     detail: ActivityLogDetail
+    unread?: boolean // when used as a notification
 }
 
 // the description of a single activity log is a sentence describing one or more changes that makes up the entry
@@ -56,14 +65,16 @@ export type ChangeMapping = {
 export type HumanizedChange = { description: Description | null; extendedDescription?: ExtendedDescription }
 
 export interface HumanizedActivityLogItem {
-    email?: string
+    email?: string | null
     name?: string
+    isSystem?: boolean
     description: Description
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     created_at: dayjs.Dayjs
+    unread?: boolean
 }
 
-export type Describer = (logItem: ActivityLogItem) => HumanizedChange
+export type Describer = (logItem: ActivityLogItem, asNotification?: boolean) => HumanizedChange
 
 export function detectBoolean(candidate: unknown): boolean {
     let b: boolean = !!candidate
@@ -73,23 +84,28 @@ export function detectBoolean(candidate: unknown): boolean {
     return b
 }
 
-export function humanize(results: ActivityLogItem[], describer?: Describer): HumanizedActivityLogItem[] {
-    if (!describer) {
-        // TODO make a default describer
-        return []
-    }
-
+export function humanize(
+    results: ActivityLogItem[],
+    describerFor?: (logItem?: ActivityLogItem) => Describer | undefined,
+    asNotification?: boolean
+): HumanizedActivityLogItem[] {
     const logLines: HumanizedActivityLogItem[] = []
 
     for (const logItem of results) {
-        const { description, extendedDescription } = describer(logItem)
+        const describer = describerFor?.(logItem)
+        if (!describer) {
+            continue
+        }
+        const { description, extendedDescription } = describer(logItem, asNotification)
         if (description !== null) {
             logLines.push({
                 email: logItem.user.email,
                 name: logItem.user.first_name,
+                isSystem: logItem.user.is_system,
                 description,
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),
+                unread: logItem.unread,
             })
         }
     }

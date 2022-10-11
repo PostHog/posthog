@@ -1,4 +1,4 @@
-import { Button, Col, Input, Modal, Row, Form, Select } from 'antd'
+import { Col, Input, Modal, Row, Form, Select } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
@@ -8,10 +8,11 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId, InsightType } from '~/types'
 import './Experiment.scss'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { CaretDownOutlined, DeleteOutlined } from '@ant-design/icons'
+import { CaretDownOutlined } from '@ant-design/icons'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { IconDelete } from 'lib/components/icons'
 
 export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryMetricsProps): JSX.Element {
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics })
@@ -170,13 +171,15 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
             <Row>
                 <Col>
                     {metrics.map((metric, idx) => (
-                        <Row key={idx} className="mt-4">
-                            <Row align="middle" className="w-full rounded border" style={{ padding: 8 }}>
-                                <div style={{ fontWeight: 500 }}>Name</div>{' '}
-                                <div className="metric-name">{metric.name}</div>
-                                <DeleteOutlined
-                                    className="text-danger"
-                                    style={{ padding: 8 }}
+                        <Row key={idx} className="mt-4 border rounded p-4">
+                            <Row align="middle" justify="space-between" className="w-full mb-3 pb-2 border-b">
+                                <div>
+                                    <b>{metric.name}</b>
+                                </div>
+                                <LemonButton
+                                    icon={<IconDelete />}
+                                    size="small"
+                                    status="muted"
                                     onClick={() => deleteMetric(idx)}
                                 />
                             </Row>
@@ -243,9 +246,9 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                     {metrics && !(metrics.length > 2) && (
                         <Col>
                             <div className="mb-2 mt-4">
-                                <Button style={{ color: 'var(--primary)', minWidth: 240 }} onClick={showModal}>
+                                <LemonButton type="secondary" onClick={showModal}>
                                     Add metric
-                                </Button>
+                                </LemonButton>
                             </div>
                         </Col>
                     )}

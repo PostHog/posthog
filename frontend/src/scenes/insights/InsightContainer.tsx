@@ -48,10 +48,17 @@ export function InsightContainer(
         disableHeader,
         disableTable,
         disableCorrelationTable,
-    }: { disableHeader?: boolean; disableTable?: boolean; disableCorrelationTable?: boolean } = {
+        disableLastComputation,
+    }: {
+        disableHeader?: boolean
+        disableTable?: boolean
+        disableCorrelationTable?: boolean
+        disableLastComputation?: boolean
+    } = {
         disableHeader: false,
         disableTable: false,
         disableCorrelationTable: false,
+        disableLastComputation: false,
     }
 ): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -138,7 +145,7 @@ export function InsightContainer(
                 <>
                     {exporterResourceParams && (
                         <div className="flex items-center justify-between my-4 mx-0">
-                            <h2>Detailed results</h2>
+                            <h2 className="m-0">Detailed results</h2>
                             <Tooltip title="Export this table in CSV format" placement="left">
                                 <ExportButton
                                     type="secondary"
@@ -156,7 +163,6 @@ export function InsightContainer(
                     <BindLogic logic={trendsLogic} props={insightProps}>
                         <InsightsTable
                             isLegend
-                            showTotalCount
                             filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                             canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
                             canCheckUncheckSeries={canEditInsight}
@@ -204,9 +210,11 @@ export function InsightContainer(
                         justify="space-between"
                     >
                         {/*Don't add more than two columns in this row.*/}
-                        <Col>
-                            <ComputationTimeWithRefresh />
-                        </Col>
+                        {!disableLastComputation && (
+                            <Col>
+                                <ComputationTimeWithRefresh />
+                            </Col>
+                        )}
                         <Col>
                             {activeView === InsightType.FUNNELS ? <FunnelCanvasLabel /> : null}
                             {activeView === InsightType.PATHS ? <PathCanvasLabel /> : null}

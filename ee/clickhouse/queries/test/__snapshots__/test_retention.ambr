@@ -13,6 +13,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -30,7 +31,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
+          AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
      FROM
@@ -76,6 +78,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -93,7 +96,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
+          AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
      FROM
@@ -132,6 +136,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_1"))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -149,7 +154,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_1")) ) SELECT DISTINCT breakdown_values,
+          AND (NOT has([''], "$group_1"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
      FROM
@@ -192,6 +198,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -209,7 +216,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
+          AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
      FROM
@@ -255,6 +263,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -272,7 +281,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
+          AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
      FROM
@@ -311,6 +321,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_1"))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -328,7 +339,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_1")) ) SELECT DISTINCT breakdown_values,
+          AND (NOT has([''], "$group_1"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
      FROM
@@ -371,6 +383,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -388,7 +401,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))) ) SELECT DISTINCT breakdown_values,
+          AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
                                                                                                                                     intervals_from_base,
                                                                                                                                     actor_id
      FROM
@@ -431,6 +445,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (JSONHas(group0_properties, 'industry'))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -448,7 +463,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (JSONHas(group0_properties, 'industry')) ) SELECT DISTINCT breakdown_values,
+          AND (JSONHas(group0_properties, 'industry'))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
                                                                          intervals_from_base,
                                                                          actor_id
      FROM
@@ -491,6 +507,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (has(['technology'], "mat_gp0_industry"))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -508,7 +525,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (has(['technology'], "mat_gp0_industry")) ) SELECT DISTINCT breakdown_values,
+          AND (has(['technology'], "mat_gp0_industry"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
                                                                           intervals_from_base,
                                                                           actor_id
      FROM
@@ -551,6 +569,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (notEmpty("mat_gp0_industry"))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -568,7 +587,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (notEmpty("mat_gp0_industry")) ) SELECT DISTINCT breakdown_values,
+          AND (notEmpty("mat_gp0_industry"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
                                                                intervals_from_base,
                                                                actor_id
      FROM
@@ -614,6 +634,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -631,7 +652,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
+          AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
      FROM
@@ -673,6 +695,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -690,7 +713,8 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
-          AND (NOT has([''], "$group_0")) ) SELECT DISTINCT breakdown_values,
+          AND (NOT has([''], "$group_0"))
+          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
                                                             intervals_from_base,
                                                             actor_id
      FROM

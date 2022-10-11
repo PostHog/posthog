@@ -25,7 +25,6 @@ export default {
             post: {
                 '/decide': {
                     featureFlags: {
-                        [FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST]: true,
                         [FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]: true,
                     },
                 },

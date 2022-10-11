@@ -263,6 +263,7 @@
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -304,7 +305,9 @@
              AND event = 'sign up'
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND e.person_id != toUUIDOrZero('')
              AND replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') in (['finance', 'technology'])
+             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -330,7 +333,8 @@
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-02 23:59:59', 'UTC')
-       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))) )
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+       AND e.person_id != toUUIDOrZero('') )
   GROUP BY actor_id
   LIMIT 100
   OFFSET 0
@@ -348,6 +352,7 @@
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -389,7 +394,9 @@
              AND event = 'sign up'
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND e.person_id != toUUIDOrZero('')
              AND "mat_gp0_industry" in (['finance', 'technology'])
+             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -415,7 +422,8 @@
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-02 23:59:59', 'UTC')
-       AND (has(['technology'], "mat_gp0_industry")) )
+       AND (has(['technology'], "mat_gp0_industry"))
+       AND e.person_id != toUUIDOrZero('') )
   GROUP BY actor_id
   LIMIT 100
   OFFSET 0
@@ -550,6 +558,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
+       AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -592,7 +601,9 @@
              AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND e.person_id != toUUIDOrZero('')
              AND replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') in (['finance'])
+             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -616,6 +627,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has(['value'], "mat_pp_key"))
+       AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -658,7 +670,9 @@
              AND (has(['value'], "mat_pp_key"))
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND e.person_id != toUUIDOrZero('')
              AND "mat_gp0_industry" in (['finance'])
+             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -781,6 +795,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+       AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -823,7 +838,9 @@
              AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND e.person_id != toUUIDOrZero('')
              AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['uh', 'oh'])
+             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -847,6 +864,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has(['finance'], "mat_gp0_industry"))
+       AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -889,7 +907,9 @@
              AND (has(['finance'], "mat_gp0_industry"))
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND e.person_id != toUUIDOrZero('')
              AND "mat_key" in (['uh', 'oh'])
+             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -927,7 +947,8 @@
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))
-                  AND has(['six'], replaceRegexpAll(JSONExtractRaw(group2_properties, 'name'), '^"|"$', ''))) )
+                  AND has(['six'], replaceRegexpAll(JSONExtractRaw(group2_properties, 'name'), '^"|"$', '')))
+             AND e.person_id != toUUIDOrZero('') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -950,7 +971,8 @@
        AND timestamp >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))
-            AND has(['six'], replaceRegexpAll(JSONExtractRaw(group2_properties, 'name'), '^"|"$', ''))) )
+            AND has(['six'], replaceRegexpAll(JSONExtractRaw(group2_properties, 'name'), '^"|"$', '')))
+       AND e.person_id != toUUIDOrZero('') )
   GROUP BY actor_id
   LIMIT 100
   OFFSET 0
@@ -983,7 +1005,8 @@
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND (has(['finance'], "mat_gp0_industry")
-                  AND has(['six'], "mat_gp2_name")) )
+                  AND has(['six'], "mat_gp2_name"))
+             AND e.person_id != toUUIDOrZero('') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1006,7 +1029,8 @@
        AND timestamp >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND (has(['finance'], "mat_gp0_industry")
-            AND has(['six'], "mat_gp2_name")) )
+            AND has(['six'], "mat_gp2_name"))
+       AND e.person_id != toUUIDOrZero('') )
   GROUP BY actor_id
   LIMIT 100
   OFFSET 0
@@ -1095,7 +1119,8 @@
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
-                  AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))) )
+                  AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
+             AND e.person_id != toUUIDOrZero('') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1128,7 +1153,8 @@
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
              AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND ((has(['finance'], "mat_gp0_industry"))
-                  AND (has(['value'], "mat_pp_key"))) )
+                  AND (has(['value'], "mat_pp_key")))
+             AND e.person_id != toUUIDOrZero('') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -2045,7 +2071,7 @@
     (SELECT any(session_duration) as session_duration,
             breakdown_value
      FROM
-       (SELECT $session_id,
+       (SELECT sessions."$session_id",
                session_duration,
                replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
         FROM events e
@@ -2063,7 +2089,7 @@
           AND timestamp >= toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0)
           AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
           AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
-     GROUP BY $session_id,
+     GROUP BY sessions."$session_id",
               breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
@@ -2105,7 +2131,7 @@
     (SELECT any(session_duration) as session_duration,
             breakdown_value
      FROM
-       (SELECT $session_id,
+       (SELECT sessions."$session_id",
                session_duration,
                replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
         FROM events e
@@ -2123,7 +2149,95 @@
           AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
           AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
           AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
-     GROUP BY $session_id,
+     GROUP BY sessions."$session_id",
+              breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestClickhouseTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS value,
+            quantile(0.50)(session_duration) as count
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, version) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= toDateTime('2019-12-28 00:00:00')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestClickhouseTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
+  '
+  
+  SELECT quantile(0.50)(session_duration) AS total,
+         breakdown_value
+  FROM
+    (SELECT any(session_duration) as session_duration,
+            breakdown_value
+     FROM
+       (SELECT sessions."$session_id",
+               session_duration,
+               replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS breakdown_value
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id,
+                  argMax(properties, version) as person_props
+           FROM person
+           WHERE team_id = 2
+           GROUP BY id
+           HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+        INNER JOIN
+          (SELECT $session_id,
+                  dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+           FROM events
+           WHERE $session_id != ''
+             AND team_id = 2
+             AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+             AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+           GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
+        WHERE e.team_id = 2
+          AND event = 'sign up'
+          AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0), 'UTC'), 'UTC')
+          AND timestamp <= toDateTime('2020-01-04 23:59:59')
+          AND replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') in (['some_val', 'another_val']) )
+     GROUP BY sessions."$session_id",
               breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
@@ -2333,11 +2447,11 @@
                      day_start,
                      breakdown_value
               FROM
-                (SELECT $session_id,
+                (SELECT sessions."$session_id",
                         session_duration,
                         toStartOfWeek(toTimezone(timestamp, 'UTC'), 0) as day_start,
                         replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
-                 FROM events e
+                 FROM events AS e
                  INNER JOIN
                    (SELECT $session_id,
                            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -2352,7 +2466,7 @@
                    AND timestamp >= toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0)
                    AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
-              GROUP BY $session_id,
+              GROUP BY sessions."$session_id",
                        day_start,
                        breakdown_value)
            GROUP BY day_start,
@@ -2427,11 +2541,11 @@
                      day_start,
                      breakdown_value
               FROM
-                (SELECT $session_id,
+                (SELECT sessions."$session_id",
                         session_duration,
                         toStartOfDay(toTimezone(timestamp, 'UTC')) as day_start,
                         replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
-                 FROM events e
+                 FROM events AS e
                  INNER JOIN
                    (SELECT $session_id,
                            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
@@ -2446,7 +2560,7 @@
                    AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
                    AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
-              GROUP BY $session_id,
+              GROUP BY sessions."$session_id",
                        day_start,
                        breakdown_value)
            GROUP BY day_start,

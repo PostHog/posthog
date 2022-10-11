@@ -68,6 +68,17 @@ export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'UserName',
 ]
 
+// Feature Flags & Experiments
+export const INSTANTLY_AVAILABLE_PROPERTIES = [
+    '$geoip_city_name',
+    '$geoip_country_name',
+    '$geoip_country_code',
+    '$geoip_continent_name',
+    '$geoip_continent_code',
+    '$geoip_postal_code',
+    '$geoip_time_zone',
+]
+
 // Event constants
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
@@ -105,7 +116,6 @@ export const FEATURE_FLAGS = {
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
-    INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
@@ -119,13 +129,13 @@ export const FEATURE_FLAGS = {
     CANCEL_RUNNING_QUERIES: 'cancel-running-queries', // owner @timgl
     IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
     SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner: @alexkim205
-    SESSION_RECORDINGS_PLAYLIST: 'session-recording-playlist', // owner @rcmarron
     ALLOW_CSV_EXPORT_COLUMN_CHOICE: 'allow-csv-export-column-choice', //owner: @pauldambra
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     ACTOR_ON_EVENTS_QUERYING: 'person-on-events-enabled', //owner: @EDsCODE
     FEATURE_FLAGS_UX: 'feature-flags-ux', //owner: @liyiy
     REGION_SELECT: 'region-select', //owner: @kappa90
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
+    HOG_BOOK: 'hog-book', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

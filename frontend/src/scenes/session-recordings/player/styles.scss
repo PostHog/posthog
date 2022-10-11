@@ -1,7 +1,7 @@
 @import '../../../styles/mixins';
 
 .session-player-v2,
-.session-player-v3 {
+.SessionPlayerV3 {
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -88,6 +88,7 @@
         width: 100%;
         overflow: hidden;
         border: 1px solid var(--border);
+        border-radius: var(--radius);
         background-color: var(--bg-depth);
         display: flex;
         justify-content: center;
@@ -117,28 +118,13 @@
             z-index: 10;
 
             .rrweb-overlay {
-                transition: all 200ms;
-                position: absolute;
-
-                display: flex;
-                justify-content: center;
-                align-items: center;
-
-                height: 100%;
-                width: 100%;
-
-                background-color: var(--bg-overlay);
-                opacity: 0.2;
-
-                font-size: 40px;
-                color: white;
-                cursor: pointer;
+                transition: background-color 200ms;
+                background-color: rgba(0, 0, 0, 0.08);
 
                 &:hover {
-                    opacity: 0.5;
+                    background-color: rgba(0, 0, 0, 0.15);
                 }
-
-                .rrweb-overlay-play-icon {
+                .rrweb-overlay-icon {
                     svg {
                         width: 5rem;
                         height: 5rem;
@@ -170,13 +156,13 @@
     }
 }
 
-.session-player-v3 {
+.SessionPlayerV3 {
     .session-player-body {
         height: 500px;
         min-height: 500px;
 
         .player-container {
-            padding: 10px;
+            padding: 0.5rem;
         }
     }
 
@@ -186,19 +172,6 @@
         width: 100%;
         padding: 0;
         border: none;
-    }
-
-    .player-filter {
-        background-color: var(--side);
-        padding: 0.5rem;
-        gap: 12px;
-
-        .player-filter-matching-events {
-            min-height: 2.5rem;
-            padding-top: 0.25rem;
-            padding-bottom: 0.25rem;
-            background-color: var(--bg-light);
-        }
     }
 
     .player-controller {
@@ -224,11 +197,34 @@
             }
         }
     }
+
+    &.SessionPlayerV3--fullscreen {
+        position: fixed;
+        left: 0px;
+        top: 0px;
+        right: 0px;
+        bottom: 0px;
+        overflow-y: auto;
+        background-color: var(--white);
+        z-index: var(--z-modal);
+
+        .session-player-body {
+            height: 100%;
+            min-height: auto;
+            flex: 1;
+            .player-container {
+                padding: 0rem;
+            }
+
+            .rrweb-player {
+                border-radius: 0px;
+            }
+        }
+    }
 }
 // Session player v3 can exist inside of a modal
-.session-player-wrapper-v3 {
-    width: calc(80vw - 2rem);
-    max-width: 880px;
+.SessionPlayerModal {
+    width: 100%;
     height: calc(100vh - 2rem);
     padding: 0;
 }
@@ -307,5 +303,45 @@
 
     .ant-drawer-close {
         padding: 1rem;
+    }
+}
+.PlayerControllerV3 {
+    background-color: var(--bg-light);
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding: 0.75rem;
+
+    > * {
+        user-select: none;
+    }
+
+    .rrweb-controller-icon {
+        cursor: pointer;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+
+        .rrweb-controller-icon-seek {
+            position: relative;
+            height: 18px;
+            width: 18px;
+
+            span.seek-seconds {
+                position: absolute;
+                height: 18px;
+                width: 18px;
+                line-height: 18px;
+                font-size: 6px;
+                text-align: center;
+            }
+
+            .seek-icon {
+                position: absolute;
+                top: 0;
+                left: 0;
+                font-size: 18px;
+            }
+        }
     }
 }
