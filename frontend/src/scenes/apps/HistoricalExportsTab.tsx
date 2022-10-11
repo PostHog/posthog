@@ -2,13 +2,14 @@ import React from 'react'
 import { Collapse } from 'antd'
 import { useActions, useValues } from 'kea'
 import { appMetricsSceneLogic, HistoricalExportInfo } from './appMetricsSceneLogic'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 export function HistoricalExportsTab(): JSX.Element {
     const { openExportSections, historicalExports, historicalExportsLoading } = useValues(appMetricsSceneLogic)
     const { setOpenExportSections } = useActions(appMetricsSceneLogic)
 
     if (historicalExportsLoading) {
-        return <>Loading...</>
+        return <LemonSkeleton />
     }
 
     return (
