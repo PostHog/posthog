@@ -15,10 +15,10 @@ export const scene: SceneExport = {
 }
 
 export function AppMetrics(): JSX.Element {
-    const { activeTab, pluginConfigLoading } = useValues(appMetricsSceneLogic)
+    const { activeTab, pluginConfigLoading, showTab } = useValues(appMetricsSceneLogic)
     const { setActiveTab } = useActions(appMetricsSceneLogic)
 
-    if (pluginConfigLoading) {
+    if (pluginConfigLoading || !activeTab) {
         return <LemonSkeleton />
     }
 
@@ -35,12 +35,26 @@ export function AppMetrics(): JSX.Element {
                     activeKey={activeTab}
                     onTabClick={(key) => setActiveTab(key as AppMetricsTab)}
                 >
-                    <Tabs.TabPane tab="Metrics" key={AppMetricsTab.Metrics}>
-                        <MetricsTab />
-                    </Tabs.TabPane>
-                    <Tabs.TabPane tab="Historical Exports" key={AppMetricsTab.HistoricalExports}>
-                        <HistoricalExportsTab />
-                    </Tabs.TabPane>
+                    {showTab(AppMetricsTab.ProcessEvent) && (
+                        <Tabs.TabPane tab="processEvent" key={AppMetricsTab.ProcessEvent}>
+                            <MetricsTab />
+                        </Tabs.TabPane>
+                    )}
+                    {showTab(AppMetricsTab.OnEvent) && (
+                        <Tabs.TabPane tab="onEvent" key={AppMetricsTab.OnEvent}>
+                            <MetricsTab />
+                        </Tabs.TabPane>
+                    )}
+                    {showTab(AppMetricsTab.ExportEvents) && (
+                        <Tabs.TabPane tab="exportEvents" key={AppMetricsTab.ExportEvents}>
+                            <MetricsTab />
+                        </Tabs.TabPane>
+                    )}
+                    {showTab(AppMetricsTab.HistoricalExports) && (
+                        <Tabs.TabPane tab="Historical Exports" key={AppMetricsTab.HistoricalExports}>
+                            <HistoricalExportsTab />
+                        </Tabs.TabPane>
+                    )}
                 </Tabs>
             )}
         </div>

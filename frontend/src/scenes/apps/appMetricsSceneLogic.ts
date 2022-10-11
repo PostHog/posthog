@@ -1,4 +1,4 @@
-import { kea, key, props, path, actions, selectors, reducers } from 'kea'
+import { kea, key, props, path, actions, selectors, reducers, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import type { appMetricsSceneLogicType } from './appMetricsSceneLogicType'
@@ -14,7 +14,9 @@ export interface AppMetricsLogicProps {
 }
 
 export enum AppMetricsTab {
-    Metrics = 'metrics',
+    ProcessEvent = 'processEvent',
+    OnEvent = 'onEvent',
+    ExportEvents = 'exportEvents',
     HistoricalExports = 'historical_exports',
 }
 
@@ -26,6 +28,12 @@ export interface HistoricalExportInfo {
     finished_at?: string
     duration?: number
 }
+
+const INITIAL_TABS: Array<AppMetricsTab> = [
+    AppMetricsTab.ProcessEvent,
+    AppMetricsTab.OnEvent,
+    AppMetricsTab.ExportEvents,
+]
 
 export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
     path(['scenes', 'apps', 'appMetricsSceneLogic']),
@@ -39,7 +47,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
 
     reducers({
         activeTab: [
-            AppMetricsTab.Metrics as AppMetricsTab,
+            null as AppMetricsTab | null,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
@@ -77,7 +85,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         ],
     })),
 
-    selectors(() => ({
+    selectors(({ values }) => ({
         breadcrumbs: [
             (s) => [s.pluginConfig, (_, props) => props.pluginConfigId],
             (pluginConfig, pluginConfigId: number): Breadcrumb[] => [
@@ -91,19 +99,54 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 },
             ],
         ],
+
+        showTab: [
+            () => [],
+            () =>
+                (tab: AppMetricsTab): boolean => {
+                    if (values.pluginConfigLoading || !values.pluginConfig) {
+                        return false
+                    }
+                    const capableMethods = values.pluginConfig.plugin_info.capabilities?.methods || []
+                    if (tab === AppMetricsTab.HistoricalExports) {
+                        return capableMethods.includes('exportEvents')
+                    } else if (tab === AppMetricsTab.OnEvent && capableMethods.includes('exportEvents')) {
+                        // Hide onEvent tab for plugins using exportEvents
+                        return false
+                    } else {
+                        return capableMethods.includes(tab)
+                    }
+                },
+        ],
+    })),
+
+    listeners(({ values, actions }) => ({
+        loadPluginConfigSuccess: () => {
+            // Delay showing of tabs until we know what is relevant for _this_ plugin
+            if (!values.activeTab) {
+                const [firstAppropriateTab] = INITIAL_TABS.filter((tab) => values.showTab(tab))
+                actions.setActiveTab(firstAppropriateTab)
+            }
+        },
     })),
 
     actionToUrl(({ values, props }) => ({
-        setActiveTab: () => `/app/${props.pluginConfigId}/${values.activeTab}`,
+        setActiveTab: () => {
+            if (values.activeTab === AppMetricsTab.HistoricalExports) {
+                return urls.appHistoricalExports(props.pluginConfigId)
+            }
+
+            return urls.appMetrics(props.pluginConfigId, values.activeTab ?? undefined)
+        },
     })),
 
     urlToAction(({ values, actions }) => ({
         '/app/:pluginConfigId/:tab': (params: Record<string, string | undefined>) => {
-            actions.setActiveTab(params.tab as AppMetricsTab)
             if (!values.pluginConfig) {
                 actions.loadPluginConfig()
             }
             if (params.tab === AppMetricsTab.HistoricalExports) {
+                actions.setActiveTab(AppMetricsTab.HistoricalExports)
                 actions.loadHistoricalExports()
             }
         },
