@@ -123,32 +123,34 @@ export class GraphileWorker {
 
     // consumer
 
-    protected async syncState(): Promise<void> {
-        if (this.started && !this.paused) {
-            if (!this.runner) {
-                this.consumerPool = await this.createPool()
-                this.runner = await run({
-                    // graphile's types refer to a local node_modules version of Pool
-                    pgPool: this.consumerPool as Pool as any,
-                    schema: this.hub.JOB_QUEUE_GRAPHILE_SCHEMA,
-                    noPreparedStatements: !this.hub.JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS,
-                    concurrency: 1,
-                    // Do not install signal handlers, we are handled signals in
-                    // higher level code. If we let graphile handle signals it
-                    // ends up sending another SIGTERM.
-                    noHandleSignals: true,
-                    pollInterval: 2000,
-                    // you can set the taskList or taskDirectory but not both
-                    taskList: this.jobHandlers,
-                })
-            }
-        } else {
-            if (this.runner) {
-                const oldRunner = this.runner
-                this.runner = null
-                await oldRunner?.stop()
-                await this.consumerPool?.end()
-            }
+    // TODO: Split this legacy generic "toggle" function into proper `startWorker` and `stopWorker` methods
+    async syncState(): Promise<void> {
+        // start running the graphile worker
+        if (this.started && !this.paused && !this.runner) {
+            this.consumerPool = await this.createPool()
+            this.runner = await run({
+                // graphile's types refer to a local node_modules version of Pool
+                pgPool: this.consumerPool as Pool as any,
+                schema: this.hub.JOB_QUEUE_GRAPHILE_SCHEMA,
+                noPreparedStatements: !this.hub.JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS,
+                concurrency: 1,
+                // Do not install signal handlers, we are handled signals in
+                // higher level code. If we let graphile handle signals it
+                // ends up sending another SIGTERM.
+                noHandleSignals: true,
+                pollInterval: 2000,
+                // you can set the taskList or taskDirectory but not both
+                taskList: this.jobHandlers,
+            })
+            return
+        }
+
+        // stop running the graphile worker
+        if (this.runner) {
+            const oldRunner = this.runner
+            this.runner = null
+            await oldRunner?.stop()
+            await this.consumerPool?.end()
         }
     }
 
