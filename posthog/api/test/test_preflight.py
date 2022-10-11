@@ -255,4 +255,4 @@ class TestPreflight(APIBaseTest):
             response = self.client.get("/_preflight/")
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["realm"] == "cloud"
-            assert response.json()["cloud"] == True
+            assert response.json()["cloud"]

@@ -229,7 +229,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         raise ValidationError(
             {
-                "license": f"License could not be activated. Please contact support. (BillingService status {res.status_code}",
+                "license": f"License could not be activated. Please contact support. (BillingService status {res.status_code})",
             }
         )
 

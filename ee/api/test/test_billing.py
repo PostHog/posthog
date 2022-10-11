@@ -1,11 +1,14 @@
+from datetime import datetime
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import jwt
+import pytz
 from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from ee.models.license import License
 
 
 def create_billing_response(**kwargs) -> Dict[str, Any]:
@@ -52,6 +55,26 @@ def create_billing_customer(**kwargs) -> Dict[str, Any]:
 def create_billing_products_response(**kwargs) -> Dict[str, Any]:
     data: Any = {
         "products": [
+            {
+                "name": "Product OS",
+                "description": "Product Analytics, event pipelines, data warehousing",
+                "price_description": None,
+                "type": "EVENTS",
+                "free_allocation": 10000,
+                "tiers": [
+                    {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
+                    {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                ],
+            }
+        ],
+    }
+    data.update(kwargs)
+    return data
+
+
+def create_billing_license_response(**kwargs) -> Dict[str, Any]:
+    data: Any = {
+        "license": [
             {
                 "name": "Product OS",
                 "description": "Product Analytics, event pipelines, data warehousing",
@@ -148,3 +171,76 @@ class TestBillingAPI(APILicensedTest):
                     }
                 ],
             }
+
+    @patch("ee.api.billing.requests.get")
+    def test_billing_stores_valid_license(self, mock_request):
+        self.license.delete()
+
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = {
+            "license": {
+                "valid_until": "2100-01-01T00:00:00Z",
+                "type": "scale",
+            }
+        }
+        response = self.client.patch(
+            "/api/billing-v2/license",
+            {
+                "license": "test::test",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
+        license = License.objects.first_valid()
+        assert license
+        assert license.key == "test::test"
+        assert license.plan == "scale"
+
+    @patch("ee.api.billing.requests.get")
+    def test_billing_ignores_invalid_license(self, mock_request):
+        self.license.delete()
+
+        mock_request.return_value.status_code = 403
+        mock_request.return_value.json.return_value = {}
+        response = self.client.patch(
+            "/api/billing-v2/license",
+            {
+                "license": "test::test",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "license",
+            "code": "invalid_input",
+            "detail": "License could not be activated. Please contact support. (BillingService status 403)",
+            "type": "validation_error",
+        }
+
+    @patch("ee.api.billing.requests.get")
+    def test_license_is_updated_on_billing_load(self, mock_request):
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = {
+            "license": {
+                "valid_until": "2100-01-01T00:00:00Z",
+                "type": "scale",
+            }
+        }
+
+        assert self.license.plan == "enterprise"
+        self.client.get("/api/billing-v2")
+        self.license.refresh_from_db()
+        assert self.license.plan == "scale"
+
+        mock_request.return_value.json.return_value = {
+            "license": {
+                "valid_until": "2200-01-01T00:00:00Z",
+                "type": "enterprise",
+            }
+        }
+
+        self.client.get("/api/billing-v2")
+        self.license.refresh_from_db()
+        assert self.license.plan == "enterprise"
+        assert self.license.valid_until == datetime(2200, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)
