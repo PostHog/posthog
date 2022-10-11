@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
 import * as nodeSchedule from 'node-schedule'
 
-import { startGraphileWorker } from '../src/main/jobs/worker-setup'
+import { startGraphileWorker } from '../src/main/graphile-worker/worker-setup'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { startPluginSchedules } from '../src/main/services/schedule'
 import { LogLevel, PluginServerCapabilities, PluginsServerConfig } from '../src/types'
