@@ -995,12 +995,12 @@ def retention_test_factory(retention):
                 ],
             )
 
-            result = retention().run(RetentionFilter(data={"date_to": _date(10, hour=0)}, team=self.team), self.team)
+            result = retention().run(RetentionFilter(data={"date_to": _date(10, hour=6)}, team=self.team), self.team)
 
             self.team.timezone = "US/Pacific"
             self.team.save()
             result_pacific = retention().run(
-                RetentionFilter(data={"date_to": _date(10, hour=0)}, team=self.team), self.team
+                RetentionFilter(data={"date_to": _date(10, hour=6)}, team=self.team), self.team
             )
 
             self.assertEqual(
@@ -1035,8 +1035,8 @@ def retention_test_factory(retention):
                     [0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0],  # person 2 is across two dates in US/Pacific
+                    [1, 1, 0, 0, 0, 0],  # person 2 is across two dates in US/Pacific
+                    [1, 0, 0, 0, 0],
                     [0, 0, 0, 0],
                     [0, 0, 0],
                     [0, 0],
