@@ -86,6 +86,7 @@ class QueryDateRange:
         except ValueError:
             pass
 
+        # Check if the date passed in is an abbreviated date form (example: -5d)
         regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
         match = re.search(regex, input)
         date = self._now
