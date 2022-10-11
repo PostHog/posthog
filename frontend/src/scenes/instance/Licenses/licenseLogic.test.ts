@@ -78,7 +78,6 @@ describe('licenseLogic', () => {
                             // Lower plan, expired 1st
                             {
                                 id: 1,
-                                key: 'abc',
                                 plan: LicensePlan.Scale,
                                 valid_until: '2022-03-28T12:00:00.000Z',
                                 created_at: '2022-02-26T12:00:00.000Z',
@@ -86,7 +85,6 @@ describe('licenseLogic', () => {
                             // Lower plan, expired 3rd - DING DING
                             {
                                 id: 2,
-                                key: 'abc',
                                 plan: LicensePlan.Scale,
                                 valid_until: '2022-03-30T12:00:00.000Z',
                                 created_at: '2022-02-27T12:00:00.000Z',
@@ -109,7 +107,6 @@ describe('licenseLogic', () => {
                 .toMatchValues({
                     relevantLicense: {
                         id: 2,
-                        key: 'abc',
                         plan: LicensePlan.Scale,
                         valid_until: '2022-03-30T12:00:00.000Z',
                         created_at: '2022-02-27T12:00:00.000Z',
