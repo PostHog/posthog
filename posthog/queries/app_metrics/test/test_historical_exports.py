@@ -4,13 +4,13 @@ from posthog.models.activity_logging.activity_log import Detail, Trigger, log_ac
 from posthog.models.team.team import Team
 from posthog.queries.app_metrics.historical_exports import historical_export_metrics, historical_exports_activity
 from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_clickhouse_queries, snapshot_postgres_queries
+from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries, snapshot_postgres_queries
 
 SAMPLE_PAYLOAD = {"dateRange": ["2021-06-10", "2022-06-12"], "parallelism": 1}
 
 
 @freeze_time("2021-08-25T13:00:00Z")
-class TestHistoricalExports(BaseTest, QueryMatchingTest):
+class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
     @snapshot_postgres_queries
     def test_historical_exports_activity_for_not_finished_export(self):
         self._create_activity_log(
