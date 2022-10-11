@@ -45,7 +45,6 @@
       successes Int64,
       successes_on_retry Int64,
       failures Int64,
-      error_timestamp DateTime64(6, 'UTC'),
       error_uuid UUID,
       error_type String,
       error_details String CODEC(ZSTD(3))
@@ -241,7 +240,6 @@
       successes Int64,
       successes_on_retry Int64,
       failures Int64,
-      error_timestamp DateTime64(6, 'UTC'),
       error_uuid UUID,
       error_type String,
       error_details String CODEC(ZSTD(3))
@@ -251,7 +249,7 @@
   , _partition UInt64
   
   )
-  ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics')
+  ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics', rand())
   
   '
 ---
@@ -269,7 +267,6 @@
   successes,
   successes_on_retry,
   failures,
-  error_timestamp,
   error_uuid,
   error_type,
   error_details
@@ -516,7 +513,6 @@
       successes Int64,
       successes_on_retry Int64,
       failures Int64,
-      error_timestamp DateTime64(6, 'UTC'),
       error_uuid UUID,
       error_type String,
       error_details String CODEC(ZSTD(3))
@@ -938,7 +934,6 @@
       successes SimpleAggregateFunction(sum, Int64),
       successes_on_retry SimpleAggregateFunction(sum, Int64),
       failures SimpleAggregateFunction(sum, Int64),
-      error_timestamp DateTime64(6, 'UTC'),
       error_uuid UUID,
       error_type String,
       error_details String CODEC(ZSTD(3))
@@ -1296,7 +1291,6 @@
       successes SimpleAggregateFunction(sum, Int64),
       successes_on_retry SimpleAggregateFunction(sum, Int64),
       failures SimpleAggregateFunction(sum, Int64),
-      error_timestamp DateTime64(6, 'UTC'),
       error_uuid UUID,
       error_type String,
       error_details String CODEC(ZSTD(3))
