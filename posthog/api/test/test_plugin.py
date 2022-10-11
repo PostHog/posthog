@@ -84,7 +84,6 @@ class TestPluginAPI(APIBaseTest):
                     "detail": {
                         "name": "helloworldplugin",
                         "changes": None,
-                        "merge": None,
                         "trigger": None,
                         "short_id": None,
                     },
@@ -295,7 +294,6 @@ class TestPluginAPI(APIBaseTest):
                     "detail": {
                         "name": "helloworldplugin",
                         "changes": None,
-                        "merge": None,
                         "trigger": None,
                         "short_id": None,
                     },
@@ -309,7 +307,6 @@ class TestPluginAPI(APIBaseTest):
                     "detail": {
                         "name": "helloworldplugin",
                         "changes": None,
-                        "merge": None,
                         "trigger": None,
                         "short_id": None,
                     },
@@ -1125,7 +1122,6 @@ class TestPluginAPI(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "detail": {
                         "changes": None,
-                        "merge": None,
                         "trigger": None,
                         "name": "helloworldplugin",
                         "short_id": None,
@@ -1139,7 +1135,6 @@ class TestPluginAPI(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "detail": {
                         "changes": [],
-                        "merge": None,
                         "trigger": None,
                         "name": "helloworldplugin",
                         "short_id": None,

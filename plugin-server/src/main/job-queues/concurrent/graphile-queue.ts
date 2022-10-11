@@ -39,6 +39,7 @@ export class GraphileQueue extends JobQueueBase {
             runAt: new Date(job.timestamp),
             maxAttempts: 1,
             priority: 1,
+            jobKey: job.jobKey,
         })
     }
 

@@ -2,7 +2,6 @@ import json
 from datetime import datetime
 from unittest.mock import patch
 from urllib.parse import unquote, urlencode
-from uuid import uuid4
 
 import pytz
 from dateutil import parser
@@ -13,7 +12,6 @@ from rest_framework import status
 
 from posthog.models import Action, ActionStep, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
-from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -688,33 +686,3 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual([r["event"] for r in response["results"]], ["should_be_included"])
-
-    def test_matched_session_recordings_for_each_event(self):
-        matching_event_uuid = _create_event(
-            team=self.team,
-            event="should_have_matched_recording",
-            distinct_id="2",
-            properties={"$session_id": "testSessionId", "$window_id": "testWindowId"},
-        )
-        _create_event(team=self.team, event="should_not_have_matched_recording", distinct_id="2")
-
-        create_session_recording_event(
-            uuid=uuid4(),
-            team_id=self.team.pk,
-            distinct_id="2",
-            session_id="testSessionId",
-            window_id="testWindowId",
-            timestamp="2020-01-02T12:00:00Z",
-            snapshot_data={"timestamp": "2020-01-02T12:00:00Z", "has_full_snapshot": 1},
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/events").json()
-
-        self.assertEqual(len(response["results"]), 2)
-        self.assertEqual(response["results"][0]["event"], "should_not_have_matched_recording")
-        self.assertEqual(len(response["results"][0]["matched_recordings"]), 0)
-        self.assertEqual(response["results"][1]["event"], "should_have_matched_recording")
-        self.assertEqual(len(response["results"][1]["matched_recordings"]), 1)
-        self.assertEqual(response["results"][1]["matched_recordings"][0]["session_id"], "testSessionId")
-        self.assertEqual(response["results"][1]["matched_recordings"][0]["events"][0]["uuid"], matching_event_uuid)
-        self.assertEqual(response["results"][1]["matched_recordings"][0]["events"][0]["window_id"], "testWindowId")

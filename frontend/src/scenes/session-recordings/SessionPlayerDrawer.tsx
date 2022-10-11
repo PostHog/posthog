@@ -13,6 +13,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { sessionPlayerDrawerLogic } from './sessionPlayerDrawerLogic'
 import { LemonModal } from '@posthog/lemon-ui'
 import { PlayerMetaV3 } from './player/PlayerMeta'
+import { sessionRecordingPlayerLogic } from './player/sessionRecordingPlayerLogic'
 
 interface SessionPlayerDrawerProps {
     isPersonPage?: boolean
@@ -22,18 +23,29 @@ export function SessionPlayerDrawer({ isPersonPage = false }: SessionPlayerDrawe
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeSessionRecording } = useValues(sessionPlayerDrawerLogic())
     const { closeSessionPlayer } = useActions(sessionPlayerDrawerLogic())
+    const { isFullScreen } = useValues(
+        sessionRecordingPlayerLogic({ sessionRecordingId: activeSessionRecording?.id || '', playerKey: 'drawer' })
+    )
     const isSessionRecordingsPlayerV3 = !!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]
 
     if (isSessionRecordingsPlayerV3) {
         return (
-            <LemonModal isOpen={!!activeSessionRecording} onClose={closeSessionPlayer} simple title={''}>
+            <LemonModal
+                isOpen={!!activeSessionRecording}
+                onClose={closeSessionPlayer}
+                simple
+                title={''}
+                width={880}
+                fullScreen={isFullScreen}
+                closable={!isFullScreen}
+            >
                 <header>
                     {activeSessionRecording ? (
                         <PlayerMetaV3 playerKey="drawer" sessionRecordingId={activeSessionRecording?.id} />
                     ) : null}
                 </header>
                 <LemonModal.Content embedded>
-                    <div className="session-player-wrapper-v3">
+                    <div className="SessionPlayerModal">
                         {activeSessionRecording?.id && (
                             <SessionRecordingPlayerV3
                                 playerKey="drawer"

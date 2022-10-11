@@ -32,7 +32,7 @@ import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { featureFlagLogic as featureFlagLibLogic } from 'lib/logic/featureFlagLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -1136,18 +1136,9 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
 
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
-    const instantProperties = [
-        '$geoip_city_name',
-        '$geoip_country_name',
-        '$geoip_country_code',
-        '$geoip_continent_name',
-        '$geoip_continent_code',
-        '$geoip_postal_code',
-        '$geoip_time_zone',
-    ]
     const hasNonInstantProperty = (properties: AnyPropertyFilter[]): boolean => {
         return !!properties.find(
-            (property) => property.type === 'cohort' || !instantProperties.includes(property.key || '')
+            (property) => property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
         )
     }
     return (

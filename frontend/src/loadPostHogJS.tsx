@@ -29,7 +29,7 @@ export function loadPostHogJS(): void {
                 _capture_performance: true,
                 enable_recording_console_log: true,
                 bootstrap: !!window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
-                opt_in_web_app_injection: true,
+                opt_in_site_apps: true,
             })
         )
         // Make sure we have access to the object in window for debugging

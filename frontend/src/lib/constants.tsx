@@ -68,6 +68,17 @@ export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'UserName',
 ]
 
+// Feature Flags & Experiments
+export const INSTANTLY_AVAILABLE_PROPERTIES = [
+    '$geoip_city_name',
+    '$geoip_country_name',
+    '$geoip_country_code',
+    '$geoip_continent_name',
+    '$geoip_continent_code',
+    '$geoip_postal_code',
+    '$geoip_time_zone',
+]
+
 // Event constants
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'

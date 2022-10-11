@@ -13,6 +13,7 @@ import {
 } from 'lib/components/icons'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import {
+    UTM_TAGS,
     APISnippet,
     JSSnippet,
     PythonSnippet,
@@ -24,7 +25,6 @@ import {
 
 import './FeatureFlagInstructions.scss'
 
-const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 const DOC_BASE_URL = 'https://posthog.com/docs/'
 const FF_ANCHOR = '#feature-flags'
 

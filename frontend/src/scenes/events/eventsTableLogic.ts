@@ -142,7 +142,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
         eventFilter: [
             props.fixedFilters?.event_filter ?? '',
             {
-                setEventFilter: (_, { event }) => event,
+                setEventFilter: (_, { event }) => props.fixedFilters?.event_filter || event,
             },
         ],
         isLoading: [
