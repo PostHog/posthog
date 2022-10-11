@@ -395,8 +395,11 @@ test('capture new person', async () => {
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
-    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-    const chPeople2 = await hub.db.fetchPersons(Database.ClickHouse)
+    const chPeople2 = await delayUntilEventIngested(async () =>
+        (
+            await hub.db.fetchPersons(Database.ClickHouse)
+        ).filter((p) => p && JSON.parse(p.properties).utm_medium == 'instagram')
+    )
     expect(chPeople2.length).toEqual(1)
     expect(JSON.parse(chPeople2[0].properties)).toEqual(expectedProps)
 
@@ -979,10 +982,22 @@ it('snapshot event not stored if session recording disabled', async () => {
         now,
         new UUIDT().toString()
     )
-    await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
-
-    const events = await hub.db.fetchEvents()
-    expect(events.length).toEqual(0)
+    // capture a different event to make sure we proccessed the snapshot event already
+    await processEvent(
+        'distinct_id1',
+        '',
+        '',
+        {
+            event: 'other-event',
+            properties: {
+                token: team.api_token,
+                distinct_id: 'distinct_id1',
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        new UUIDT().toString()
+    )
 
     const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents()
     expect(sessionRecordingEvents.length).toBe(0)
@@ -1015,18 +1030,21 @@ test('snapshot event stored as session_recording_event', async () => {
 })
 
 test('$snapshot event creates new person if needed', async () => {
-    await processEvent(
-        'some_new_id',
-        '',
-        '',
-        {
-            event: '$snapshot',
-            properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
+    const pluginEvent: PluginEvent = {
+        distinct_id: 'some_new_id',
+        site_url: '',
+        team_id: team.id,
+        timestamp: now.toUTC().toISO(),
+        now: now.toUTC().toISO(),
+        ip: '',
+        uuid: new UUIDT().toString(),
+        event: '$snapshot',
+        properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+    } as any as PluginEvent
+
+    const runner = new EventPipelineRunner(hub, pluginEvent)
+    await runner.runEventPipeline(pluginEvent)
+
     await delayUntilEventIngested(() => hub.db.fetchPersons())
 
     const persons = await hub.db.fetchPersons()
