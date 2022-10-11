@@ -25,6 +25,7 @@ import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedLis
 import equal from 'fast-deep-equal'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
+const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 
 export interface Player {
     replayer: Replayer
@@ -90,6 +91,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         seek: (playerPosition: PlayerPosition | null, forcePlay: boolean = false) => ({ playerPosition, forcePlay }),
         seekForward: true,
         seekBackward: true,
+        seekForwardOneFrame: true,
+        seekBackwardOneFrame: true,
         resolvePlayerState: true,
         updateAnimation: true,
         stopAnimation: true,
@@ -333,7 +336,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // Use the start of the current segment if there is no currentPlayerPosition
             // (theoretically, should never happen, but Typescript doesn't know that)
-            const nextPlayerPosition = values.currentPlayerPosition || values.currentSegment?.startPlayerPosition
+            let nextPlayerPosition = values.currentPlayerPosition || values.currentSegment?.startPlayerPosition
+
+            if (values.currentSegment === values.sessionPlayerData.metadata.segments.slice(-1)[0]) {
+                // If we're at the end of the recording, go back to the beginning
+                nextPlayerPosition = values.sessionPlayerData.metadata.segments[0].startPlayerPosition
+            }
             if (nextPlayerPosition) {
                 actions.seek(nextPlayerPosition, true)
             }
@@ -425,42 +433,79 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             breakpoint()
         },
         seekForward: () => {
-            if (values.currentPlayerPosition) {
-                const currentPlayerTime = getPlayerTimeFromPlayerPosition(
-                    values.currentPlayerPosition,
+            if (!values.currentPlayerPosition) {
+                return
+            }
+            const currentPlayerTime = getPlayerTimeFromPlayerPosition(
+                values.currentPlayerPosition,
+                values.sessionPlayerData.metadata.segments
+            )
+            if (currentPlayerTime !== null) {
+                const nextPlayerTime = currentPlayerTime + values.jumpTimeMs
+                let nextPlayerPosition = getPlayerPositionFromPlayerTime(
+                    nextPlayerTime,
                     values.sessionPlayerData.metadata.segments
                 )
-                if (currentPlayerTime !== null) {
-                    const nextPlayerTime = currentPlayerTime + values.jumpTimeMs
-                    let nextPlayerPosition = getPlayerPositionFromPlayerTime(
-                        nextPlayerTime,
-                        values.sessionPlayerData.metadata.segments
-                    )
-                    if (!nextPlayerPosition) {
-                        // At the end of the recording. Pause the player and reset the playerPosition
-                        actions.setPause()
-                        nextPlayerPosition = values.sessionPlayerData.metadata.segments[0].startPlayerPosition
-                    }
-                    actions.seek(nextPlayerPosition)
+                if (!nextPlayerPosition) {
+                    // At the end of the recording. Pause the player and set to the end of the recording
+                    actions.setPause()
+                    nextPlayerPosition = values.sessionPlayerData.metadata.segments.slice(-1)[0].endPlayerPosition
                 }
+                actions.seek(nextPlayerPosition)
             }
         },
         seekBackward: () => {
-            if (values.currentPlayerPosition) {
-                const currentPlayerTime = getPlayerTimeFromPlayerPosition(
-                    values.currentPlayerPosition,
+            if (!values.currentPlayerPosition) {
+                return
+            }
+
+            const currentPlayerTime = getPlayerTimeFromPlayerPosition(
+                values.currentPlayerPosition,
+                values.sessionPlayerData.metadata.segments
+            )
+            if (currentPlayerTime !== null) {
+                const nextPlayerTime = Math.max(currentPlayerTime - values.jumpTimeMs, 0)
+                const nextPlayerPosition = getPlayerPositionFromPlayerTime(
+                    nextPlayerTime,
                     values.sessionPlayerData.metadata.segments
                 )
-                if (currentPlayerTime !== null) {
-                    const nextPlayerTime = Math.max(currentPlayerTime - values.jumpTimeMs, 0)
-                    const nextPlayerPosition = getPlayerPositionFromPlayerTime(
-                        nextPlayerTime,
-                        values.sessionPlayerData.metadata.segments
-                    )
-                    actions.seek(nextPlayerPosition)
-                }
+
+                actions.seek(nextPlayerPosition)
             }
         },
+
+        seekBackwardOneFrame: () => {
+            if (!values.currentPlayerPosition || !values.currentPlayerTime) {
+                return
+            }
+            actions.setPause()
+
+            const nextPlayerTime = Math.max(values.currentPlayerTime - ONE_FRAME_MS)
+            const nextPlayerPosition = getPlayerPositionFromPlayerTime(
+                nextPlayerTime,
+                values.sessionPlayerData.metadata.segments
+            )
+            actions.seek(nextPlayerPosition)
+        },
+
+        seekForwardOneFrame: () => {
+            if (!values.currentPlayerPosition || !values.currentPlayerTime) {
+                return
+            }
+            actions.setPause()
+
+            const nextPlayerTime = values.currentPlayerTime + ONE_FRAME_MS
+            let nextPlayerPosition = getPlayerPositionFromPlayerTime(
+                nextPlayerTime,
+                values.sessionPlayerData.metadata.segments
+            )
+            if (!nextPlayerPosition) {
+                // At the end of the recording. Pause the player and set to the end of the recording
+                nextPlayerPosition = values.sessionPlayerData.metadata.segments.slice(-1)[0].endPlayerPosition
+            }
+            actions.seek(nextPlayerPosition)
+        },
+
         togglePlayPause: () => {
             // If buffering, toggle is a noop
             if (values.currentPlayerState === SessionPlayerState.BUFFER) {
@@ -504,9 +549,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setCurrentPlayerPosition(nextSegment.startPlayerPosition)
                     actions.setCurrentSegment(nextSegment)
                 } else {
-                    // At the end of the recording. Pause the player and reset the playerPosition
+                    // At the end of the recording. Pause the player and set fully to the end
                     actions.setPause()
-                    actions.setCurrentPlayerPosition(values.sessionPlayerData.metadata.segments[0].startPlayerPosition)
                 }
             }
             // If next position tries to access snapshot that is not loaded, show error state
@@ -562,9 +606,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.togglePlayPause()
                 event.preventDefault()
             } else if (event.key === 'ArrowLeft') {
-                actions.seekBackward()
+                !event.altKey ? actions.seekBackward() : actions.seekBackwardOneFrame()
+                event.preventDefault()
             } else if (event.key === 'ArrowRight') {
-                actions.seekForward()
+                !event.altKey ? actions.seekForward() : actions.seekForwardOneFrame()
+                event.preventDefault()
             } else {
                 // Playback speeds shortcuts
                 for (let i = 0; i < PLAYBACK_SPEEDS.length; i++) {

@@ -32,7 +32,12 @@ export function SeekBack({ style, sessionRecordingId, playerKey }: TimeControlPr
         <Tooltip
             placement="top"
             overlayInnerStyle={{ minHeight: 'auto' }}
-            overlay={`Back ${jumpTimeMs / 1000}s (← left arrow)`}
+            overlay={
+                <>
+                    Back {jumpTimeMs / 1000}s (← left arrow) <br />
+                    (Hold <kbd>alt</kbd> to move one frame at a time)
+                </>
+            }
         >
             <span>
                 <IconSeekBack onClick={seekBackward} time={jumpTimeMs / 1000} style={style} />
@@ -48,7 +53,12 @@ export function SeekForward({ style, sessionRecordingId, playerKey }: TimeContro
         <Tooltip
             placement="top"
             overlayInnerStyle={{ minHeight: 'auto' }}
-            overlay={`Forward ${jumpTimeMs / 1000}s (→ right arrow)`}
+            overlay={
+                <>
+                    Forward {jumpTimeMs / 1000}s (→ right arrow) <br />
+                    (Hold <kbd>alt</kbd> to move one frame at a time)
+                </>
+            }
         >
             <span>
                 <IconSeekForward onClick={seekForward} time={jumpTimeMs / 1000} style={style} />
