@@ -417,11 +417,12 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
+    plugin_info = serializers.SerializerMethodField()
 
     class Meta:
         model = PluginConfig
-        fields = ["id", "plugin", "enabled", "order", "config", "error", "team_id"]
-        read_only_fields = ["id", "team_id"]
+        fields = ["id", "plugin", "enabled", "order", "config", "error", "team_id", "plugin_info"]
+        read_only_fields = ["id", "team_id", "plugin_info"]
 
     def get_config(self, plugin_config: PluginConfig):
         attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
@@ -456,6 +457,12 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 }
 
         return new_plugin_config
+
+    def get_plugin_info(self, plugin_config: PluginConfig):
+        if self.context["view"].action == "list":
+            return None
+        else:
+            return PluginSerializer(instance=plugin_config.plugin).data
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(Team.objects.get(id=self.context["team_id"]).organization_id):
