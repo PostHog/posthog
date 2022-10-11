@@ -111,10 +111,14 @@ export function SessionRecordingPlayerV3({
             </div>
             <LemonDivider className="my-0" />
             <PlayerControllerV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            <LemonDivider className="my-0" />
-            <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} matching={matching} />
-            <LemonDivider className="my-0" />
-            {!isFullScreen && <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
+            {!isFullScreen && (
+                <>
+                    <LemonDivider className="my-0" />
+                    <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} matching={matching} />
+                    <LemonDivider className="my-0" />
+                    <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                </>
+            )}
         </div>
     )
 }
