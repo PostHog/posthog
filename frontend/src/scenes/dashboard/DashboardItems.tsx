@@ -149,7 +149,6 @@ export function DashboardItems(): JSX.Element {
                                 dashboardId={dashboard?.id}
                                 textTile={tile}
                                 key={tile.id}
-                                updateColor={(color) => updateTileColor(tile.id, color)}
                                 showResizeHandles={dashboardMode === DashboardMode.Edit}
                                 canResizeWidth={canResizeWidth}
                                 removeFromDashboard={() => removeTile(tile)}

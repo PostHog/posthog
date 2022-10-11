@@ -4,15 +4,13 @@ import './TextCard.scss'
 import { Textfit } from 'react-textfit'
 import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/Cards/InsightCard/handles'
 import clsx from 'clsx'
-import { DashboardTile, DashboardType, InsightColor, Tileable } from '~/types'
+import { DashboardTile, DashboardType } from '~/types'
 import { LemonButton, LemonButtonWithPopup, LemonDivider, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 import { More } from 'lib/components/LemonButton/More'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { Splotch, SplotchColor } from 'lib/components/icons/Splotch'
-import { capitalizeFirstLetter } from 'lib/utils'
 import ReactMarkdown from 'react-markdown'
 import { IconMarkdown } from 'lib/components/icons'
 import { Tabs } from 'antd'
@@ -103,7 +101,6 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     dashboardId?: string | number
     textTile: DashboardTile
     children?: JSX.Element
-    updateColor?: (newColor: Tileable['color']) => void
     removeFromDashboard?: () => void
     duplicate?: () => void
     moveToDashboard?: (dashboard: DashboardType) => void
@@ -129,7 +126,6 @@ export function TextCardInternal(
         children,
         className,
         dashboardId,
-        updateColor,
         moreButtons,
         removeFromDashboard,
         duplicate,
@@ -154,11 +150,6 @@ export function TextCardInternal(
             ref={ref}
         >
             <div className={'flex flex-row px-2 pt-2'}>
-                {textTile.color &&
-                    textTile.color !==
-                        InsightColor.White /* White has historically meant no color synonymously to null */ && (
-                        <div className={clsx('InsightMeta__ribbon ml-2', textTile.color)} />
-                    )}
                 <UserActivityIndicator
                     className={'grow'}
                     at={text.last_modified_at}
@@ -179,39 +170,6 @@ export function TextCardInternal(
                                     Edit text
                                 </LemonButton>
 
-                                {updateColor && (
-                                    <LemonButtonWithPopup
-                                        status="stealth"
-                                        popup={{
-                                            overlay: Object.values(InsightColor).map((availableColor) => (
-                                                <LemonButton
-                                                    key={availableColor}
-                                                    active={availableColor === (textTile.color || InsightColor.White)}
-                                                    status="stealth"
-                                                    onClick={() => updateColor(availableColor)}
-                                                    data-attr={`set-text-tile-ribbon-color-${availableColor}`}
-                                                    icon={
-                                                        availableColor !== InsightColor.White ? (
-                                                            <Splotch color={availableColor as string as SplotchColor} />
-                                                        ) : null
-                                                    }
-                                                    fullWidth
-                                                >
-                                                    {availableColor !== InsightColor.White
-                                                        ? capitalizeFirstLetter(availableColor)
-                                                        : 'No color'}
-                                                </LemonButton>
-                                            )),
-                                            placement: 'right-start',
-                                            fallbackPlacements: ['left-start'],
-                                            actionable: true,
-                                            closeParentPopupOnClickInside: true,
-                                        }}
-                                        fullWidth
-                                    >
-                                        Set color
-                                    </LemonButtonWithPopup>
-                                )}
                                 {moveToDashboard && otherDashboards.length > 0 && (
                                     <LemonButtonWithPopup
                                         status="stealth"
