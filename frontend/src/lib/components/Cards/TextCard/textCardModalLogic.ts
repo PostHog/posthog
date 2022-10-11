@@ -19,7 +19,6 @@ export interface TextCardModalProps {
 const getTileBody = (dashboard: DashboardType, textTileId: number): string => {
     const dashboardTiles = dashboard.tiles
     const matchedTile = dashboardTiles?.find((tt) => tt.id === textTileId)
-    console.log({ dashboard, dashboardTiles, matchedTile })
     return matchedTile?.text?.body || ''
 }
 

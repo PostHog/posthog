@@ -164,28 +164,20 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     return values.allItems
                 },
                 removeTile: async ({ tile }) => {
-                    console.log('removeTile', tile)
                     try {
-                        console.log('starting')
-                        const response = await api.update(
-                            `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
-                            {
-                                tiles: [{ id: tile.id, deleted: true }],
-                            }
-                        )
-                        console.log('api finished', response)
+                        await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                            tiles: [{ id: tile.id, deleted: true }],
+                        })
                         dashboardsModel.actions.tileRemovedFromDashboard({
                             tile: tile,
                             dashboardId: props.id,
                         })
                         const filteredTiles = values.tiles.filter((t) => t.id !== tile.id)
-                        console.log({ t: values.tiles, f: filteredTiles })
                         return {
                             ...values.allItems,
                             tiles: filteredTiles,
                         } as DashboardType
                     } catch (e) {
-                        console.log('here?', e)
                         lemonToast.error('Could not remove tile from dashboard: ' + e)
                         return values.allItems
                     }
@@ -581,7 +573,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     const minH = MIN_ITEM_HEIGHT_UNITS
 
                     const layouts = tiles.map((tile) => {
-                        console.log('layouts for', tile.id, 'is text: ', !!tile.text)
                         const isRetention =
                             !!tile.insight &&
                             tile.insight.filters.insight === InsightType.RETENTION &&
@@ -827,12 +818,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
             }
             const dashboardId: number = props.id
 
-            const insights = (tiles || values.insightTiles || []).reduce((acc, cur) => {
-                if (cur.insight) {
-                    acc.push(cur.insight)
-                }
-                return acc
-            }, [] as InsightModel[])
+            const insights = (tiles || values.insightTiles || [])
+                .map((t) => t.insight)
+                .filter((i): i is InsightModel => !!i)
 
             // Don't do anything if there's nothing to refresh
             if (insights.length === 0) {
