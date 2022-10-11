@@ -8,11 +8,11 @@ import { DashboardMode, DashboardType, DashboardPlacement, DashboardTile } from 
 import { insightsModel } from '~/models/insightsModel'
 import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
 import clsx from 'clsx'
-import { InsightCard } from 'lib/components/InsightCard'
+import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { TextCard } from 'lib/components/TextCard/TextCard'
+import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 
 export function DashboardItems(): JSX.Element {
     const {

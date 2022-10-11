@@ -27,7 +27,7 @@ import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { isLemonSelectSection } from 'lib/components/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { TextTileModal } from 'lib/components/TextCard/TextCard'
+import { TextTileModal } from 'lib/components/Cards/TextCard/TextCard'
 
 export function DashboardHeader(): JSX.Element | null {
     const {

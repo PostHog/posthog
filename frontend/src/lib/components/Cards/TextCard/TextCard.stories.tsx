@@ -4,7 +4,7 @@ import { DashboardTile, InsightColor } from '~/types'
 import { TextCard } from './TextCard'
 
 export default {
-    title: 'Components/Text Card',
+    title: 'Components/Cards/Text Card',
     component: TextCard,
 } as Meta
 
