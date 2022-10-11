@@ -15,7 +15,8 @@ import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 jest.mock('../../src/utils/db/kafka-producer-wrapper')
-jest.mock('../../src/main/job-queues/job-queue-manager')
+jest.mock('../../src/main/jobs/graphile-worker')
+
 jest.setTimeout(100000)
 
 const defaultEvent = {
