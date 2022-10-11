@@ -111,7 +111,7 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
 function TextCardBody({ text }: { text: string }): JSX.Element {
     return (
         <div className="TextCard-Body px-2 pb-2 w-full h-full">
-            <Textfit mode={text?.match(/([\r\n])/gm)?.length ? 'multi' : 'single'} min={16} max={100}>
+            <Textfit mode={'multi'} min={14} max={100}>
                 <ReactMarkdown>{text}</ReactMarkdown>
             </Textfit>
         </div>
