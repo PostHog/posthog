@@ -101,7 +101,9 @@ export function SessionRecordingPlayerV3({
             onKeyDown={handleKeyDown}
             tabIndex={0}
         >
-            {includeMeta ? <PlayerMetaV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} /> : null}
+            {includeMeta || isFullScreen ? (
+                <PlayerMetaV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+            ) : null}
             <div className="session-player-body flex">
                 <div className="player-container ph-no-capture">
                     <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />

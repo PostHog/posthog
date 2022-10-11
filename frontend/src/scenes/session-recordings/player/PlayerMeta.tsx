@@ -96,19 +96,13 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                 'PlayerMetaV3--fullscreen': isFullScreen,
             })}
         >
-            <CSSTransition
-                in={isFullScreen}
-                timeout={5000}
-                classNames="PlayerMetaV3__escape-"
-                mountOnEnter
-                unmountOnExit
-            >
+            {isFullScreen && (
                 <div className="PlayerMetaV3__escape">
                     <div className="bg-muted-dark text-white px-2 py-1 rounded shadow my-1 mx-auto">
                         Press <kbd className="font-bold">Esc</kbd> to exit full screen
                     </div>
                 </div>
-            </CSSTransition>
+            )}
 
             <div
                 className={clsx('flex items-center gap-2', {

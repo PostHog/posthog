@@ -66,6 +66,7 @@
         transition: all 500ms ease-out;
         transform: translateY(-100px);
         text-align: center;
+        animation: player-meta-escape 5s ease;
 
         &--enter {
             transform: translateY(-100px);
@@ -78,5 +79,23 @@
         &--enter-done {
             transform: translateY(-100px);
         }
+    }
+}
+
+@keyframes player-meta-escape {
+    0% {
+        transform: translateY(-100px);
+    }
+
+    10% {
+        transform: translateY(0px);
+    }
+
+    90% {
+        transform: translateY(0px);
+    }
+
+    100% {
+        transform: translateY(-100px);
     }
 }
