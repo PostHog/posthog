@@ -19,6 +19,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
+from posthog.plugins.site import get_decide_site_apps
 from posthog.plugins.utils import (
     download_plugin_archive,
     extract_plugin_code,
@@ -26,7 +27,6 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from posthog.plugins.web import get_decide_web_js_inject
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
@@ -329,6 +329,8 @@ class PluginSourceFile(UUIDModel):
     status: models.CharField = models.CharField(max_length=20, choices=Status.choices, null=True)
     transpiled: models.TextField = models.TextField(blank=True, null=True)
     error: models.TextField = models.TextField(blank=True, null=True)
+    created_at: models.DateTimeField = models.DateTimeField(null=True, blank=True, auto_now_add=True)
+    updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     objects: PluginSourceFileManager = PluginSourceFileManager()
 
@@ -450,7 +452,7 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 def sync_team_inject_web_apps(team: Optional[Team]):
     if not team:
         return
-    inject_web_apps = len(get_decide_web_js_inject(team)) > 0
+    inject_web_apps = len(get_decide_site_apps(team)) > 0
     if inject_web_apps != team.inject_web_apps:
         Team.objects.filter(pk=team.pk).update(inject_web_apps=inject_web_apps)
 

@@ -147,7 +147,7 @@ class TestDecide(BaseTest):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_web_app_injection(self):
+    def test_site_app_injection(self):
         plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
         PluginSourceFile.objects.create(
             plugin=plugin,
@@ -164,9 +164,9 @@ class TestDecide(BaseTest):
         with self.assertNumQueries(3):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            injected = response.json()["inject"]
+            injected = response.json()["siteApps"]
             self.assertEqual(len(injected), 1)
-            self.assertEqual(injected[0]["url"], f"/web_js/{plugin_config.id}/{plugin_config.web_token}/")
+            self.assertEqual(injected[0]["url"], f"/site_app/{plugin_config.id}/{plugin_config.web_token}/")
 
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]
