@@ -71,8 +71,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -181,8 +181,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -302,8 +302,8 @@
                                       OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
-                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                            AND timestamp <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
+                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -418,8 +418,8 @@
                                       OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
-                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                            AND timestamp <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
+                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -538,8 +538,8 @@
                                       OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
-                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                            AND timestamp <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
+                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -658,8 +658,8 @@
                                       OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
-                            AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                            AND timestamp <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
+                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -739,8 +739,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND timestamp <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -804,8 +804,8 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'US/Pacific')
-                      AND timestamp <= toDateTime('2020-01-14 23:59:59', 'US/Pacific') ) events
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'US/Pacific')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'US/Pacific') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -824,8 +824,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['buy', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -902,8 +902,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['buy', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -924,8 +924,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'buy'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (has(['xyz'], replaceRegexpAll(JSONExtractRaw(e.properties, '$version'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -1005,8 +1005,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['buy', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ) ARRAY
                  JOIN prop_vals as prop
@@ -1029,8 +1029,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['buy', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1106,8 +1106,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['buy', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
