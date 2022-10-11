@@ -47,42 +47,24 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
         []
     )
 
-    const handleChange = (value: AggregationAxisFormat): void => {
-        setLocalAxisFormat(value)
-        setLocalAxisPrefix('')
-        setLocalAxisPostfix('')
+    const handleChange = ({
+        format,
+        prefix,
+        postfix,
+    }: {
+        format?: AggregationAxisFormat
+        prefix?: string
+        postfix?: string
+    }): void => {
+        setLocalAxisFormat(format)
+        setLocalAxisPrefix(prefix || '')
+        setLocalAxisPostfix(postfix || '')
         debouncedVisibilityChange()
         setFilters({
             ...filters,
-            aggregation_axis_format: value,
-            aggregation_axis_prefix: undefined,
-            aggregation_axis_postfix: undefined,
-        })
-    }
-
-    const handlePrefix = (value: string): void => {
-        setLocalAxisFormat(undefined)
-        setLocalAxisPrefix(value)
-        setLocalAxisPostfix('')
-        debouncedVisibilityChange()
-        setFilters({
-            ...filters,
-            aggregation_axis_format: undefined,
-            aggregation_axis_prefix: value,
-            aggregation_axis_postfix: undefined,
-        })
-    }
-
-    const handlePostfix = (value: string): void => {
-        setLocalAxisFormat(undefined)
-        setLocalAxisPrefix('')
-        setLocalAxisPostfix(value)
-        debouncedVisibilityChange()
-        setFilters({
-            ...filters,
-            aggregation_axis_format: undefined,
-            aggregation_axis_prefix: undefined,
-            aggregation_axis_postfix: value,
+            aggregation_axis_format: format,
+            aggregation_axis_prefix: prefix,
+            aggregation_axis_postfix: postfix,
         })
     }
 
@@ -118,7 +100,7 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                             {aggregationAxisFormatSelectOptions.map(({ value, label }, index) => (
                                 <LemonButton
                                     key={index}
-                                    onClick={() => handleChange(value)}
+                                    onClick={() => handleChange({ format: value })}
                                     status="stealth"
                                     active={value === localAxisFormat}
                                     fullWidth
@@ -132,15 +114,15 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                                     <PureField label={'prefix:'}>
                                         <LemonInput
                                             value={localAxisPrefix}
-                                            onChange={handlePrefix}
-                                            onPressEnter={handlePrefix}
+                                            onChange={(prefix) => handleChange({ prefix })}
+                                            onPressEnter={(prefix) => handleChange({ prefix })}
                                         />
                                     </PureField>
                                     <PureField label={'postfix:'}>
                                         <LemonInput
                                             value={localAxisPostfix}
-                                            onChange={handlePostfix}
-                                            onPressEnter={handlePostfix}
+                                            onChange={(postfix) => handleChange({ postfix })}
+                                            onPressEnter={(postfix) => handleChange({ postfix })}
                                         />
                                     </PureField>
                                 </>
