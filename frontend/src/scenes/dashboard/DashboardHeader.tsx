@@ -289,7 +289,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                                     data-attr="add-text-tile-to-dashboard"
                                                                 >
                                                                     Add text card &nbsp;
-                                                                    <LemonTag type="warning">Beta</LemonTag>
+                                                                    <LemonTag type="warning">BETA</LemonTag>
                                                                 </LemonButton>
                                                             )}
                                                     </>
