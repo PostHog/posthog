@@ -35,7 +35,7 @@ export const CurrencyPicker = ({
             mode={'single'}
             options={options}
             onChange={(value: string[]): void => {
-                onChange(value as currencies)
+                onChange(value as unknown as currencies)
             }}
             value={value}
         />
