@@ -1,6 +1,39 @@
 .TextCard {
     z-index: 3;
     background: #fff;
+
+    .handle {
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: var(--z-raised);
+
+        &.horizontal {
+            svg {
+                transform: rotate(90deg) translateX(0.75rem);
+            }
+        }
+
+        &.vertical {
+            flex-direction: column;
+
+            svg {
+                transform: translateX(0.5rem);
+            }
+        }
+
+        &.corner {
+            justify-content: flex-end;
+
+            svg {
+                transform: translate(0.5rem, 0.5rem);
+            }
+        }
+    }
 }
 
 .TextCard-Body {
@@ -16,38 +49,5 @@
 
     p {
         margin-bottom: 0;
-    }
-}
-
-.handle {
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: var(--z-raised);
-
-    &.horizontal {
-        svg {
-            transform: rotate(90deg) translateX(0.75rem);
-        }
-    }
-
-    &.vertical {
-        flex-direction: column;
-
-        svg {
-            transform: translateX(0.5rem);
-        }
-    }
-
-    &.corner {
-        justify-content: flex-end;
-
-        svg {
-            transform: translate(0.5rem, 0.5rem);
-        }
     }
 }
