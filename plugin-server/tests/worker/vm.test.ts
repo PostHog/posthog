@@ -1156,7 +1156,8 @@ describe('vm tests', () => {
                     timestamp: expect.any(Number),
                     type: 'exportEventsWithRetry',
                 },
-                { key: 'plugin', tag: '?' }
+                { key: 'plugin', tag: '?' },
+                true
             )
             const jobPayload = mockEnqueue.mock.calls[0][1].payload
 
@@ -1174,7 +1175,8 @@ describe('vm tests', () => {
                     timestamp: expect.any(Number),
                     type: 'exportEventsWithRetry',
                 },
-                { key: 'plugin', tag: '?' }
+                { key: 'plugin', tag: '?' },
+                true
             )
             const jobPayload2 = mockEnqueue.mock.calls[1][1].payload
 
