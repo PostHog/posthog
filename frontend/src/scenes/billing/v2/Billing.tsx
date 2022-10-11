@@ -238,7 +238,7 @@ const BillingProduct = ({
                             {!billing?.stripe_portal_url ? <div>(With subscription)</div> : null}
                         </>
                     ),
-                    color: billing?.stripe_portal_url ? 'success-light' : 'danger-light',
+                    color: billing?.stripe_portal_url ? 'success-light' : 'success-highlight',
                     value: product.tiers?.[0]?.up_to || 0,
                     top: true,
                 },
