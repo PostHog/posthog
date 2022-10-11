@@ -9,7 +9,7 @@ import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
 import { runInstrumentedFunction } from '../utils'
 import { runBufferEventPipeline } from './buffer'
 
-export function startJobsConsumer(hub: Hub, piscina: Piscina): JobsConsumerControl {
+export async function startJobsConsumer(hub: Hub, piscina: Piscina): Promise<JobsConsumerControl> {
     status.info('🔄', 'Starting job queue consumer, trying to get lock...')
 
     const ingestionJobHandlers: TaskList = {
@@ -44,7 +44,7 @@ export function startJobsConsumer(hub: Hub, piscina: Piscina): JobsConsumerContr
 
     status.info('🔄', 'Job queue consumer starting')
     try {
-        hub.graphileWorker.startConsumer(jobHandlers)
+        await hub.graphileWorker.startConsumer(jobHandlers)
     } catch (error) {
         try {
             logOrThrowJobQueueError(hub, error, `Cannot start job queue consumer!`)
@@ -53,9 +53,9 @@ export function startJobsConsumer(hub: Hub, piscina: Piscina): JobsConsumerContr
         }
     }
 
-    const stop = () => {
+    const stop = async () => {
         status.info('🔄', 'Stopping job queue consumer')
-        hub.graphileWorker.stopConsumer()
+        await hub.graphileWorker.stopConsumer()
     }
 
     return { stop, resume: () => hub.graphileWorker.resumeConsumer() }

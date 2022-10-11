@@ -76,7 +76,7 @@ export async function startPluginsServer(
         stopEventLoopMetrics?.()
         await queue?.stop()
         await pubSub?.stop()
-        jobQueueConsumer?.stop()
+        await jobQueueConsumer?.stop()
         await bufferConsumer?.disconnect()
         await pluginScheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
@@ -161,7 +161,7 @@ export async function startPluginsServer(
             pluginScheduleControl = await startPluginSchedules(hub, piscina)
         }
         if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs) {
-            jobQueueConsumer = startJobsConsumer(hub, piscina)
+            jobQueueConsumer = await startJobsConsumer(hub, piscina)
         }
         if (hub.capabilities.ingestion) {
             bufferConsumer = await startAnonymousEventBufferConsumer({

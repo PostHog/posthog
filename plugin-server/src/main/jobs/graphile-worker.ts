@@ -181,7 +181,6 @@ export class GraphileWorker {
         })
     }
 
-    startConsumer(jobHandlers: TaskList): void
     async startConsumer(jobHandlers: TaskList): Promise<void> {
         this.jobHandlers = jobHandlers
         if (!this.started) {
@@ -190,13 +189,11 @@ export class GraphileWorker {
         }
     }
 
-    stopConsumer(): void
     async stopConsumer(): Promise<void> {
         this.started = false
         await this.syncState()
     }
 
-    pauseConsumer(): void
     async pauseConsumer(): Promise<void> {
         this.paused = true
         await this.syncState()
@@ -206,7 +203,6 @@ export class GraphileWorker {
         return this.paused
     }
 
-    resumeConsumer(): void
     async resumeConsumer(): Promise<void> {
         if (this.paused) {
             this.paused = false

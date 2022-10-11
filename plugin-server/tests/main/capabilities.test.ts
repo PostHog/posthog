@@ -46,36 +46,36 @@ describe('capabilities', () => {
     })
 
     describe('startJobsConsumer()', () => {
-        it('sets up bufferJob handler if ingestion is on', () => {
+        it('sets up bufferJob handler if ingestion is on', async () => {
             hub.graphileWorker.startConsumer = jest.fn()
             hub.capabilities.ingestion = true
             hub.capabilities.processPluginJobs = false
 
-            startJobsConsumer(hub, piscina)
+            await startJobsConsumer(hub, piscina)
 
             expect(hub.graphileWorker.startConsumer).toHaveBeenCalledWith({
                 bufferJob: expect.anything(),
             })
         })
 
-        it('sets up pluginJob handler if processPluginJobs is on', () => {
+        it('sets up pluginJob handler if processPluginJobs is on', async () => {
             hub.graphileWorker.startConsumer = jest.fn()
             hub.capabilities.ingestion = false
             hub.capabilities.processPluginJobs = true
 
-            startJobsConsumer(hub, piscina)
+            await startJobsConsumer(hub, piscina)
 
             expect(hub.graphileWorker.startConsumer).toHaveBeenCalledWith({
                 pluginJob: expect.anything(),
             })
         })
 
-        it('sets up bufferJob and pluginJob handlers if ingestion and processPluginJobs are on', () => {
+        it('sets up bufferJob and pluginJob handlers if ingestion and processPluginJobs are on', async () => {
             hub.graphileWorker.startConsumer = jest.fn()
             hub.capabilities.ingestion = true
             hub.capabilities.processPluginJobs = true
 
-            startJobsConsumer(hub, piscina)
+            await startJobsConsumer(hub, piscina)
 
             expect(hub.graphileWorker.startConsumer).toHaveBeenCalledWith({
                 bufferJob: expect.anything(),
