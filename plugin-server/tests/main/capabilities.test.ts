@@ -2,7 +2,7 @@ import Piscina from '@posthog/piscina'
 
 import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../../src/main/ingestion-queues/queue'
-import { startJobsConsumer } from '../../src/main/jobs/worker-setup'
+import { startGraphileWorker } from '../../src/main/jobs/worker-setup'
 import { Hub, LogLevel } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 
@@ -45,13 +45,13 @@ describe('capabilities', () => {
         })
     })
 
-    describe('startJobsConsumer()', () => {
+    describe('startGraphileWorker()', () => {
         it('sets up bufferJob handler if ingestion is on', async () => {
             hub.graphileWorker.start = jest.fn()
             hub.capabilities.ingestion = true
             hub.capabilities.processPluginJobs = false
 
-            await startJobsConsumer(hub, piscina)
+            await startGraphileWorker(hub, piscina)
 
             expect(hub.graphileWorker.start).toHaveBeenCalledWith({
                 bufferJob: expect.anything(),
@@ -63,7 +63,7 @@ describe('capabilities', () => {
             hub.capabilities.ingestion = false
             hub.capabilities.processPluginJobs = true
 
-            await startJobsConsumer(hub, piscina)
+            await startGraphileWorker(hub, piscina)
 
             expect(hub.graphileWorker.start).toHaveBeenCalledWith({
                 pluginJob: expect.anything(),
@@ -75,7 +75,7 @@ describe('capabilities', () => {
             hub.capabilities.ingestion = true
             hub.capabilities.processPluginJobs = true
 
-            await startJobsConsumer(hub, piscina)
+            await startGraphileWorker(hub, piscina)
 
             expect(hub.graphileWorker.start).toHaveBeenCalledWith({
                 bufferJob: expect.anything(),

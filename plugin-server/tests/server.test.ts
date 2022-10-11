@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
 import * as nodeSchedule from 'node-schedule'
 
-import { startJobsConsumer } from '../src/main/jobs/worker-setup'
+import { startGraphileWorker } from '../src/main/jobs/worker-setup'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { startPluginSchedules } from '../src/main/services/schedule'
 import { LogLevel, PluginServerCapabilities, PluginsServerConfig } from '../src/types'
@@ -105,7 +105,7 @@ describe('server', () => {
             pluginsServer = await createPluginServer()
 
             expect(startPluginSchedules).toHaveBeenCalled()
-            expect(startJobsConsumer).toHaveBeenCalled()
+            expect(startGraphileWorker).toHaveBeenCalled()
         })
 
         test('disabling pluginScheduledTasks', async () => {
@@ -115,7 +115,7 @@ describe('server', () => {
             )
 
             expect(startPluginSchedules).not.toHaveBeenCalled()
-            expect(startJobsConsumer).toHaveBeenCalled()
+            expect(startGraphileWorker).toHaveBeenCalled()
         })
 
         test('disabling processPluginJobs', async () => {
@@ -125,7 +125,7 @@ describe('server', () => {
             )
 
             expect(startPluginSchedules).toHaveBeenCalled()
-            expect(startJobsConsumer).toHaveBeenCalled()
+            expect(startGraphileWorker).toHaveBeenCalled()
         })
 
         test('disabling processPluginJobs and ingestion', async () => {
@@ -134,7 +134,7 @@ describe('server', () => {
                 { ingestion: false, pluginScheduledTasks: true, processPluginJobs: false }
             )
 
-            expect(startJobsConsumer).not.toHaveBeenCalled()
+            expect(startGraphileWorker).not.toHaveBeenCalled()
         })
     })
 })
