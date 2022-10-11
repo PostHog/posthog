@@ -14,8 +14,8 @@ export interface AppMetricsLogicProps {
 }
 
 export enum AppMetricsTab {
-    Metrics = 'Metrics',
-    Exports = 'Exports',
+    Metrics = 'metrics',
+    HistoricalExports = 'historical_exports',
 }
 
 export interface HistoricalExportInfo {
@@ -33,14 +33,14 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
     key((props) => props.pluginConfigId),
 
     actions({
-        setTab: (tab: AppMetricsTab) => ({ tab }),
+        setActiveTab: (tab: AppMetricsTab) => ({ tab }),
     }),
 
     reducers({
         activeTab: [
             AppMetricsTab.Metrics as AppMetricsTab,
             {
-                setTab: (_, { tab }) => tab,
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
     }),
@@ -86,13 +86,13 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
     })),
 
     actionToUrl(({ values, props }) => ({
-        setTab: () => `/app/${props.pluginConfigId}/${values.activeTab}`,
+        setActiveTab: () => `/app/${props.pluginConfigId}/${values.activeTab}`,
     })),
 
     urlToAction(({ values, actions }) => ({
         '/app/:pluginConfigId/:tab': (params: Record<string, string | undefined>) => {
             actions.loadHistoricalExports()
-            actions.setTab(params.tab as AppMetricsTab)
+            actions.setActiveTab(params.tab as AppMetricsTab)
             if (!values.pluginConfig) {
                 actions.loadPluginConfig()
             }
