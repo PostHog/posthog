@@ -99,10 +99,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
 
     urlToAction(({ values, actions }) => ({
         '/app/:pluginConfigId/:tab': (params: Record<string, string | undefined>) => {
-            actions.loadHistoricalExports()
             actions.setActiveTab(params.tab as AppMetricsTab)
             if (!values.pluginConfig) {
                 actions.loadPluginConfig()
+            }
+            if (params.tab === AppMetricsTab.HistoricalExports) {
+                actions.loadHistoricalExports()
             }
         },
     })),
