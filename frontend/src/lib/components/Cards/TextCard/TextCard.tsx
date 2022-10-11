@@ -84,8 +84,8 @@ export function TextTileModal({
                                     onChange={(newValue) => onChange(newValue)}
                                 />
                                 <div className="text-muted inline-flex items-center space-x-1">
-                                    <IconMarkdown />
-                                    <span>Basic formatting and markdown support</span>
+                                    <IconMarkdown className={'text-2xl'} />
+                                    <span>Markdown formatting support</span>
                                 </div>
                             </Tabs.TabPane>
                             <Tabs.TabPane tab="Preview" key={'preview-card'}>
@@ -113,11 +113,9 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
 
 function TextCardBody({ text }: { text: string }): JSX.Element {
     return (
-        <div className={'w-full h-full block'}>
+        <div className="TextCard-Body px-2 pb-2 w-full h-full">
             <Textfit mode={text?.match(/([\r\n])/gm)?.length ? 'multi' : 'single'} min={16} max={100}>
-                <div className="TextCard-Body px-2 pb-2">
-                    <ReactMarkdown>{text}</ReactMarkdown>
-                </div>
+                <ReactMarkdown>{text}</ReactMarkdown>
             </Textfit>
         </div>
     )
