@@ -139,7 +139,7 @@ class QueryDateRange:
 
     @cached_property
     def date_to_clause(self):
-        return f"AND {self._table}timestamp <= toDateTime(%(date_to)s, %(timezone)s)"
+        return f"AND toDateTime({self._table}timestamp, 'UTC') <= toDateTime(%(date_to)s, %(timezone)s)"
 
     @cached_property
     def date_from_clause(self):
@@ -176,9 +176,11 @@ class QueryDateRange:
             # Convert target to UTC so that stored timestamps can be compared accordingly
             # Example: `2022-04-05 07:00:00` -> truncated to `2022-04-05` -> 2022-04-05 00:00:00 PST -> 2022-04-05 07:00:00 UTC
 
-            return f"AND {self._table}timestamp {operator} {self._timezone_date_clause(date_clause)}"
+            return f"AND toDateTime({self._table}timestamp, 'UTC') {operator} {self._timezone_date_clause(date_clause)}"
         else:
-            return f"AND {self._table}timestamp {operator} toDateTime(%({date_clause})s, %(timezone)s)"
+            return (
+                f"AND toDateTime({self._table}timestamp, 'UTC') {operator} toDateTime(%({date_clause})s, %(timezone)s)"
+            )
 
     def _timezone_date_clause(self, date_clause: str) -> str:
         clause = f"{self.interval_annotation}(toDateTime(%({date_clause})s, %(timezone)s))"
