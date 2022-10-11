@@ -119,7 +119,7 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
                     new Set([
                         'plugin.json',
                         'index.ts',
-                        'web.ts',
+                        'site.ts',
                         ...(featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? ['frontend.tsx'] : []),
                     ])
                 )

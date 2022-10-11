@@ -26,10 +26,6 @@ def traces_sampler(sampling_context: dict) -> float:
 
     if op == "http.server":
         path = sampling_context.get("wsgi_environ", {}).get("PATH_INFO")
-        referer = sampling_context.get("wsgi_environ", {}).get("HTTP_REFERER", None)
-
-        if referer.startswith("https://playground.posthog.net/"):
-            return 0
 
         # Ingestion endpoints (high volume)
         if path.startswith("/batch"):

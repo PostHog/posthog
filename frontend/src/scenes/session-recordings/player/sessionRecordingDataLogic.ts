@@ -169,6 +169,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadRecordingMetaSuccess: () => (cache.loadStartTime ? performance.now() - cache.loadStartTime : null),
             },
         ],
+
+        isNotFound: [
+            false as boolean,
+            {
+                loadRecordingMeta: () => false,
+                loadRecordingMetaSuccess: () => false,
+                loadRecordingMetaFailure: () => true,
+            },
+        ],
         loadFirstSnapshotTimeMs: [
             null as number | null,
             {

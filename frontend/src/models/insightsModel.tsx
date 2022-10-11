@@ -13,6 +13,7 @@ export const insightsModel = kea<insightsModelType>({
     actions: () => ({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
+        //TODO this duplicates the insight but not the dashboard tile (e.g. if duplicated from dashboard you lose tile color
         duplicateInsight: (item: InsightModel, dashboardId?: number) => ({
             item,
             dashboardId,

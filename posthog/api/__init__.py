@@ -28,9 +28,9 @@ from . import (
     prompt,
     property_definition,
     sharing,
+    site_app,
     team,
     user,
-    web_js,
 )
 
 

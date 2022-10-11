@@ -191,6 +191,7 @@ class TrendsBreakdown:
                     sessions_join_condition=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
                     breakdown_value=breakdown_value,
+                    event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
                 )
             else:
                 content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
@@ -257,6 +258,7 @@ class TrendsBreakdown:
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     start_of_week_fix=start_of_week_fix(self.filter),
+                    event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
                     **breakdown_filter_params,
                 )
             else:

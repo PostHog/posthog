@@ -143,6 +143,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CONVERSION_BUFFER_ENABLED: boolean
     CONVERSION_BUFFER_ENABLED_TEAMS: string
+    CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
     BUFFER_CONVERSION_SECONDS: number
     PERSON_INFO_TO_REDIS_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
@@ -204,6 +205,7 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
+    conversionBufferTopicEnabledTeams: Set<number>
 }
 
 export interface PluginServerCapabilities {
@@ -221,11 +223,13 @@ export interface EnqueuedPluginJob {
     timestamp: number
     pluginConfigId: number
     pluginConfigTeam: number
+    jobKey?: string
 }
 
 export interface EnqueuedBufferJob {
     eventPayload: PluginEvent
     timestamp: number
+    jobKey?: string
 }
 
 export enum JobName {
@@ -307,8 +311,8 @@ export interface Plugin {
     source__index_ts?: string
     /** Cached source for frontend.tsx from a joined PluginSourceFile query */
     source__frontend_tsx?: string
-    /** Cached source for web.ts from a joined PluginSourceFile query */
-    source__web_ts?: string
+    /** Cached source for site.ts from a joined PluginSourceFile query */
+    source__site_ts?: string
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
