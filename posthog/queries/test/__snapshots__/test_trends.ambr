@@ -405,8 +405,8 @@
               AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'watched movie'
-             AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC') )
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -434,8 +434,8 @@
            FROM events e
            WHERE team_id = 2
              AND event = 'watched movie'
-             AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
              AND (has(['1'], "mat_name")) )
         GROUP BY date)
      group by day_start
@@ -483,8 +483,8 @@
               AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'watched movie'
-             AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC') )
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
