@@ -21,7 +21,7 @@ import {
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { IconDelete, IconJavascript, IconPlusMini } from 'lib/components/icons'
+import { IconDelete, IconPlusMini } from 'lib/components/icons'
 import { CaretDownOutlined, ExclamationCircleFilled, InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
@@ -473,6 +473,26 @@ export function Experiment(): JSX.Element {
                                                         </a>
                                                     </AlertMessage>
                                                 )}
+                                                <div className="mt-4 mb-2">
+                                                    <strong>Advanced Options</strong>
+                                                </div>
+                                                <div className="mb-4">
+                                                    For more advanced options like changing the rollout percentage and
+                                                    persisting feature flags, you can{' '}
+                                                    {experimentId === 'new' ? (
+                                                        'change settings on the feature flag after creation.'
+                                                    ) : (
+                                                        <Link
+                                                            to={
+                                                                newExperimentData?.feature_flag
+                                                                    ? urls.featureFlag(newExperimentData.feature_flag)
+                                                                    : undefined
+                                                            }
+                                                        >
+                                                            change settings on the feature flag.
+                                                        </Link>
+                                                    )}
+                                                </div>
                                             </Col>
                                         </Row>
                                     </Col>
@@ -1135,17 +1155,5 @@ export function Experiment(): JSX.Element {
                 <Skeleton active />
             )}
         </>
-    )
-}
-
-export function CodeLanguageSelect(): JSX.Element {
-    return (
-        <Select defaultValue="JavaScript" suffixIcon={<CaretDownOutlined />}>
-            <Select.Option value="JavaScript">
-                <Row align="middle">
-                    <IconJavascript style={{ marginRight: 6 }} /> JavaScript
-                </Row>
-            </Select.Option>
-        </Select>
     )
 }
