@@ -5,7 +5,7 @@ export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
         return ''
     } else if (usage < 1000) {
-        return `${usage} events`
+        return `${usage}`
     } else if (Math.round(usage / 1000) < 1000) {
         return `${Math.round(usage / 1000)} thousand`
     } else {
@@ -25,6 +25,10 @@ export const projectUsage = (
     }
 
     const timeSoFar = dayjs().diff(period.current_period_start, 'hours')
+
+    if (timeSoFar === 0) {
+        return usage
+    }
     const timeTotal = period.current_period_end.diff(period.current_period_start, 'hours')
 
     return Math.round((usage / timeSoFar) * timeTotal)
@@ -56,6 +60,13 @@ export const convertAmountToUsage = (amount: string, tiers: BillingProductV2Type
     let usage = 0
     let previousTier: BillingProductV2Type['tiers'][0] | undefined = undefined
 
+    if (remainingAmount === 0) {
+        if (parseFloat(tiers[0].unit_amount_usd) === 0) {
+            return tiers[0].up_to || 0
+        }
+        return 0
+    }
+
     for (const tier of tiers) {
         if (remainingAmount <= 0) {
             break
@@ -70,5 +81,5 @@ export const convertAmountToUsage = (amount: string, tiers: BillingProductV2Type
         previousTier = tier
     }
 
-    return usage
+    return Math.round(usage)
 }

@@ -12,47 +12,32 @@
             "tiers": [
                 {
                     "unit_amount_usd": "0",
-                    "up_to": 999999,
+                    "up_to": 1000000,
                     "current_amount_usd": "0.00"
                 },
                 {
-                    "unit_amount_usd": "0.045",
-                    "up_to": 1999999,
+                    "unit_amount_usd": "0.00045",
+                    "up_to": 2000000,
                     "current_amount_usd": "450.00"
                 },
                 {
-                    "unit_amount_usd": "0.00225",
+                    "unit_amount_usd": "0.000225",
                     "up_to": 10000000,
                     "current_amount_usd": "7.65"
                 },
                 {
-                    "unit_amount_usd": "0.00075",
+                    "unit_amount_usd": "0.000075",
                     "up_to": 100000000,
                     "current_amount_usd": null
                 },
                 {
-                    "unit_amount_usd": "0.00025",
+                    "unit_amount_usd": "0.000025",
                     "up_to": null,
                     "current_amount_usd": null
                 }
             ],
             "current_amount_usd": "457.65",
             "current_usage": 2340000,
-            "usage_limit": null,
-            "has_exceeded_limit": false
-        },
-        {
-            "name": "Session recording",
-            "description": "Dive deeper into your user's behavior with browser recording, console logs and more",
-            "price_description": "<b>Early bird special!</b><br />\nThanks for being an early adopter of Session Recording! To say thanks, you get to use it for free!",
-            "type": "RECORDINGS",
-            "free_allocation": 0,
-            "tiers": [
-                { "unit_amount_usd": "0", "up_to": 1, "current_amount_usd": "0.00" },
-                { "unit_amount_usd": "0", "up_to": null, "current_amount_usd": null }
-            ],
-            "current_amount_usd": "0.00",
-            "current_usage": 0,
             "usage_limit": null,
             "has_exceeded_limit": false
         }
