@@ -29,6 +29,7 @@ export const Overview = (): JSX.Element => {
 
             <LemonCheckbox label="Bordered FullWidth" fullWidth bordered />
             <LemonCheckbox label="Bordered small" bordered size="small" />
+            <LemonCheckbox label="Bordered large" bordered size="large" />
         </div>
     )
 }
