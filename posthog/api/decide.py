@@ -15,7 +15,7 @@ from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
-from posthog.plugins.web import get_decide_web_js_inject
+from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 
@@ -160,7 +160,7 @@ def get_decide(request: HttpRequest):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
                 response["sessionRecording"] = {"endpoint": "/s/", "consoleLogRecordingEnabled": capture_console_logs}
 
-            response["inject"] = get_decide_web_js_inject(team) if team.inject_web_apps else []
+            response["siteApps"] = get_decide_site_apps(team) if team.inject_web_apps else []
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
