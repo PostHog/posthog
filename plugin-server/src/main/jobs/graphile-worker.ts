@@ -91,13 +91,19 @@ export class GraphileWorker {
     }
 
     async _enqueue(jobName: string, job: EnqueuedJob): Promise<void> {
-        const workerUtils = await this.getWorkerUtils()
-        await workerUtils.addJob(jobName, job, {
-            runAt: new Date(job.timestamp),
-            maxAttempts: 1,
-            priority: 1,
-            jobKey: job.jobKey,
-        })
+        try {
+            const workerUtils = await this.getWorkerUtils()
+            await workerUtils.addJob(jobName, job, {
+                runAt: new Date(job.timestamp),
+                maxAttempts: 1,
+                priority: 1,
+                jobKey: job.jobKey,
+            })
+            this.hub.statsd?.increment('enqueue_job.success', { jobName })
+        } catch (error) {
+            this.hub.statsd?.increment('enqueue_job.fail', { jobName })
+            throw error
+        }
     }
 
     private async getWorkerUtils(): Promise<WorkerUtils> {
