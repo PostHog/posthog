@@ -166,7 +166,7 @@ class TestDecide(BaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
             self.assertEqual(len(injected), 1)
-            self.assertEqual(injected[0]["url"], f"/site_app/{plugin_config.id}/{plugin_config.web_token}/")
+            self.assertTrue(injected[0]["url"].startswith(f"/site_app/{plugin_config.id}/{plugin_config.web_token}/"))
 
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]

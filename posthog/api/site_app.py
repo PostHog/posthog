@@ -13,7 +13,7 @@ from posthog.plugins.site import get_site_config_from_schema, get_transpiled_sit
 
 @csrf_exempt
 @timed("posthog_cloud_site_app_endpoint")
-def get_site_app(request: HttpRequest, id: int, token: str):
+def get_site_app(request: HttpRequest, id: int, token: str, hash: str) -> HttpResponse:
     try:
         source_file = get_transpiled_site_source(id, token) if token else None
         if not source_file:

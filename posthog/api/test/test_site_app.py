@@ -29,7 +29,7 @@ class TestSiteApp(BaseTest):
         )
 
         response = self.client.get(
-            f"/site_app/{plugin_config.id}/tokentoken/",
+            f"/site_app/{plugin_config.id}/tokentoken/somehash/",
             HTTP_ORIGIN="http://127.0.0.1:8000",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -39,7 +39,7 @@ class TestSiteApp(BaseTest):
         )
 
     def test_get_site_config_from_schema(self):
-        schema: List[dict] = [{"key": "in_web", "site": True}, {"key": "not_in_site"}]
+        schema: List[dict] = [{"key": "in_site", "site": True}, {"key": "not_in_site"}]
         config = {"in_site": "123", "not_in_site": "12345"}
         self.assertEqual(get_site_config_from_schema(schema, config), {"in_site": "123"})
         self.assertEqual(get_site_config_from_schema(None, None), {})
