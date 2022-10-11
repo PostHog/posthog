@@ -144,12 +144,12 @@ export function TextCardInternal(
     const otherDashboards = nameSortedDashboards.filter((dashboard) => dashboard.id !== dashboardId)
     return (
         <div
-            className={clsx('TextCard border rounded flex flex-col', className)}
+            className={clsx('TextCard rounded flex flex-col', className, showResizeHandles && 'border')}
             data-attr="text-card"
             {...divProps}
             ref={ref}
         >
-            <div className={'flex flex-row px-2 pt-2'}>
+            <div className={clsx('flex flex-row p-2', showResizeHandles ? 'border-b' : 'border')}>
                 <UserActivityIndicator
                     className={'grow'}
                     at={text.last_modified_at}
@@ -226,7 +226,6 @@ export function TextCardInternal(
                     />
                 </div>
             </div>
-            <LemonDivider />
 
             <TextCardBody text={text.body} />
 
