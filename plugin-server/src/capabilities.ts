@@ -18,9 +18,20 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return { ingestion: true, ...sharedCapabilities }
         case 'async':
             return {
-                pluginScheduledTasks: true,
                 processPluginJobs: true,
                 processAsyncHandlers: true,
+                pluginScheduledTasks: true,
+                ...sharedCapabilities,
+            }
+        case 'async-no-scheduler':
+            return {
+                processPluginJobs: true,
+                processAsyncHandlers: true,
+                ...sharedCapabilities,
+            }
+        case 'scheduler':
+            return {
+                pluginScheduledTasks: true,
                 ...sharedCapabilities,
             }
     }

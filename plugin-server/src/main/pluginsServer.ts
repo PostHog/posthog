@@ -7,7 +7,7 @@ import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
-import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
+import { Hub, JobsConsumerControl, PluginScheduleControl, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub } from '../utils/db/hub'
 import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
@@ -51,15 +51,57 @@ export async function startPluginsServer(
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
 
-    let pubSub: PubSub | undefined
+    // Structure containing initialized clients for Postgres, Kafka, Redis, etc.
     let hub: Hub | undefined
+
+    // Used to trigger reloads of plugin code/config
+    let pubSub: PubSub | undefined
+
+    // A Node Worker Thread pool
     let piscina: Piscina | undefined
-    let queue: KafkaQueue | undefined | null // ingestion queue
+
+    // Ingestion Kafka consumer. Handles both analytics events and screen
+    // recording events. The functionality roughly looks like:
+    //
+    // 1. events come in via the /e/ and friends endpoints and published to the
+    //    plugin_events_ingestion Kafka topic.
+    // 2. this queue consumes from the plugin_events_ingestion topic.
+    // 3. update or creates people in the Persons table in pg with the new event
+    //    data.
+    // 4. passes he event through `processEvent` on any plugins that the team
+    //    has enabled.
+    // 5. publishes the resulting event to a Kafka topic on which ClickHouse is
+    //    listening.
+    //
+    // The queue also handles async handlers, reading from
+    // clickhouse_events_json topic.
+    let queue: KafkaQueue | undefined | null
+
+    // Kafka consumer. Handles events that we couldn't find an existing person
+    // to associate. The buffer handles delaying the ingestion of these events
+    // (default 60 seconds) to allow for the person to be created in the
+    // meantime.
     let bufferConsumer: Consumer | undefined
+
+    // A wrapper around Graphile Worker. This is used to run jobs that are
+    // scheduled by plugins. The functionality roughly looks like:
+    //
+    // 1. running bufferJob jobs, which are scheduled from `bufferConsumer`
+    // 2. running pluginJob jobs. These are jobs that are specified in the
+    //    `jobs` attribute of plugin definitions.
+    //
+    let jobQueueConsumer: JobsConsumerControl | undefined
+
+    // A wrapper around node-schedule. It is a cron like service that runs
+    // plugin defined runEveryMinute, runEveryHour, runEveryDay.
+    let pluginScheduleControl: PluginScheduleControl | undefined
+
+    let httpServer: Server | undefined // healthcheck server
+    let mmdbServer: net.Server | undefined // geoip server
+
     let closeHub: () => Promise<void> | undefined
-    let mmdbServer: net.Server | undefined
+
     let lastActivityCheck: NodeJS.Timeout | undefined
-    let httpServer: Server | undefined
     let stopEventLoopMetrics: (() => void) | undefined
 
     async function closeJobs(): Promise<void> {
@@ -75,13 +117,13 @@ export async function startPluginsServer(
             !mmdbServer
                 ? resolve()
                 : mmdbServer.close((error) => {
-                      if (error) {
-                          reject(error)
-                      } else {
-                          status.info('🛑', 'Closed internal MMDB server!')
-                          resolve()
-                      }
-                  })
+                    if (error) {
+                        reject(error)
+                    } else {
+                        status.info('🛑', 'Closed internal MMDB server!')
+                        resolve()
+                    }
+                })
         )
         if (piscina) {
             await stopPiscina(piscina)
@@ -130,12 +172,6 @@ export async function startPluginsServer(
             hub,
         }
 
-        if (hub.capabilities.http) {
-            // start http server used for the healthcheck
-            // TODO: include bufferConsumer in healthcheck
-            httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
-        }
-
         if (!serverConfig.DISABLE_MMDB) {
             serverInstance.mmdb = (await prepareMmdb(serverInstance)) ?? undefined
             serverInstance.mmdbUpdateJob = schedule.scheduleJob(
@@ -148,6 +184,22 @@ export async function startPluginsServer(
         }
 
         piscina = makePiscina(serverConfig)
+
+        // Based on the mode the plugin server was started, we start a number of
+        // different services. Mostly this is reasonably obvious from the name.
+        // There is however the `queue` which is a little more complicated.
+        // Depending on the capabilities we start with, it will either consume
+        // from:
+        //
+        // 1. plugin_events_ingestion
+        // 2. clickhouse_events_json
+        // 3. clickhouse_events_json and plugin_events_ingestion
+        //
+        if (hub.capabilities.http) {
+            // start http server used for the healthcheck
+            // TODO: include bufferConsumer in healthcheck
+            httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
+        }
 
         if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
             const graphileWorkerError = await startGraphileWorker(hub, piscina)
@@ -193,11 +245,11 @@ export async function startPluginsServer(
             },
             ...(hub.capabilities.processAsyncHandlers
                 ? {
-                      'reload-action': async (message) =>
-                          await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-                      'drop-action': async (message) =>
-                          await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
-                  }
+                    'reload-action': async (message) =>
+                        await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
+                    'drop-action': async (message) =>
+                        await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                }
                 : {}),
         })
 
@@ -304,5 +356,5 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
     await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
     try {
         await piscina.destroy()
-    } catch {}
+    } catch { }
 }
