@@ -1,7 +1,7 @@
 import IORedis from 'ioredis'
 
 import { ONE_HOUR } from '../src/config/constants'
-import { GraphileWorker } from '../src/main/job-queues/concurrent/graphile-queue'
+import { GraphileWorker } from '../src/main/jobs/graphile-worker'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
