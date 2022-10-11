@@ -10,7 +10,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 
-@lru_cache()
+@lru_cache(maxsize=1)
 def get_team_allow_list(_ttl: int) -> List[str]:
     """
     The "allow list" will change way less frequently than it will be called
