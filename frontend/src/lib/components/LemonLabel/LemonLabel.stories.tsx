@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonLabel, LemonLabelProps } from './LemonLabel'
+import { LemonModal } from '@posthog/lemon-ui'
 
 export default {
     title: 'Lemon UI/Lemon Label',
@@ -29,7 +30,19 @@ Basic.args = {
     children: 'Label',
 }
 
+function ExplanationModal({ setOpen, open }: { setOpen: (open: boolean) => void; open: boolean }): JSX.Element {
+    return (
+        <LemonModal title="Let me explain you the label" isOpen={open} onClose={() => setOpen(false)}>
+            <div className="bg-white w-full max-w-lg h-full ml-auto relative z-10 overflow-auto">
+                <h3 className="text-lg text-semibold opacity-50 m-0">Labels are awesome.</h3>
+                <p>They truly are.</p>
+            </div>
+        </LemonModal>
+    )
+}
+
 export const Overview = (): JSX.Element => {
+    const [open, setOpen] = useState(false)
     return (
         <div className="flex flex-col gap-2">
             <LemonLabel>Basic</LemonLabel>
@@ -41,6 +54,8 @@ export const Overview = (): JSX.Element => {
             <LemonLabel info={'I am some extra info'}>
                 Label with info <span>custom subtext</span>
             </LemonLabel>
+            <LemonLabel onExplanationClick={() => setOpen(true)}>Label with explanation modal</LemonLabel>
+            <ExplanationModal open={open} setOpen={setOpen} />
         </div>
     )
 }
