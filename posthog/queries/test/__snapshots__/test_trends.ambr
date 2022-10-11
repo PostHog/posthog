@@ -1149,9 +1149,9 @@
     (SELECT any(session_duration) as session_duration,
             breakdown_value
      FROM
-       (SELECT sessions."$session_id",
-               session_duration,
-               replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
+       (SELECT sessions.$session_id,
+                        session_duration,
+                        replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
         FROM events e
         INNER JOIN
           (SELECT $session_id,
@@ -1167,8 +1167,8 @@
           AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0), 'UTC'), 'UTC')
           AND timestamp <= toDateTime('2020-01-04 23:59:59')
           AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
-     GROUP BY sessions."$session_id",
-              breakdown_value)
+     GROUP BY sessions.$session_id,
+                       breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
   '
@@ -1209,9 +1209,9 @@
     (SELECT any(session_duration) as session_duration,
             breakdown_value
      FROM
-       (SELECT sessions."$session_id",
-               session_duration,
-               replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
+       (SELECT sessions.$session_id,
+                        session_duration,
+                        replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
         FROM events e
         INNER JOIN
           (SELECT $session_id,
@@ -1227,8 +1227,8 @@
           AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
           AND timestamp <= toDateTime('2020-01-04 23:59:59')
           AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
-     GROUP BY sessions."$session_id",
-              breakdown_value)
+     GROUP BY sessions.$session_id,
+                       breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
   '
@@ -1283,9 +1283,9 @@
     (SELECT any(session_duration) as session_duration,
             breakdown_value
      FROM
-       (SELECT sessions."$session_id",
-               session_duration,
-               replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS breakdown_value
+       (SELECT sessions.$session_id,
+                        session_duration,
+                        replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS breakdown_value
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -1315,8 +1315,8 @@
           AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0), 'UTC'), 'UTC')
           AND timestamp <= toDateTime('2020-01-04 23:59:59')
           AND replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') in (['some_val', 'another_val']) )
-     GROUP BY sessions."$session_id",
-              breakdown_value)
+     GROUP BY sessions.$session_id,
+                       breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
   '
@@ -1525,10 +1525,10 @@
                      day_start,
                      breakdown_value
               FROM
-                (SELECT sessions."$session_id",
-                        session_duration,
-                        toStartOfWeek(timestamp, 0, 'UTC') as day_start,
-                        replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                (SELECT sessions.$session_id,
+                                 session_duration,
+                                 toStartOfWeek(timestamp, 0, 'UTC') as day_start,
+                                 replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
                  FROM events AS e
                  INNER JOIN
                    (SELECT $session_id,
@@ -1544,9 +1544,9 @@
                    AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0), 'UTC'), 'UTC')
                    AND timestamp <= toDateTime('2020-01-04 23:59:59')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
-              GROUP BY sessions."$session_id",
-                       day_start,
-                       breakdown_value)
+              GROUP BY sessions.$session_id,
+                                day_start,
+                                breakdown_value)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -1619,10 +1619,10 @@
                      day_start,
                      breakdown_value
               FROM
-                (SELECT sessions."$session_id",
-                        session_duration,
-                        toStartOfDay(timestamp, 'UTC') as day_start,
-                        replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                (SELECT sessions.$session_id,
+                                 session_duration,
+                                 toStartOfDay(timestamp, 'UTC') as day_start,
+                                 replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
                  FROM events AS e
                  INNER JOIN
                    (SELECT $session_id,
@@ -1638,9 +1638,9 @@
                    AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
                    AND timestamp <= toDateTime('2020-01-04 23:59:59')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
-              GROUP BY sessions."$session_id",
-                       day_start,
-                       breakdown_value)
+              GROUP BY sessions.$session_id,
+                                day_start,
+                                breakdown_value)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
