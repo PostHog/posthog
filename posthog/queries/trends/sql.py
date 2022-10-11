@@ -214,10 +214,10 @@ BREAKDOWN_ACTIVE_USER_INNER_SQL = """
 SELECT counts as total, timestamp as day_start, breakdown_value
 FROM (
     SELECT d.timestamp, COUNT(DISTINCT person_id) counts, breakdown_value FROM (
-        SELECT toStartOfDay(toDateTime(timestamp), %(timezone)s) as timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
+        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (
-        SELECT toStartOfDay(toDateTime(timestamp), %(timezone)s) as timestamp, {person_id_alias}.person_id AS person_id, {breakdown_value} as breakdown_value
+        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as timestamp, {person_id_alias}.person_id AS person_id, {breakdown_value} as breakdown_value
         FROM events e
         {person_join}
         {groups_join}

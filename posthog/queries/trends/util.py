@@ -77,7 +77,11 @@ def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, te
     diff = timedelta(days=7) if entity.math == WEEKLY_ACTIVE else timedelta(days=30)
     if filter.date_from:
         prev_range = (filter.date_from - diff).strftime("%Y-%m-%d %H:%M:%S")
-        params.update({"parsed_date_from_prev_range": f"AND timestamp >= toDateTime('{prev_range}', %(timezone)s)"})
+        params.update(
+            {
+                "parsed_date_from_prev_range": f"AND toDateTime(timestamp, 'UTC') >= toDateTime('{prev_range}', %(timezone)s)"
+            }
+        )
     else:
         try:
             earliest_date = get_earliest_timestamp(team_id)
@@ -85,7 +89,11 @@ def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, te
             raise ValidationError("Active User queries require a lower date bound")
         else:
             prev_range = (earliest_date - diff).strftime("%Y-%m-%d %H:%M:%S")
-            params.update({"parsed_date_from_prev_range": f"AND timestamp >= toDateTime('{prev_range}', %(timezone)s)"})
+            params.update(
+                {
+                    "parsed_date_from_prev_range": f"AND toDateTime(timestamp, 'UTC') >= toDateTime('{prev_range}', %(timezone)s)"
+                }
+            )
 
     return params
 
