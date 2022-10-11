@@ -7,6 +7,12 @@ import { Card } from 'antd'
 import { Chart, ChartItem } from 'chart.js'
 import { range } from 'lib/utils'
 
+export const scene: SceneExport = {
+    component: AppMetrics,
+    logic: appMetricsSceneLogic,
+    paramsToProps: ({ params: { pluginConfigId } }) => ({ pluginConfigId: parseInt(pluginConfigId) ?? 0 }),
+}
+
 export function AppMetrics(): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -105,10 +111,4 @@ export function AppMetrics(): JSX.Element {
             </Card>
         </div>
     )
-}
-
-export const scene: SceneExport = {
-    component: AppMetrics,
-    logic: appMetricsSceneLogic,
-    paramsToProps: ({ params: { pluginConfigId } }) => ({ pluginConfigId: parseInt(pluginConfigId) ?? 0 }),
 }
