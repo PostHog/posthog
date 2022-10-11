@@ -1678,3 +1678,14 @@ export function IconMarkdown(props: SvgIconProps): JSX.Element {
         </SvgIcon>
     )
 }
+
+export function IconFullScreen(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M5 14H3V20H10V18H5V14Z" fill="currentColor" />
+            <path d="M10 6L10 4L3 4L3 10L5 10L5 6L10 6Z" fill="currentColor" />
+            <path d="M19 14H21V20H14V18H19V14Z" fill="currentColor" />
+            <path d="M14 6L14 4L21 4L21 10L19 10L19 6L14 6Z" fill="currentColor" />
+        </SvgIcon>
+    )
+}

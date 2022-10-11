@@ -1,7 +1,7 @@
 @import '../../../styles/mixins';
 
 .session-player-v2,
-.session-player-v3 {
+.SessionPlayerV3 {
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -88,6 +88,7 @@
         width: 100%;
         overflow: hidden;
         border: 1px solid var(--border);
+        border-radius: var(--radius);
         background-color: var(--bg-depth);
         display: flex;
         justify-content: center;
@@ -155,13 +156,13 @@
     }
 }
 
-.session-player-v3 {
+.SessionPlayerV3 {
     .session-player-body {
         height: 500px;
         min-height: 500px;
 
         .player-container {
-            padding: 10px;
+            padding: 0.5rem;
         }
     }
 
@@ -193,6 +194,30 @@
             .rrweb-controller__bottom {
                 width: 100%;
                 height: 32px;
+            }
+        }
+    }
+
+    &.SessionPlayerV3--fullscreen {
+        position: fixed;
+        left: 0px;
+        top: 0px;
+        right: 0px;
+        bottom: 0px;
+        overflow-y: auto;
+        background-color: var(--white);
+        z-index: var(--z-modal);
+
+        .session-player-body {
+            height: 100%;
+            min-height: auto;
+            flex: 1;
+            .player-container {
+                padding: 0rem;
+            }
+
+            .rrweb-player {
+                border-radius: 0px;
             }
         }
     }

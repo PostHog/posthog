@@ -20,7 +20,7 @@ export function PlayerFilter({ sessionRecordingId, playerKey, matching }: Sessio
     const { windowIds } = useValues(metaLogic(logicProps))
 
     return (
-        <div className="flex justify-between gap-2 bg-side p-2 flex-wrap">
+        <div className="PlayerFilter flex justify-between gap-2 bg-side p-2 flex-wrap">
             <div className="flex items-center gap-2">
                 {tab === SessionRecordingTab.EVENTS && (
                     <>
