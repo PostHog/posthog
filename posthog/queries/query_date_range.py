@@ -217,8 +217,6 @@ class QueryDateRange:
         round_interval = False
         if self._filter.interval in ["week", "month"]:
             round_interval = True
-        else:
-            round_interval = self.time_difference.total_seconds() >= TIME_IN_SECONDS[self._filter.interval] * 2
 
         return round_interval
 
