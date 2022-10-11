@@ -86,7 +86,8 @@ class TestAccessMiddleware(APIBaseTest):
 class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
     # On Cloud there's an additional multi_tenancy_organizationbilling query
-    BASE_APP_NUM_QUERIES = 39 if not settings.MULTI_TENANCY else 40
+    IS_CLOUD_QUERIES = 5  # Checks to is_cloud hit the DB in TEST mode
+    BASE_APP_NUM_QUERIES = IS_CLOUD_QUERIES + (39 if not settings.MULTI_TENANCY else 40)
 
     second_team: Team
 
