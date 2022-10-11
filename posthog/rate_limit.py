@@ -30,6 +30,7 @@ def is_rate_limit_enabled(_ttl: int) -> bool:
 
 
 path_by_team_pattern = re.compile(r"/api/projects/(\d+)/")
+path_by_org_pattern = re.compile(r"/api/organizations/(.+)/")
 
 
 class PassThroughTeamRateThrottle(SimpleRateThrottle):
@@ -59,6 +60,7 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
                 path = getattr(request, "path", None)
                 if path:
                     path = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
+                    path = path_by_org_pattern.sub("/api/organizations/ORG_ID/", path)
 
                 if self.team_is_allowed_to_bypass_throttle(team_id):
                     incr(

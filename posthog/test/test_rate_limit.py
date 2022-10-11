@@ -177,7 +177,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": None,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": f"/api/organizations/{self.organization.pk}/plugins",
+                "path": f"/api/organizations/ORG_ID/plugins",
             },
         )
 
