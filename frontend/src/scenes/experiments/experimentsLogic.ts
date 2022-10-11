@@ -56,7 +56,7 @@ export const experimentsLogic = kea<experimentsLogicType>({
     }),
     selectors: ({ values }) => ({
         getExperimentStatus: [
-            () => [],
+            (s) => [s.experiments],
             () =>
                 (experiment: Experiment): ExperimentStatus => {
                     if (!experiment.start_date) {
