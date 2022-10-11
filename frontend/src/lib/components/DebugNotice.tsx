@@ -29,14 +29,14 @@ export function DebugNotice(): JSX.Element {
 
     return (
         <div className="bg-white cursor-pointer border-t" onClick={() => setNoticeHidden(true)}>
-            <div className="py-1 px-2 border-l-4 border-primary text-primary  truncate flex justify-between">
+            <div className="py-1 px-2 border-l-4 border-primary text-primary-dark  truncate flex justify-between">
                 <b>DEBUG mode</b>
                 <LemonButton icon={<IconClose />} size="small" onClick={() => setNoticeHidden(true)} />
             </div>
-            <div className="py-1 px-2 border-l-4 border-danger text-danger  truncate">
+            <div className="py-1 px-2 border-l-4 border-danger text-danger-dark  truncate">
                 Branch: <b>{debugInfo.branch}</b>
             </div>
-            <div className="py-1 px-2 border-l-4 border-warning text-warning  truncate">
+            <div className="py-1 px-2 border-l-4 border-warning text-warning-dark  truncate">
                 Revision: <b>{debugInfo.revision}</b>
             </div>
             <div className="py-1 px-2 border-l-4 border-default font-bold">Click to hide</div>
