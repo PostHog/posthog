@@ -4,17 +4,12 @@ import * as schedule from 'node-schedule'
 import { Hub, PluginConfigId, PluginScheduleControl } from '../../types'
 import { processError } from '../../utils/db/error'
 import { cancelAllScheduledJobs } from '../../utils/node-schedule'
-import { startRedlock } from '../../utils/redlock'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
 
 export const LOCKED_RESOURCE = 'plugin-server:locks:schedule'
 
-export async function startPluginSchedules(
-    server: Hub,
-    piscina: Piscina,
-    onLock?: () => void
-): Promise<PluginScheduleControl> {
+export async function startPluginSchedules(server: Hub, piscina: Piscina): Promise<PluginScheduleControl> {
     status.info('⏰', 'Starting scheduling service...')
 
     // Import this just to trigger build on ts-node-dev
@@ -22,7 +17,7 @@ export async function startPluginSchedules(
     require('../../worker/worker')
 
     let stopped = false
-    let weHaveTheLock = false
+    const weHaveTheLock = false
 
     let pluginSchedulePromise = loadPluginSchedule(piscina)
     server.pluginSchedule = await pluginSchedulePromise
@@ -46,24 +41,10 @@ export async function startPluginSchedules(
             runScheduleDebounced(server!, piscina!, 'runEveryDay')
     })
 
-    const unlock = await startRedlock({
-        server,
-        resource: LOCKED_RESOURCE,
-        onLock: () => {
-            weHaveTheLock = true
-            onLock?.()
-        },
-        onUnlock: () => {
-            weHaveTheLock = false
-        },
-        ttl: server.SCHEDULE_LOCK_TTL,
-    })
-
     const stopSchedule = async () => {
         stopped = true
         cancelAllScheduledJobs()
 
-        await unlock()
         await waitForTasksToFinish(server)
     }
 
