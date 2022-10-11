@@ -67,6 +67,7 @@ class QueryDateRange:
     def _localize_to_team(self, target: datetime):
         return target.astimezone(pytz.timezone(self._team.timezone))
 
+    # TODO: logic mirrors util function
     def _parse_date(self, input):
 
         try:
