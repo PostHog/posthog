@@ -194,6 +194,7 @@ export class HookCommander {
         }
 
         const webhookUrl = team.slack_incoming_webhook
+        const organization = await this.organizationManager.fetchOrganization(team.organization_id)
 
         if (webhookUrl) {
             const webhookRequests = actionMatches
@@ -202,7 +203,7 @@ export class HookCommander {
             await Promise.all(webhookRequests).catch((error) => captureException(error))
         }
 
-        if (await this.organizationManager.hasAvailableFeature(team.id, 'zapier', team)) {
+        if (organization!.available_features.includes('zapier')) {
             const restHooks = actionMatches.map(({ hooks }) => hooks).flat()
 
             if (restHooks.length > 0) {
