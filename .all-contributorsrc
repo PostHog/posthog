@@ -2187,6 +2187,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "codepitbull",
+      "name": "Jochen Mader",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1409931?v=4",
+      "profile": "http://codepitbull.de",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
