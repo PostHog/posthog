@@ -8,11 +8,12 @@ class AppMetricsRequestSerializer(serializers.Serializer):
         help_text="What date to filter the results from",
         required=True,
     )
-    date_from = serializers.ChoiceField(
-        choices=["-7d", "-30d"], help_text="What date to filter the results from", default="-30d"
+    date_from = serializers.CharField(
+        default="-30d",
+        help_text="What date to filter the results from. Can either be a date `2021-01-01`, or a relative date, like `-7d` for last seven days, `-1m` for last month, `mStart` for start of the month or `yStart` for the start of the year.",
     )
     date_to = serializers.CharField(
         required=False,
-        help_text="What date to filter the results to",
+        help_text="What date to filter the results to. Can either be a date `2021-01-01`, or a relative date, like `-7d` for last seven days, `-1m` for last month, `mStart` for start of the month or `yStart` for the start of the year.",
     )
     job_id = serializers.CharField(help_text="Set this to filter results to a particular job", required=False)

@@ -127,6 +127,52 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
 
     @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
+    def test_filter_by_hourly_date_range(self):
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-05T00:10:00Z",
+            successes=2,
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            job_id="67890",
+            timestamp="2021-12-05T01:20:00Z",
+            successes=1,
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-05T02:10:00Z",
+            successes=3,
+        )
+        filter = self.make_filter(category="processEvent", date_from="-13h", date_to="-5h")
+
+        results = AppMetricsQuery(self.team, 3, filter).run()
+
+        self.assertEqual(
+            results["dates"],
+            [
+                "2021-12-05 00:00:00",
+                "2021-12-05 01:00:00",
+                "2021-12-05 02:00:00",
+                "2021-12-05 03:00:00",
+                "2021-12-05 04:00:00",
+                "2021-12-05 05:00:00",
+                "2021-12-05 06:00:00",
+                "2021-12-05 07:00:00",
+                "2021-12-05 08:00:00",
+            ],
+        )
+        self.assertEqual(results["successes"], [2, 1, 3, 0, 0, 0, 0, 0, 0])
+        self.assertEqual(results["totals"], {"successes": 6, "successes_on_retry": 0, "failures": 0})
+
+    @freeze_time("2021-12-05T13:23:00Z")
+    @snapshot_clickhouse_queries
     def test_ignores_unrelated_data(self):
         # Positive examples: testing time bounds
         create_app_metric(
@@ -178,7 +224,7 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
             category="processEvent",
             plugin_config_id=3,
             timestamp="2021-12-06T00:00:00Z",
-            failures=3,
+            failures=5,
         )
 
         filter = self.make_filter(category="processEvent", date_from="-7d")

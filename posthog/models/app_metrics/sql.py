@@ -104,31 +104,31 @@ FROM (
         sum(failures) AS failures
     FROM (
         SELECT
-            toStartOfDay(toDateTime(%(date_from)s) + toIntervalDay(number), %(timezone)s) AS date,
+            dateTrunc(%(interval)s, toDateTime(%(date_from)s) + {interval_function}(number), %(timezone)s) AS date,
             0 AS successes,
             0 AS successes_on_retry,
             0 AS failures
         FROM numbers(
             dateDiff(
-                'day',
-                dateTrunc('day', toDateTime(%(date_from)s), %(timezone)s),
-                dateTrunc('day', toDateTime(%(date_to)s) + INTERVAL 1 DAY, %(timezone)s)
+                %(interval)s,
+                dateTrunc(%(interval)s, toDateTime(%(date_from)s), %(timezone)s),
+                dateTrunc(%(interval)s, toDateTime(%(date_to)s) + {interval_function}(1), %(timezone)s)
             )
         )
         UNION ALL
         SELECT
-            toStartOfDay(timestamp, %(timezone)s) AS date,
+            dateTrunc(%(interval)s, timestamp, %(timezone)s) AS date,
             sum(successes) AS successes,
             sum(successes_on_retry) AS successes_on_retry,
             sum(failures) AS failures
         FROM app_metrics
         WHERE team_id = %(team_id)s
-        AND plugin_config_id = %(plugin_config_id)s
-        AND category = %(category)s
-        {job_id_clause}
-        AND timestamp >= %(date_from)s
-        AND timestamp < %(date_to)s
-        GROUP BY toStartOfDay(timestamp, %(timezone)s)
+          AND plugin_config_id = %(plugin_config_id)s
+          AND category = %(category)s
+          {job_id_clause}
+          AND timestamp >= %(date_from)s
+          AND timestamp < %(date_to)s
+        GROUP BY dateTrunc(%(interval)s, timestamp, %(timezone)s)
     )
     GROUP BY date
     ORDER BY date
