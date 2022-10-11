@@ -1,3 +1,4 @@
+import re
 import time
 from functools import lru_cache
 from typing import List, Optional
@@ -7,7 +8,7 @@ from sentry_sdk.api import capture_exception
 
 from posthog.internal_metrics import incr
 from posthog.models.instance_setting import get_instance_setting
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings.utils import get_list
 
 
 @lru_cache(maxsize=1)
@@ -19,10 +20,19 @@ def get_team_allow_list(_ttl: int) -> List[str]:
     return get_list(get_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS"))
 
 
-class PassThroughTeamRateThrottle(SimpleRateThrottle):
-    def rate_limit_enabled(self):
-        return get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
+@lru_cache(maxsize=1)
+def is_rate_limit_enabled(_ttl: int) -> bool:
+    """
+    The setting will change way less frequently than it will be called
+    _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
+    """
+    return get_instance_setting("RATE_LIMIT_ENABLED")
 
+
+path_by_team_pattern = re.compile(r"/api/projects/(\d+)/")
+
+
+class PassThroughTeamRateThrottle(SimpleRateThrottle):
     @staticmethod
     def safely_get_team_id_from_view(view):
         """
@@ -37,7 +47,7 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
             return None
 
     def allow_request(self, request, view):
-        if not self.rate_limit_enabled():
+        if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
         # As we're figuring out what our throttle limits should be, we don't actually want to throttle anything.
@@ -46,19 +56,22 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
         if not request_would_be_allowed:
             try:
                 team_id = self.safely_get_team_id_from_view(view)
+                path = getattr(request, "path", None)
+                if path:
+                    path = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
+
                 if self.team_is_allowed_to_bypass_throttle(team_id):
                     incr(
                         "team_allowed_to_bypass_rate_limit_exceeded",
-                        tags={
-                            "team_id": team_id,
-                        },
+                        tags={"team_id": team_id, "path": path},
                     )
                 else:
                     scope = getattr(self, "scope", None)
                     rate = getattr(self, "rate", None)
+
                     incr(
                         "rate_limit_exceeded",
-                        tags={"team_id": team_id, "scope": scope, "rate": rate},
+                        tags={"team_id": team_id, "scope": scope, "rate": rate, "path": path},
                     )
             except Exception as e:
                 capture_exception(e)
