@@ -16,7 +16,6 @@ import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { SessionRecordingPreview } from '../preview/SessionRecordingPreview'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -98,7 +97,6 @@ export function SessionRecordingPlayerV3({
 
     return (
         <>
-            <SessionRecordingPreview sessionRecordingId={sessionRecordingId} playerKey={'test-thing'} />
             <div
                 className={clsx('SessionPlayerV3', { 'SessionPlayerV3--fullscreen': isFullScreen })}
                 onKeyDown={handleKeyDown}

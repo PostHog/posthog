@@ -12,6 +12,7 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
 import { SessionRecordingsFilters } from './filters/SessionRecordingsFilters'
+import { SessionRecordingPreview } from './preview/SessionRecordingPreview'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -43,6 +44,13 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                 {colonDelimitedDuration(sessionRecording.recording_duration)}
                             </span>
                         </div>
+
+                        <SessionRecordingPreview
+                            key={sessionRecording.id}
+                            sessionRecordingId={sessionRecording.id}
+                            recordingStartTime={sessionRecording.start_time}
+                            playerKey={'playlist'}
+                        />
                     </div>
                 )
             },
