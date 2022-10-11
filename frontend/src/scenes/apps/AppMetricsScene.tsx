@@ -5,6 +5,7 @@ import { appMetricsSceneLogic, AppMetricsTab } from 'scenes/apps/appMetricsScene
 import { PageHeader } from 'lib/components/PageHeader'
 import { useValues, useActions } from 'kea'
 import { MetricsTab } from './MetricsTab'
+import { HistoricalExportsTab } from './HistoricalExportsTab'
 
 export const scene: SceneExport = {
     component: AppMetrics,
@@ -30,7 +31,7 @@ export function AppMetrics(): JSX.Element {
                     <MetricsTab />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="Historical Exports" key={AppMetricsTab.HistoricalExports}>
-                    <div>Hello!</div>
+                    <HistoricalExportsTab />
                 </Tabs.TabPane>
             </Tabs>
         </div>

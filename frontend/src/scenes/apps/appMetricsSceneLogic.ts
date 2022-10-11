@@ -34,6 +34,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
 
     actions({
         setActiveTab: (tab: AppMetricsTab) => ({ tab }),
+        setOpenExportSections: (sections: Array<HistoricalExportInfo['job_id']>) => ({ sections }),
     }),
 
     reducers({
@@ -41,6 +42,13 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             AppMetricsTab.Metrics as AppMetricsTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+
+        openExportSections: [
+            [] as Array<HistoricalExportInfo['job_id']>,
+            {
+                setOpenExportSections: (_, { sections }) => sections,
             },
         ],
     }),
