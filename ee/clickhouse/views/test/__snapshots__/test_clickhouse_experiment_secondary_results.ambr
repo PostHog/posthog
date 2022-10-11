@@ -45,7 +45,7 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') as breakdown_value
            FROM events e
            WHERE e.team_id = 2

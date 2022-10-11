@@ -52,7 +52,7 @@
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp, 'UTC')) as date
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -114,7 +114,7 @@
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp, 'UTC')) as date
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM
           (SELECT e.timestamp as timestamp,
                   e."properties" as "properties"
@@ -172,7 +172,7 @@
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp, 'UTC')) as date
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM
           (SELECT e.timestamp as timestamp
            FROM events e
@@ -257,7 +257,7 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
-                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             breakdown_value
            FROM
              (SELECT person_id,
@@ -335,7 +335,7 @@
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp, 'UTC')) as date
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM
           (SELECT person_id,
                   min(timestamp) as timestamp
@@ -432,7 +432,7 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
@@ -552,14 +552,14 @@
                      COUNT(DISTINCT person_id) counts,
                      breakdown_value
               FROM
-                (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp
+                (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as timestamp
                  FROM events e
                  WHERE team_id = 2
-                   AND timestamp >= toDateTime('2011-12-25 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
                  GROUP BY timestamp) d
               CROSS JOIN
-                (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp,
+                (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as timestamp,
                         pdi.person_id AS person_id,
                         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
                  FROM events e
@@ -586,7 +586,7 @@
                          AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
-                   AND timestamp >= toDateTime('2011-12-25 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
                  GROUP BY timestamp,
                           person_id,
@@ -641,7 +641,7 @@
              AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2011-12-25 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))) )
   GROUP BY actor_id
@@ -664,7 +664,7 @@
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp, 'UTC')) as date
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -700,7 +700,7 @@
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-14 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp, 'UTC')) as date
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -736,7 +736,7 @@
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp, 'UTC')) as date
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -772,7 +772,7 @@
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp, 'UTC')) as date
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -808,7 +808,7 @@
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT "$group_0") as data,
-                         toStartOfDay(toDateTime(timestamp, 'UTC')) as date
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM
           (SELECT e.timestamp as timestamp,
                   e."$group_0" as "$group_0"
@@ -857,7 +857,7 @@
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT "$session_id") as data,
-                         toStartOfDay(toDateTime(timestamp, 'UTC')) as date
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM
           (SELECT e.timestamp as timestamp,
                   e."$session_id" as "$session_id"
