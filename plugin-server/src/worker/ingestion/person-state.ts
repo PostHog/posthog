@@ -260,6 +260,17 @@ export class PersonState {
     // Alias & merge
 
     async handleIdentifyOrAlias(): Promise<void> {
+        /**
+         * strategy:
+         *   - if the two distinct ids passed don't match and aren't illegal, then mark `is_identified` to be true for the `distinct_id` person
+         *   - if a person doesn't exist for either distinct id passed we create the person with both ids
+         *   - if only one person exists we add the other distinct id
+         *   - if the distinct ids belong to different already existing persons we try to merge them:
+         *     - the merge is blocked if the other distinct id (`anon_distinct_id` or `alias` event property) person has `is_identified` true.
+         *     - we merge into `distinct_id` person:
+         *       - both distinct ids used in the future will map to the person id that was associated with `distinct_id` before
+         *       - if person property was defined for both we'll use `distinct_id` person's property going forward
+         */
         const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
         try {
             if (this.event.event === '$create_alias' && this.eventProperties['alias']) {
@@ -330,9 +341,6 @@ export class PersonState {
             return
         }
 
-        // The first distinct_id that is used in identify or alias (not the alias_id nor anon_id)
-        // cannot be used as alias_id nor anon_id in the future.
-        // Specifically we block merges on anon_id (and soon alias_id) being identified person already.
         this.updateIsIdentified = true
 
         const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
