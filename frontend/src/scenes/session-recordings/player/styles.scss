@@ -173,20 +173,6 @@
         border: none;
     }
 
-    .player-filter {
-        background-color: var(--side);
-        padding: 0.5rem;
-        gap: 0.75rem;
-        row-gap: 0.5rem !important;
-
-        .player-filter-matching-events {
-            min-height: 2.5rem;
-            padding-top: 0.25rem;
-            padding-bottom: 0.25rem;
-            background-color: var(--bg-light);
-        }
-    }
-
     .player-controller {
         padding: 0.75rem;
 
@@ -292,5 +278,45 @@
 
     .ant-drawer-close {
         padding: 1rem;
+    }
+}
+.PlayerControllerV3 {
+    background-color: var(--bg-light);
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding: 0.75rem;
+
+    > * {
+        user-select: none;
+    }
+
+    .rrweb-controller-icon {
+        cursor: pointer;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+
+        .rrweb-controller-icon-seek {
+            position: relative;
+            height: 18px;
+            width: 18px;
+
+            span.seek-seconds {
+                position: absolute;
+                height: 18px;
+                width: 18px;
+                line-height: 18px;
+                font-size: 6px;
+                text-align: center;
+            }
+
+            .seek-icon {
+                position: absolute;
+                top: 0;
+                left: 0;
+                font-size: 18px;
+            }
+        }
     }
 }
