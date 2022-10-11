@@ -86,15 +86,11 @@ class TrendsTotalVolume:
                 content_sql = VOLUME_SQL.format(
                     event_query=cumulative_sql, start_of_week_fix=start_of_week_fix(filter), **content_sql_params
                 )
-            elif entity.math_property == EVENT_COUNT_PER_ACTOR and entity.math != "sum":
+            elif entity.math_property == EVENT_COUNT_PER_ACTOR:
                 # Calculate average number of events per actor
                 # (only including actors with at least one matching event in a period)
-                # Ideas:
-                # 1. Support groups
-                # 2. Support specifying a different event qualifying an active user
-                #    (e.g. for calculating the average number of insights saved per user who clicked "New insight")
-                # Note: When `math_property == EVENT_COUNT_PER_ACTOR` is combined with `math == "sum"`, there's no point
-                # in per-actor aggregation (this case is equivalent to the default - and simpler - `math == "total")
+                # Note: When `math_property == EVENT_COUNT_PER_ACTOR` is combined with `math == "sum"`, the results are
+                # identical to `math == 'total'`
                 content_sql = VOLUME_PER_ACTOR_SQL.format(
                     event_query=event_query,
                     start_of_week_fix=start_of_week_fix(filter),
