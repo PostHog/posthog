@@ -59,7 +59,6 @@ describe('licenseLogic', () => {
                 .toMatchValues({
                     relevantLicense: {
                         id: 3,
-                        key: 'abc',
                         plan: LicensePlan.Enterprise,
                         valid_until: '2078-04-28T12:00:00.000Z',
                         created_at: '2022-04-28T12:00:00.000Z',
