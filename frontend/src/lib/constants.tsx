@@ -136,6 +136,7 @@ export const FEATURE_FLAGS = {
     REGION_SELECT: 'region-select', //owner: @kappa90
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
     HOG_BOOK: 'hog-book', // owner: @pauldambra
+    EVENT_COUNT_PER_ACTOR: 'event-count-per-actor', // owner: @Twixes
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
