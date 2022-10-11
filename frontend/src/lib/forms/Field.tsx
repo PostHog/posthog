@@ -9,6 +9,8 @@ export type PureFieldProps = {
     label?: React.ReactNode
     /** Will show a muted (optional) next to the label */
     showOptional?: boolean
+    /** Will show a clickable (what is this?) next to the label, useful if we want to toggle explanation modals on click */
+    onExplanationClick?: () => void
     /** Info tooltip to be displayed next to the label */
     info?: React.ReactNode
     /** Help text to be shown directly beneath the input */
@@ -17,6 +19,7 @@ export type PureFieldProps = {
     error?: React.ReactNode
     className?: string
     children?: React.ReactNode
+    onClick?: () => void
 }
 
 /** A "Pure" field - used when you want the Field styles without the Kea form functionality */
@@ -26,13 +29,22 @@ export const PureField = ({
     error,
     help,
     showOptional,
+    onExplanationClick,
     className,
     children,
+    onClick,
 }: PureFieldProps): JSX.Element => {
     return (
-        <div className={clsx('Field flex flex-col gap-2', className, error && 'Field--error')}>
+        <div onClick={onClick} className={clsx('Field flex flex-col gap-2', className, error && 'Field--error')}>
             {label ? (
-                <LemonLabel info={info} showOptional={showOptional}>
+                <LemonLabel
+                    info={info}
+                    showOptional={showOptional}
+                    onExplanationClick={onExplanationClick}
+                    className={clsx({
+                        'cursor-pointer': !!onClick,
+                    })}
+                >
                     {label}
                 </LemonLabel>
             ) : null}
