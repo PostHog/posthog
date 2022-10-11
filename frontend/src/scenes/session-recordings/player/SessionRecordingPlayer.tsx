@@ -16,6 +16,7 @@ import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { SessionRecordingPreview } from '../preview/SessionRecordingPreview'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -96,23 +97,26 @@ export function SessionRecordingPlayerV3({
     }
 
     return (
-        <div
-            className={clsx('SessionPlayerV3', { 'SessionPlayerV3--fullscreen': isFullScreen })}
-            onKeyDown={handleKeyDown}
-            tabIndex={0}
-        >
-            {includeMeta ? <PlayerMetaV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} /> : null}
-            <div className="session-player-body flex">
-                <div className="player-container ph-no-capture">
-                    <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
+        <>
+            <SessionRecordingPreview sessionRecordingId={sessionRecordingId} playerKey={'test-thing'} />
+            <div
+                className={clsx('SessionPlayerV3', { 'SessionPlayerV3--fullscreen': isFullScreen })}
+                onKeyDown={handleKeyDown}
+                tabIndex={0}
+            >
+                {includeMeta ? <PlayerMetaV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} /> : null}
+                <div className="session-player-body flex">
+                    <div className="player-container ph-no-capture">
+                        <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
+                    </div>
                 </div>
+                <LemonDivider className="my-0" />
+                <PlayerControllerV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                <LemonDivider className="my-0" />
+                <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} matching={matching} />
+                <LemonDivider className="my-0" />
+                {!isFullScreen && <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
             </div>
-            <LemonDivider className="my-0" />
-            <PlayerControllerV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            <LemonDivider className="my-0" />
-            <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} matching={matching} />
-            <LemonDivider className="my-0" />
-            {!isFullScreen && <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
-        </div>
+        </>
     )
 }

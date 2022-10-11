@@ -110,7 +110,7 @@ export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
     }
 
     return (
-        <div ref={containerRef} className="rrweb-player" onClick={togglePlayPause}>
+        <div ref={containerRef} className="rrweb-player ph-no-capture" onClick={togglePlayPause}>
             <div className="player-frame" ref={ref} style={{ position: 'absolute' }} />
             <div className="rrweb-overlay-container">{renderPlayerState()}</div>
         </div>
