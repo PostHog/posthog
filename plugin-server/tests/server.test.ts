@@ -14,7 +14,7 @@ jest.mock('@sentry/node')
 jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/kill')
 jest.mock('../src/main/services/schedule')
-jest.mock('../src/main/jobs/job-queue-consumer')
+jest.mock('../src/main/jobs/graphile-worker')
 jest.setTimeout(60000) // 60 sec timeout
 
 function numberOfScheduledJobs() {
