@@ -150,7 +150,7 @@ export function TextCardInternal(
     const otherDashboards = nameSortedDashboards.filter((dashboard) => dashboard.id !== dashboardId)
     return (
         <div
-            className={clsx('TextCard border rounded flex flex-col overflow-hidden', className)}
+            className={clsx('TextCard border rounded flex flex-col', className)}
             data-attr="text-card"
             {...divProps}
             ref={ref}
