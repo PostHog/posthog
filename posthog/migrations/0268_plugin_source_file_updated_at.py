@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="pluginsourcefile",
             name="created_at",
-            field=models.DateTimeField(null=True, auto_now_add=True),
+            field=models.DateTimeField(blank=True, null=True, auto_now_add=True),
         ),
         migrations.AddField(
             model_name="pluginsourcefile",
