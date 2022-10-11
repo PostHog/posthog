@@ -76,7 +76,7 @@ export const experimentsLogic = kea<experimentsLogicType>({
                 selectors.getExperimentStatus,
             ],
             (experiments, searchTerm, searchStatus, tab, getExperimentStatus) => {
-                let filteredExperiments = experiments
+                let filteredExperiments: Experiment[] = experiments
 
                 if (tab === ExperimentsTabs.Archived) {
                     filteredExperiments = filteredExperiments.filter((experiment) => !!experiment.archived)
