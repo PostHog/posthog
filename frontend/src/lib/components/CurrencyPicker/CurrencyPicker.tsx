@@ -27,7 +27,7 @@ export const CurrencyPicker = ({
     value,
     onChange,
 }: {
-    value: string[]
+    value: currencies
     onChange: (currency: currencies) => void
 }): JSX.Element => {
     return (
@@ -37,7 +37,7 @@ export const CurrencyPicker = ({
             onChange={(value: string[]): void => {
                 onChange(value as unknown as currencies)
             }}
-            value={value}
+            value={value as unknown as string[]}
         />
     )
 }

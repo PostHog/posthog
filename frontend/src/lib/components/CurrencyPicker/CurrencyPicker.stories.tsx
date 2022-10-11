@@ -1,6 +1,6 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import React from 'react'
-import { CurrencyPicker } from 'lib/components/CurrencyPicker/CurrencyPicker'
+import React, { useState } from 'react'
+import { currencies, CurrencyPicker } from 'lib/components/CurrencyPicker/CurrencyPicker'
 
 export default {
     title: 'Components/Currency Picker',
@@ -8,5 +8,6 @@ export default {
 } as ComponentMeta<typeof CurrencyPicker>
 
 export const Default: ComponentStory<typeof CurrencyPicker> = () => {
-    return <CurrencyPicker />
+    const [value, setValue] = useState<currencies>([] as unknown as currencies)
+    return <CurrencyPicker value={value} onChange={(changed) => setValue(changed)} />
 }

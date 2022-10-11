@@ -6,7 +6,7 @@ import {
 } from 'scenes/insights/aggregationAxisFormat'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { CurrencyPicker, isCurrency } from 'lib/components/CurrencyPicker/CurrencyPicker'
+import { currencies, CurrencyPicker, isCurrency } from 'lib/components/CurrencyPicker/CurrencyPicker'
 import React, { useMemo, useState } from 'react'
 import { FilterType } from '~/types'
 import currencyMap from 'lib/components/CurrencyPicker/currency-map.json'
@@ -34,7 +34,7 @@ export function UnitPicker({ filters, onChange }: UnitPickerProps): JSX.Element 
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [isVisible, setIsVisible] = useState(false)
-    const [localValue, setLocalValue] = useState(filters.aggregation_axis_format)
+    const [localValue, setLocalValue] = useState(filters.aggregation_axis_format || 'numeric')
 
     const handleChange = (value: AggregationAxisFormat): void => {
         setLocalValue(value)
@@ -80,7 +80,11 @@ export function UnitPicker({ filters, onChange }: UnitPickerProps): JSX.Element 
                                     <LemonDivider />
                                     <h5>Currency</h5>
                                     <CurrencyPicker
-                                        value={isCurrency(localValue) ? [localValue as string] : []}
+                                        value={
+                                            isCurrency(localValue)
+                                                ? (localValue as currencies)
+                                                : ([] as unknown as currencies)
+                                        }
                                         onChange={(currency) => {
                                             handleChange(currency)
                                         }}
