@@ -643,10 +643,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             }
                         })
 
-                    console.log(
-                        'a',
-                        cleanLayouts.map((l) => ({ i: l.id, w: l.w, minW: l.minW }))
-                    )
                     allLayouts[col] = cleanLayouts
                 }
                 return allLayouts
