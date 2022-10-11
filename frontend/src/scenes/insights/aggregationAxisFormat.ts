@@ -1,10 +1,9 @@
 import { LemonSelectOption } from 'lib/components/LemonSelect'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { ChartDisplayType } from '~/types'
-import { currencies, isCurrency } from 'lib/components/CurrencyPicker/CurrencyPicker'
+import { ChartDisplayType, FilterType } from '~/types'
 
 const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled'] as const
-export type AggregationAxisFormat = typeof formats[number] | currencies
+export type AggregationAxisFormat = typeof formats[number]
 
 export const aggregationAxisFormatSelectOptions: LemonSelectOption<AggregationAxisFormat>[] = [
     { value: 'numeric', label: 'None' },
@@ -15,31 +14,31 @@ export const aggregationAxisFormatSelectOptions: LemonSelectOption<AggregationAx
 ]
 
 export const formatAggregationAxisValue = (
-    axisFormat: AggregationAxisFormat | undefined,
+    filters: Partial<FilterType> | undefined,
     value: number | string
 ): string => {
     value = Number(value)
-
-    if (axisFormat && isCurrency(axisFormat)) {
-        return value.toLocaleString(window.navigator.language, {
-            style: 'currency',
-            currency: axisFormat,
-        })
+    let formattedValue = humanFriendlyNumber(value)
+    if (filters?.aggregation_axis_format) {
+        switch (filters?.aggregation_axis_format) {
+            case 'duration':
+                formattedValue = humanFriendlyDuration(value)
+                break
+            case 'duration_ms':
+                formattedValue = humanFriendlyDuration(value / 1000)
+                break
+            case 'percentage':
+                formattedValue = percentage(value / 100)
+                break
+            case 'percentage_scaled':
+                formattedValue = percentage(value)
+                break
+            case 'numeric': // numeric is default
+            default:
+                break
+        }
     }
-
-    switch (axisFormat) {
-        case 'duration':
-            return humanFriendlyDuration(value)
-        case 'duration_ms':
-            return humanFriendlyDuration(value / 1000)
-        case 'percentage':
-            return percentage(value / 100)
-        case 'percentage_scaled':
-            return percentage(value)
-        case 'numeric': // numeric is default
-        default:
-            return humanFriendlyNumber(value)
-    }
+    return `${filters?.aggregation_axis_prefix || ''}${formattedValue}${filters?.aggregation_axis_postfix || ''}`
 }
 
 export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): string => {

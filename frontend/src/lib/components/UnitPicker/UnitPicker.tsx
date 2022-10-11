@@ -6,17 +6,19 @@ import {
 } from 'scenes/insights/aggregationAxisFormat'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { currencies, CurrencyPicker, isCurrency } from 'lib/components/CurrencyPicker/CurrencyPicker'
 import React, { useMemo, useState } from 'react'
-import { FilterType } from '~/types'
-import currencyMap from 'lib/components/CurrencyPicker/currency-map.json'
+import { FilterType, ItemMode } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { PureField } from 'lib/forms/Field'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { useDebouncedCallback } from 'use-debounce'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 interface UnitPickerProps {
     filters: FilterType
-    onChange?: (a: AggregationAxisFormat) => void
+    setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode | undefined) => void
 }
 
 const aggregationDisplayMap = aggregationAxisFormatSelectOptions.reduce((acc, option) => {
@@ -24,30 +26,79 @@ const aggregationDisplayMap = aggregationAxisFormatSelectOptions.reduce((acc, op
     return acc
 }, {})
 
-const currencyDisplayMap = Object.entries(currencyMap).reduce((acc, currencyMapping) => {
-    const [abbreviation, { symbol }] = currencyMapping
-    acc[abbreviation] = `${abbreviation} (${symbol})`
-    return acc
-}, {})
-
-export function UnitPicker({ filters, onChange }: UnitPickerProps): JSX.Element {
+export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [isVisible, setIsVisible] = useState(false)
-    const [localValue, setLocalValue] = useState(filters.aggregation_axis_format || 'numeric')
+    const [localAxisFormat, setLocalAxisFormat] = useState(filters.aggregation_axis_format || undefined)
+    const [localAxisPrefix, setLocalAxisPrefix] = useState(filters.aggregation_axis_prefix || '')
+    const [localAxisPostfix, setLocalAxisPostfix] = useState(filters.aggregation_axis_postfix || '')
+
+    const debouncedVisibilityChange = useDebouncedCallback(() => {
+        setIsVisible(!isVisible)
+    }, 200)
+
+    useKeyboardHotkeys(
+        {
+            escape: {
+                action: debouncedVisibilityChange,
+            },
+        },
+        []
+    )
 
     const handleChange = (value: AggregationAxisFormat): void => {
-        setLocalValue(value)
-        setIsVisible(false)
-        onChange?.(value)
+        setLocalAxisFormat(value)
+        setLocalAxisPrefix('')
+        setLocalAxisPostfix('')
+        debouncedVisibilityChange()
+        setFilters({
+            ...filters,
+            aggregation_axis_format: value,
+            aggregation_axis_prefix: undefined,
+            aggregation_axis_postfix: undefined,
+        })
+    }
+
+    const handlePrefix = (value: string): void => {
+        setLocalAxisFormat(undefined)
+        setLocalAxisPrefix(value)
+        setLocalAxisPostfix('')
+        debouncedVisibilityChange()
+        setFilters({
+            ...filters,
+            aggregation_axis_format: undefined,
+            aggregation_axis_prefix: value,
+            aggregation_axis_postfix: undefined,
+        })
+    }
+
+    const handlePostfix = (value: string): void => {
+        setLocalAxisFormat(undefined)
+        setLocalAxisPrefix('')
+        setLocalAxisPostfix(value)
+        debouncedVisibilityChange()
+        setFilters({
+            ...filters,
+            aggregation_axis_format: undefined,
+            aggregation_axis_prefix: undefined,
+            aggregation_axis_postfix: value,
+        })
     }
 
     const display = useMemo(() => {
-        if (isCurrency(localValue)) {
-            return currencyDisplayMap[localValue]
+        let displayValue = 'None'
+        if (localAxisFormat) {
+            displayValue = aggregationDisplayMap[localAxisFormat]
         }
-        return aggregationDisplayMap[localValue]
-    }, [localValue])
+        if (localAxisPrefix?.length) {
+            displayValue = `prefix: ${localAxisPrefix}`
+        }
+        if (localAxisPostfix?.length) {
+            displayValue = `postfix: ${localAxisPostfix}`
+        }
+        return displayValue
+    }, [localAxisFormat, localAxisPrefix, localAxisPostfix])
 
     return (
         <>
@@ -69,7 +120,7 @@ export function UnitPicker({ filters, onChange }: UnitPickerProps): JSX.Element 
                                     key={index}
                                     onClick={() => handleChange(value)}
                                     status="stealth"
-                                    active={value === localValue}
+                                    active={value === localAxisFormat}
                                     fullWidth
                                 >
                                     {label}
@@ -78,17 +129,20 @@ export function UnitPicker({ filters, onChange }: UnitPickerProps): JSX.Element 
                             {!!featureFlags[FEATURE_FLAGS.CURRENCY_UNITS] && (
                                 <>
                                     <LemonDivider />
-                                    <h5>Currency</h5>
-                                    <CurrencyPicker
-                                        value={
-                                            isCurrency(localValue)
-                                                ? (localValue as currencies)
-                                                : ([] as unknown as currencies)
-                                        }
-                                        onChange={(currency) => {
-                                            handleChange(currency)
-                                        }}
-                                    />
+                                    <PureField label={'prefix:'}>
+                                        <LemonInput
+                                            value={localAxisPrefix}
+                                            onChange={handlePrefix}
+                                            onPressEnter={handlePrefix}
+                                        />
+                                    </PureField>
+                                    <PureField label={'postfix:'}>
+                                        <LemonInput
+                                            value={localAxisPostfix}
+                                            onChange={handlePostfix}
+                                            onPressEnter={handlePostfix}
+                                        />
+                                    </PureField>
                                 </>
                             )}
                         </>

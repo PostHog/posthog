@@ -156,12 +156,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                     <>
                         {activeView === InsightType.TRENDS && (
                             <ConfigFilter>
-                                <UnitPicker
-                                    filters={filters}
-                                    onChange={(value) => {
-                                        setFilters({ ...filters, aggregation_axis_format: value })
-                                    }}
-                                />
+                                <UnitPicker filters={filters} setFilters={setFilters} />
                             </ConfigFilter>
                         )}
                         <ConfigFilter>
