@@ -27,9 +27,17 @@ export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRec
         <div className="rrweb-controller" data-attr="rrweb-controller">
             <span>
                 {currentPlayerState === SessionPlayerState.PLAY ? (
-                    <IconPause onClick={togglePlayPause} style={isSmallScreen ? {} : { marginRight: '0.5rem' }} />
+                    <IconPause
+                        onClick={togglePlayPause}
+                        className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
+                        style={isSmallScreen ? {} : { marginRight: '0.5rem' }}
+                    />
                 ) : (
-                    <IconPlay onClick={togglePlayPause} style={isSmallScreen ? {} : { marginRight: '0.5rem' }} />
+                    <IconPlay
+                        onClick={togglePlayPause}
+                        className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
+                        style={isSmallScreen ? {} : { marginRight: '0.5rem' }}
+                    />
                 )}
             </span>
             {!isSmallScreen && (
