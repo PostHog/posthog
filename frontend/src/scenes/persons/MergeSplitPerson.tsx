@@ -1,98 +1,38 @@
 import React from 'react'
-import { Select, Row, Col, Radio, Modal } from 'antd'
+import { Select, Modal } from 'antd'
 import { PersonType } from '~/types'
 import { useActions, useValues, BindLogic } from 'kea'
 import './MergeSplitPerson.scss'
-import { ActivityType, mergeSplitPersonLogic } from './mergeSplitPersonLogic'
-import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
+import { mergeSplitPersonLogic } from './mergeSplitPersonLogic'
+import { pluralize } from 'lib/utils'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
-import { Tooltip } from 'lib/components/Tooltip'
-import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 
 export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Element {
     const logicProps = { person }
-    const { activity, executedLoading } = useValues(mergeSplitPersonLogic(logicProps))
-    const { setActivity, execute, cancel } = useActions(mergeSplitPersonLogic(logicProps))
+    const { executedLoading } = useValues(mergeSplitPersonLogic(logicProps))
+    const { execute, cancel } = useActions(mergeSplitPersonLogic(logicProps))
 
     return (
         <Modal
             visible
-            title="Merge/split persons"
+            title="Split persons"
             onCancel={cancel}
             className="merge-split-person"
-            okText={`${capitalizeFirstLetter(activity)} persons`}
+            okText={`Split persons`}
             onOk={execute}
             okButtonProps={{ loading: executedLoading }}
             cancelButtonProps={{ disabled: executedLoading }}
         >
-            <div className="activity-header">
-                <Row align="middle">
-                    <Radio.Group onChange={(e) => setActivity(e.target.value as ActivityType)} value={activity}>
-                        <Col className="tab-btn ant-btn">
-                            <Radio value="merge">Merge</Radio>
-                        </Col>
-                        <Col className="tab-btn ant-btn">
-                            <Radio value="split" disabled={person.distinct_ids.length < 2}>
-                                {person.distinct_ids.length < 2 ? (
-                                    <Tooltip
-                                        title="Only persons with more than two distinct IDs can be split."
-                                        delayMs={0}
-                                    >
-                                        Split
-                                    </Tooltip>
-                                ) : (
-                                    <>Split</>
-                                )}
-                            </Radio>
-                        </Col>
-                    </Radio.Group>
-                </Row>
-            </div>
-            <BindLogic logic={mergeSplitPersonLogic} props={logicProps}>
-                <>{activity === ActivityType.MERGE ? <MergePerson /> : <SplitPerson />}</>
-            </BindLogic>
+            {person.distinct_ids.length < 2 ? (
+                'Only persons with more than two distinct IDs can be split.'
+            ) : (
+                <BindLogic logic={mergeSplitPersonLogic} props={logicProps}>
+                    <>
+                        <SplitPerson />
+                    </>
+                </BindLogic>
+            )}
         </Modal>
-    )
-}
-
-function MergePerson(): JSX.Element {
-    const { persons, person, executedLoading, selectedPersonsToMerge } = useValues(mergeSplitPersonLogic)
-    const { setListFilters, setSelectedPersonsToMerge } = useActions(mergeSplitPersonLogic)
-
-    return (
-        <>
-            <p className="mb-4">
-                Merge all properties and events of the selected persons into <strong>{person.name}</strong>{' '}
-                <span style={{ fontSize: '1.2em' }}>(</span>
-                <code title={person.distinct_ids[0]}>{midEllipsis(person.distinct_ids[0], 20)}</code>
-                <span style={{ fontSize: '1.2em' }}>)</span>. Properties get merged based on timestamps, see more
-                details on{' '}
-                <a href="https://posthog.com/docs/integrate/user-properties#how-do-values-get-overridden">
-                    PostHog Docs
-                </a>
-                .
-            </p>
-
-            <LemonSelectMultiple
-                placeholder="Please select persons to merge"
-                onChange={(value) => setSelectedPersonsToMerge(value)}
-                filterOption={false}
-                onSearch={(value) => setListFilters({ search: value })}
-                mode="multiple"
-                data-attr="subscribed-emails"
-                value={selectedPersonsToMerge.map((x) => x.toString())}
-                options={(persons.results || [])
-                    .filter((p: PersonType) => p.uuid && p.uuid !== person.uuid)
-                    .map((p) => ({
-                        key: p.uuid as string,
-                        label: (p.name || p.uuid) as string,
-                    }))}
-                disabled={executedLoading}
-            />
-            <InlineMessage style={{ marginTop: 16 }} type="danger">
-                This action is not reversible. Please be sure before continuing.
-            </InlineMessage>
-        </>
     )
 }
 

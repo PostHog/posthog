@@ -32,7 +32,7 @@ export const metaLogic = kea<metaLogicType>({
             sessionRecordingDataLogic({ sessionRecordingId }),
             ['sessionPlayerData', 'sessionEventsData'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
-            ['currentPlayerPosition', 'scale'],
+            ['currentPlayerPosition', 'scale', 'isFullScreen'],
             eventsListLogic({ sessionRecordingId, playerKey }),
             ['currentStartIndex'],
             sessionRecordingsTableLogic,

@@ -14,6 +14,8 @@ import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { NotFound } from 'lib/components/NotFound'
 import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
+import clsx from 'clsx'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -58,11 +60,22 @@ export function SessionRecordingPlayerV3({
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
     matching,
 }: SessionRecordingPlayerProps): JSX.Element {
-    const { handleKeyDown } = useActions(
+    const { handleKeyDown, setFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
     )
     const { isNotFound } = useValues(sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }))
+    const { isFullScreen } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const frame = useFrameRef({ sessionRecordingId, playerKey })
+
+    useKeyboardHotkeys(
+        {
+            f: {
+                action: () => setFullScreen(!isFullScreen),
+            },
+            ...(isFullScreen ? { escape: { action: () => setFullScreen(false) } } : {}),
+        },
+        [isFullScreen]
+    )
 
     if (isNotFound) {
         return (
@@ -81,24 +94,31 @@ export function SessionRecordingPlayerV3({
             </div>
         )
     }
+
     return (
-        <Col className="session-player-v3" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
-            {includeMeta ? <PlayerMetaV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} /> : null}
+        <div
+            className={clsx('SessionPlayerV3', { 'SessionPlayerV3--fullscreen': isFullScreen })}
+            onKeyDown={handleKeyDown}
+            tabIndex={0}
+        >
+            {includeMeta || isFullScreen ? (
+                <PlayerMetaV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+            ) : null}
             <div className="session-player-body flex">
                 <div className="player-container ph-no-capture">
                     <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
                 </div>
             </div>
             <LemonDivider className="my-0" />
-            <div className="player-controller items-center flex">
-                <PlayerControllerV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            </div>
-            <LemonDivider className="my-0" />
-            <Row className="player-filter" align="middle">
-                <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            </Row>
-            <LemonDivider className="my-0" />
-            <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-        </Col>
+            <PlayerControllerV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+            {!isFullScreen && (
+                <>
+                    <LemonDivider className="my-0" />
+                    <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} matching={matching} />
+                    <LemonDivider className="my-0" />
+                    <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                </>
+            )}
+        </div>
     )
 }
