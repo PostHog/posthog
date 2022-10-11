@@ -240,3 +240,19 @@ class TestPreflight(APIBaseTest):
                 response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json()["can_create_org"], True)
+
+    @pytest.mark.ee
+    def test_cloud_preflight_based_on_license(self):
+        try:
+            from ee.models.license import License, LicenseManager
+        except ImportError:
+            pass
+        else:
+            super(LicenseManager, cast(LicenseManager, License.objects)).create(
+                key="key::123", plan="cloud", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            )
+
+            response = self.client.get("/_preflight/")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["realm"] == "cloud"
+            assert response.json()["cloud"] == True
