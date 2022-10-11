@@ -144,6 +144,11 @@ CONSTANCE_CONFIG = {
         "Used to enable the running of experimental async migrations",
         bool,
     ),
+    "RATE_LIMITING_ALLOW_LIST_TEAMS": (
+        get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
+        "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
+        str,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -172,6 +177,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_SIGNING_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
+    "RATE_LIMITING_ALLOW_LIST_TEAMS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

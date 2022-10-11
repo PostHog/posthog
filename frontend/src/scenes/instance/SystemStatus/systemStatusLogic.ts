@@ -50,6 +50,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'SLACK_APP_CLIENT_SECRET',
     'SLACK_APP_SIGNING_SECRET',
     'PARALLEL_DASHBOARD_ITEM_CACHE',
+    'RATE_LIMITING_ALLOW_LIST_TEAMS',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType>({

@@ -1,8 +1,22 @@
+import time
+from functools import lru_cache
+from typing import List, Optional
+
 from rest_framework.throttling import SimpleRateThrottle
 from sentry_sdk.api import capture_exception
 
 from posthog.internal_metrics import incr
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.models.instance_setting import get_instance_setting
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
+
+
+@lru_cache()
+def get_team_allow_list(_ttl: int) -> List[str]:
+    """
+    The "allow list" will change way less frequently than it will be called
+    _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
+    """
+    return get_list(get_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS"))
 
 
 class PassThroughTeamRateThrottle(SimpleRateThrottle):
@@ -32,12 +46,20 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
         if not request_would_be_allowed:
             try:
                 team_id = self.safely_get_team_id_from_view(view)
-                scope = getattr(self, "scope", None)
-                rate = getattr(self, "rate", None)
-                incr(
-                    "rate_limit_exceeded",
-                    tags={"team_id": team_id, "scope": scope, "rate": rate},
-                )
+                if self.team_is_allowed_to_bypass_throttle(team_id):
+                    incr(
+                        "team_allowed_to_bypass_rate_limit_exceeded",
+                        tags={
+                            "team_id": team_id,
+                        },
+                    )
+                else:
+                    scope = getattr(self, "scope", None)
+                    rate = getattr(self, "rate", None)
+                    incr(
+                        "rate_limit_exceeded",
+                        tags={"team_id": team_id, "scope": scope, "rate": rate},
+                    )
             except Exception as e:
                 capture_exception(e)
         return True
@@ -62,6 +84,10 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
             ident = self.get_ident(request)
 
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+    def team_is_allowed_to_bypass_throttle(self, team_id: Optional[int]) -> bool:
+        allow_list = get_team_allow_list(round(time.time() / 60))
+        return team_id is not None and str(team_id) in allow_list
 
 
 class PassThroughBurstRateThrottle(PassThroughTeamRateThrottle):
