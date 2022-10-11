@@ -12,11 +12,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="pluginsourcefile",
-            name="created_at",
-            field=models.DateTimeField(blank=True, null=True, auto_now_add=True),
-        ),
-        migrations.AddField(
-            model_name="pluginsourcefile",
             name="updated_at",
             field=models.DateTimeField(blank=True, null=True),
         ),

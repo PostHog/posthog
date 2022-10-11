@@ -1944,7 +1944,7 @@ export class DB {
 
     public async setPluginTranspiled(pluginId: Plugin['id'], filename: string, transpiled: string): Promise<void> {
         await this.postgresQuery(
-            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled, created_at, updated_at) VALUES($1, $2, $3, $4, $5, NOW(), NOW())
+            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled, updated_at) VALUES($1, $2, $3, $4, $5, NOW())
                 ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
                 DO UPDATE SET status = $4, transpiled = $5, error = NULL, updated_at = NOW()`,
             [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Transpiled, transpiled],
@@ -1954,7 +1954,7 @@ export class DB {
 
     public async setPluginTranspiledError(pluginId: Plugin['id'], filename: string, error: string): Promise<void> {
         await this.postgresQuery(
-            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, error, created_at, updated_at) VALUES($1, $2, $3, $4, $5, NOW(), NOW())
+            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, error, updated_at) VALUES($1, $2, $3, $4, $5, NOW())
                 ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
                 DO UPDATE SET status = $4, error = $5, transpiled = NULL, updated_at = NOW()`,
             [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Error, error],
@@ -1964,7 +1964,7 @@ export class DB {
 
     public async getPluginTranspilationLock(pluginId: Plugin['id'], filename: string): Promise<boolean> {
         const response = await this.postgresQuery(
-            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled, created_at, updated_at) VALUES($1, $2, $3, $4, NULL, NOW(), NOW())
+            `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled, updated_at) VALUES($1, $2, $3, $4, NULL, NOW())
                 ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
                 DO UPDATE SET status = $4, updated_at = NOW() WHERE (posthog_pluginsourcefile.status IS NULL OR posthog_pluginsourcefile.status = $5) RETURNING status`,
             [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Locked, ''],
