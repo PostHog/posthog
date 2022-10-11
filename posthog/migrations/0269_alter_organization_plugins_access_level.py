@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0266_add_is_system_field_to_activity_log"),
+        ("posthog", "0268_plugin_source_file_updated_at"),
     ]
 
     operations = [
