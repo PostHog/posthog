@@ -20,12 +20,12 @@
         border-radius: var(--radius);
         border: 1px solid var(--border);
         background: var(--white);
-        height: 2.5rem;
+        min-height: 2.5rem;
 
         &.LemonSwitch--small {
             padding: 0 0.5rem;
             gap: 0.5rem;
-            height: 2rem;
+            min-height: 2rem;
         }
     }
 

@@ -507,7 +507,7 @@ export function EventsTable({
                 ) : null}
 
                 {showSecondRow ? (
-                    <div className={clsx('flex justify-between items-center mb-4')}>
+                    <div className={clsx('flex justify-between items-center mb-4 gap-2 flex-wrap')}>
                         {showAutoload && (
                             <LemonSwitch
                                 bordered
