@@ -590,7 +590,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             w: width,
                             h: h || defaultHeight,
                             minW,
-                            minH: tile.text ? minH / 2 : minH,
+                            minH: tile.text ? 2 : minH,
                         }
                     })
 
