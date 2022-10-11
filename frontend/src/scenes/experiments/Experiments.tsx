@@ -71,6 +71,7 @@ export function Experiments(): JSX.Element {
                 const durationB = getExperimentDuration(b) ?? -1
                 return durationA > durationB ? 1 : -1
             },
+            align: 'right',
         },
         {
             title: 'Status',
@@ -84,6 +85,7 @@ export function Experiments(): JSX.Element {
                     </Tag>
                 )
             },
+            align: 'center',
             sorter: (a, b) => {
                 const statusA = getExperimentStatus(a)
                 const statusB = getExperimentStatus(b)
