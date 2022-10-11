@@ -164,20 +164,28 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     return values.allItems
                 },
                 removeTile: async ({ tile }) => {
+                    console.log('removeTile', tile)
                     try {
-                        await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                            tiles: [{ id: tile.id, deleted: true }],
-                        } as Partial<InsightModel>)
-
+                        console.log('starting')
+                        const response = await api.update(
+                            `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
+                            {
+                                tiles: [{ id: tile.id, deleted: true }],
+                            }
+                        )
+                        console.log('api finished', response)
                         dashboardsModel.actions.tileRemovedFromDashboard({
                             tile: tile,
                             dashboardId: props.id,
                         })
+                        const filteredTiles = values.tiles.filter((t) => t.id !== tile.id)
+                        console.log({ t: values.tiles, f: filteredTiles })
                         return {
                             ...values.allItems,
-                            tiles: values.tiles.filter((t) => t.id !== tile.id),
+                            tiles: filteredTiles,
                         } as DashboardType
                     } catch (e) {
+                        console.log('here?', e)
                         lemonToast.error('Could not remove tile from dashboard: ' + e)
                         return values.allItems
                     }
@@ -570,9 +578,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 for (const col of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
                     // The dashboard redesign includes constraints on the size of dashboard items
                     const minW = col === 'xs' ? 1 : MIN_ITEM_WIDTH_UNITS
-                    const minH = col === 'xs' ? 1 : MIN_ITEM_HEIGHT_UNITS
+                    const minH = MIN_ITEM_HEIGHT_UNITS
 
                     const layouts = tiles.map((tile) => {
+                        console.log('layouts for', tile.id, 'is text: ', !!tile.text)
                         const isRetention =
                             !!tile.insight &&
                             tile.insight.filters.insight === InsightType.RETENTION &&

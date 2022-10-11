@@ -1,5 +1,5 @@
 import { Meta, Story } from '@storybook/react'
-import React from 'react'
+import React, { useState } from 'react'
 import { DashboardTile, InsightColor } from '~/types'
 import { TextCard } from './TextCard'
 
@@ -32,8 +32,7 @@ const makeTextTile = (body: string, color: InsightColor | null = null): Dashboar
 }
 
 export const Default: Story = () => {
-    // const [insightColor, setInsightColor] = useState<InsightColor | null>(null)
-    // const [wasItemRemoved, setWasItemRemoved] = useState(false)
+    const [insightColor, setInsightColor] = useState<InsightColor | null>(InsightColor.Purple)
 
     return (
         <div className="flex flex-wrap gap-2">
@@ -68,11 +67,20 @@ export const Default: Story = () => {
                 <TextCard
                     className={'react-grid-item react-draggable cssTransforms react-resizable'}
                     dashboardId={1}
-                    textTile={makeTextTile('# a title \n\n * with\n * a \n * color', InsightColor.Purple)}
+                    textTile={makeTextTile('# a title \n\n * with\n * a \n * color', insightColor)}
+                    updateColor={setInsightColor}
                 />
             </div>
             <div className={'w-full'} style={{ height: '200px' }}>
-                <h5>showing resized text</h5>
+                <h5>Large Card - showing resized text</h5>
+                <TextCard
+                    className={'h-full w-full react-grid-item react-draggable cssTransforms react-resizable'}
+                    dashboardId={1}
+                    textTile={makeTextTile('basic text')}
+                />
+            </div>
+            <div className={'w-full'} style={{ height: '200px', width: '100px' }}>
+                <h5>Small Card - showing resized text</h5>
                 <TextCard
                     className={'h-full w-full react-grid-item react-draggable cssTransforms react-resizable'}
                     dashboardId={1}

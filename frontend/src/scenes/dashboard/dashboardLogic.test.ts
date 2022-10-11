@@ -1,5 +1,5 @@
 /* eslint-disable  @typescript-eslint/no-non-null-assertion */
-
+// let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
 import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -7,18 +7,31 @@ import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { InsightModel, DashboardType, InsightShortId, DashboardTile, InsightColor } from '~/types'
+import {
+    ChartDisplayType,
+    DashboardTile,
+    DashboardType,
+    InsightColor,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+} from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dayjs, now } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
-import anything = jasmine.anything
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import api from 'lib/api'
 
+import anything = jasmine.anything
+
 const dashboardJson = _dashboardJson as any as DashboardType
 
-function insightOnDashboard(insightId: number, dashboardsRelation: number[]): InsightModel {
+function insightOnDashboard(
+    insightId: number,
+    dashboardsRelation: number[],
+    insight: Partial<InsightModel> = {}
+): InsightModel {
     const tiles = dashboardJson.tiles.filter((tile) => !!tile.insight && tile.insight?.id === insightId)
     let tile = dashboardJson.tiles[0] as DashboardTile
     if (tiles.length) {
@@ -27,7 +40,7 @@ function insightOnDashboard(insightId: number, dashboardsRelation: number[]): In
     if (!tile.insight) {
         throw new Error('tile has no insight')
     }
-    return { ...tile.insight, dashboards: dashboardsRelation }
+    return { ...tile.insight, dashboards: dashboardsRelation, filters: { ...tile.insight.filters, ...insight.filters } }
 }
 
 const TEXT_TILE: DashboardTile = {
@@ -104,7 +117,12 @@ describe('dashboardLogic', () => {
         jest.spyOn(api, 'update')
 
         const insights: Record<number, InsightModel> = {
-            172: { ...insightOnDashboard(172, [5, 6]), short_id: '172' as InsightShortId },
+            172: {
+                ...insightOnDashboard(172, [5, 6], {
+                    filters: { insight: InsightType.RETENTION, display: ChartDisplayType.ActionsLineGraph },
+                }),
+                short_id: '172' as InsightShortId,
+            },
             175: { ...insightOnDashboard(175, [5, 6]), short_id: '175' as InsightShortId },
             666: {
                 ...insightOnDashboard(666, [6]),
@@ -182,6 +200,7 @@ describe('dashboardLogic', () => {
                 '/api/projects/:team/dashboards/:id/': async (req) => {
                     const dashboardId = req.params['id'][0]
                     const payload = await req.json()
+                    console.log('replying to patch on dashboard: ', dashboardId)
                     return [200, { ...dashboards[dashboardId], ...payload }]
                 },
                 '/api/projects/:team/dashboards/:id/move_tile/': async (req) => {
@@ -245,6 +264,8 @@ describe('dashboardLogic', () => {
             },
         })
         initKeaTests()
+        dashboardsModel.mount()
+        insightsModel.mount()
     })
 
     describe('moving between dashboards', () => {
@@ -721,142 +742,23 @@ describe('dashboardLogic', () => {
         ).toEqual([])
     })
 
-    // describe('text tiles', () => {
-    //     beforeEach(async () => {
-    //         logic = dashboardLogic({ id: 5 })
-    //         logic.mount()
-    //         await expectLogic(logic)
-    //             .toFinishAllListeners()
-    //             .toMatchValues({
-    //                 textTiles: [TEXT_TILE],
-    //             })
-    //     })
-    //
-    //     it('can remove text tiles', async () => {
-    //         await expectLogic(logic, () => {
-    //             logic.actions.removeTextTile(TEXT_TILE.id)
-    //         })
-    //             .toFinishAllListeners()
-    //             .toMatchValues({
-    //                 textTiles: [],
-    //             })
-    //     })
-    //
-    //     it('can add text tiles', async () => {
-    //         const newTile = {
-    //             id: TEXT_TILE.id + 1,
-    //             body: 'I AM ANOTHER TEXT',
-    //             layouts: {},
-    //             color: 'blue',
-    //         } as DashboardTextTile
-    //
-    //         await expectLogic(logic, () => {
-    //             logic.actions.addTextTile(newTile)
-    //         })
-    //             .toFinishAllListeners()
-    //             .toMatchValues({
-    //                 textTiles: [
-    //                     {
-    //                         body: 'I AM A TEXT',
-    //                         color: 'blue',
-    //                         id: 4,
-    //                         layouts: {},
-    //                     },
-    //                     {
-    //                         body: 'I AM ANOTHER TEXT',
-    //                         color: 'blue',
-    //                         layouts: {},
-    //                     },
-    //                 ],
-    //             })
-    //     })
-    // })
+    describe('text tiles', () => {
+        beforeEach(async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
 
-    // describe('layouts', () => {
-    //     beforeEach(async () => {
-    //         ;(getAppContext as jest.Mock).mockImplementation(() => ({ anonymous: false }))
-    //         logic = dashboardLogic({ id: 5 })
-    //         logic.mount()
-    //         await expectLogic(logic).toFinishAllListeners()
-    //     })
-    //
-    //     it('makes expected layouts', () => {
-    //         expectLogic(logic).toMatchValues({
-    //             layouts: {
-    //                 sm: [
-    //                     { h: 8, i: 'insight-tile-172', minH: 5, minW: 3, w: 6, x: 6, y: 0 },
-    //                     { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 6, x: 0, y: 0 },
-    //                     { h: 2.5, i: 'text-tile-4', minH: 2, minW: 3, w: 6, x: 0, y: 5 },
-    //                 ],
-    //                 xs: [
-    //                     { h: 5, i: 'insight-tile-172', minH: 5, minW: 3, w: 1, x: 0, y: 0 },
-    //                     { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 1, x: 0, y: 5 },
-    //                     { h: 2.5, i: 'text-tile-4', minH: 2, minW: 3, w: 1, x: 0, y: 10 },
-    //                 ],
-    //             },
-    //         })
-    //     })
-    //
-    //     it('can update layouts', async () => {
-    //         await expectLogic(logic, () => {
-    //             logic.actions.updateLayouts({
-    //                 sm: [
-    //                     { h: 12, i: 'insight-tile-172', minH: 5, minW: 3, w: 6, x: 6, y: 0 },
-    //                     { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 6, x: 0, y: 0 },
-    //                     { h: 21, i: 'text-tile-4', minH: 2, minW: 3, w: 6, x: 0, y: 5 },
-    //                 ],
-    //                 xs: [
-    //                     { h: 7, i: 'insight-tile-172', minH: 5, minW: 3, w: 1, x: 0, y: 0 },
-    //                     { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 1, x: 0, y: 5 },
-    //                     { h: 9, i: 'text-tile-4', minH: 2, minW: 3, w: 1, x: 0, y: 10 },
-    //                 ],
-    //             })
-    //         })
-    //             .toMatchValues({
-    //                 layouts: {
-    //                     sm: [
-    //                         { h: 12, i: 'insight-tile-172', minH: 5, minW: 3, w: 6, x: 6, y: 0 },
-    //                         { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 6, x: 0, y: 0 },
-    //                         { h: 21, i: 'text-tile-4', minH: 2, minW: 3, w: 6, x: 0, y: 5 },
-    //                     ],
-    //                     xs: [
-    //                         { h: 7, i: 'insight-tile-172', minH: 5, minW: 3, w: 1, x: 0, y: 0 },
-    //                         { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 1, x: 0, y: 5 },
-    //                         { h: 9, i: 'text-tile-4', minH: 2, minW: 3, w: 1, x: 0, y: 10 },
-    //                     ],
-    //                 },
-    //             })
-    //             .toFinishAllListeners()
-    //
-    //         expect(api.update).toHaveBeenCalledWith('api/projects/997/dashboards/5', {
-    //             tile_layouts: {
-    //                 insight_tiles: [
-    //                     {
-    //                         id: 172,
-    //                         layouts: {
-    //                             sm: { i: 'insight-tile-172', h: 12, minH: 5, minW: 3, w: 6, x: 6, y: 0 },
-    //                             xs: { i: 'insight-tile-172', h: 7, minH: 5, minW: 3, w: 1, x: 0, y: 0 },
-    //                         },
-    //                     },
-    //                     {
-    //                         id: 175,
-    //                         layouts: {
-    //                             sm: { i: 'insight-tile-175', h: 5, minH: 5, minW: 3, w: 6, x: 0, y: 0 },
-    //                             xs: { i: 'insight-tile-175', h: 5, minH: 5, minW: 3, w: 1, x: 0, y: 5 },
-    //                         },
-    //                     },
-    //                 ],
-    //                 text_tiles: [
-    //                     {
-    //                         id: 4,
-    //                         layouts: {
-    //                             sm: { i: 'text-tile-4', h: 21, minH: 2, minW: 3, w: 6, x: 0, y: 5 },
-    //                             xs: { i: 'text-tile-4', h: 9, minH: 2, minW: 3, w: 1, x: 0, y: 10 },
-    //                         },
-    //                     },
-    //                 ],
-    //             },
-    //         })
-    //     })
-    // })
+        it('can remove text tiles', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.removeTile(TEXT_TILE)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions([dashboardsModel.actionTypes.tileRemovedFromDashboard])
+                .toMatchValues({
+                    textTiles: [],
+                })
+        })
+    })
 })
+/* eslint-enable  @typescript-eslint/no-non-null-assertion */
