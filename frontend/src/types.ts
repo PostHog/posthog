@@ -388,6 +388,12 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
+export enum ExperimentStatus {
+    Draft = 'draft',
+    Running = 'running',
+    Complete = 'complete',
+}
+
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
