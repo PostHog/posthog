@@ -273,6 +273,61 @@
   FROM "posthog_pluginsourcefile"
   '
 ---
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works
+  '
+  SELECT "posthog_pluginsourcefile"."id",
+         "posthog_pluginsourcefile"."plugin_id",
+         "posthog_pluginsourcefile"."filename",
+         "posthog_pluginsourcefile"."source",
+         "posthog_pluginsourcefile"."status",
+         "posthog_pluginsourcefile"."transpiled",
+         "posthog_pluginsourcefile"."error"
+  FROM "posthog_pluginsourcefile"
+  WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
+         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+  LIMIT 21
+  FOR
+  UPDATE
+  '
+---
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works.1
+  '
+  SELECT "posthog_pluginsourcefile"."id",
+         "posthog_pluginsourcefile"."plugin_id",
+         "posthog_pluginsourcefile"."filename",
+         "posthog_pluginsourcefile"."source",
+         "posthog_pluginsourcefile"."status",
+         "posthog_pluginsourcefile"."transpiled",
+         "posthog_pluginsourcefile"."error"
+  FROM "posthog_pluginsourcefile"
+  WHERE ("posthog_pluginsourcefile"."filename" = 'site.ts'
+         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+  LIMIT 21
+  FOR
+  UPDATE
+  '
+---
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works.2
+  '
+  SELECT "posthog_pluginsourcefile"."id",
+         "posthog_pluginsourcefile"."plugin_id",
+         "posthog_pluginsourcefile"."filename",
+         "posthog_pluginsourcefile"."source",
+         "posthog_pluginsourcefile"."status",
+         "posthog_pluginsourcefile"."transpiled",
+         "posthog_pluginsourcefile"."error"
+  FROM "posthog_pluginsourcefile"
+  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx',
+                                                   'index.ts')
+         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+  '
+---
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works.3
+  '
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_pluginsourcefile"
+  '
+---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works
   '
   SELECT "posthog_pluginsourcefile"."id",
