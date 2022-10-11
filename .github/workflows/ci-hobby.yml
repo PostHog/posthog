@@ -6,7 +6,6 @@ name: e2e - hobby smoke test
 on:
   push:
     branches:
-      - master
       - 'release-*.*'
   pull_request:
     paths:
