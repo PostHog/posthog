@@ -33,6 +33,7 @@ TRUNCATE TABLE
     posthog_featureflag,
     posthog_featureflaghashkeyoverride,
     posthog_annotation,
+    posthog_activitylog,
     posthog_dashboarditem,
     posthog_dashboard,
     posthog_cohortpeople,
@@ -121,7 +122,7 @@ export async function resetTestDatabase(
 
 export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>): Promise<void> {
     // Handling of related fields
-    const { source__plugin_json, source__index_ts, source__frontend_tsx, ...object } = objectProvided
+    const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 
     const keys = Object.keys(object)
         .map((key) => `"${key}"`)
@@ -171,6 +172,18 @@ export async function insertRow(db: Pool, table: string, objectProvided: Record<
                     id: new UUIDT().toString(),
                     filename: 'frontend.tsx',
                     source: source__frontend_tsx,
+                    plugin_id: rowSaved.id,
+                    error: null,
+                    transpiled: null,
+                })
+            )
+        }
+        if (source__site_ts) {
+            dependentQueries.push(
+                insertRow(db, 'posthog_pluginsourcefile', {
+                    id: new UUIDT().toString(),
+                    filename: 'site.ts',
+                    source: source__site_ts,
                     plugin_id: rowSaved.id,
                     error: null,
                     transpiled: null,

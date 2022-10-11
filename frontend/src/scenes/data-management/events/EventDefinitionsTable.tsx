@@ -18,7 +18,11 @@ import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { More } from 'lib/components/LemonButton/More'
+import { urls } from 'scenes/urls'
+import { combineUrl } from 'kea-router'
+import { IconPlayCircle } from 'lib/components/icons'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
@@ -104,6 +108,43 @@ export function EventDefinitionsTable(): JSX.Element {
                   } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
               ]
             : []),
+        {
+            key: 'actions',
+            width: 0,
+            render: function RenderActions(_, definition: EventDefinition) {
+                return (
+                    <More
+                        data-attr={`event-definitions-table-more-button-${definition.name}`}
+                        overlay={
+                            <>
+                                <LemonButton
+                                    status="stealth"
+                                    to={
+                                        combineUrl(urls.sessionRecordings(), {
+                                            filters: {
+                                                events: [
+                                                    {
+                                                        id: definition.name,
+                                                        type: 'events',
+                                                        order: 0,
+                                                        name: definition.name,
+                                                    },
+                                                ],
+                                            },
+                                        }).url
+                                    }
+                                    fullWidth
+                                    sideIcon={<IconPlayCircle />}
+                                    data-attr="event-definitions-table-view-recordings"
+                                >
+                                    View recordings
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
+            },
+        },
     ]
 
     return (

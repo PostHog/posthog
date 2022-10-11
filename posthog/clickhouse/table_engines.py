@@ -16,8 +16,8 @@ class ReplicationScheme(str, Enum):
 # - https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replacingmergetree/
 # - https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication/
 class MergeTreeEngine:
-    ENGINE = ""
-    REPLICATED_ENGINE = ""
+    ENGINE = "MergeTree()"
+    REPLICATED_ENGINE = "ReplicatedMergeTree('{zk_path}', '{replica_key}')"
 
     def __init__(self, table: str, replication_scheme: ReplicationScheme = ReplicationScheme.REPLICATED, **kwargs):
         self.table = table
@@ -66,9 +66,14 @@ class CollapsingMergeTree(MergeTreeEngine):
 
 
 class Distributed:
-    def __init__(self, data_table: str, sharding_key: str):
+    def __init__(self, data_table: str, sharding_key: Optional[str]):
         self.data_table = data_table
         self.sharding_key = sharding_key
 
     def __str__(self):
-        return f"Distributed('{settings.CLICKHOUSE_CLUSTER}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"
+        if self.sharding_key is None:
+            return (
+                f"Distributed('{settings.CLICKHOUSE_CLUSTER}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}')"
+            )
+        else:
+            return f"Distributed('{settings.CLICKHOUSE_CLUSTER}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"

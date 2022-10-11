@@ -1,11 +1,12 @@
 from datetime import datetime
+from typing import List
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
-from posthog.queries.funnels.test.breakdown_cases import FunnelStepResult, assert_funnel_breakdown_result_is_correct
+from posthog.queries.funnels.test.breakdown_cases import FunnelStepResult
 from posthog.test.base import APIBaseTest, snapshot_clickhouse_queries, test_with_materialized_columns
 from posthog.test.test_journeys import journeys_for
 
@@ -29,6 +30,10 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"}
             )
             create_group(team_id=self.team.pk, group_type_index=1, group_key="org:5", properties={"industry": "random"})
+
+        def _assert_funnel_breakdown_result_is_correct(self, result, steps: List[FunnelStepResult]):
+            # set in TestFunnelBreakdown
+            raise NotImplementedError()
 
         @snapshot_clickhouse_queries
         def test_funnel_breakdown_group(self):
@@ -90,7 +95,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             filter = Filter(data=filters, team=self.team)
             result = Funnel(filter, self.team).run()
 
-            assert_funnel_breakdown_result_is_correct(
+            self._assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
                     FunnelStepResult(name="sign up", breakdown="finance", count=1),
@@ -115,7 +120,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "finance"), [people["person1"].uuid])
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "finance"), [people["person1"].uuid])
 
-            assert_funnel_breakdown_result_is_correct(
+            self._assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
                     FunnelStepResult(name="sign up", breakdown="technology", count=2),
@@ -195,7 +200,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
 
             result = Funnel(Filter(data=filters, team=self.team), self.team).run()
 
-            assert_funnel_breakdown_result_is_correct(
+            self._assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
                     FunnelStepResult(name="sign up", breakdown="finance", count=1),
@@ -216,7 +221,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 ],
             )
 
-            assert_funnel_breakdown_result_is_correct(
+            self._assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
                     FunnelStepResult(name="sign up", breakdown="technology", count=1),
@@ -301,7 +306,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
                 result = Funnel(Filter(data=filters, team=self.team), self.team).run()
 
-            assert_funnel_breakdown_result_is_correct(
+            self._assert_funnel_breakdown_result_is_correct(
                 result[0],
                 [
                     FunnelStepResult(name="sign up", breakdown="finance", count=1),
@@ -322,7 +327,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 ],
             )
 
-            assert_funnel_breakdown_result_is_correct(
+            self._assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
                     FunnelStepResult(name="sign up", breakdown="technology", count=1),

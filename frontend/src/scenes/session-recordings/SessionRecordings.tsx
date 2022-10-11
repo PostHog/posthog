@@ -29,7 +29,7 @@ export function SessionsRecordings(): JSX.Element {
                 </div>
             ) : null}
             <SessionRecordingsTopBar />
-            {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST] ? (
+            {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3] ? (
                 <SessionRecordingsPlaylist key="global" />
             ) : (
                 <div className="space-y-4">

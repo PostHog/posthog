@@ -44,6 +44,7 @@ export interface ActionFilterRowProps {
     logic: typeof entityFilterLogic
     filter: ActionFilter
     index: number
+    typeKey: string
     mathAvailability: MathAvailability
     singleFilter?: boolean
     hideFilter?: boolean // Hides the local filter options
@@ -85,6 +86,7 @@ export function ActionFilterRow({
     logic,
     filter,
     index,
+    typeKey,
     mathAvailability,
     singleFilter,
     hideFilter,
@@ -366,7 +368,7 @@ export function ActionFilterRow({
             {propertyFiltersVisible && (
                 <div className={`ActionFilterRow-filters`}>
                     <PropertyFilters
-                        pageKey={`${index}-${value}-filter`}
+                        pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
                         onChange={(properties) => updateFilterProperty({ properties, index })}
                         style={{ margin: 0 }}

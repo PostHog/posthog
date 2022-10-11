@@ -8,17 +8,18 @@ export function PluginSourceTabs({ logic }: { logic: BuiltLogic<pluginSourceLogi
     const { currentFile, fileNames, pluginSourceAllErrors } = useValues(logic)
 
     return (
-        <div className="flex items-center mb-2" style={{ gap: '0.5rem' }}>
+        <div className="flex items-center mb-2 space-x-2 w-full">
             {fileNames.map((fileName) => (
-                <LemonButton
-                    key={fileName}
-                    active={currentFile === fileName}
-                    onClick={() => setCurrentFile(fileName)}
-                    size="small"
-                    status={pluginSourceAllErrors[fileName] ? 'danger' : undefined}
-                >
-                    {fileName}
-                </LemonButton>
+                <React.Fragment key={fileName}>
+                    <LemonButton
+                        active={currentFile === fileName}
+                        onClick={() => setCurrentFile(fileName)}
+                        size="small"
+                        status={pluginSourceAllErrors[fileName] ? 'danger' : undefined}
+                    >
+                        {fileName}
+                    </LemonButton>
+                </React.Fragment>
             ))}
         </div>
     )

@@ -13,6 +13,7 @@ from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_fo
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table, sleep_until_finished
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.utils import str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -80,6 +81,7 @@ class Migration(AsyncMigrationDefinition):
             int,
         ),
         "GROUPS_DICT_CACHE_SIZE": (1000000, "ClickHouse cache size (in rows) for groups data.", int),
+        "RUN_DATA_VALIDATION_POSTCHECK": ("True", "Whether to run a postcheck validating the backfilled data.", str),
         "TIMESTAMP_LOWER_BOUND": ("2020-01-01", "Timestamp lower bound for events to backfill", str),
         "TIMESTAMP_UPPER_BOUND": ("2024-01-01", "Timestamp upper bound for events to backfill", str),
         "TEAM_ID": (
@@ -260,8 +262,9 @@ class Migration(AsyncMigrationDefinition):
             )
 
     def _postcheck(self, _: str):
-        self._check_person_data()
-        self._check_groups_data()
+        if str_to_bool(self.get_parameter("RUN_DATA_VALIDATION_POSTCHECK")):
+            self._check_person_data()
+            self._check_groups_data()
 
     def _where_clause(self) -> Tuple[str, Dict[str, Union[str, int]]]:
         team_id = self.get_parameter("TEAM_ID")

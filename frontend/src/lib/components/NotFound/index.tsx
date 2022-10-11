@@ -5,7 +5,7 @@ import './NotFound.scss'
 
 interface NotFoundProps {
     object: string // Type of object that was not found (e.g. `dashboard`, `insight`, `action`, ...)
-    caption?: string
+    caption?: React.ReactNode
 }
 
 export function NotFound({ object, caption }: NotFoundProps): JSX.Element {

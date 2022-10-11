@@ -246,6 +246,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/projects/\\d+/actions/?$",
                 "^/?api/projects/\\d+/session_recordings/?$",
                 "^/?api/projects/\\d+/exports/\\d+/content/?$",
+                "^/?api/projects/\\d+/activity_log/important_changes/?$",
             ]
         ),
     )

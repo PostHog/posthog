@@ -17,7 +17,7 @@ export async function teardownPlugins(server: Hub, pluginConfig?: PluginConfig):
                             await server.db.queuePluginLogEntry({
                                 pluginConfig,
                                 source: PluginLogEntrySource.System,
-                                type: PluginLogEntryType.Info,
+                                type: PluginLogEntryType.Debug,
                                 message: `Plugin unloaded (instance ID ${server.instanceId}).`,
                                 instanceId: server.instanceId,
                             })
@@ -37,7 +37,7 @@ export async function teardownPlugins(server: Hub, pluginConfig?: PluginConfig):
                 await server.db.queuePluginLogEntry({
                     pluginConfig,
                     source: PluginLogEntrySource.System,
-                    type: PluginLogEntryType.Info,
+                    type: PluginLogEntryType.Debug,
                     message: `Plugin unloaded (instance ID ${server.instanceId}).`,
                     instanceId: server.instanceId,
                 })

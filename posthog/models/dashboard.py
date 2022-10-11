@@ -116,7 +116,7 @@ class Dashboard(models.Model):
         """
         return {
             "pinned": self.pinned,
-            "item_count": self.insights.count(),
+            "item_count": self.tiles.exclude(insight=None).count(),
             "is_shared": self.is_sharing_enabled,
             "created_at": self.created_at,
             "has_description": self.description != "",
