@@ -2,6 +2,9 @@ import './LemonTextArea.scss'
 import React, { useRef } from 'react'
 import clsx from 'clsx'
 import TextareaAutosize from 'react-textarea-autosize'
+import { Tabs } from 'antd'
+import { IconMarkdown } from 'lib/components/icons'
+import { TextCardBody } from 'lib/components/Cards/TextCard/TextCard'
 
 export interface LemonTextAreaProps
     extends Pick<
@@ -52,3 +55,26 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
         />
     )
 })
+
+interface MarkdownProps {
+    'data-attr'?: string
+    value: string
+    onChange: (s: string) => void
+}
+
+export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: MarkdownProps): JSX.Element {
+    return (
+        <Tabs>
+            <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
+                <LemonTextArea {...editAreaProps} autoFocus value={value} onChange={(newValue) => onChange(newValue)} />
+                <div className="text-muted inline-flex items-center space-x-1">
+                    <IconMarkdown className={'text-2xl'} />
+                    <span>Markdown formatting support</span>
+                </div>
+            </Tabs.TabPane>
+            <Tabs.TabPane tab="Preview" key={'preview-card'}>
+                <TextCardBody text={value} />
+            </Tabs.TabPane>
+        </Tabs>
+    )
+}

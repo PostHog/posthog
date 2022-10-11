@@ -31,7 +31,7 @@ const makeTextTile = (body: string, color: InsightColor | null = null): Dashboar
     }
 }
 
-export const Default: Story = () => {
+export const Template: Story = () => {
     return (
         <div className="flex flex-wrap gap-2">
             <div>
