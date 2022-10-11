@@ -31,9 +31,12 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
         request_would_be_allowed = super().allow_request(request, view)
         if not request_would_be_allowed:
             try:
+                team_id = self.safely_get_team_id_from_view(view)
+                scope = getattr(self, "scope", None)
+                rate = getattr(self, "rate", None)
                 incr(
                     "rate_limit_exceeded",
-                    tags={"team_id": self.safely_get_team_id_from_view(view), "scope": getattr(self, "scope", None)},
+                    tags={"team_id": team_id, "scope": scope, "rate": rate},
                 )
             except Exception as e:
                 capture_exception(e)
