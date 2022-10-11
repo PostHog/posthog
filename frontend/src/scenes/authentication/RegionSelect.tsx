@@ -20,7 +20,7 @@ const sections = [
         ],
     },
     {
-        title: 'Cheaper than self-hosting',
+        title: 'EU hosting',
         features: [
             'Faster if you and your users are based in Europe',
             'Keeps data in the EU to comply with GDPR requirements',
