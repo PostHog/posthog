@@ -77,7 +77,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return f"""
             SELECT
                 aggregation_target,
-                {trunc_func}(toDateTime(timestamp) {start_of_week_fix(self._filter.interval)}, %(timezone)s) AS entrance_period_start,
+                {trunc_func}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix(self._filter.interval)}) AS entrance_period_start,
                 max(steps) AS steps_completed
                 {event_select_clause}
                 {breakdown_clause}

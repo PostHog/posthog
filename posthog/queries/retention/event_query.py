@@ -96,7 +96,7 @@ class RetentionEventsQuery(EventQuery):
                         dateDiff(
                             %(period)s,
                             {self._trunc_func}(toDateTime(%(start_date)s {start_of_week_day}, %(timezone)s)),
-                            {self._trunc_func}(min(e.timestamp) {start_of_week_day}, %(timezone)s)
+                            {self._trunc_func}(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s)) {start_of_week_day})
                         )
                     ] as breakdown_values
                     """
@@ -108,7 +108,7 @@ class RetentionEventsQuery(EventQuery):
                         dateDiff(
                             %(period)s,
                             {self._trunc_func}(toDateTime(%(start_date)s {start_of_week_day}, %(timezone)s)),
-                            {self._trunc_func}(e.timestamp {start_of_week_day}, %(timezone)s)
+                            {self._trunc_func}(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s) {start_of_week_day})
                         )
                     ] as breakdown_values
                     """
@@ -175,9 +175,9 @@ class RetentionEventsQuery(EventQuery):
         if self._event_query_type == RetentionQueryType.TARGET:
             return f"DISTINCT {self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) {start_of_week_day}, %(timezone)s) AS event_date"
         elif self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            return f"min({self._trunc_func}(toDateTime(e.timestamp) {start_of_week_day},  %(timezone)s)) as event_date"
+            return f"min({self._trunc_func}(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s) {start_of_week_day})) as event_date"
         else:
-            return f"{self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) {start_of_week_day}, %(timezone)s) AS event_date"
+            return f"{self._trunc_func}(toTimeZone(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp, 'UTC'), %(timezone)s) {start_of_week_day}) AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
         if (
