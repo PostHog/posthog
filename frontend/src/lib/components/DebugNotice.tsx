@@ -11,7 +11,7 @@ export function DebugNotice(): JSX.Element {
         const bottomNoticeRevision = document.getElementById('bottom-notice-revision')?.textContent
         const bottomNoticeBranch = document.getElementById('bottom-notice-branch')?.textContent
 
-        if (bottomNotice) {
+        if (bottomNotice && bottomNoticeRevision && bottomNoticeBranch) {
             setDebugInfo({
                 branch: bottomNoticeBranch || 'unknown',
                 revision: bottomNoticeRevision || 'unknown',
