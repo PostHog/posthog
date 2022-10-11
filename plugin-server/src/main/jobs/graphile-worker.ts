@@ -183,7 +183,7 @@ export class GraphileWorker {
         })
     }
 
-    async startConsumer(jobHandlers: TaskList): Promise<void> {
+    async start(jobHandlers: TaskList): Promise<void> {
         this.jobHandlers = jobHandlers
         if (!this.started) {
             this.started = true
@@ -191,17 +191,17 @@ export class GraphileWorker {
         }
     }
 
-    async stopConsumer(): Promise<void> {
+    async stop(): Promise<void> {
         this.started = false
         await this.syncState()
     }
 
-    async pauseConsumer(): Promise<void> {
+    async pause(): Promise<void> {
         this.paused = true
         await this.syncState()
     }
 
-    isConsumerPaused(): boolean {
+    isPaused(): boolean {
         return this.paused
     }
 

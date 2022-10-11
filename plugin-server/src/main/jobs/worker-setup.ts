@@ -14,7 +14,7 @@ export async function startJobsConsumer(hub: Hub, piscina: Piscina): Promise<Job
 
     const ingestionJobHandlers: TaskList = {
         bufferJob: async (job) => {
-            pauseQueueIfWorkerFull(() => hub.graphileWorker.pauseConsumer(), hub, piscina)
+            pauseQueueIfWorkerFull(() => hub.graphileWorker.pause(), hub, piscina)
             const eventPayload = (job as EnqueuedBufferJob).eventPayload
             await runInstrumentedFunction({
                 server: hub,
@@ -29,7 +29,7 @@ export async function startJobsConsumer(hub: Hub, piscina: Piscina): Promise<Job
 
     const pluginJobHandlers: TaskList = {
         pluginJob: async (job) => {
-            pauseQueueIfWorkerFull(() => hub.graphileWorker.pauseConsumer(), hub, piscina)
+            pauseQueueIfWorkerFull(() => hub.graphileWorker.pause(), hub, piscina)
             hub.statsd?.increment('triggered_job', {
                 instanceId: hub.instanceId.toString(),
             })
@@ -44,7 +44,7 @@ export async function startJobsConsumer(hub: Hub, piscina: Piscina): Promise<Job
 
     status.info('🔄', 'Job queue consumer starting')
     try {
-        await hub.graphileWorker.startConsumer(jobHandlers)
+        await hub.graphileWorker.start(jobHandlers)
     } catch (error) {
         try {
             logOrThrowJobQueueError(hub, error, `Cannot start job queue consumer!`)
@@ -55,7 +55,7 @@ export async function startJobsConsumer(hub: Hub, piscina: Piscina): Promise<Job
 
     const stop = async () => {
         status.info('🔄', 'Stopping job queue consumer')
-        await hub.graphileWorker.stopConsumer()
+        await hub.graphileWorker.stop()
     }
 
     return { stop, resume: () => hub.graphileWorker.resumeConsumer() }
