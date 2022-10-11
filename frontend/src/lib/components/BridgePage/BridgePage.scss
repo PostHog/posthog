@@ -105,6 +105,12 @@
     }
 
     .BridgePage__header-logo {
+        &.mobile {
+            display: block;
+            @include screen($md) {
+                display: none;
+            }
+        }
         .header-logo {
             padding-bottom: 2rem;
             text-align: center;
