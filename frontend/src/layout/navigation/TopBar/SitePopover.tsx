@@ -144,7 +144,7 @@ function License({ license, expired }: { license: LicenseType | null; expired: b
                         ))}
                 </div>
                 <Link
-                    to={urls.organizationBilling()}
+                    to={urls.instanceLicenses()}
                     onClick={closeSitePopover}
                     className="SitePopover__side-link"
                     data-attr="top-menu-item-licenses"
