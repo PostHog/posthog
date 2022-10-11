@@ -119,13 +119,15 @@ export function Person(): JSX.Element | null {
                             Delete person
                         </LemonButton>
 
-                        <LemonButton
-                            onClick={() => setSplitMergeModalShown(true)}
-                            data-attr="merge-person-button"
-                            type="secondary"
-                        >
-                            Split or merge IDs
-                        </LemonButton>
+                        {person.distinct_ids.length > 1 && (
+                            <LemonButton
+                                onClick={() => setSplitMergeModalShown(true)}
+                                data-attr="merge-person-button"
+                                type="secondary"
+                            >
+                                Split IDs
+                            </LemonButton>
+                        )}
                     </div>
                 }
             />
