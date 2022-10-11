@@ -76,7 +76,8 @@ export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Elem
                         : 'Make your own formula the output of the insight with formula mode. Use graph series as variables.'
                 }
             >
-                <div>
+                {/** The negative margin negates the button's effect on label sizing. */}
+                <div style={{ margin: '-0.25rem 0' }}>
                     <LemonButton
                         size="small"
                         onClick={() => setIsFormulaOn(!isFormulaOn)}
