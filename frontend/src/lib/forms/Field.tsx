@@ -10,7 +10,7 @@ export type PureFieldProps = {
     /** Will show a muted (optional) next to the label */
     showOptional?: boolean
     /** Will show a clickable (what is this?) next to the label, useful if we want to toggle explanation modals on click */
-    showExplanationCTA?: boolean
+    onExplanationClick?: () => void
     /** Info tooltip to be displayed next to the label */
     info?: React.ReactNode
     /** Help text to be shown directly beneath the input */
@@ -29,7 +29,7 @@ export const PureField = ({
     error,
     help,
     showOptional,
-    showExplanationCTA,
+    onExplanationClick,
     className,
     children,
     onClick,
@@ -40,7 +40,7 @@ export const PureField = ({
                 <LemonLabel
                     info={info}
                     showOptional={showOptional}
-                    showExplanationCTA={showExplanationCTA}
+                    onExplanationClick={onExplanationClick}
                     className={clsx({
                         'cursor-pointer': !!onClick,
                     })}

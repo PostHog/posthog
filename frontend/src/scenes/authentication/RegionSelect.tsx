@@ -75,7 +75,7 @@ const RegionSelect = (): JSX.Element | null => {
     }
     return (
         <>
-            <PureField showExplanationCTA label="Data region" onClick={() => setRegionModalOpen(true)}>
+            <PureField label="Data region" onExplanationClick={() => setRegionModalOpen(true)}>
                 <LemonSelect
                     onChange={(region) => {
                         if (!region) {
