@@ -261,8 +261,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -303,8 +303,8 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND e.person_id != toUUIDOrZero('')
              AND replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') in (['finance', 'technology'])
              AND e.person_id != toUUIDOrZero('')
@@ -331,8 +331,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-02 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
        AND e.person_id != toUUIDOrZero('') )
   GROUP BY actor_id
@@ -350,8 +350,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND e.person_id != toUUIDOrZero('')
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -392,8 +392,8 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND e.person_id != toUUIDOrZero('')
              AND "mat_gp0_industry" in (['finance', 'technology'])
              AND e.person_id != toUUIDOrZero('')
@@ -420,8 +420,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-02 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND (has(['technology'], "mat_gp0_industry"))
        AND e.person_id != toUUIDOrZero('') )
   GROUP BY actor_id
@@ -555,8 +555,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
        AND e.person_id != toUUIDOrZero('')
      GROUP BY value
@@ -599,8 +599,8 @@
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND e.person_id != toUUIDOrZero('')
              AND replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') in (['finance'])
              AND e.person_id != toUUIDOrZero('')
@@ -624,8 +624,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has(['value'], "mat_pp_key"))
        AND e.person_id != toUUIDOrZero('')
      GROUP BY value
@@ -668,8 +668,8 @@
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND (has(['value'], "mat_pp_key"))
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND e.person_id != toUUIDOrZero('')
              AND "mat_gp0_industry" in (['finance'])
              AND e.person_id != toUUIDOrZero('')
@@ -792,8 +792,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
        AND e.person_id != toUUIDOrZero('')
      GROUP BY value
@@ -836,8 +836,8 @@
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND e.person_id != toUUIDOrZero('')
              AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['uh', 'oh'])
              AND e.person_id != toUUIDOrZero('')
@@ -861,8 +861,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has(['finance'], "mat_gp0_industry"))
        AND e.person_id != toUUIDOrZero('')
      GROUP BY value
@@ -905,8 +905,8 @@
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND (has(['finance'], "mat_gp0_industry"))
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND e.person_id != toUUIDOrZero('')
              AND "mat_key" in (['uh', 'oh'])
              AND e.person_id != toUUIDOrZero('')
@@ -944,8 +944,8 @@
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))
                   AND has(['six'], replaceRegexpAll(JSONExtractRaw(group2_properties, 'name'), '^"|"$', '')))
              AND e.person_id != toUUIDOrZero('') )
@@ -968,8 +968,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-02 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))
             AND has(['six'], replaceRegexpAll(JSONExtractRaw(group2_properties, 'name'), '^"|"$', '')))
        AND e.person_id != toUUIDOrZero('') )
@@ -1002,8 +1002,8 @@
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND (has(['finance'], "mat_gp0_industry")
                   AND has(['six'], "mat_gp2_name"))
              AND e.person_id != toUUIDOrZero('') )
@@ -1026,8 +1026,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-02 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND (has(['finance'], "mat_gp0_industry")
             AND has(['six'], "mat_gp2_name"))
        AND e.person_id != toUUIDOrZero('') )
@@ -1116,8 +1116,8 @@
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
                   AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
              AND e.person_id != toUUIDOrZero('') )
@@ -1150,8 +1150,8 @@
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-             AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND ((has(['finance'], "mat_gp0_industry"))
                   AND (has(['value'], "mat_pp_key")))
              AND e.person_id != toUUIDOrZero('') )
