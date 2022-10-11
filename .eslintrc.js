@@ -117,7 +117,6 @@ module.exports = {
                 ],
             },
         ],
-        'eslint-comments/disable-enable-pair': ['error', { allowWholeFile: true }],
     },
     overrides: [
         {
