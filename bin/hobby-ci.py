@@ -28,7 +28,7 @@ hostname = f'{name}.posthog.cc'
 user_data = f'#!/bin/bash \n' \
 			f'wget https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby \n' \
 			f'chmod +x deploy-hobby \n' \
-			f'./deploy-hobby {release_tag} {hostname}\n'
+			f'./deploy-hobby {release_tag} {hostname} 1 \n'
 token = os.getenv("DIGITALOCEAN_TOKEN")
 
 # Placeholders for DO resources
@@ -90,7 +90,7 @@ def waitForInstance(hostname, timeout=20, retry_interval=15):
 	start_time = datetime.datetime.now()
 	while True:
 		try:
-			r = requests.get(url)
+			r = requests.get(url, verify=False)
 		except Exception as e:
 			print(f"Host is probably not up. Received exception\n{e}")
 			time.sleep(retry_interval)
