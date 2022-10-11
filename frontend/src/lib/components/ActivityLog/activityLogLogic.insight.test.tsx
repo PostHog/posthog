@@ -3,14 +3,12 @@ import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import React from 'react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
 
 describe('the activity log logic', () => {
     describe('humanizing insights', () => {
         const insightTestSetup = makeTestSetup(
             ActivityScope.INSIGHT,
-            insightActivityDescriber,
             `/api/projects/${MOCK_TEAM_ID}/insights/activity/`
         )
 
@@ -268,6 +266,30 @@ describe('the activity log logic', () => {
                         { id: '1', name: 'anything' },
                         { id: '2', name: 'another' },
                         { id: '3', name: 'the-new-one' },
+                    ],
+                },
+            ])
+            const actual = logic.values.humanizedActivity
+
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter added test insight to the-new-one'
+            )
+        })
+
+        it('can handle addition of tile style dashboards link', async () => {
+            const logic = await insightTestSetup('test insight', 'updated', [
+                {
+                    type: 'Insight',
+                    action: 'changed',
+                    field: 'dashboards',
+                    before: [
+                        { insight: { id: 1 }, dashboard: { id: '1', name: 'anything' } },
+                        { insight: { id: 1 }, dashboard: { id: '2', name: 'another' } },
+                    ],
+                    after: [
+                        { insight: { id: 1 }, dashboard: { id: '1', name: 'anything' } },
+                        { insight: { id: 1 }, dashboard: { id: '2', name: 'another' } },
+                        { insight: { id: 1 }, dashboard: { id: '3', name: 'the-new-one' } },
                     ],
                 },
             ])

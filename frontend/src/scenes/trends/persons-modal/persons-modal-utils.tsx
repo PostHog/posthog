@@ -1,6 +1,6 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter, convertPropertiesToPropertyGroup, toParams } from 'lib/utils'
+import { capitalizeFirstLetter, convertPropertiesToPropertyGroup, pluralize, toParams } from 'lib/utils'
 import React from 'react'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import {
@@ -11,6 +11,7 @@ import {
     FunnelVizType,
     GraphDataset,
     InsightType,
+    StepOrderValue,
 } from '~/types'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -22,11 +23,27 @@ export const funnelTitle = (props: {
     breakdown_value?: string
     label?: string
     seriesId?: number
+    order_type?: StepOrderValue
 }): JSX.Element => {
     return (
         <>
-            {props.converted ? 'Completed' : 'Dropped off at'} step {props.step} •{' '}
-            <PropertyKeyInfo value={props.label || ''} disablePopover />{' '}
+            {props.order_type === StepOrderValue.UNORDERED ? (
+                <>
+                    {props.converted ? (
+                        <>Completed {pluralize(props.step, 'step', 'steps')} </>
+                    ) : (
+                        <>
+                            Completed {pluralize(props.step - 1, 'step', 'steps')}, did not complete{' '}
+                            {pluralize(props.step, 'step', 'steps')}{' '}
+                        </>
+                    )}
+                </>
+            ) : (
+                <>
+                    {props.converted ? 'Completed' : 'Dropped off at'} step {props.step} •{' '}
+                    <PropertyKeyInfo value={props.label || ''} disablePopover />{' '}
+                </>
+            )}
             {!!props?.breakdown_value ? `• ${props.breakdown_value}` : ''}
         </>
     )

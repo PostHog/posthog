@@ -29,9 +29,10 @@ export function TestAccountFilter({
                 <div className="flex items-center">
                     <span>Filter out internal and test users</span>
                     <LemonButton
-                        icon={<IconSettings className="text-xs" />}
+                        icon={<IconSettings />}
                         to="/project/settings#internal-users-filtering"
                         status="stealth"
+                        size="small"
                         noPadding
                         className="ml-1"
                     />

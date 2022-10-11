@@ -13,9 +13,9 @@ import { status } from '../../utils/status'
 import { NoRowsUpdatedError, UUIDT } from '../../utils/utils'
 import { LazyPersonContainer } from './lazy-person-container'
 import { PersonManager } from './person-manager'
+import { captureIngestionWarning } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
-
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
 const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
@@ -260,6 +260,17 @@ export class PersonState {
     // Alias & merge
 
     async handleIdentifyOrAlias(): Promise<void> {
+        /**
+         * strategy:
+         *   - if the two distinct ids passed don't match and aren't illegal, then mark `is_identified` to be true for the `distinct_id` person
+         *   - if a person doesn't exist for either distinct id passed we create the person with both ids
+         *   - if only one person exists we add the other distinct id
+         *   - if the distinct ids belong to different already existing persons we try to merge them:
+         *     - the merge is blocked if the other distinct id (`anon_distinct_id` or `alias` event property) person has `is_identified` true.
+         *     - we merge into `distinct_id` person:
+         *       - both distinct ids used in the future will map to the person id that was associated with `distinct_id` before
+         *       - if person property was defined for both we'll use `distinct_id` person's property going forward
+         */
         const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
         try {
             if (this.event.event === '$create_alias' && this.eventProperties['alias']) {
@@ -299,10 +310,18 @@ export class PersonState {
         }
         if (isDistinctIdIllegal(distinctId)) {
             this.statsd?.increment('illegal_distinct_ids.total', { distinctId: distinctId })
+            captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
+                illegalDistinctId: distinctId,
+                otherDistinctId: previousDistinctId,
+            })
             return
         }
         if (isDistinctIdIllegal(previousDistinctId)) {
             this.statsd?.increment('illegal_distinct_ids.total', { distinctId: previousDistinctId })
+            captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
+                illegalDistinctId: previousDistinctId,
+                otherDistinctId: distinctId,
+            })
             return
         }
         await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall)
@@ -313,7 +332,7 @@ export class PersonState {
         distinctId: string,
         teamId: number,
         timestamp: DateTime,
-        shouldIdentifyPerson = true,
+        isIdentifyCall = true,
         retryIfFailed = true,
         totalMergeAttempts = 0
     ): Promise<void> {
@@ -321,6 +340,8 @@ export class PersonState {
         if (previousDistinctId === distinctId) {
             return
         }
+
+        this.updateIsIdentified = true
 
         const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
         // :TRICKY: Reduce needless lookups for person
@@ -330,39 +351,23 @@ export class PersonState {
             try {
                 await this.db.addDistinctId(oldPerson, distinctId)
                 this.personContainer = this.personContainer.with(oldPerson)
-                this.updateIsIdentified = shouldIdentifyPerson
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
                 if (retryIfFailed) {
                     // run everything again to merge the users if needed
-                    await this.aliasDeprecated(
-                        previousDistinctId,
-                        distinctId,
-                        teamId,
-                        timestamp,
-                        shouldIdentifyPerson,
-                        false
-                    )
+                    await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall, false)
                 }
             }
         } else if (!oldPerson && newPerson) {
             try {
                 await this.db.addDistinctId(newPerson, previousDistinctId)
-                this.updateIsIdentified = shouldIdentifyPerson
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
                 if (retryIfFailed) {
                     // run everything again to merge the users if needed
-                    await this.aliasDeprecated(
-                        previousDistinctId,
-                        distinctId,
-                        teamId,
-                        timestamp,
-                        shouldIdentifyPerson,
-                        false
-                    )
+                    await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall, false)
                 }
             }
         } else if (!oldPerson && !newPerson) {
@@ -373,7 +378,7 @@ export class PersonState {
                     this.eventProperties['$set_once'] || {},
                     teamId,
                     null,
-                    shouldIdentifyPerson,
+                    true,
                     this.newUuid,
                     [distinctId, previousDistinctId]
                 )
@@ -384,33 +389,30 @@ export class PersonState {
                 // another request already created this person
                 if (retryIfFailed) {
                     // Try once more, probably one of the two persons exists now
-                    await this.aliasDeprecated(
-                        previousDistinctId,
-                        distinctId,
-                        teamId,
-                        timestamp,
-                        shouldIdentifyPerson,
-                        false
-                    )
+                    await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall, false)
                 }
             }
         } else if (oldPerson && newPerson && oldPerson.id !== newPerson.id) {
             // $create_alias is an explicit call to merge 2 users, so we'll merge anything
             // for $identify, we'll not merge a user who's already identified into anyone else
-            const isIdentifyCallToMergeAnIdentifiedUser = shouldIdentifyPerson && oldPerson.is_identified
+            const isIdentifyCallToMergeAnIdentifiedUser = isIdentifyCall && oldPerson.is_identified
 
-            this.statsd?.increment('merge_two_identified_users', {
-                call: isIdentifyCallToMergeAnIdentifiedUser ? 'identify' : 'alias',
+            this.statsd?.increment('merge_users', {
+                call: isIdentifyCall ? 'identify' : 'alias',
                 teamId: newPerson.team_id.toString(),
+                oldPersonIdentified: String(oldPerson.is_identified),
+                newPersonIdentified: String(newPerson.is_identified),
             })
-
             if (isIdentifyCallToMergeAnIdentifiedUser) {
                 status.warn('🤔', 'refused to merge an already identified user via an $identify call')
-                this.updateIsIdentified = shouldIdentifyPerson
+                captureIngestionWarning(this.db, teamId, 'cannot_merge_already_identified', {
+                    sourcePersonDistinctId: previousDistinctId,
+                    targetPersonDistinctId: distinctId,
+                })
             } else {
                 await this.mergePeople({
                     totalMergeAttempts,
-                    shouldIdentifyPerson,
+                    shouldIdentifyPerson: isIdentifyCall,
                     mergeInto: newPerson,
                     mergeIntoDistinctId: distinctId,
                     otherPerson: oldPerson,
@@ -418,8 +420,6 @@ export class PersonState {
                     timestamp: timestamp,
                 })
             }
-        } else {
-            this.updateIsIdentified = shouldIdentifyPerson
         }
     }
 
@@ -472,7 +472,7 @@ export class PersonState {
                     {
                         created_at: firstSeen,
                         properties: this.updatedPersonProperties(mergeInto.properties),
-                        is_identified: mergeInto.is_identified || otherPerson.is_identified || shouldIdentifyPerson,
+                        is_identified: true,
                     },
                     client
                 )

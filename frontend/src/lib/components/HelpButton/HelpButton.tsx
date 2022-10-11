@@ -14,10 +14,13 @@ import {
     IconMail,
     IconQuestionAnswer,
     IconMessages,
+    IconFlare,
 } from '../icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react-dom-interactions'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
+import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -80,12 +83,14 @@ export function HelpButton({
     const { validSequences } = useValues(inAppPromptLogic)
     const { runFirstValidSequence, promptAction } = useActions(inAppPromptLogic)
     const { isPromptVisible } = useValues(inAppPromptLogic)
+    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
+    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
 
     return (
-        <Popup
-            overlay={
-                <>
-                    <a href={`https://posthog.com/questions${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
+        <>
+            <Popup
+                overlay={
+                    <>
                         <LemonButton
                             icon={<IconQuestionAnswer />}
                             status="stealth"
@@ -94,11 +99,11 @@ export function HelpButton({
                                 reportHelpButtonUsed(HelpType.Slack)
                                 hideHelp()
                             }}
+                            to={`https://posthog.com/questions${HELP_UTM_TAGS}`}
+                            targetBlank
                         >
                             Ask us a question
                         </LemonButton>
-                    </a>
-                    <a href="https://github.com/PostHog/posthog/issues/new/choose" rel="noopener" target="_blank">
                         <LemonButton
                             icon={<IconGithub />}
                             status="stealth"
@@ -107,11 +112,11 @@ export function HelpButton({
                                 reportHelpButtonUsed(HelpType.GitHub)
                                 hideHelp()
                             }}
+                            to={`https://github.com/PostHog/posthog/issues/new/choose`}
+                            targetBlank
                         >
                             Create an issue on GitHub
                         </LemonButton>
-                    </a>
-                    <a href="mailto:hey@posthog.com" target="_blank">
                         <LemonButton
                             icon={<IconMail />}
                             status="stealth"
@@ -120,12 +125,12 @@ export function HelpButton({
                                 reportHelpButtonUsed(HelpType.Email)
                                 hideHelp()
                             }}
+                            to={'mailto:hey@posthog.com'}
+                            targetBlank
                         >
                             Send us an email
                         </LemonButton>
-                    </a>
-                    {!contactOnly && (
-                        <a href={`https://posthog.com/docs${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
+                        {!contactOnly && (
                             <LemonButton
                                 icon={<IconArticle />}
                                 status="stealth"
@@ -134,43 +139,58 @@ export function HelpButton({
                                     reportHelpButtonUsed(HelpType.Docs)
                                     hideHelp()
                                 }}
+                                to={`https://posthog.com/docs${HELP_UTM_TAGS}`}
+                                targetBlank
                             >
                                 Read the docs
                             </LemonButton>
-                        </a>
-                    )}
-                    {validSequences.length > 0 && (
+                        )}
+                        {validSequences.length > 0 && (
+                            <LemonButton
+                                icon={<IconMessages />}
+                                status="stealth"
+                                fullWidth
+                                onClick={() => {
+                                    if (isPromptVisible) {
+                                        promptAction('skip')
+                                    } else {
+                                        runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
+                                    }
+                                    hideHelp()
+                                }}
+                            >
+                                {isPromptVisible ? 'Stop tutorial' : 'Explain this page'}
+                            </LemonButton>
+                        )}
+
                         <LemonButton
-                            icon={<IconMessages />}
+                            icon={<IconFlare />}
                             status="stealth"
                             fullWidth
                             onClick={() => {
-                                if (isPromptVisible) {
-                                    promptAction('skip')
-                                } else {
-                                    runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
-                                }
+                                setHedgehogModeEnabled(!hedgehogModeEnabled)
                                 hideHelp()
                             }}
                         >
-                            {isPromptVisible ? 'Stop tutorial' : 'Explain this page'}
+                            {hedgehogModeEnabled ? 'Disable' : 'Enable'} Hedgehog Mode
                         </LemonButton>
-                    )}
-                </>
-            }
-            onClickOutside={hideHelp}
-            visible={isHelpVisible}
-            placement={placement}
-            actionable
-        >
-            <div className={clsx('help-button', inline && 'inline')} onClick={toggleHelp} data-attr="help-button">
-                {customComponent || (
-                    <>
-                        <IconHelpOutline />
-                        <IconArrowDropDown />
                     </>
-                )}
-            </div>
-        </Popup>
+                }
+                onClickOutside={hideHelp}
+                visible={isHelpVisible}
+                placement={placement}
+                actionable
+            >
+                <div className={clsx('help-button', inline && 'inline')} onClick={toggleHelp} data-attr="help-button">
+                    {customComponent || (
+                        <>
+                            <IconHelpOutline />
+                            <IconArrowDropDown />
+                        </>
+                    )}
+                </div>
+            </Popup>
+            <HedgehogBuddyWithLogic />
+        </>
     )
 }

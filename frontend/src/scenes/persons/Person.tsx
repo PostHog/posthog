@@ -20,7 +20,6 @@ import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
@@ -120,13 +119,15 @@ export function Person(): JSX.Element | null {
                             Delete person
                         </LemonButton>
 
-                        <LemonButton
-                            onClick={() => setSplitMergeModalShown(true)}
-                            data-attr="merge-person-button"
-                            type="secondary"
-                        >
-                            Split or merge IDs
-                        </LemonButton>
+                        {person.distinct_ids.length > 1 && (
+                            <LemonButton
+                                onClick={() => setSplitMergeModalShown(true)}
+                                data-attr="merge-person-button"
+                                type="secondary"
+                            >
+                                Split IDs
+                            </LemonButton>
+                        )}
                     </div>
                 }
             />
@@ -221,7 +222,6 @@ export function Person(): JSX.Element | null {
                     <ActivityLog
                         scope={ActivityScope.PERSON}
                         id={person.id}
-                        describer={personActivityDescriber}
                         caption={
                             <div>
                                 <InfoCircleOutlined style={{ marginRight: '.25rem' }} />

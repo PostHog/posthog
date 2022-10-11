@@ -46,6 +46,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Tooltip } from 'lib/components/Tooltip'
 import Typography from 'antd/lib/typography'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { DebugNotice } from 'lib/components/DebugNotice'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -246,6 +247,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             <div className="SideBar__slider">
                 <div className="SideBar__content">
                     <Pages />
+                    <DebugNotice />
                 </div>
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />

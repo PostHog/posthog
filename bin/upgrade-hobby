@@ -68,6 +68,16 @@ sudo -E docker-compose run asyncmigrationscheck
 echo "Stopping the stack!"
 docker-compose stop
 
+# rewrite entrypoint
+# TODO: this is duplicated from bin/deploy-hobby. We should refactor this into a
+# single script.
+cat > compose/start <<EOF
+#!/bin/bash
+/compose/wait
+./bin/migrate
+./bin/docker-server
+EOF
+
 if [ ${DOCKER_VOLUMES_MISSING} == 'TRUE' ];
 then
     echo ""
@@ -81,6 +91,7 @@ then
     echo ""
     echo ""
 fi
+
 read -r -p "Do you want to restart the Posthog stack now ? (docker-compose up) [y/N] " response
 if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
 then

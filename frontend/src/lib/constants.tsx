@@ -68,6 +68,17 @@ export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'UserName',
 ]
 
+// Feature Flags & Experiments
+export const INSTANTLY_AVAILABLE_PROPERTIES = [
+    '$geoip_city_name',
+    '$geoip_country_name',
+    '$geoip_country_code',
+    '$geoip_continent_name',
+    '$geoip_continent_code',
+    '$geoip_postal_code',
+    '$geoip_time_zone',
+]
+
 // Event constants
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
@@ -124,6 +135,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAGS_UX: 'feature-flags-ux', //owner: @liyiy
     REGION_SELECT: 'region-select', //owner: @kappa90
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
+    HOG_BOOK: 'hog-book', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
