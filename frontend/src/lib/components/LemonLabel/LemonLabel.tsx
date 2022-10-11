@@ -8,14 +8,28 @@ export interface LemonLabelProps
     extends Pick<React.LabelHTMLAttributes<HTMLLabelElement>, 'htmlFor' | 'form' | 'children' | 'className'> {
     info?: React.ReactNode
     showOptional?: boolean
+    onExplanationClick?: () => void
 }
 
-export function LemonLabel({ children, info, className, showOptional, ...props }: LemonLabelProps): JSX.Element {
+export function LemonLabel({
+    children,
+    info,
+    className,
+    showOptional,
+    onExplanationClick,
+    ...props
+}: LemonLabelProps): JSX.Element {
     return (
         <label className={clsx('LemonLabel', className)} {...props}>
             {children}
 
             {showOptional ? <span className="LemonLabel__extra">(optional)</span> : null}
+
+            {onExplanationClick ? (
+                <a onClick={onExplanationClick}>
+                    <span className="LemonLabel__extra">(what is this?)</span>
+                </a>
+            ) : null}
 
             {info ? (
                 <Tooltip title={info}>

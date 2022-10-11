@@ -325,7 +325,10 @@ def parse_event(event, distinct_id, ingestion_context):
     return event
 
 
-def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=UUIDT()) -> None:
+def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=None) -> None:
+    if event_uuid is None:
+        event_uuid = UUIDT()
+
     parsed_event = parse_kafka_event_data(
         distinct_id=distinct_id,
         ip=ip,

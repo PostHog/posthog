@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { prompt } from 'lib/logic/prompt'
 import { getEventNamesForAction, objectsEqual, sum, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -38,6 +38,8 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { insightsModel } from '~/models/insightsModel'
+import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
+import { loaders } from 'kea-loaders'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -66,12 +68,12 @@ export const createEmptyInsight = (
     result: null,
 })
 
-export const insightLogic = kea<insightLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps('new'),
-    path: (key) => ['scenes', 'insights', 'insightLogic', key],
+export const insightLogic = kea<insightLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('new')),
+    path((key) => ['scenes', 'insights', 'insightLogic', key]),
 
-    connect: {
+    connect({
         values: [
             teamLogic,
             ['currentTeamId', 'currentTeam'],
@@ -85,9 +87,9 @@ export const insightLogic = kea<insightLogicType>({
             ['mathDefinitions'],
         ],
         logic: [eventUsageLogic, dashboardsModel, prompt({ key: `save-as-insight` })],
-    },
+    }),
 
-    actions: () => ({
+    actions({
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
@@ -151,7 +153,7 @@ export const insightLogic = kea<insightLogicType>({
         toggleVisibility: (index: number) => ({ index }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
     }),
-    loaders: ({ actions, cache, values, props }) => ({
+    loaders(({ actions, cache, values, props }) => ({
         insight: [
             props.cachedInsight ??
                 createEmptyInsight(
@@ -395,8 +397,8 @@ export const insightLogic = kea<insightLogicType>({
                 },
             },
         ],
-    }),
-    reducers: ({ props }) => ({
+    })),
+    reducers(({ props }) => ({
         insight: {
             loadInsight: (state, { shortId }) =>
                 shortId === state.short_id
@@ -436,6 +438,10 @@ export const insightLogic = kea<insightLogicType>({
                     return { ...state, dashboards: state.dashboards?.filter((d) => d !== dashboardId) }
                 }
                 return state
+            },
+            [dashboardsModel.actionTypes.deleteDashboardSuccess]: (state, { dashboard }) => {
+                const { id } = dashboard
+                return { ...state, dashboards: state.dashboards?.filter((d) => d !== id) }
             },
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
@@ -537,8 +543,8 @@ export const insightLogic = kea<insightLogicType>({
                 saveInsightFailure: () => false,
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
@@ -630,6 +636,18 @@ export const insightLogic = kea<insightLogicType>({
                     : sum(filters.properties?.values?.map((x) => x.values.length) || [])
             },
         ],
+        localFilters: [
+            (s) => [s.filters],
+            (filters) => {
+                return toLocalFilters(filters)
+            },
+        ],
+        isSingleSeries: [
+            (s) => [s.filters, s.localFilters],
+            (filters, localFilters): number => {
+                return filters.formula || localFilters.length <= 1
+            },
+        ],
         intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
         timezone: [(s) => [s.insight], (insight) => insight?.timezone || 'UTC'],
         exporterResourceParams: [
@@ -701,8 +719,8 @@ export const insightLogic = kea<insightLogicType>({
                 )
             },
         ],
-    },
-    listeners: ({ actions, selectors, values }) => ({
+    }),
+    listeners(({ actions, selectors, values }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
             if (objectsEqual(previousFilters, filters)) {
@@ -989,9 +1007,8 @@ export const insightLogic = kea<insightLogicType>({
                 eventUsageLogic.actions.reportInsightsTabReset()
             }
         },
-    }),
-
-    events: ({ actions, cache, props, values }) => ({
+    })),
+    events(({ props, cache, values, actions }) => ({
         afterMount: () => {
             if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
                 if (
@@ -1030,5 +1047,5 @@ export const insightLogic = kea<insightLogicType>({
             }
             lemonToast.dismiss()
         },
-    }),
-})
+    })),
+])

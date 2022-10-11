@@ -19,13 +19,13 @@ export function transpileFrontend(rawCode: string): string {
     return `"use strict";\nexport function getFrontendApp (require) { let exports = {}; ${code}; return exports; }`
 }
 
-export function transpileWeb(rawCode: string): string {
+export function transpileSite(rawCode: string): string {
     const { code } = transform(rawCode, {
         envName: 'production',
         code: true,
         babelrc: false,
         configFile: false,
-        filename: 'web.ts',
+        filename: 'site.ts',
         presets: [['typescript', { isTSX: false, allExtensions: true }], 'env'],
     })
     if (!code) {

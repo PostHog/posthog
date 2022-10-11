@@ -5,7 +5,7 @@ import { Hub, Plugin, PluginConfig, PluginJsonConfig } from '../../types'
 import { processError } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
-import { transpileFrontend, transpileWeb } from '../frontend/transpile'
+import { transpileFrontend, transpileSite } from '../frontend/transpile'
 
 function readFileIfExists(baseDir: string, plugin: Plugin, file: string): string | null {
     const fullPath = path.resolve(baseDir, plugin.url!.substring(5), file)
@@ -46,9 +46,9 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             pluginKey,
             transpile,
         }: {
-            type: 'frontend' | 'web'
-            filename: 'frontend.tsx' | 'web.ts'
-            pluginKey: 'source__frontend_tsx' | 'source__web_ts'
+            type: 'frontend' | 'site'
+            filename: 'frontend.tsx' | 'site.ts'
+            pluginKey: 'source__frontend_tsx' | 'source__site_ts'
             transpile: (source: string) => string
         }): Promise<boolean> => {
             const source = isLocalPlugin ? readFileIfExists(hub.BASE_DIR, plugin, filename) : plugin[pluginKey]
@@ -89,11 +89,11 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             transpile: transpileFrontend,
         })
 
-        const hasWeb = await transpileIfNeeded({
-            type: 'web',
-            filename: 'web.ts',
-            pluginKey: 'source__web_ts',
-            transpile: transpileWeb,
+        const hasSite = await transpileIfNeeded({
+            type: 'site',
+            filename: 'site.ts',
+            pluginKey: 'source__site_ts',
+            transpile: transpileSite,
         })
 
         // setup "backend" app
@@ -111,7 +111,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             pluginConfig.vm?.failInitialization!()
 
             // if we transpiled a frontend app, don't save an error if no backend app
-            if (!hasFrontend && !hasWeb) {
+            if (!hasFrontend && !hasSite) {
                 await processError(
                     hub,
                     pluginConfig,
