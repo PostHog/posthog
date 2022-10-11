@@ -26,7 +26,7 @@ class QueryDateRange:
     def date_to_param(self) -> datetime:
 
         if not self._filter._date_to and self._filter.interval == "hour":
-            return self._localize_to_team(self._now) + relativedelta(minutes=1)
+            return self._now + relativedelta(minutes=1)
 
         date_to = self._now
         if isinstance(self._filter._date_to, str):
@@ -54,9 +54,8 @@ class QueryDateRange:
         elif isinstance(self._filter._date_from, datetime):
             date_from = self._localize_to_team(self._filter._date_from)
         else:
-            date_from = self._localize_to_team(
-                timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                - relativedelta(days=DEFAULT_DATE_FROM_DAYS)
+            date_from = self._now.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
+                days=DEFAULT_DATE_FROM_DAYS
             )
 
         return date_from
@@ -66,11 +65,7 @@ class QueryDateRange:
         return self._localize_to_team(timezone.now())
 
     def _localize_to_team(self, target: datetime):
-        return (
-            target.astimezone(pytz.timezone(self._team.timezone))
-            if target.tzinfo is None
-            else target.astimezone(pytz.timezone(self._team.timezone))
-        )
+        return target.astimezone(pytz.timezone(self._team.timezone))
 
     def _parse_date(self, input):
 
@@ -154,7 +149,7 @@ class QueryDateRange:
         if not self.is_hourly(self._filter._date_to):
             date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=99999)
 
-        date_to_param = {"date_to": date_to.strftime("%Y-%m-%d %H:%M:%S")}
+        date_to_param = {"date_to": date_to.strftime("%Y-%m-%d %H:%M:%S"), "timezone": self._team.timezone}
 
         return date_to_query, date_to_param
 
@@ -166,7 +161,7 @@ class QueryDateRange:
         if not self.is_hourly(self._filter._date_from):
             date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        date_from_param = {"date_from": date_from.strftime("%Y-%m-%d %H:%M:%S")}
+        date_from_param = {"date_from": date_from.strftime("%Y-%m-%d %H:%M:%S"), "timezone": self._team.timezone}
 
         return date_from_query, date_from_param
 
