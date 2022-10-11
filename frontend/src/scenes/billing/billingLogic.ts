@@ -82,7 +82,7 @@ export const billingLogic = kea<billingLogicType>([
                         values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
                     ) {
                         posthog.capture('billing locked screen shown')
-                        router.actions.replace('/organization/billing/locked')
+                        router.actions.replace(urls.billingLocked())
                     }
                     actions.registerInstrumentationProps()
                     return response as BillingType
