@@ -200,7 +200,6 @@ describe('dashboardLogic', () => {
                 '/api/projects/:team/dashboards/:id/': async (req) => {
                     const dashboardId = req.params['id'][0]
                     const payload = await req.json()
-                    console.log('replying to patch on dashboard: ', dashboardId)
                     return [200, { ...dashboards[dashboardId], ...payload }]
                 },
                 '/api/projects/:team/dashboards/:id/move_tile/': async (req) => {
