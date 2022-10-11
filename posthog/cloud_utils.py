@@ -1,14 +1,15 @@
 from typing import Optional
+
 from django.conf import settings
 from django.db.utils import ProgrammingError
-
 
 is_cloud_cached: Optional[bool] = None
 
 # NOTE: This is cached for the lifetime of the instance but this is not an issue as the value is not expected to change
 def is_cloud():
     global is_cloud_cached
-    if is_cloud_cached != None:
+
+    if not settings.TEST and isinstance(is_cloud_cached, bool):
         return is_cloud_cached
 
     try:
