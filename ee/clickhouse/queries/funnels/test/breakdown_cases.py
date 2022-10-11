@@ -35,6 +35,9 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             # set in TestFunnelBreakdown
             raise NotImplementedError()
 
+        def _dummy():
+            pass
+
         @snapshot_clickhouse_queries
         def test_funnel_breakdown_group(self):
             self._create_groups()
