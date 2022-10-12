@@ -346,34 +346,86 @@ class Migration(AsyncMigrationDefinition):
                 ALTER TABLE {EVENTS_DATA_TABLE()}
                 {{on_cluster_clause}}
                 UPDATE
-                    person_id = toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
-                    person_properties = dictGetStringOrDefault(
-                        '{settings.CLICKHOUSE_DATABASE}.person_dict',
-                        'properties',
-                        tuple(
-                            team_id,
-                            toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
+                    person_id = if(
+                        empty(person_id),
+                        toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
+                        person_id
+                    ),
+                    person_properties = if(
+                        person_properties = '',
+                        dictGetStringOrDefault(
+                            '{settings.CLICKHOUSE_DATABASE}.person_dict',
+                            'properties',
+                            tuple(
+                                team_id,
+                                toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
+                            ),
+                            toJSONString(map()
                         ),
-                        toJSONString(map())
+                        person_properties
                     ),
-                    person_created_at = dictGetDateTime(
-                        '{settings.CLICKHOUSE_DATABASE}.person_dict',
-                        'created_at',
-                        tuple(
-                            team_id,
-                            toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
-                        )
+                    person_created_at = if(
+                        person_created_at = toDateTime(0),
+                        dictGetDateTime(
+                            '{settings.CLICKHOUSE_DATABASE}.person_dict',
+                            'created_at',
+                            tuple(
+                                team_id,
+                                toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
+                            )
+                        ),
+                        person_created_at
                     ),
-                    group0_properties = dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 0, $group_0), toJSONString(map())),
-                    group1_properties = dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 1, $group_1), toJSONString(map())),
-                    group2_properties = dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 2, $group_2), toJSONString(map())),
-                    group3_properties = dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 3, $group_3), toJSONString(map())),
-                    group4_properties = dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 4, $group_4), toJSONString(map())),
-                    group0_created_at = dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 0, $group_0)),
-                    group1_created_at = dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 1, $group_1)),
-                    group2_created_at = dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
-                    group3_created_at = dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
-                    group4_created_at = dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4))
+                    group0_properties = if(
+                        group0_properties = '',
+                        dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 0, $group_0), toJSONString(map())),
+                        groupX_properties
+                    ),
+                    group1_properties = if(
+                        group1_properties = '',
+                        dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 1, $group_1), toJSONString(map())),
+                        groupX_properties
+                    ),
+                    group2_properties = if(
+                        group2_properties = '',
+                        dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 2, $group_2), toJSONString(map())),
+                        groupX_properties
+                    ),
+                    group3_properties = if(
+                        group3_properties = '',
+                        dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 3, $group_3), toJSONString(map())),
+                        groupX_properties
+                    ),
+                    group4_properties = if(
+                        group4_properties = '',
+                        dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 4, $group_4), toJSONString(map())),
+                        groupX_properties
+                    ),
+                    group0_created_at = if(
+                        group0_created_at = toDateTime(0),
+                        dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 0, $group_0)),
+                        groupX_properties
+                    ),
+                    group1_created_at = if(
+                        group1_created_at = toDateTime(0),
+                        dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 1, $group_1)),
+                        groupX_properties
+                    ),
+                    group2_created_at = if(
+                        group2_created_at = toDateTime(0),
+                        dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
+                        groupX_properties
+                    ),
+                    group3_created_at = if(
+                        group3_created_at = toDateTime(0),
+                        dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
+                        groupX_properties
+                    ),
+                    group4_created_at = if(
+                        group4_created_at = toDateTime(0),
+                        dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4))
+                        groupX_properties
+                    )
                 {where_clause}
             """,
             where_clause_params,
