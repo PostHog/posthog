@@ -49,7 +49,7 @@ export function MetricsOverview({ tab, metrics, metricsLoading }: MetricsTabProp
 
 function renderNumber(value: number | undefined, loading: boolean): JSX.Element {
     if (loading) {
-        return <LemonSkeleton />
+        return <LemonSkeleton className="w-16" />
     }
     return <>{value ? humanFriendlyNumber(value) : value}</>
 }
