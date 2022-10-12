@@ -5,7 +5,6 @@ import { SessionRecordingType } from '~/types'
 import { getRecordingListLimit, PLAYLIST_LIMIT, sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import './SessionRecordingsPlaylist.scss'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
@@ -15,6 +14,7 @@ import { SessionRecordingsFilters } from './filters/SessionRecordingsFilters'
 import clsx from 'clsx'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -53,11 +53,12 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
         })
     }
 
-    const paginationControls = (
+    const nextLength =
+        offset + (sessionRecordingsResponseLoading ? getRecordingListLimit(true) : sessionRecordings.length)
+
+    const paginationControls = nextLength ? (
         <div className="flex items-center gap-1">
-            <span>{`${offset + 1} - ${
-                offset + (sessionRecordingsResponseLoading ? getRecordingListLimit(true) : sessionRecordings.length)
-            }`}</span>
+            <span>{`${offset + 1} - ${nextLength}`}</span>
             <LemonButton
                 icon={<IconChevronLeft />}
                 status="stealth"
@@ -79,7 +80,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                 }}
             />
         </div>
-    )
+    ) : null
 
     return (
         <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
@@ -87,19 +88,26 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                 <SessionRecordingsFilters personUUID={personUUID} />
 
                 <div className="w-full overflow-hidden border rounded">
-                    <div className="flex justify-between items-center bg-mid py-3 px-4 border-b">
-                        <span className="font-bold uppercase text-xs">Recent Recordings</span>
+                    <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
+                        <span className="font-bold uppercase text-xs my-1">Recent Recordings</span>
                         {paginationControls}
+
+                        <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                     </div>
-                    {sessionRecordingsResponseLoading && !sessionRecordings.length ? (
-                        <>
-                            {range(PLAYLIST_LIMIT).map((i) => (
-                                <div key={i} className="p-4 space-y-2 border-b">
-                                    <LemonSkeleton className="w-1/2" />
-                                    <LemonSkeleton className="w-1/3" />
-                                </div>
-                            ))}
-                        </>
+
+                    {!sessionRecordings.length ? (
+                        sessionRecordingsResponseLoading ? (
+                            <>
+                                {range(PLAYLIST_LIMIT).map((i) => (
+                                    <div key={i} className="p-4 space-y-2 border-b">
+                                        <LemonSkeleton className="w-1/2" />
+                                        <LemonSkeleton className="w-1/3" />
+                                    </div>
+                                ))}
+                            </>
+                        ) : (
+                            <p className="text-muted-alt m-4">No matching recordings found</p>
+                        )
                     ) : (
                         <ul className={clsx(sessionRecordingsResponseLoading ? 'opacity-50' : '')}>
                             {sessionRecordings.map((rec, i) => (
@@ -138,7 +146,33 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     )}
                 </div>
 
-                <div className="flex justify-end my-2">{paginationControls}</div>
+                <div className="flex justify-between items-center">
+                    <LemonButton
+                        icon={<IconChevronLeft />}
+                        type="secondary"
+                        disabled={!hasPrev}
+                        onClick={() => {
+                            loadPrev()
+                            window.scrollTo(0, 0)
+                        }}
+                    >
+                        Previous
+                    </LemonButton>
+
+                    <span>{`${offset + 1} - ${nextLength}`}</span>
+
+                    <LemonButton
+                        icon={<IconChevronRight />}
+                        type="secondary"
+                        disabled={!hasNext}
+                        onClick={() => {
+                            loadNext()
+                            window.scrollTo(0, 0)
+                        }}
+                    >
+                        Next
+                    </LemonButton>
+                </div>
             </div>
             <div className="SessionRecordingsPlaylist__right-column">
                 {activeSessionRecording?.id ? (
@@ -151,12 +185,14 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                         />
                     </div>
                 ) : (
-                    <EmptyMessage
-                        title="No recording selected"
-                        description="Please select a recording from the list on the left"
-                        buttonText="Learn more about recordings"
-                        buttonTo="https://posthog.com/docs/user-guides/recordings"
-                    />
+                    <div className="mt-20">
+                        <EmptyMessage
+                            title="No recording selected"
+                            description="Please select a recording from the list on the left"
+                            buttonText="Learn more about recordings"
+                            buttonTo="https://posthog.com/docs/user-guides/recordings"
+                        />
+                    </div>
                 )}
             </div>
         </div>
