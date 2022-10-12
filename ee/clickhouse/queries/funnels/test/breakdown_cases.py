@@ -1,12 +1,13 @@
 from datetime import datetime
-from typing import List
+from typing import Any, Dict, List
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
-from posthog.queries.funnels.test.breakdown_cases import FunnelStepResult
+from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
+from posthog.queries.funnels.test.breakdown_cases import FunnelStepResult, assert_funnel_results_equal
 from posthog.test.base import APIBaseTest, snapshot_clickhouse_queries, test_with_materialized_columns
 from posthog.test.test_journeys import journeys_for
 
@@ -32,8 +33,31 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             create_group(team_id=self.team.pk, group_type_index=1, group_key="org:5", properties={"industry": "random"})
 
         def _assert_funnel_breakdown_result_is_correct(self, result, steps: List[FunnelStepResult]):
-            # set in TestFunnelBreakdown
-            raise NotImplementedError()
+            def funnel_result(step: FunnelStepResult, order: int) -> Dict[str, Any]:
+                return {
+                    "action_id": step.name if step.type == "events" else step.action_id,
+                    "name": step.name,
+                    "custom_name": None,
+                    "order": order,
+                    "people": [],
+                    "count": step.count,
+                    "type": step.type,
+                    "average_conversion_time": step.average_conversion_time,
+                    "median_conversion_time": step.median_conversion_time,
+                    "breakdown": step.breakdown,
+                    "breakdown_value": step.breakdown,
+                    **(
+                        {"action_id": None, "name": f"Completed {order+1} step{'s' if order > 0 else ''}"}
+                        if Funnel == ClickhouseFunnelUnordered
+                        else {}
+                    ),
+                }
+
+            step_results = []
+            for index, step_result in enumerate(steps):
+                step_results.append(funnel_result(step_result, index))
+
+            assert_funnel_results_equal(result, step_results)
 
         @snapshot_clickhouse_queries
         def test_funnel_breakdown_group(self):
