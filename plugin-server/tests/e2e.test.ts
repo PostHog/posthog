@@ -26,7 +26,10 @@ jest.setTimeout(60000) // 60 sec timeout
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 1,
     LOG_LEVEL: LogLevel.Log,
-    CONVERSION_BUFFER_ENABLED: false,
+    // Conversion buffer is now default enabled, so we should enable it for
+    // tests.
+    CONVERSION_BUFFER_ENABLED: true,
+    BUFFER_CONVERSION_SECONDS: 0,
     // Make sure producer flushes for each message immediately. Note that this
     // does mean that we are not testing the async nature of the producer by
     // doing this.
@@ -155,7 +158,7 @@ describe('E2E', () => {
             const onEventEvent = JSON.parse(consoleOutput[1][1])
             expect(onEventEvent.event).toEqual('custom event')
             expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
-        })
+        }, 5000)
 
         test('correct $autocapture properties included in onEvent calls', async () => {
             // The plugin server does modifications to the `event.properties`
@@ -185,7 +188,7 @@ describe('E2E', () => {
             expect(onEventEvent.elements).toEqual([
                 { attributes: {}, nth_child: 1, nth_of_type: 2, tag_name: 'div', text: '💻' },
             ])
-        })
+        }, 5000)
 
         test('snapshot captured, processed, ingested', async () => {
             const distinctId = new UUIDT().toString()
@@ -205,7 +208,7 @@ describe('E2E', () => {
 
             // onSnapshot ran
             expect(testConsole.read()).toEqual([['onSnapshot', '$snapshot']])
-        })
+        }, 5000)
 
         test('console logging is persistent', async () => {
             const distinctId = new UUIDT().toString()
@@ -230,7 +233,7 @@ describe('E2E', () => {
                     message: 'amogus',
                 })
             )
-        })
+        }, 5000)
     })
 })
 
@@ -341,10 +344,7 @@ const createOrganization = async (pgClient: Pool) => {
 }
 
 const createTeam = async (pgClient: Pool, organizationId: string) => {
-    const teamId = Math.floor(Math.random() * 1_000_000)
-    // TODO: use `default` for id
-    await insertRow(pgClient, 'posthog_team', {
-        id: teamId,
+    const team = await insertRow(pgClient, 'posthog_team', {
         organization_id: organizationId,
         app_urls: [],
         name: 'TEST PROJECT',
@@ -363,12 +363,12 @@ const createTeam = async (pgClient: Pool, organizationId: string) => {
         plugins_opt_in: false,
         opt_out_capture: false,
         is_demo: false,
-        api_token: `THIS IS NOT A TOKEN FOR TEAM ${teamId}`,
+        api_token: new UUIDT().toString(),
         test_account_filters: [],
         timezone: 'UTC',
         data_attributes: ['data-attr'],
         person_display_name_properties: [],
         access_control: false,
     })
-    return teamId
+    return team.id
 }
