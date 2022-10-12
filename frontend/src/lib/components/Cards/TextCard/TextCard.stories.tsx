@@ -51,6 +51,17 @@ export const Template: Story = () => {
                 />
             </div>
             <div>
+                <h5>Long text</h5>
+                <TextCard
+                    className={'react-grid-item react-draggable cssTransforms react-resizable'}
+                    style={{ height: '250px', width: '300px' }}
+                    dashboardId={1}
+                    textTile={makeTextTile(
+                        '# long text which has a very long title so is too big both X and Y, what shall we do?! Oh what shall we do?\n\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n'
+                    )}
+                />
+            </div>
+            <div>
                 <h5>with resize handles</h5>
                 <TextCard
                     className={'react-grid-item react-draggable cssTransforms react-resizable'}
