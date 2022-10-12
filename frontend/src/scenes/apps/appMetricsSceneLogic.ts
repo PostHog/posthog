@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import type { appMetricsSceneLogicType } from './appMetricsSceneLogicType'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, PluginConfigWithPluginInfo } from '~/types'
+import { Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
 import api from 'lib/api'
 import { teamLogic } from '../teamLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
@@ -26,6 +26,7 @@ export interface HistoricalExportInfo {
     status: 'success' | 'fail' | 'not_finished'
     payload: Record<string, any>
     created_at: string
+    created_by: UserBasicType | null
     finished_at?: string
     duration?: number
 }
@@ -55,7 +56,6 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
 
     actions({
         setActiveTab: (tab: AppMetricsTab) => ({ tab }),
-        setOpenExportSections: (sections: Array<HistoricalExportInfo['job_id']>) => ({ sections }),
     }),
 
     reducers({
@@ -63,13 +63,6 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             null as AppMetricsTab | null,
             {
                 setActiveTab: (_, { tab }) => tab,
-            },
-        ],
-
-        openExportSections: [
-            [] as Array<HistoricalExportInfo['job_id']>,
-            {
-                setOpenExportSections: (_, { sections }) => sections,
             },
         ],
     }),
