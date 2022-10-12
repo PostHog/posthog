@@ -191,6 +191,7 @@ export async function insertRow(db: Pool, table: string, objectProvided: Record<
             )
         }
         await Promise.all(dependentQueries)
+        return rowSaved
     } catch (error) {
         console.error(`Error on table ${table} when inserting object:\n`, object, '\n', error)
         throw error
