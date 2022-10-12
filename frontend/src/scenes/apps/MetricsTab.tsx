@@ -2,14 +2,17 @@ import React, { useEffect, useRef } from 'react'
 import { getSeriesColor } from 'lib/colors'
 import { Card } from 'antd'
 import { Chart, ChartItem } from 'chart.js'
-import { AppMetrics } from './appMetricsSceneLogic'
+import { AppMetrics, AppMetricsTab } from './appMetricsSceneLogic'
+import { DescriptionColumns } from './constants'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
-interface MetricsTabProps {
+export interface MetricsTabProps {
+    tab: AppMetricsTab
     metrics: AppMetrics | null
     metricsLoading: boolean
 }
 
-export function MetricsTab({ metrics, metricsLoading }: MetricsTabProps): JSX.Element {
+export function MetricsTab({ tab, metrics, metricsLoading }: MetricsTabProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
     useEffect(() => {
@@ -81,23 +84,9 @@ export function MetricsTab({ metrics, metricsLoading }: MetricsTabProps): JSX.El
         return <></>
     }
 
-    // :TODO: Format numbers
     return (
         <div className="mt-4">
-            <Card title="Metrics overview">
-                <div>
-                    <div className="card-secondary">Events delivered on first try</div>
-                    <div>{metrics.totals.successes}</div>
-                </div>
-                <div>
-                    <div className="card-secondary">Events delivered on retry</div>
-                    <div>{metrics.totals.successes_on_retry}</div>
-                </div>
-                <div>
-                    <div className="card-secondary">Events failed</div>
-                    <div>{metrics.totals.failures}</div>
-                </div>
-            </Card>
+            <MetricsOverview tab={tab} metrics={metrics} metricsLoading={metricsLoading} />
 
             <Card title="graph" className="mt-4">
                 <div style={{ height: '300px' }}>
@@ -106,4 +95,33 @@ export function MetricsTab({ metrics, metricsLoading }: MetricsTabProps): JSX.El
             </Card>
         </div>
     )
+}
+
+export function MetricsOverview({ tab, metrics, metricsLoading }: MetricsTabProps): JSX.Element {
+    return (
+        <Card title="Metrics overview">
+            <div>
+                <div className="card-secondary">{DescriptionColumns[tab].success}</div>
+                <div>{renderNumber(metrics?.totals?.successes, metricsLoading)}</div>
+            </div>
+            {DescriptionColumns[tab].success_on_retry && (
+                <div>
+                    <div className="card-secondary">{DescriptionColumns[tab].success_on_retry}</div>
+                    <div>{renderNumber(metrics?.totals?.successes_on_retry, metricsLoading)}</div>
+                </div>
+            )}
+            <div>
+                <div className="card-secondary">{DescriptionColumns[tab].failure}</div>
+                <div>{renderNumber(metrics?.totals?.failures, metricsLoading)}</div>
+            </div>
+        </Card>
+    )
+}
+
+function renderNumber(value: number | undefined, loading: boolean): JSX.Element {
+    if (loading) {
+        return <LemonSkeleton />
+    }
+    // :TODO: Format numbers
+    return <>{value}</>
 }

@@ -37,17 +37,25 @@ export function AppMetrics(): JSX.Element {
                 >
                     {showTab(AppMetricsTab.ProcessEvent) && (
                         <Tabs.TabPane tab="processEvent" key={AppMetricsTab.ProcessEvent}>
-                            <MetricsTab metrics={metrics} metricsLoading={metricsLoading} />
+                            <MetricsTab
+                                tab={AppMetricsTab.ProcessEvent}
+                                metrics={metrics}
+                                metricsLoading={metricsLoading}
+                            />
                         </Tabs.TabPane>
                     )}
                     {showTab(AppMetricsTab.OnEvent) && (
                         <Tabs.TabPane tab="onEvent" key={AppMetricsTab.OnEvent}>
-                            <MetricsTab metrics={metrics} metricsLoading={metricsLoading} />
+                            <MetricsTab tab={AppMetricsTab.OnEvent} metrics={metrics} metricsLoading={metricsLoading} />
                         </Tabs.TabPane>
                     )}
                     {showTab(AppMetricsTab.ExportEvents) && (
                         <Tabs.TabPane tab="exportEvents" key={AppMetricsTab.ExportEvents}>
-                            <MetricsTab metrics={metrics} metricsLoading={metricsLoading} />
+                            <MetricsTab
+                                tab={AppMetricsTab.ExportEvents}
+                                metrics={metrics}
+                                metricsLoading={metricsLoading}
+                            />
                         </Tabs.TabPane>
                     )}
                     {showTab(AppMetricsTab.HistoricalExports) && (
