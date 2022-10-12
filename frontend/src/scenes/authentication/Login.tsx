@@ -143,16 +143,14 @@ export function Login(): JSX.Element {
                         <SSOLoginButton provider="saml" email={login.email} status="primary" />
                     )}
                 </Form>
-                <div className="flex items-center justify-center flex-wrap gap-4 mt-4 font-semibold">
-                    {preflight?.cloud && (
-                        <Link to="/signup" data-attr="signup">
+                {preflight?.cloud && (
+                    <div className="text-center mt-4">
+                        Don't have an account?{' '}
+                        <Link to="/signup" data-attr="signup" className="font-bold">
                             Create an account
                         </Link>
-                    )}
-                    <Link to="/reset" data-attr="forgot-password">
-                        Forgot your password?
-                    </Link>
-                </div>
+                    </div>
+                )}
                 <SocialLoginButtons caption="Or log in with" topDivider />
             </div>
         </BridgePage>
