@@ -88,11 +88,11 @@ export type PromptUserState = {
     [key: string]: PromptState
 }
 
-export const DEFAULT_ACTIONS = {
-    NEXT: 'next',
-    PREVIOUS: 'previous',
-    START_PRODUCT_TOUR: 'start-product-tour',
-    SKIP: 'skip',
+export enum DefaultAction {
+    NEXT = 'next',
+    PREVIOUS = 'previous',
+    START_PRODUCT_TOUR = 'start-product-tour',
+    SKIP = 'skip',
 }
 
 // we show a new sequence with 1 second delay, because users immediately dismiss prompts that are invasive
@@ -317,8 +317,8 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                         const { close, show } = cancellableTooltipWithRetries(prompt, actions.promptAction, {
                             maxSteps: values.prompts.length,
                             onClose: actions.dismissSequence,
-                            previous: () => actions.promptAction(DEFAULT_ACTIONS.PREVIOUS),
-                            next: () => actions.promptAction(DEFAULT_ACTIONS.NEXT),
+                            previous: () => actions.promptAction(DefaultAction.PREVIOUS),
+                            next: () => actions.promptAction(DefaultAction.NEXT),
                         })
                         cache.runOnClose = close
 
@@ -473,18 +473,18 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
         promptAction: ({ action }) => {
             actions.closePrompts()
             switch (action) {
-                case DEFAULT_ACTIONS.NEXT:
+                case DefaultAction.NEXT:
                     actions.nextPrompt()
                     break
-                case DEFAULT_ACTIONS.PREVIOUS:
+                case DefaultAction.PREVIOUS:
                     actions.previousPrompt()
                     break
-                case DEFAULT_ACTIONS.START_PRODUCT_TOUR:
+                case DefaultAction.START_PRODUCT_TOUR:
                     actions.optInProductTour()
                     inAppPromptEventCaptureLogic.actions.reportProductTourStarted()
                     actions.runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
                     break
-                case DEFAULT_ACTIONS.SKIP:
+                case DefaultAction.SKIP:
                     actions.optOutProductTour()
                     inAppPromptEventCaptureLogic.actions.reportProductTourSkipped()
                     break

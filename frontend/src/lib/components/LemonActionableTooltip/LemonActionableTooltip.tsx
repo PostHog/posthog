@@ -60,6 +60,7 @@ export const LemonActionableTooltip = ({
                                         disabled={step === 0}
                                         size="small"
                                         status="stealth"
+                                        type="secondary"
                                         icon={<IconChevronLeft />}
                                     />
                                     <div>
@@ -71,6 +72,7 @@ export const LemonActionableTooltip = ({
                                         disabled={step === maxSteps - 1}
                                         size="small"
                                         status="stealth"
+                                        type="secondary"
                                         icon={<IconChevronRight />}
                                     />
                                 </>
@@ -91,7 +93,7 @@ export const LemonActionableTooltip = ({
                     </div>
                     <div className="LemonActionableTooltip__footer">
                         {urlButtons && (
-                            <div className="LemonActionableTooltip__url_buttons">
+                            <div className="LemonActionableTooltip__url-buttons">
                                 {urlButtons.map((button, index) => (
                                     <LemonButton
                                         key={index}
@@ -99,6 +101,7 @@ export const LemonActionableTooltip = ({
                                         icon={<IconOpenInNew />}
                                         onClick={() => window.open(button.url, '_noblank')}
                                         className="max-w-full"
+                                        fullWidth
                                     >
                                         {button.label}
                                     </LemonButton>
@@ -106,7 +109,7 @@ export const LemonActionableTooltip = ({
                             </div>
                         )}
                         {actionButtons && (
-                            <div className="LemonActionableTooltip__action_buttons">
+                            <div className="LemonActionableTooltip__action-buttons">
                                 {actionButtons.map((button, index) => {
                                     return (
                                         <LemonButton key={index} type="primary" onClick={button.action}>

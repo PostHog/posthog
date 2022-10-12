@@ -15,11 +15,11 @@ import {
     IconQuestionAnswer,
     IconMessages,
     IconFlare,
-    IconTrendUp,
+    IconTrendingUp,
 } from '../icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react-dom-interactions'
-import { DEFAULT_ACTIONS, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
 
@@ -148,7 +148,7 @@ export function HelpButton({
                         )}
                         {!isPromptVisible && (
                             <LemonButton
-                                icon={<IconTrendUp />}
+                                icon={<IconTrendingUp />}
                                 status="stealth"
                                 fullWidth
                                 onClick={() => {
@@ -166,7 +166,7 @@ export function HelpButton({
                                 fullWidth
                                 onClick={() => {
                                     if (isPromptVisible) {
-                                        promptAction(DEFAULT_ACTIONS.SKIP)
+                                        promptAction(DefaultAction.SKIP)
                                     } else {
                                         runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
                                     }

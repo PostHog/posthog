@@ -50,7 +50,7 @@ prompts_config = [
                 "placement": "bottom-start",
                 "buttons": [
                     {
-                        "url": "https://posthog.com/blog/how-and-why-track-your-website-with-posthog",
+                        "url": "https://posthog.com/blog/track-your-website-with-posthog",
                         "label": "How (and why) to track your website with PostHog",
                     }
                 ],
@@ -64,7 +64,7 @@ prompts_config = [
                 "placement": "bottom-start",
                 "buttons": [
                     {
-                        "url": "https://posthog.com/blog/five-events-everyone-should-track-with-product-analytics",
+                        "url": "https://posthog.com/blog/events-you-should-track-with-posthog",
                         "label": "Five events all teams should track with PostHog",
                     }
                 ],
@@ -96,7 +96,7 @@ prompts_config = [
                 "placement": "bottom-start",
                 "buttons": [
                     {
-                        "url": "https://posthog.com/blog/five-essential-posthog-apps.md",
+                        "url": "https://posthog.com/blog/essential-posthog-apps",
                         "label": "Getting started: Your five essential PostHog apps",
                     }
                 ],

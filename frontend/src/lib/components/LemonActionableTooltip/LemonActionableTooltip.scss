@@ -32,14 +32,14 @@
         justify-content: space-between;
         padding: 0.5rem;
     }
-    .LemonActionableTooltip__url_buttons {
+    .LemonActionableTooltip__url-buttons {
         display: flex;
         flex-direction: column;
         > * + * {
             margin-top: 0.5rem;
         }
     }
-    .LemonActionableTooltip__action_buttons {
+    .LemonActionableTooltip__action-buttons {
         display: flex;
         justify-content: space-between;
         > * + * {
@@ -50,6 +50,7 @@
         color: var(--muted);
         display: flex;
         align-items: center;
+        margin-left: 0.5rem;
 
         > * + * {
             margin-left: 0.25rem;
