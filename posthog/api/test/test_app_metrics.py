@@ -1,3 +1,5 @@
+from unittest import mock
+
 from freezegun.api import freeze_time
 from rest_framework import status
 
@@ -11,6 +13,8 @@ SAMPLE_PAYLOAD = {"dateRange": ["2021-06-10", "2022-06-12"], "parallelism": 1}
 
 @freeze_time("2021-12-05T13:23:00Z")
 class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
+    maxDiff = None
+
     def setUp(self):
         super().setUp()
         self.plugin = Plugin.objects.create(organization=self.organization)
@@ -69,16 +73,17 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                 "results": [
                     {
                         "job_id": "1234",
-                        "created_at": "2021-12-05T13:23:00+00:00",
+                        "created_at": "2021-12-05T13:23:00Z",
                         "status": "not_finished",
                         "payload": {},
+                        "created_by": mock.ANY,
                     }
                 ]
             },
         )
 
     def test_retrieve_historical_export(self):
-        with freeze_time("2021-08-25T00:00:00Z"):
+        with freeze_time("2021-08-25T01:00:00Z"):
             self._create_activity_log(
                 activity="job_triggered",
                 detail=Detail(
@@ -100,7 +105,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
             category="exportEvents",
             plugin_config_id=self.plugin_config.id,
             job_id="1234",
-            timestamp="2021-08-25T00:10:00Z",
+            timestamp="2021-08-25T01:10:00Z",
             successes=102,
         )
         create_app_metric(
@@ -136,19 +141,21 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         "2021-08-25 03:00:00",
                         "2021-08-25 04:00:00",
                         "2021-08-25 05:00:00",
+                        "2021-08-25 06:00:00",
                     ],
-                    "successes": [102, 0, 0, 10, 0, 0],
-                    "successes_on_retry": [0, 0, 0, 0, 0, 0],
-                    "failures": [0, 0, 2, 0, 0, 0],
+                    "successes": [0, 102, 0, 10, 0, 0, 0],
+                    "successes_on_retry": [0, 0, 0, 0, 0, 0, 0],
+                    "failures": [0, 0, 2, 0, 0, 0, 0],
                     "totals": {"successes": 112, "successes_on_retry": 0, "failures": 2},
                 },
                 "summary": {
-                    "duration": 5 * 60 * 60,
-                    "finished_at": "2021-08-25T05:00:00+00:00",
+                    "duration": 4 * 60 * 60,
+                    "finished_at": "2021-08-25T05:00:00Z",
                     "job_id": "1234",
                     "payload": SAMPLE_PAYLOAD,
-                    "created_at": "2021-08-25T00:00:00+00:00",
                     "status": "success",
+                    "created_at": "2021-08-25T01:00:00Z",
+                    "created_by": mock.ANY,
                 },
             },
         )

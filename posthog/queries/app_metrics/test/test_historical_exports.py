@@ -1,3 +1,6 @@
+from datetime import datetime
+from unittest import mock
+
 from freezegun.api import freeze_time
 
 from posthog.models.activity_logging.activity_log import Detail, Trigger, log_activity
@@ -11,6 +14,8 @@ SAMPLE_PAYLOAD = {"dateRange": ["2021-06-10", "2022-06-12"], "parallelism": 1}
 
 @freeze_time("2021-08-25T13:00:00Z")
 class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
+    maxDiff = None
+
     @snapshot_postgres_queries
     def test_historical_exports_activity_for_not_finished_export(self):
         self._create_activity_log(
@@ -27,9 +32,10 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             activities[0],
             {
                 "job_id": "1234",
-                "created_at": "2021-08-25T13:00:00+00:00",
                 "status": "not_finished",
                 "payload": SAMPLE_PAYLOAD,
+                "created_at": datetime.fromisoformat("2021-08-25T13:00:00+00:00"),
+                "created_by": mock.ANY,
             },
         )
 
@@ -58,11 +64,12 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             activities[0],
             {
                 "job_id": "1234",
-                "created_at": "2021-08-25T11:00:00+00:00",
-                "finished_at": "2021-08-25T13:00:00+00:00",
+                "created_at": datetime.fromisoformat("2021-08-25T11:00:00+00:00"),
+                "finished_at": datetime.fromisoformat("2021-08-25T13:00:00+00:00"),
                 "status": "success",
                 "payload": SAMPLE_PAYLOAD,
                 "duration": 2 * 60 * 60,
+                "created_by": mock.ANY,
             },
         )
 
@@ -91,11 +98,12 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             activities[0],
             {
                 "job_id": "1234",
-                "created_at": "2021-08-25T11:00:00+00:00",
-                "finished_at": "2021-08-25T13:00:00+00:00",
+                "created_at": datetime.fromisoformat("2021-08-25T11:00:00+00:00"),
+                "finished_at": datetime.fromisoformat("2021-08-25T13:00:00+00:00"),
                 "status": "fail",
                 "payload": SAMPLE_PAYLOAD,
                 "duration": 2 * 60 * 60,
+                "created_by": mock.ANY,
             },
         )
 
@@ -151,9 +159,10 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             activities[0],
             {
                 "job_id": "1234",
-                "created_at": "2021-08-25T13:00:00+00:00",
+                "created_at": datetime.fromisoformat("2021-08-25T13:00:00+00:00"),
                 "status": "not_finished",
                 "payload": SAMPLE_PAYLOAD,
+                "created_by": mock.ANY,
             },
         )
 
@@ -171,7 +180,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 )
 
         activities = historical_exports_activity(self.team.pk, 3)
-        start_times = [activity["created_at"] for activity in activities]
+        start_times = [activity["created_at"].isoformat() for activity in activities]
         self.assertEqual(
             start_times,
             [
@@ -186,7 +195,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
     @snapshot_postgres_queries
     @snapshot_clickhouse_queries
     def test_historical_export_metrics(self):
-        with freeze_time("2021-08-25T00:00:00Z"):
+        with freeze_time("2021-08-25T01:00:00Z"):
             self._create_activity_log(
                 activity="job_triggered",
                 detail=Detail(
@@ -208,7 +217,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             category="exportEvents",
             plugin_config_id=3,
             job_id="1234",
-            timestamp="2021-08-25T00:10:00Z",
+            timestamp="2021-08-25T01:10:00Z",
             successes=102,
         )
         create_app_metric(
@@ -241,19 +250,21 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                         "2021-08-25 03:00:00",
                         "2021-08-25 04:00:00",
                         "2021-08-25 05:00:00",
+                        "2021-08-25 06:00:00",
                     ],
-                    "successes": [102, 0, 0, 10, 0, 0],
-                    "successes_on_retry": [0, 0, 0, 0, 0, 0],
-                    "failures": [0, 0, 2, 0, 0, 0],
+                    "successes": [0, 102, 0, 10, 0, 0, 0],
+                    "successes_on_retry": [0, 0, 0, 0, 0, 0, 0],
+                    "failures": [0, 0, 2, 0, 0, 0, 0],
                     "totals": {"successes": 112, "successes_on_retry": 0, "failures": 2},
                 },
                 "summary": {
-                    "duration": 5 * 60 * 60,
-                    "finished_at": "2021-08-25T05:00:00+00:00",
+                    "duration": 4 * 60 * 60,
+                    "finished_at": datetime.fromisoformat("2021-08-25T05:00:00+00:00"),
                     "job_id": "1234",
                     "payload": SAMPLE_PAYLOAD,
-                    "created_at": "2021-08-25T00:00:00+00:00",
+                    "created_at": datetime.fromisoformat("2021-08-25T01:00:00+00:00"),
                     "status": "success",
+                    "created_by": mock.ANY,
                 },
             },
         )
