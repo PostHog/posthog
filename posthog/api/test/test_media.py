@@ -8,7 +8,7 @@ from botocore.config import Config
 from django.test import override_settings
 from rest_framework import status
 
-from posthog.models import Organization, Team, UploadedMedia, User
+from posthog.models import UploadedMedia
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -57,13 +57,14 @@ class TestMediaAPI(APIBaseTest):
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
                 assert response.json()["name"] == file_name
                 media_location = response.json()["image_location"]
-                assert re.match(r"/api/projects/\d+/.*", media_location) is not None
+                assert re.match(r"^http://localhost:8000/media/.*", media_location) is not None
 
                 upload = UploadedMedia.objects.get(id=response.json()["id"])
 
                 content = object_storage.read_bytes(upload.media_location)
                 assert content is not None
 
+                self.client.logout()
                 response = self.client.get(media_location)
 
                 assert response.status_code == status.HTTP_200_OK
@@ -73,24 +74,3 @@ class TestMediaAPI(APIBaseTest):
         with open(get_path_to("example.csv"), "rb") as to_upload:
             response = self.client.post(f"/api/projects/{self.team.id}/media", {"image": to_upload}, format="multipart")
             self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, response.json())
-
-    def test_cannot_retrieve_a_different_teams_file(self) -> None:
-        file_name = "small-dancing-banana.gif"
-        with open(get_path_to(file_name), "rb") as to_upload:
-            with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/media", {"image": to_upload}, format="multipart"
-                )
-                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-                media_location = response.json()["image_location"]
-
-                another_organization = Organization.objects.create(name="Another Org")
-                Team.objects.create(organization=another_organization, name="Another Team")
-                another_user = User.objects.create_and_join(
-                    organization=another_organization, email="other_user@example.com", password=""
-                )
-
-                self.client.force_login(another_user)
-
-                response = self.client.get(media_location)
-                assert response.status_code == status.HTTP_403_FORBIDDEN

@@ -5,6 +5,8 @@ import TextareaAutosize from 'react-textarea-autosize'
 import { Tabs } from 'antd'
 import { IconMarkdown } from 'lib/components/icons'
 import { TextCardBody } from 'lib/components/Cards/TextCard/TextCard'
+import { lemonTextMarkdownLogic } from 'lib/components/LemonTextArea/lemonTextMarkdown.logic'
+import { useActions, useValues } from 'kea'
 
 export interface LemonTextAreaProps
     extends Pick<
@@ -63,6 +65,10 @@ interface LemonTextMarkdownProps {
 }
 
 export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
+    const logic = lemonTextMarkdownLogic
+    const { markdownURL } = useValues(logic)
+    const { uploadImage } = useActions(logic)
+
     const [drag, setDrag] = React.useState(false)
     const [filename, setFilename] = React.useState('')
     const dropRef = React.createRef<HTMLDivElement>()
@@ -77,14 +83,18 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
         e.preventDefault()
         e.stopPropagation()
         dragCounter++
-        if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {setDrag(true)}
+        if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
+            setDrag(true)
+        }
     }
 
     const handleDragOut = (e: DragEvent): void => {
         e.preventDefault()
         e.stopPropagation()
         dragCounter--
-        if (dragCounter === 0) {setDrag(false)}
+        if (dragCounter === 0) {
+            setDrag(false)
+        }
     }
 
     const handleDrop = (e: DragEvent): void => {
@@ -95,6 +105,7 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
             // onDrop(e.dataTransfer.files[0])
             setFilename(e.dataTransfer.files[0].name)
             console.log(e.dataTransfer.files[0].name)
+            uploadImage(e.dataTransfer.files[0])
             e.dataTransfer.clearData()
             dragCounter = 0
         }
@@ -138,6 +149,7 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                         <IconMarkdown className={'text-2xl'} />
                         <span>Markdown formatting support</span>
                     </div>
+                    {markdownURL && <div>uploaded file add it using {markdownURL}</div>}
                 </div>
             </Tabs.TabPane>
             <Tabs.TabPane tab="Preview" key={'preview-card'}>

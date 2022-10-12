@@ -7,9 +7,10 @@ from sentry_sdk import capture_exception
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDT, UUIDModel
+from posthog.models.utils import UUIDModel
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
+from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -26,7 +27,7 @@ class UploadedMedia(UUIDModel):
     file_name: models.TextField = models.TextField(null=True, blank=True, max_length=1000)
 
     def get_absolute_url(self) -> str:
-        return f"/api/projects/{self.team_id}/media/{self.id}"
+        return absolute_uri(f"/media/{self.id}")
 
     @classmethod
     def save_content(
@@ -53,7 +54,6 @@ def save_content_to_object_storage(uploaded_media: UploadedMedia, content: bytes
         settings.OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER,
         f"team-{uploaded_media.team.pk}",
         f"media-{uploaded_media.pk}",
-        str(UUIDT()),
     ]
     object_path = f'/{"/".join(path_parts)}'
     object_storage.write(object_path, content)

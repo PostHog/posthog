@@ -1,19 +1,44 @@
 from typing import Dict
 
-from django.http import FileResponse
+from django.http import HttpResponse
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status, viewsets
-from rest_framework.exceptions import APIException, PermissionDenied, UnsupportedMediaType
+from rest_framework.exceptions import APIException, UnsupportedMediaType
 from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import UploadedMedia
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.storage import object_storage
+
+
+@csrf_exempt
+def download(request, *args, **kwargs) -> HttpResponse:
+    """
+    Why is this on a top level route with no auth?
+    img request wasn't sending cookies for some reason so we can't use auth
+    and these images are immutable so we can cache them forever
+    """
+    instance: UploadedMedia = UploadedMedia.objects.get(pk=kwargs["image_uuid"])
+
+    file_bytes = object_storage.read_bytes(instance.media_location)
+    return HttpResponse(
+        file_bytes,
+        content_type=instance.content_type,
+        headers={"Cache-Control": "public, max-age=315360000, immutable"},
+    )
 
 
 class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     queryset = UploadedMedia.objects.all()
     parser_classes = (MultiPartParser, FormParser)
+    permission_classes = [
+        IsAuthenticatedOrReadOnly,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
 
     def create(self, request, *args, **kwargs) -> Response:
         try:
@@ -48,12 +73,3 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             return {"Location": location}
         except (TypeError, KeyError):
             return {}
-
-    def retrieve(self, request, *args, **kwargs) -> FileResponse:
-        if request.user.current_team != self.team:
-            raise PermissionDenied()
-
-        instance: UploadedMedia = self.get_object()
-
-        file_bytes = object_storage.read_bytes(instance.media_location)
-        return FileResponse(file_bytes, content_type=instance.content_type)
