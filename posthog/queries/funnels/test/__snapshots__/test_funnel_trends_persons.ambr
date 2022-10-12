@@ -5,7 +5,7 @@
          step_1_matching_events as matching_events
   FROM
     (SELECT aggregation_target,
-            toStartOfDay(toDateTime(timestamp), 'UTC') AS entrance_period_start,
+            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS entrance_period_start,
             max(steps) AS steps_completed ,
             groupArray(10)(step_0_matching_event) as step_0_matching_events,
             groupArray(10)(step_1_matching_event) as step_1_matching_events,
@@ -171,7 +171,7 @@
          final_matching_events as matching_events
   FROM
     (SELECT aggregation_target,
-            toStartOfDay(toDateTime(timestamp), 'UTC') AS entrance_period_start,
+            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS entrance_period_start,
             max(steps) AS steps_completed ,
             groupArray(10)(step_0_matching_event) as step_0_matching_events,
             groupArray(10)(step_1_matching_event) as step_1_matching_events,
@@ -338,7 +338,7 @@
          final_matching_events as matching_events
   FROM
     (SELECT aggregation_target,
-            toStartOfDay(toDateTime(timestamp), 'UTC') AS entrance_period_start,
+            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS entrance_period_start,
             max(steps) AS steps_completed ,
             groupArray(10)(step_0_matching_event) as step_0_matching_events,
             groupArray(10)(step_1_matching_event) as step_1_matching_events,
