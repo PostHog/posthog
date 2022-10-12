@@ -15,18 +15,17 @@ export const scene: SceneExport = {
 }
 
 export function AppMetrics(): JSX.Element {
-    const { activeTab, pluginConfigLoading, showTab } = useValues(appMetricsSceneLogic)
+    const { activeTab, pluginConfig, pluginConfigLoading, showTab } = useValues(appMetricsSceneLogic)
     const { setActiveTab } = useActions(appMetricsSceneLogic)
-
-    if (pluginConfigLoading || !activeTab) {
-        return <LemonSkeleton />
-    }
 
     return (
         <div>
-            <PageHeader title="App metrics" caption="Here you can find metrics and details about your App" />
+            <PageHeader
+                title={pluginConfig ? pluginConfig.plugin_info.name : <LemonSkeleton />}
+                caption="An overview of metrics and export for this app."
+            />
 
-            {pluginConfigLoading ? (
+            {pluginConfigLoading || !activeTab ? (
                 <LemonSkeleton />
             ) : (
                 <Tabs
@@ -36,17 +35,17 @@ export function AppMetrics(): JSX.Element {
                     onTabClick={(key) => setActiveTab(key as AppMetricsTab)}
                 >
                     {showTab(AppMetricsTab.ProcessEvent) && (
-                        <Tabs.TabPane tab="processEvent" key={AppMetricsTab.ProcessEvent}>
+                        <Tabs.TabPane tab="processEvent metrics" key={AppMetricsTab.ProcessEvent}>
                             <MetricsTab tab={AppMetricsTab.ProcessEvent} />
                         </Tabs.TabPane>
                     )}
                     {showTab(AppMetricsTab.OnEvent) && (
-                        <Tabs.TabPane tab="onEvent" key={AppMetricsTab.OnEvent}>
+                        <Tabs.TabPane tab="onEvent metrics" key={AppMetricsTab.OnEvent}>
                             <MetricsTab tab={AppMetricsTab.OnEvent} />
                         </Tabs.TabPane>
                     )}
                     {showTab(AppMetricsTab.ExportEvents) && (
-                        <Tabs.TabPane tab="exportEvents" key={AppMetricsTab.ExportEvents}>
+                        <Tabs.TabPane tab="exportEvents metrics" key={AppMetricsTab.ExportEvents}>
                             <MetricsTab tab={AppMetricsTab.ExportEvents} />
                         </Tabs.TabPane>
                     )}
