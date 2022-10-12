@@ -19,7 +19,7 @@ import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { combineUrl, router } from 'kea-router'
-import { LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
@@ -133,10 +133,7 @@ export function Cohorts(): JSX.Element {
                                     tooltip="Export specific columns for users belonging to this cohort in CSV format. Includes distinct id, internal id, email, and name"
                                     fullWidth
                                 >
-                                    Export important columns for users&nbsp;
-                                    <LemonTag type="warning" className="uppercase">
-                                        Beta
-                                    </LemonTag>
+                                    Export important columns for users
                                 </LemonButton>
                                 <LemonButton
                                     status="stealth"
