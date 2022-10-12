@@ -25,6 +25,7 @@ import { InternalMetrics } from './utils/internal-metrics'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
+import { AppMetrics } from './worker/ingestion/app-metrics'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { PersonManager } from './worker/ingestion/person-manager'
@@ -100,6 +101,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
+    APP_METRICS_FLUSH_FREQUENCY_MS: number
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -198,6 +200,7 @@ export interface Hub extends PluginsServerConfig {
     eventsProcessor: EventsProcessor
     personManager: PersonManager
     siteUrlManager: SiteUrlManager
+    appMetrics: AppMetrics
     graphileWorker: GraphileWorker
     // diagnostics
     lastActivity: number
