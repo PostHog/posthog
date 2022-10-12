@@ -197,7 +197,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
             },
         ],
     }),
-    listeners: ({ actions, values, props }) => ({
+    listeners: ({ actions }) => ({
         setEntityFilters: () => {
             actions.getSessionRecordings()
         },
@@ -216,11 +216,6 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
         loadPrev: () => {
             actions.getSessionRecordings()
         },
-        getSessionRecordingsSuccess: () => {
-            if (props.isPlaylist && !values.partialSessionRecording?.id && values.sessionRecordings.length > 0) {
-                actions.openSessionPlayer(values.sessionRecordings[0])
-            }
-        },
     }),
     selectors: {
         activeSessionRecording: [
@@ -228,7 +223,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
             (partialSessionRecording, sessionRecordings) => {
                 return (
                     sessionRecordings.find((sessionRecording) => sessionRecording.id === partialSessionRecording?.id) ??
-                    null
+                    sessionRecordings[0]
                 )
             },
         ],
@@ -294,8 +289,8 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
     urlToAction: ({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
             const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
-            if (nulledSessionRecordingId && nulledSessionRecordingId !== values.partialSessionRecording?.id) {
-                actions.openSessionPlayer({ id: nulledSessionRecordingId })
+            if (nulledSessionRecordingId !== values.partialSessionRecording?.id) {
+                actions.openSessionPlayer(nulledSessionRecordingId ? { id: nulledSessionRecordingId } : null)
             }
 
             const filters = params.filters

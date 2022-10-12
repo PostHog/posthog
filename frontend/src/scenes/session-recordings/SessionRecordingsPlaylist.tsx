@@ -39,10 +39,20 @@ const DurationDisplay = ({ duration }: { duration: number }): JSX.Element => {
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID, isPlaylist: true })
-    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecording, offset } =
-        useValues(sessionRecordingsTableLogicInstance)
+    const {
+        sessionRecordings,
+        sessionRecordingsResponseLoading,
+        hasNext,
+        hasPrev,
+        activeSessionRecording,
+        partialSessionRecording,
+        offset,
+    } = useValues(sessionRecordingsTableLogicInstance)
     const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
     const playlistRef = useRef<HTMLDivElement>(null)
+
+    /* NOTE: We use the partialSessionRecording (the one selected in the url) for loading but fall back to the first in the list otherwise */
+    const activeSessionRecordingId = partialSessionRecording?.id || sessionRecordings?.[0]?.id
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         openSessionPlayer({ id: recording.id })
@@ -115,9 +125,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                     key={rec.id}
                                     className={clsx(
                                         'p-2 px-4 cursor-pointer',
-                                        activeSessionRecording?.id === rec.id
-                                            ? 'bg-primary-highlight font-semibold'
-                                            : '',
+                                        activeSessionRecordingId === rec.id ? 'bg-primary-highlight font-semibold' : '',
                                         i !== 0 && 'border-t'
                                     )}
                                     onClick={() => onRecordingClick(rec)}
@@ -175,11 +183,11 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                 </div>
             </div>
             <div className="SessionRecordingsPlaylist__right-column">
-                {activeSessionRecording?.id ? (
+                {activeSessionRecordingId ? (
                     <div className="border rounded h-full">
                         <SessionRecordingPlayerV3
                             playerKey="playlist"
-                            sessionRecordingId={activeSessionRecording.id}
+                            sessionRecordingId={activeSessionRecordingId}
                             matching={activeSessionRecording?.matching_events}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                         />
