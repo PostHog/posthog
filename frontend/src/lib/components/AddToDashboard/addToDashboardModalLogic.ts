@@ -127,6 +127,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
         addToDashboard: async ({ insight, dashboardId }) => {
             actions.updateInsight({ ...insight, dashboards: [...(insight.dashboards || []), dashboardId] }, () => {
                 actions.reportSavedInsightToDashboard()
+                dashboardsModel.actions.tileAddedToDashboard(dashboardId)
                 lemonToast.success('Insight added to dashboard', {
                     button: {
                         label: 'View dashboard',

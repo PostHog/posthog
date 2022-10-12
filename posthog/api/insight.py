@@ -504,6 +504,11 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         Insights can be added to more than one dashboard, this allows the insight to be loaded in the correct context.
 
         Using the correct cache and enriching the response with dashboard specific config (e.g. layouts or colors)
+
+        To improve UI responsiveness if there is not already a result cached the insight is returned without a result.
+        This allows the UI to render and then request the result separately.
+
+        To ensure the result is calculated and returned include a `refresh=1` query parameter.
         """
         instance = self.get_object()
         serializer_context = self.get_serializer_context()

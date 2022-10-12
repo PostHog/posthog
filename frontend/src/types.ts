@@ -832,7 +832,17 @@ export interface Tileable {
 }
 
 export interface DashboardTile extends Tileable, Cacheable {
-    insight: InsightModel
+    id: number
+    insight?: InsightModel
+    text?: TextModel
+    deleted?: boolean
+}
+
+export interface TextModel {
+    body: string
+    created_by?: UserBasicType
+    last_modified_by?: UserBasicType
+    last_modified_at: string
 }
 
 export interface InsightModel extends Cacheable {
