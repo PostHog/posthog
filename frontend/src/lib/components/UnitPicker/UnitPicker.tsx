@@ -38,6 +38,18 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
         setIsVisible(!isVisible)
     }, 200)
 
+    const debouncedFilterChange = useDebouncedCallback(
+        ({ format, prefix, postfix }: { format?: AggregationAxisFormat; prefix?: string; postfix?: string }) => {
+            setFilters({
+                ...filters,
+                aggregation_axis_format: format,
+                aggregation_axis_prefix: prefix,
+                aggregation_axis_postfix: postfix,
+            })
+        },
+        200
+    )
+
     useKeyboardHotkeys(
         {
             escape: {
@@ -61,12 +73,7 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
         setLocalAxisFormat(format)
         setLocalAxisPrefix(prefix || '')
         setLocalAxisPostfix(postfix || '')
-        setFilters({
-            ...filters,
-            aggregation_axis_format: format,
-            aggregation_axis_prefix: prefix,
-            aggregation_axis_postfix: postfix,
-        })
+        debouncedFilterChange({ format, prefix, postfix })
         if (close) {
             debouncedVisibilityChange()
         }
