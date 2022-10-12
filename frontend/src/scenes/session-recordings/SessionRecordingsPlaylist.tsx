@@ -93,7 +93,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     </div>
                     {sessionRecordingsResponseLoading && !sessionRecordings.length ? (
                         <>
-                            {range(10).map((i) => (
+                            {range(PLAYLIST_LIMIT).map((i) => (
                                 <div key={i} className="p-4 space-y-2 border-b">
                                     <LemonSkeleton className="w-1/2" />
                                     <LemonSkeleton className="w-1/3" />
@@ -138,30 +138,6 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     )}
                 </div>
 
-                {/* <LemonTable
-                    dataSource={sessionRecordings}
-                    columns={columns}
-                    loading={sessionRecordingsResponseLoading}
-                    onRow={(sessionRecording) => ({
-                        onClick: (e) => {
-                            // Lets the link to the person open the person's page and not the session recording
-                            if (!(e.target as HTMLElement).closest('a')) {
-                                openSessionPlayer({ id: sessionRecording.id })
-                                window.scrollTo({
-                                    left: 0,
-                                    top: playlistRef?.current?.offsetTop ? playlistRef.current.offsetTop - 8 : 0,
-                                    behavior: 'smooth',
-                                })
-                            }
-                        },
-                    })}
-                    rowStatus={(recording) => (activeSessionRecording?.id === recording.id ? 'highlighted' : null)}
-                    rowClassName="cursor-pointer"
-                    data-attr="session-recording-table"
-                    data-tooltip="session-recording-table"
-                    emptyState="No matching recordings found"
-                    loadingSkeletonRows={PLAYLIST_LIMIT}
-                /> */}
                 <div className="flex justify-end my-2">{paginationControls}</div>
             </div>
             <div className="SessionRecordingsPlaylist__right-column">
