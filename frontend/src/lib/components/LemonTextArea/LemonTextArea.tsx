@@ -1,5 +1,5 @@
 import './LemonTextArea.scss'
-import React, { useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import TextareaAutosize from 'react-textarea-autosize'
 import { Tabs } from 'antd'
@@ -63,13 +63,81 @@ interface LemonTextMarkdownProps {
 }
 
 export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
+    const [drag, setDrag] = React.useState(false)
+    const [filename, setFilename] = React.useState('')
+    const dropRef = React.createRef<HTMLDivElement>()
+    let dragCounter = 0
+
+    const handleDrag = (e: DragEvent): void => {
+        e.preventDefault()
+        e.stopPropagation()
+    }
+
+    const handleDragIn = (e: DragEvent): void => {
+        e.preventDefault()
+        e.stopPropagation()
+        dragCounter++
+        if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {setDrag(true)}
+    }
+
+    const handleDragOut = (e: DragEvent): void => {
+        e.preventDefault()
+        e.stopPropagation()
+        dragCounter--
+        if (dragCounter === 0) {setDrag(false)}
+    }
+
+    const handleDrop = (e: DragEvent): void => {
+        e.preventDefault()
+        e.stopPropagation()
+        setDrag(false)
+        if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+            // onDrop(e.dataTransfer.files[0])
+            setFilename(e.dataTransfer.files[0].name)
+            console.log(e.dataTransfer.files[0].name)
+            e.dataTransfer.clearData()
+            dragCounter = 0
+        }
+    }
+
+    useEffect(() => {
+        const div = dropRef.current
+        if (!div) {
+            return
+        } else {
+            div.addEventListener('dragenter', handleDragIn)
+            div.addEventListener('dragleave', handleDragOut)
+            div.addEventListener('dragover', handleDrag)
+            div.addEventListener('drop', handleDrop)
+            return () => {
+                div?.removeEventListener('dragenter', handleDragIn)
+                div?.removeEventListener('dragleave', handleDragOut)
+                div?.removeEventListener('dragover', handleDrag)
+                div?.removeEventListener('drop', handleDrop)
+            }
+        }
+    }, [])
+
     return (
         <Tabs>
             <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
-                <LemonTextArea {...editAreaProps} autoFocus value={value} onChange={(newValue) => onChange(newValue)} />
-                <div className="text-muted inline-flex items-center space-x-1">
-                    <IconMarkdown className={'text-2xl'} />
-                    <span>Markdown formatting support</span>
+                <div
+                    ref={dropRef}
+                    className={clsx(
+                        'LemonTextMarkdown',
+                        drag ? 'filedrop drag' : filename ? 'filedrop ready' : 'filedrop'
+                    )}
+                >
+                    <LemonTextArea
+                        {...editAreaProps}
+                        autoFocus
+                        value={value}
+                        onChange={(newValue) => onChange(newValue)}
+                    />
+                    <div className="text-muted inline-flex items-center space-x-1">
+                        <IconMarkdown className={'text-2xl'} />
+                        <span>Markdown formatting support</span>
+                    </div>
                 </div>
             </Tabs.TabPane>
             <Tabs.TabPane tab="Preview" key={'preview-card'}>
