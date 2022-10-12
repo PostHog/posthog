@@ -99,7 +99,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
 
                 <div className="w-full overflow-hidden border rounded">
                     <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
-                        <span className="font-bold uppercase text-xs my-1">Recent Recordings</span>
+                        <span className="font-bold uppercase text-xs my-1 tracking-wide">Recent Recordings</span>
                         {paginationControls}
 
                         <LemonTableLoader loading={sessionRecordingsResponseLoading} />
