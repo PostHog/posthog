@@ -76,8 +76,18 @@ const indexJs = `
     export async function runEveryMinute() {}
 `
 
-describe('E2E', () => {
-    let pluginsServer: ServerInstance
+const startMultiServer = async () => {
+    const ingestionServer = startPluginsServer({ extraServerConfig, PLUGIN_SERVER_MODE: 'ingestion' })
+    const asyncServer = startPluginsServer({ extraServerConfig, PLUGIN_SERVER_MODE: 'async' })
+    return await Promise.all([ingestionServer, asyncServer])
+}
+
+const startSingleServer = async () => {
+    return [await startPluginsServer(extraServerConfig)]
+}
+
+describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) => {
+    let pluginsServers: ServerInstance[]
     let producer: Producer
     let clickHouseClient: ClickHouse
     let postgres: Pool
@@ -103,13 +113,7 @@ describe('E2E', () => {
         producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
         await producer.connect()
 
-        pluginsServer = await startPluginsServer(extraServerConfig)
-    })
-
-    beforeEach(async () => {
-        testConsole.reset()
         organizationId = await createOrganization(postgres)
-        teamId = await createTeam(postgres, organizationId)
         plugin = await createPlugin(postgres, {
             organization_id: organizationId,
             name: 'test plugin',
@@ -118,20 +122,26 @@ describe('E2E', () => {
             source__index_ts: indexJs,
         })
 
+        pluginsServers = await pluginServer()
+    })
+
+    beforeEach(async () => {
+        testConsole.reset()
+        teamId = await createTeam(postgres, organizationId)
         pluginConfig = await createPluginConfig(postgres, { team_id: teamId, plugin_id: plugin.id })
         // Make sure the plugin server reloads the newly created plugin config.
         // TODO: avoid reaching into the pluginsServer internals and rather use
         // the pubsub mechanism to trigger this.
-        await pluginsServer.piscina?.broadcastTask({ task: 'reloadPlugins' })
+        await Promise.all(pluginsServers.map((instance) => instance.piscina.broadcastTask({ task: 'reloadPlugins' })))
     })
 
     afterAll(async () => {
-        await pluginsServer.stop()
+        await Promise.all(pluginsServers.map((instance) => instance.stop()))
         await producer.disconnect()
         await postgres.end()
     })
 
-    describe('ClickHouse ingestion', () => {
+    describe(`ClickHouse ingestion (${pluginServer.name})`, () => {
         test('event captured, processed, ingested', async () => {
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
