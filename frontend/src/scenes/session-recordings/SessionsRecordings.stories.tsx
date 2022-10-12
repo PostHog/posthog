@@ -8,7 +8,6 @@ import { App } from 'scenes/App'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingPlayerV3 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
 export default {
@@ -21,13 +20,6 @@ export default {
                 '/api/projects/:team/session_recordings/:id/snapshots': { result: recordingSnapshotsJson },
                 '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
                 '/api/projects/:team/events': { results: recordingEventsJson },
-            },
-            post: {
-                '/decide': {
-                    featureFlags: {
-                        [FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]: true,
-                    },
-                },
             },
         }),
     ],

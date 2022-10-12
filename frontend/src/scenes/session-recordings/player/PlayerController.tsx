@@ -4,7 +4,6 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { Select, Switch } from 'antd'
 import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
@@ -15,78 +14,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
-
-export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting } = useActions(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
-    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting } = useValues(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
-
-    return (
-        <div className="rrweb-controller" data-attr="rrweb-controller">
-            <span>
-                {currentPlayerState === SessionPlayerState.PLAY ? (
-                    <IconPause
-                        onClick={togglePlayPause}
-                        className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                        style={isSmallScreen ? {} : { marginRight: '0.5rem' }}
-                    />
-                ) : (
-                    <IconPlay
-                        onClick={togglePlayPause}
-                        className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                        style={isSmallScreen ? {} : { marginRight: '0.5rem' }}
-                    />
-                )}
-            </span>
-            {!isSmallScreen && (
-                <>
-                    <SeekBack
-                        sessionRecordingId={sessionRecordingId}
-                        style={{ marginRight: '0.25rem' }}
-                        playerKey={playerKey}
-                    />
-                    <SeekForward
-                        sessionRecordingId={sessionRecordingId}
-                        style={{ marginRight: '0.5rem' }}
-                        playerKey={playerKey}
-                    />
-                    <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                </>
-            )}
-            <div className="rrweb-progress">
-                <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            </div>
-            <Select
-                onChange={(nextSpeed: number) => setSpeed(nextSpeed)}
-                value={speed}
-                dropdownMatchSelectWidth={false}
-                size="small"
-                defaultValue={1}
-                className="rrweb-speed-toggle"
-            >
-                <Select.OptGroup label="Speed">
-                    {PLAYBACK_SPEEDS.map((speedToggle) => (
-                        <Select.Option key={speedToggle} value={speedToggle}>
-                            {speedToggle}x
-                        </Select.Option>
-                    ))}
-                </Select.OptGroup>
-            </Select>
-            <div
-                onClick={() => {
-                    setSkipInactivitySetting(!skipInactivitySetting)
-                }}
-                className="rrweb-inactivity-toggle"
-            >
-                <span className="inactivity-label">Skip inactivity</span>
-                <Switch checked={skipInactivitySetting} size="small" />
-            </div>
-        </div>
-    )
-}
 
 export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setFullScreen } = useActions(

@@ -5,7 +5,7 @@ import { SessionRecordingType } from '~/types'
 import { Button, Row } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { PlayCircleOutlined } from '@ant-design/icons'
-import { SessionPlayerDrawer } from './SessionPlayerDrawer'
+import { SessionPlayerModal } from './player/modal/SessionPlayerModal'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import './SessionRecordingTable.scss'
@@ -103,7 +103,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                 </Row>
             )}
             <div style={{ marginBottom: 64 }} />
-            <SessionPlayerDrawer isPersonPage={isPersonPage} />
+            <SessionPlayerModal isPersonPage={isPersonPage} />
         </div>
     )
 }

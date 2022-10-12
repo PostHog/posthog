@@ -3,10 +3,9 @@ import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
-import { PlayerControllerV2, PlayerControllerV3 } from 'scenes/session-recordings/player/PlayerController'
-import { Col, Row } from 'antd'
+import { PlayerControllerV3 } from 'scenes/session-recordings/player/PlayerController'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { PlayerInspectorV2, PlayerInspectorV3 } from 'scenes/session-recordings/player/PlayerInspector'
+import { PlayerInspectorV3 } from 'scenes/session-recordings/player/PlayerInspector'
 import { PlayerFilter } from 'scenes/session-recordings/player/list/PlayerFilter'
 import { SessionRecordingPlayerProps } from '~/types'
 import { PlayerMetaV3 } from './PlayerMeta'
@@ -31,26 +30,6 @@ export function useFrameRef({
     }, [frame, sessionRecordingId])
 
     return frame
-}
-
-export function SessionRecordingPlayerV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { handleKeyDown } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const { isSmallScreen } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const frame = useFrameRef({ sessionRecordingId, playerKey })
-    return (
-        <Col className="session-player-v2" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
-            <Row className="session-player-body" wrap={false}>
-                <div className="player-container ph-no-capture">
-                    <PlayerFrame ref={frame} sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                </div>
-                {!isSmallScreen && <PlayerInspectorV2 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
-            </Row>
-            <Row className="player-controller" align="middle">
-                <PlayerControllerV2 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            </Row>
-            {isSmallScreen && <PlayerInspectorV2 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
-        </Col>
-    )
 }
 
 export function SessionRecordingPlayerV3({

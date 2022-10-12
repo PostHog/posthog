@@ -1,6 +1,5 @@
 @import '../../../styles/mixins';
 
-.session-player-v2,
 .SessionPlayerV3 {
     display: flex;
     flex-direction: column;
@@ -229,82 +228,6 @@
     padding: 0;
 }
 
-.ant-drawer.session-player-wrapper-v2 {
-    .ant-drawer-body {
-        padding: 0;
-
-        .session-drawer-body {
-            flex: 1;
-
-            .session-player-body {
-                max-height: calc(100vh - 2 * 48px - 2 * var(--recording-spacing));
-                flex: 1;
-
-                .player-container {
-                    padding: var(--recording-spacing) var(--recording-spacing) 0 var(--recording-spacing);
-
-                    .rrweb-player {
-                        box-shadow: 0 4px 4px 0 rgba(0, 0, 0, 0.25);
-                        border-radius: var(--radius);
-                    }
-                }
-            }
-
-            .player-controller {
-                .rrweb-controller {
-                    display: flex;
-                    width: 100%;
-                    background-color: var(--bg-light);
-                    border-radius: var(--radius);
-                    border: 1px solid var(--border);
-                    padding: 0 1rem;
-                    flex-direction: row;
-                    align-items: center;
-                    justify-content: space-around;
-                    box-sizing: border-box;
-                    height: 40px;
-                    color: black;
-
-                    .rrweb-speed-toggle {
-                        cursor: pointer;
-                        margin-right: 1rem;
-                    }
-
-                    .rrweb-inactivity-toggle {
-                        display: flex;
-                        flex-direction: row;
-                        align-items: center;
-                        white-space: nowrap;
-                        cursor: pointer;
-
-                        .inactivity-label {
-                            font-size: 14px;
-                            margin-right: var(--recording-spacing);
-                        }
-                    }
-                }
-            }
-
-            // In small screen view when player events is outside of player body
-            .player-sidebar {
-                min-width: unset;
-                max-width: unset;
-                padding: 0 var(--recording-spacing) 0 var(--recording-spacing);
-                width: 100%;
-                height: 100vh;
-
-                @include screen($md) {
-                    width: 350px;
-                    height: 100%;
-                }
-            }
-        }
-    }
-
-    .ant-drawer-close {
-        padding: 1rem;
-    }
-}
 .PlayerControllerV3 {
     background-color: var(--bg-light);
     display: flex;

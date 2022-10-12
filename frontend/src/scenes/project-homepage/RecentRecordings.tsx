@@ -13,7 +13,7 @@ import { SessionRecordingType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { humanFriendlyDuration } from 'lib/utils'
 import { IconPlayCircle } from 'lib/components/icons'
-import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { teamLogic } from 'scenes/teamLogic'
 
 interface RecordingRowProps {
@@ -55,7 +55,7 @@ export function RecentRecordings(): JSX.Element {
 
     return (
         <>
-            <SessionPlayerDrawer />
+            <SessionPlayerModal />
             <CompactList
                 title="Recent recordings"
                 viewAllURL={urls.sessionRecordings()}
