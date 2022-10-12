@@ -277,7 +277,7 @@ jobs:
               with:
                   add: '["ee", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/"]'
                   message: 'Update snapshots'
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  default_author: github_actions
 
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
