@@ -1,11 +1,14 @@
 from datetime import timedelta
 
+from django.utils.timezone import now
+
 from posthog.client import sync_execute
 from posthog.models.app_metrics.sql import QUERY_APP_METRICS_TIME_SERIES
 from posthog.models.filters.mixins.base import IntervalType
 from posthog.models.team.team import Team
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
-from posthog.queries.query_date_range import QueryDateRange
+from posthog.queries.util import format_ch_timestamp
+from posthog.utils import relative_date_parse
 
 
 class AppMetricsQuery:
@@ -13,8 +16,6 @@ class AppMetricsQuery:
         self.team = team
         self.plugin_config_id = plugin_config_id
         self.filter = filter
-
-        self.query_date_range = QueryDateRange(filter=self.filter, team=self.team)
 
     def run(self):
         query, params = self.metrics_query()
@@ -46,19 +47,20 @@ class AppMetricsQuery:
             "plugin_config_id": self.plugin_config_id,
             "category": self.filter.validated_data.get("category"),
             "job_id": job_id,
-            "date_from": self.date_from.strftime("%Y-%m-%d %H:%M:%S"),
-            "date_to": self.date_to.strftime("%Y-%m-%d %H:%M:%S"),
+            "date_from": format_ch_timestamp(self.date_from, self.team.timezone),
+            "date_to": format_ch_timestamp(self.date_to, self.team.timezone),
             "timezone": self.team.timezone,
             "interval": self.interval,
         }
 
     @property
     def date_from(self):
-        return self.query_date_range.date_from_param
+        return relative_date_parse(self.filter.validated_data.get("date_from"))
 
     @property
     def date_to(self):
-        return self.query_date_range.date_to_param
+        date_to_string = self.filter.validated_data.get("date_to")
+        return relative_date_parse(date_to_string) if date_to_string is not None else now()
 
     @property
     def interval(self) -> IntervalType:
