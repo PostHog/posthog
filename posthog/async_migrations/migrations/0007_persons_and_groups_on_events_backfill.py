@@ -360,7 +360,7 @@ class Migration(AsyncMigrationDefinition):
                                 team_id,
                                 toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
                             ),
-                            toJSONString(map()
+                            toJSONString(map())
                         ),
                         person_properties
                     ),
