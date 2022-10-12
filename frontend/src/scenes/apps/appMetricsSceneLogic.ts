@@ -50,7 +50,7 @@ const INITIAL_TABS: Array<AppMetricsTab> = [
 ]
 
 export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
-    path(['scenes', 'apps', 'appMetricsSceneLogic']),
+    path((key) => ['scenes', 'apps', 'appMetricsSceneLogic', key]),
     props({} as AppMetricsLogicProps),
     key((props) => props.pluginConfigId),
 
