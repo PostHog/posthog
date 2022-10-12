@@ -134,6 +134,7 @@ export const FEATURE_FLAGS = {
     REGION_SELECT: 'region-select', //owner: @kappa90
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
     HOG_BOOK: 'hog-book', // owner: @pauldambra
+    TEXT_CARDS: 'text-cards', // owner: @pauldambra
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
 }
 
