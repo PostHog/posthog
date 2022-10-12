@@ -15,7 +15,7 @@ export const scene: SceneExport = {
 }
 
 export function AppMetrics(): JSX.Element {
-    const { activeTab, pluginConfigLoading, showTab } = useValues(appMetricsSceneLogic)
+    const { activeTab, pluginConfigLoading, showTab, metrics, metricsLoading } = useValues(appMetricsSceneLogic)
     const { setActiveTab } = useActions(appMetricsSceneLogic)
 
     if (pluginConfigLoading || !activeTab) {
@@ -37,17 +37,17 @@ export function AppMetrics(): JSX.Element {
                 >
                     {showTab(AppMetricsTab.ProcessEvent) && (
                         <Tabs.TabPane tab="processEvent" key={AppMetricsTab.ProcessEvent}>
-                            <MetricsTab />
+                            <MetricsTab metrics={metrics} metricsLoading={metricsLoading} />
                         </Tabs.TabPane>
                     )}
                     {showTab(AppMetricsTab.OnEvent) && (
                         <Tabs.TabPane tab="onEvent" key={AppMetricsTab.OnEvent}>
-                            <MetricsTab />
+                            <MetricsTab metrics={metrics} metricsLoading={metricsLoading} />
                         </Tabs.TabPane>
                     )}
                     {showTab(AppMetricsTab.ExportEvents) && (
                         <Tabs.TabPane tab="exportEvents" key={AppMetricsTab.ExportEvents}>
-                            <MetricsTab />
+                            <MetricsTab metrics={metrics} metricsLoading={metricsLoading} />
                         </Tabs.TabPane>
                     )}
                     {showTab(AppMetricsTab.HistoricalExports) && (

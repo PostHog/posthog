@@ -2,12 +2,14 @@ import React, { useEffect, useRef } from 'react'
 import { getSeriesColor } from 'lib/colors'
 import { Card } from 'antd'
 import { Chart, ChartItem } from 'chart.js'
-import { useValues } from 'kea'
-import { appMetricsSceneLogic } from './appMetricsSceneLogic'
+import { AppMetrics } from './appMetricsSceneLogic'
 
-export function MetricsTab(): JSX.Element {
-    const { metrics, metricsLoading } = useValues(appMetricsSceneLogic)
+interface MetricsTabProps {
+    metrics: AppMetrics | null
+    metricsLoading: boolean
+}
 
+export function MetricsTab({ metrics, metricsLoading }: MetricsTabProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
     useEffect(() => {

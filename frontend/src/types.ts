@@ -990,6 +990,7 @@ export interface PluginConfigType {
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {
+    id: number
     plugin_info: PluginType
 }
 
