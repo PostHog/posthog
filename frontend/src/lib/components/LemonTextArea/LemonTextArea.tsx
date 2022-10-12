@@ -56,13 +56,13 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     )
 })
 
-interface MarkdownProps {
+interface LemonTextMarkdownProps {
     'data-attr'?: string
     value: string
     onChange: (s: string) => void
 }
 
-export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: MarkdownProps): JSX.Element {
+export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
     return (
         <Tabs>
             <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
