@@ -11,6 +11,7 @@
     "demo": false,
     "object_storage": true,
     "realm": "hosted-clickhouse",
+    "region": "US",
     "available_social_auth_providers": {
         "github": false,
         "gitlab": false,

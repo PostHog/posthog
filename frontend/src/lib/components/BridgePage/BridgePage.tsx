@@ -13,6 +13,7 @@ export type BridgePageProps = {
     view: string
     noHedgehog?: boolean
     noLogo?: boolean
+    sideLogo?: boolean
     message?: React.ReactNode
     fixedWidth?: boolean
 }
@@ -26,6 +27,7 @@ export function BridgePage({
     message,
     noHedgehog = false,
     noLogo = false,
+    sideLogo = false,
     fixedWidth = true,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
@@ -41,6 +43,11 @@ export function BridgePage({
             <div className="BridgePage__main">
                 {!noHedgehog ? (
                     <div className="BridgePage__art">
+                        {!noLogo && sideLogo && (
+                            <div className="BridgePage__header-logo mb-4">
+                                <WelcomeLogo view={view} />
+                            </div>
+                        )}
                         <LaptopHog3 alt="" draggable="false" />
                         {message ? (
                             <CSSTransition in={messageShowing} timeout={200} classNames="BridgePage__art__message-">
@@ -51,7 +58,7 @@ export function BridgePage({
                 ) : null}
                 <div className="BridgePage__content-wrapper">
                     {!noLogo && (
-                        <div className="BridgePage__header-logo">
+                        <div className={clsx('BridgePage__header-logo', { mobile: sideLogo })}>
                             <WelcomeLogo view={view} />
                         </div>
                     )}

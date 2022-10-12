@@ -1,39 +1,48 @@
-import { Dayjs } from 'lib/dayjs'
+import { Dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
 import { kea, path, selectors, key, props, connect, listeners, actions, reducers } from 'kea'
 import { groupBy } from 'lib/utils'
-import { AnnotationScope, InsightModel, IntervalType } from '~/types'
+import { AnnotationScope, InsightLogicProps, InsightModel, IntervalType } from '~/types'
 import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
+import { teamLogic } from 'scenes/teamLogic'
+import { Tick } from 'chart.js'
 
-export interface InsightAnnotationsLogicProps {
-    dashboardItemId: InsightModel['short_id'] | 'new'
+export interface AnnotationsOverlayLogicProps {
+    dashboardItemId: InsightLogicProps['dashboardItemId']
     insightNumericId: InsightModel['id'] | 'new'
+    dates: string[]
+    ticks: Tick[]
 }
 
-/** Internal format for annotation groups. */
-const INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT: Record<IntervalType, string> = {
-    hour: 'YYYY-MM-DD HH',
-    day: 'YYYY-MM-DD',
-    week: 'YYYY-MM-DD',
-    month: 'YYYY-MM',
-}
-
-export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: IntervalType): string {
-    // FIXME: Account for ticks sometimes including more than one group in dense graphs
-    return date.startOf(intervalUnit).format(INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT[intervalUnit])
+export function determineAnnotationsDateGroup(
+    date: Dayjs,
+    intervalUnit: IntervalType,
+    dateRange: [Dayjs, Dayjs] | null,
+    pointsPerTick: number
+): string {
+    let adjustedDate = date.startOf(intervalUnit)
+    if (dateRange && pointsPerTick > 1) {
+        // Merge dates that are within the same tick (this is the case for very dense graphs with not enough space)
+        const deltaFromStart = date.diff(dateRange[0], intervalUnit)
+        const offset = deltaFromStart % pointsPerTick
+        adjustedDate = adjustedDate.subtract(offset, intervalUnit)
+    }
+    return adjustedDate.format('YYYY-MM-DD HH:mm:ssZZ')
 }
 
 export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     path((key) => ['lib', 'components', 'Annotations', 'annotationsOverlayLogic', key]),
-    props({} as InsightAnnotationsLogicProps),
+    props({} as AnnotationsOverlayLogicProps),
     key(({ insightNumericId }) => insightNumericId),
     connect(() => ({
         values: [
             insightLogic,
-            ['intervalUnit', 'timezone', 'insightId'],
+            ['intervalUnit', 'insightId'],
             annotationsModel,
             ['annotations', 'annotationsLoading'],
+            teamLogic,
+            ['timezone'],
         ],
         actions: [annotationsModel, ['createAnnotationGenerically', 'updateAnnotation', 'deleteAnnotation']],
     })),
@@ -81,38 +90,76 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             actions.createAnnotationGenerically({ ...annotationData, dashboard_item: insightNumericId })
         },
     })),
-    selectors(({ props }) => ({
+    selectors({
+        pointsPerTick: [
+            () => [(_, props) => props.ticks],
+            (ticks): number => {
+                if (ticks.length < 2) {
+                    return 0
+                }
+                return ticks[1].value - ticks[0].value
+            },
+        ],
+        tickDates: [
+            (s) => [
+                s.timezone,
+                (_, props: AnnotationsOverlayLogicProps) => props.dates,
+                (_, props: AnnotationsOverlayLogicProps) => props.ticks,
+            ],
+            (timezone, dates, ticks): Dayjs[] => {
+                const tickPointIndices: number[] = ticks.map(({ value }) => value)
+                const tickDates: Dayjs[] = tickPointIndices.map((dateIndex) =>
+                    dayjsLocalToTimezone(dates[dateIndex], timezone)
+                )
+                return tickDates
+            },
+        ],
+        dateRange: [
+            (s) => [s.tickDates, s.intervalUnit, s.pointsPerTick],
+            (tickDates, intervalUnit, pointsPerTick): [Dayjs, Dayjs] | null => {
+                if (tickDates.length === 0) {
+                    return null
+                }
+                return [tickDates[0], tickDates[tickDates.length - 1].add(pointsPerTick, intervalUnit)]
+            },
+        ],
         relevantAnnotations: [
-            (s) => [s.annotations],
-            (annotations) => {
+            (s) => [s.annotations, s.dateRange, (_, props) => props.insightNumericId],
+            (annotations, dateRange, insightNumericId) => {
                 // This assumes that there are no more than AnnotationsViewSet.default_limit (500) annotations
                 // in the project. Right now this is true on Cloud, though some projects are getting close (400+).
                 // If we see the scale increasing, we might need to fetch annotations on a per-insight basis here.
                 // That would greatly increase the number of requests to the annotations endpoint though.
-                return annotations.filter(
-                    (annotation) =>
-                        annotation.scope !== AnnotationScope.Insight ||
-                        annotation.dashboard_item === props.insightNumericId
-                )
+                return dateRange
+                    ? annotations.filter(
+                          (annotation) =>
+                              (annotation.scope !== AnnotationScope.Insight ||
+                                  annotation.dashboard_item === insightNumericId) &&
+                              annotation.date_marker >= dateRange[0] &&
+                              annotation.date_marker < dateRange[1]
+                      )
+                    : []
             },
         ],
         groupedAnnotations: [
-            (s) => [s.relevantAnnotations, s.intervalUnit, s.timezone],
-            (annotations, intervalUnit, timezone) => {
-                return groupBy(annotations, (annotation) => {
-                    let datetime = annotation.date_marker.utc()
-                    if (timezone !== 'UTC') {
-                        datetime = datetime.tz(timezone) // If the target is non-UTC, perform conversion
-                    }
-                    return determineAnnotationsDateGroup(datetime, intervalUnit)
+            (s) => [s.relevantAnnotations, s.intervalUnit, s.dateRange, s.pointsPerTick],
+            (relevantAnnotations, intervalUnit, dateRange, pointsPerTick) => {
+                return groupBy(relevantAnnotations, (annotation) => {
+                    return determineAnnotationsDateGroup(annotation.date_marker, intervalUnit, dateRange, pointsPerTick)
                 })
             },
         ],
         popoverAnnotations: [
-            (s) => [s.groupedAnnotations, s.activeDate, s.intervalUnit],
-            (groupedAnnotations, activeDate, intervalUnit) => {
-                return (activeDate && groupedAnnotations[determineAnnotationsDateGroup(activeDate, intervalUnit)]) || []
+            (s) => [s.groupedAnnotations, s.activeDate, s.intervalUnit, s.dateRange, s.pointsPerTick],
+            (groupedAnnotations, activeDate, intervalUnit, dateRange, pointsPerTick) => {
+                return (
+                    (activeDate &&
+                        groupedAnnotations[
+                            determineAnnotationsDateGroup(activeDate, intervalUnit, dateRange, pointsPerTick)
+                        ]) ||
+                    []
+                )
             },
         ],
-    })),
+    }),
 ])

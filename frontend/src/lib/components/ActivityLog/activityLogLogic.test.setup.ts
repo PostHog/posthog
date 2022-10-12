@@ -2,8 +2,8 @@ import {
     ActivityChange,
     ActivityLogItem,
     ActivityScope,
-    Describer,
     PersonMerge,
+    Trigger,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -16,9 +16,17 @@ interface APIMockSetup {
     changes?: ActivityChange[] | null
     scope: ActivityScope
     merge?: PersonMerge | null
+    trigger?: Trigger | null
 }
 
-const makeAPIItem = ({ name, activity, changes = null, scope, merge = null }: APIMockSetup): ActivityLogItem => ({
+const makeAPIItem = ({
+    name,
+    activity,
+    changes = null,
+    scope,
+    merge = null,
+    trigger = null,
+}: APIMockSetup): ActivityLogItem => ({
     user: { first_name: 'peter', email: 'peter@posthog.com' },
     activity,
     scope,
@@ -27,6 +35,7 @@ const makeAPIItem = ({ name, activity, changes = null, scope, merge = null }: AP
         changes,
         merge,
         name,
+        trigger,
     },
     created_at: '2022-02-05T16:28:39.594Z',
 })
@@ -34,7 +43,6 @@ const makeAPIItem = ({ name, activity, changes = null, scope, merge = null }: AP
 async function testSetup(
     activityLogItem: ActivityLogItem,
     scope: ActivityScope,
-    describer: Describer,
     url: string
 ): Promise<ReturnType<typeof activityLogLogic.build>> {
     useMocks({
@@ -45,21 +53,22 @@ async function testSetup(
         },
     })
     initKeaTests()
-    const logic = activityLogLogic({ scope, id: 7, describer })
+    const logic = activityLogLogic({ scope, id: 7 })
     logic.mount()
 
     await expectLogic(logic).toFinishAllListeners()
     return logic
 }
 
-export const makeTestSetup = (scope: ActivityScope, describer: Describer, url: string) => {
+export const makeTestSetup = (scope: ActivityScope, url: string) => {
     return async (
         name: string,
         activity: string,
         changes: ActivityChange[] | null,
-        merge?: PersonMerge
+        merge?: PersonMerge | null,
+        trigger?: Trigger | null
     ): Promise<ReturnType<typeof activityLogLogic.build>> => {
-        const activityLogItem = makeAPIItem({ scope, name, activity, changes, merge })
-        return await testSetup(activityLogItem, scope, describer, url)
+        const activityLogItem = makeAPIItem({ scope, name, activity, changes, merge, trigger })
+        return await testSetup(activityLogItem, scope, url)
     }
 }

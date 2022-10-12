@@ -34,7 +34,7 @@ from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, 
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User
-from posthog.models.activity_logging.activity_log import Change, Detail, Merge, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
@@ -279,51 +279,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             raise e
 
         return result
-
-    @action(methods=["POST"], detail=True)
-    def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        people = Person.objects.filter(team_id=self.team_id, uuid__in=request.data.get("uuids"))
-        person = self.get_object()
-        person.merge_people([p for p in people])
-
-        data = PersonSerializer(person).data
-        for p in people:
-            for distinct_id in p.distinct_ids:
-                data["distinct_ids"].append(distinct_id)
-
-            log_activity(
-                organization_id=self.organization.id,
-                team_id=self.team_id,
-                user=request.user,  # type: ignore
-                item_id=p.id,
-                scope="Person",
-                activity="was_merged_into_person",
-                detail=Detail(
-                    merge=Merge(
-                        type="Person",
-                        source=PersonSerializer(p).data,
-                        target=PersonSerializer(person).data,
-                    )
-                ),
-            )
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=request.user,  # type: ignore
-            item_id=person.id,
-            scope="Person",
-            activity="people_merged_into",
-            detail=Detail(
-                merge=Merge(
-                    type="Person",
-                    source=[PersonSerializer(p).data for p in people],
-                    target=PersonSerializer(person).data,
-                ),
-            ),
-        )
-
-        return response.Response(data, status=201)
 
     @action(methods=["POST"], detail=True)
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:

@@ -15,7 +15,6 @@ import { Tabs, Tag } from 'antd'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 
@@ -115,14 +114,7 @@ export function Experiments(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title={
-                    <div className="flex items-center">
-                        Experiments
-                        <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
-                            BETA
-                        </LemonTag>
-                    </div>
-                }
+                title={<div className="flex items-center">Experiments</div>}
                 buttons={
                     hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                         <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
@@ -135,15 +127,14 @@ export function Experiments(): JSX.Element {
                 <>
                     <div className="mb-4">
                         Check out our
-                        <a
+                        <Link
                             data-attr="experiment-help"
-                            href="https://posthog.com/docs/user-guides/experimentation?utm_medium=in-product&utm_campaign=new-experiment"
+                            to="https://posthog.com/docs/user-guides/experimentation?utm_medium=in-product&utm_campaign=new-experiment"
                             target="_blank"
-                            rel="noopener"
                         >
                             {' '}
                             Experimentation user guide
-                        </a>{' '}
+                        </Link>{' '}
                         to learn more.
                     </div>
                     <Tabs

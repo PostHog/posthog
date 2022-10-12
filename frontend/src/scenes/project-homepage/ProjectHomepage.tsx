@@ -19,6 +19,8 @@ import { NewlySeenPersons } from './NewlySeenPersons'
 import useSize from '@react-hook/size'
 import { NewInsightButton } from 'scenes/saved-insights/SavedInsights'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { Link } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogic } = useValues(projectHomepageLogic)
@@ -76,7 +78,12 @@ export function ProjectHomepage(): JSX.Element {
                             {dashboard?.name && (
                                 <>
                                     <IconCottage className="mr-2 text-warning text-2xl" />
-                                    <div className="dashboard-name">{dashboard?.name}</div>
+                                    <Link
+                                        className="font-semibold text-xl text-default"
+                                        to={urls.dashboard(dashboard.id)}
+                                    >
+                                        {dashboard?.name}
+                                    </Link>
                                 </>
                             )}
                         </div>

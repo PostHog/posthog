@@ -248,7 +248,7 @@ const VerticalMarker = ({
 
 function WaterfallChart(): JSX.Element {
     const { eventToDisplay, currentEvent, sessionRecording } = useValues(webPerformanceLogic)
-    const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
+    const { openSessionPlayer } = useActions(sessionPlayerDrawerLogic)
 
     return (
         <>
@@ -271,7 +271,8 @@ function WaterfallChart(): JSX.Element {
                                 <MultiRecordingButton
                                     sessionRecordings={sessionRecording}
                                     onOpenRecording={(matchedRecording) => {
-                                        openSessionPlayer(matchedRecording.session_id)
+                                        matchedRecording?.session_id &&
+                                            openSessionPlayer({ id: matchedRecording.session_id })
                                     }}
                                 />
                             </div>
@@ -279,7 +280,7 @@ function WaterfallChart(): JSX.Element {
                     </Row>
                 </>
             )}
-            <SessionPlayerDrawer onClose={closeSessionPlayer} />
+            <SessionPlayerDrawer />
             {eventToDisplay && (
                 <Row>
                     <Col span={24}>

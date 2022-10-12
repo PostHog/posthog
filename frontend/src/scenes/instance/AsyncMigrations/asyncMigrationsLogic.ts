@@ -58,7 +58,7 @@ export interface AsyncMigration {
     posthog_max_version: string
     error_count: number
     parameters: Record<string, number>
-    parameter_definitions: Record<string, [number, string]>
+    parameter_definitions: Record<string, [string | number | null, string]>
     is_available: boolean
 }
 

@@ -138,7 +138,10 @@ def update_cached_items() -> Tuple[int, int]:
 
 def task_for_cache_update_candidate(candidate: Union[DashboardTile, Insight]) -> Optional[Signature]:
     candidate_tile: Optional[DashboardTile] = None if isinstance(candidate, Insight) else candidate
-    candidate_insight: Insight = candidate if isinstance(candidate, Insight) else candidate.insight
+    candidate_insight: Optional[Insight] = candidate if isinstance(candidate, Insight) else candidate.insight
+    if candidate_insight is None:
+        return None
+
     candidate_dashboard: Optional[Dashboard] = None if isinstance(candidate, Insight) else candidate.dashboard
 
     try:
@@ -156,10 +159,17 @@ def task_for_cache_update_candidate(candidate: Union[DashboardTile, Insight]) ->
 
 
 def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: QuerySet) -> None:
-    statsd.gauge("update_cache_queue.never_refreshed", dashboard_tiles.filter(last_refresh=None).count())
-    oldest_previously_refreshed_tiles: List[DashboardTile] = list(dashboard_tiles.exclude(last_refresh=None)[0:10])
+    statsd.gauge(
+        "update_cache_queue.never_refreshed", dashboard_tiles.exclude(insight=None).filter(last_refresh=None).count()
+    )
+    oldest_previously_refreshed_tiles: List[DashboardTile] = list(
+        dashboard_tiles.exclude(insight=None).exclude(last_refresh=None)[0:10]
+    )
     ages = []
     for candidate_tile in oldest_previously_refreshed_tiles:
+        if candidate_tile.insight_id is None:
+            continue
+
         dashboard_cache_age = (datetime.datetime.now(timezone.utc) - candidate_tile.last_refresh).total_seconds()
 
         tags = {

@@ -2,10 +2,10 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+         groupUniqArray(100)((timestamp,
+                              uuid,
+                              $session_id,
+                              $window_id)) as matching_events
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -47,10 +47,10 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+         groupUniqArray(100)((timestamp,
+                              uuid,
+                              $session_id,
+                              $window_id)) as matching_events
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -102,10 +102,10 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             uuid,
-                             $session_id,
-                             $window_id)) as matching_events
+         groupUniqArray(100)((timestamp,
+                              uuid,
+                              $session_id,
+                              $window_id)) as matching_events
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",

@@ -6,20 +6,27 @@ import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
 import { RecordingEventType, RecordingSegment, SessionRecordingPlayerProps } from '~/types'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
+import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 
 interface TickProps extends SessionRecordingPlayerProps {
     event: RecordingEventType
+    index: number
+    status: RowStatus
+    numEvents: number
 }
 
-function Tick({ event, sessionRecordingId, playerKey }: TickProps): JSX.Element {
+function Tick({ event, sessionRecordingId, playerKey, status, numEvents, index }: TickProps): JSX.Element {
     const [hovering, setHovering] = useState(false)
     const { handleTickClick } = useActions(seekbarLogic({ sessionRecordingId, playerKey }))
     const { reportRecordingPlayerSeekbarEventHovered } = useActions(eventUsageLogic)
+    const zIndexOffset = !!status ? numEvents : 0 // Bump up the important events
     return (
         <div
             className="tick-hover-box"
             style={{
                 left: `calc(${event.percentageOfRecordingDuration}% - 2px)`,
+                zIndex: zIndexOffset + index,
             }}
             onClick={(e) => {
                 e.stopPropagation()
@@ -35,9 +42,17 @@ function Tick({ event, sessionRecordingId, playerKey }: TickProps): JSX.Element 
                 setHovering(false)
             }}
         >
-            <div className={clsx('tick-info', { show: hovering })}>{event.event}</div>
-            <div className="tick-marker" />
-            <div className={clsx('tick-thumb', { big: hovering })} />
+            <div className={clsx('tick-info', { flex: hovering })}>{event.event}</div>
+            <div className={clsx('tick-marker', status === RowStatus.Match ? 'bg-purple-dark' : 'bg-muted-alt')} />
+            <div
+                className={clsx(
+                    'tick-thumb',
+                    {
+                        'tick-thumb__big': hovering,
+                    },
+                    status === RowStatus.Match ? 'border-light bg-purple-dark' : 'border-muted-alt bg-white'
+                )}
+            />
         </div>
     )
 }
@@ -46,7 +61,8 @@ export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlaye
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic({ sessionRecordingId, playerKey }))
-    const { eventsToShow, sessionPlayerData } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
+    const { sessionPlayerData } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
+    const { eventListData } = useValues(eventsListLogic({ sessionRecordingId, playerKey }))
     const { thumbLeftPos, bufferPercent } = useValues(seekbarLogic({ sessionRecordingId, playerKey }))
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
@@ -80,8 +96,16 @@ export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlaye
                 <div className="buffer-bar" style={{ width: `calc(${bufferPercent}% - 2px)` }} />
             </div>
             <div className="ticks">
-                {eventsToShow.map((event: RecordingEventType) => (
-                    <Tick key={event.id} event={event} sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                {eventListData.map((event: RecordingEventType, i) => (
+                    <Tick
+                        key={event.id}
+                        index={i}
+                        event={event}
+                        sessionRecordingId={sessionRecordingId}
+                        playerKey={playerKey}
+                        status={event.level as RowStatus}
+                        numEvents={eventListData.length}
+                    />
                 ))}
             </div>
         </div>

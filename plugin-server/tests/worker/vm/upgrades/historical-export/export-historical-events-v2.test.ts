@@ -1,6 +1,7 @@
 import { PluginMeta, RetryError } from '@posthog/plugin-scaffold'
 
-import { Hub, ISOTimestamp, PluginConfigVMInternalResponse } from '../../../../../src/types'
+import { Hub, ISOTimestamp, PluginConfig, PluginConfigVMInternalResponse } from '../../../../../src/types'
+import { createPluginActivityLog } from '../../../../../src/utils/db/activity-log'
 import { createHub } from '../../../../../src/utils/db/hub'
 import { createStorage } from '../../../../../src/worker/vm/extensions/storage'
 import { createUtils } from '../../../../../src/worker/vm/extensions/utilities'
@@ -11,14 +12,17 @@ import {
     EXPORT_PARAMETERS_KEY,
     ExportHistoricalEventsJobPayload,
     ExportHistoricalEventsUpgradeV2,
+    INTERFACE_JOB_NAME,
+    JOB_SPEC,
     TestFunctions,
 } from '../../../../../src/worker/vm/upgrades/historical-export/export-historical-events-v2'
 import { fetchEventsForInterval } from '../../../../../src/worker/vm/upgrades/utils/fetchEventsForInterval'
-import { pluginConfig39 } from '../../../../helpers/plugins'
+import { plugin60, pluginConfig39 } from '../../../../helpers/plugins'
 import { resetTestDatabase } from '../../../../helpers/sql'
 
 jest.mock('../../../../../src/utils/status')
 jest.mock('../../../../../src/worker/vm/upgrades/utils/fetchEventsForInterval')
+jest.mock('../../../../../src/utils/db/activity-log')
 
 const ONE_HOUR = 1000 * 60 * 60
 
@@ -39,6 +43,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         hub.kafkaProducer.queueMessage = jest.fn()
         hub.kafkaProducer.flush = jest.fn()
         jest.spyOn(hub.db, 'queuePluginLogEntry')
+        jest.spyOn(hub.appMetrics, 'queueMetric')
 
         jest.spyOn(Date, 'now').mockReturnValue(1_000_000_000)
     })
@@ -52,7 +57,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         return createStorage(hub, pluginConfig39)
     }
 
-    function createVM() {
+    function createVM(pluginConfig: PluginConfig = pluginConfig39) {
         runIn = jest.fn()
         runNow = jest.fn()
         // :TODO: Kill deepmerge
@@ -66,7 +71,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             },
             meta: {
                 storage: storage(),
-                utils: createUtils(hub, pluginConfig39.id),
+                utils: createUtils(hub, pluginConfig.id),
                 jobs: {
                     exportHistoricalEventsV2: jest.fn().mockReturnValue({ runNow, runIn }),
                 },
@@ -74,7 +79,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             },
         } as unknown as PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgradeV2>>
 
-        addHistoricalEventsExportCapabilityV2(hub, pluginConfig39, mockVM)
+        addHistoricalEventsExportCapabilityV2(hub, pluginConfig, mockVM)
 
         vm = mockVM
     }
@@ -161,6 +166,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
+            expect(jest.mocked(hub.appMetrics.queueMetric).mock.calls).toMatchSnapshot()
         })
 
         it('does not call exportEvents or log if no events in time range', async () => {
@@ -253,17 +259,23 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
+            expect(jest.mocked(hub.appMetrics.queueMetric).mock.calls).toMatchSnapshot()
 
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
 
         it('stops processing after HISTORICAL_EXPORTS_MAX_RETRY_COUNT retries', async () => {
+            createVM()
+
+            jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
+            jest.mocked(vm.methods.exportEvents).mockRejectedValue(new RetryError('Retry error'))
+
             await exportHistoricalEvents({
                 ...defaultPayload,
-                retriesPerformedSoFar: hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT,
+                retriesPerformedSoFar: hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT - 1,
             })
 
-            expect(fetchEventsForInterval).not.toHaveBeenCalled()
+            expect(vm.meta.jobs.exportHistoricalEventsV2).not.toHaveBeenCalled()
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: expect.stringContaining(
@@ -271,6 +283,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
+            expect(jest.mocked(hub.appMetrics.queueMetric).mock.calls).toMatchSnapshot()
 
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
@@ -733,25 +746,20 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
     describe('getTimestampBoundaries()', () => {
         const getTimestampBoundaries = getTestMethod('getTimestampBoundaries')
 
-        it('returns timestamp boundaries passed into interface job', () => {
+        it('returns timestamp boundaries passed into interface job, increasing the end date by a day', () => {
             expect(
                 getTimestampBoundaries({
-                    dateFrom: '2021-10-29T00:00:00.000Z',
-                    dateTo: '2021-11-29T00:00:00.000Z',
+                    dateRange: ['2021-10-29', '2021-11-30'],
                 })
-            ).toEqual({
-                min: new Date('2021-10-29T00:00:00.000Z'),
-                max: new Date('2021-11-29T00:00:00.000Z'),
-            })
+            ).toEqual(['2021-10-29T00:00:00.000Z', '2021-12-01T00:00:00.000Z'])
         })
 
         it('raises an error for invalid timestamp formats', () => {
             expect(() =>
                 getTimestampBoundaries({
-                    dateFrom: 'afaffaf',
-                    dateTo: 'efg',
+                    dateRange: ['foo', 'bar'],
                 })
-            ).toThrow("'dateFrom' and 'dateTo' should be timestamps in ISO string format.")
+            ).toThrow("'dateRange' should be two dates in ISO string format.")
         })
     })
 
@@ -814,17 +822,55 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
     describe('stopExport()', () => {
         const stopExport = getTestMethod('stopExport')
 
-        it('unsets EXPORT_PARAMETERS_KEY', async () => {
-            await storage().set(EXPORT_PARAMETERS_KEY, {
-                id: 1,
-                parallelism: 3,
-                dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
-                dateTo: '2021-11-01T05:00:00.000Z' as ISOTimestamp,
-            })
+        const params = {
+            id: 1,
+            parallelism: 3,
+            dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
+            dateTo: '2021-11-01T05:00:00.000Z' as ISOTimestamp,
+        }
 
-            await stopExport('')
+        it('unsets EXPORT_PARAMETERS_KEY', async () => {
+            await storage().set(EXPORT_PARAMETERS_KEY, params)
+
+            await stopExport(params, '', 'success')
 
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
+        })
+
+        it('captures activity for export success', async () => {
+            await stopExport(params, '', 'success')
+
+            expect(createPluginActivityLog).toHaveBeenCalledWith(
+                hub,
+                pluginConfig39.team_id,
+                pluginConfig39.id,
+                'export_success',
+                {
+                    trigger: {
+                        job_id: '1',
+                        job_type: INTERFACE_JOB_NAME,
+                        payload: params,
+                    },
+                }
+            )
+        })
+
+        it('captures activity for export failure', async () => {
+            await stopExport(params, '', 'fail')
+
+            expect(createPluginActivityLog).toHaveBeenCalledWith(
+                hub,
+                pluginConfig39.team_id,
+                pluginConfig39.id,
+                'export_fail',
+                {
+                    trigger: {
+                        job_id: '1',
+                        job_type: INTERFACE_JOB_NAME,
+                        payload: params,
+                    },
+                }
+            )
         })
     })
 
@@ -855,6 +901,59 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             // Roughly 2**11*3 seconds are waited between retry 10 and 11
             expect(shouldResume(status, 10_006_000_000)).toEqual(false)
             expect(shouldResume(status, 10_006_200_000)).toEqual(false)
+        })
+    })
+
+    describe('updating public jobs', () => {
+        beforeEach(() => {
+            jest.spyOn(hub.db, 'addOrUpdatePublicJob')
+        })
+
+        it('updates when public job has not been yet registered', () => {
+            const pluginConfig: PluginConfig = {
+                ...pluginConfig39,
+                plugin: {
+                    ...plugin60,
+                    public_jobs: {},
+                },
+            }
+            createVM(pluginConfig)
+
+            expect(hub.db.addOrUpdatePublicJob).toHaveBeenCalledWith(
+                pluginConfig39.plugin_id,
+                INTERFACE_JOB_NAME,
+                JOB_SPEC
+            )
+        })
+
+        it('updates when public job definition has changed', () => {
+            const pluginConfig: PluginConfig = {
+                ...pluginConfig39,
+                plugin: {
+                    ...plugin60,
+                    public_jobs: { [INTERFACE_JOB_NAME]: { payload: {} } },
+                },
+            }
+            createVM(pluginConfig)
+
+            expect(hub.db.addOrUpdatePublicJob).toHaveBeenCalledWith(
+                pluginConfig39.plugin_id,
+                INTERFACE_JOB_NAME,
+                JOB_SPEC
+            )
+        })
+
+        it('does not update if public job has already been registered', () => {
+            const pluginConfig: PluginConfig = {
+                ...pluginConfig39,
+                plugin: {
+                    ...plugin60,
+                    public_jobs: { [INTERFACE_JOB_NAME]: JOB_SPEC },
+                },
+            }
+            createVM(pluginConfig)
+
+            expect(hub.db.addOrUpdatePublicJob).not.toHaveBeenCalled()
         })
     })
 })

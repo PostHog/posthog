@@ -1,7 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { navigationLogic } from './navigationLogic'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
@@ -14,13 +13,15 @@ interface ProjectNoticeBlueprint {
 }
 
 export function ProjectNotice(): JSX.Element | null {
-    const { projectNoticeVariant } = useValues(navigationLogic)
-    const { reportProjectNoticeDismissed } = useActions(eventUsageLogic)
+    const { projectNoticeVariantWithClosability } = useValues(navigationLogic)
+    const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
 
-    if (!projectNoticeVariant) {
+    if (!projectNoticeVariantWithClosability) {
         return null
     }
+
+    const [projectNoticeVariant, isClosable] = projectNoticeVariantWithClosability
 
     const NOTICES: Record<'demo_project' | 'real_project_with_no_events' | 'invite_teammates', ProjectNoticeBlueprint> =
         {
@@ -66,7 +67,7 @@ export function ProjectNotice(): JSX.Element | null {
             type="info"
             className="my-6"
             action={relevantNotice.action}
-            onClose={() => reportProjectNoticeDismissed(projectNoticeVariant)}
+            onClose={isClosable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >
             {relevantNotice.message}
         </AlertMessage>

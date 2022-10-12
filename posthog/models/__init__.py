@@ -1,12 +1,13 @@
 from .action import Action
 from .action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
+from .activity_logging.notification_viewed import NotificationViewed
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
-from .dashboard_tile import DashboardTile
+from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -72,6 +73,7 @@ __all__ = [
     "Integration",
     "MessagingRecord",
     "MigrationStatus",
+    "NotificationViewed",
     "Organization",
     "OrganizationDomain",
     "OrganizationInvite",
@@ -93,6 +95,7 @@ __all__ = [
     "Tag",
     "TaggedItem",
     "Team",
+    "Text",
     "User",
     "UserManager",
     "UserPromptSequenceState",

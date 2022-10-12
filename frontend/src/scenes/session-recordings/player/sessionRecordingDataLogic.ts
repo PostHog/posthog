@@ -1,8 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import Fuse from 'fuse.js'
 import api from 'lib/api'
-import { eventToDescription, sum, toParams } from 'lib/utils'
+import { sum, toParams } from 'lib/utils'
 import {
     EventType,
     PlayerPosition,
@@ -18,7 +17,6 @@ import {
 } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventWithTime } from 'rrweb/typings/types'
-import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
 import {
     getPlayerPositionFromEpochTime,
@@ -114,19 +112,9 @@ const calculateBufferedTo = (
     return bufferedTo
 }
 
-// TODO: Replace this with permanent querying alternative in backend. Filtering on frontend should do for now.
-const makeEventsQueryable = (events: RecordingEventType[]): RecordingEventType[] => {
-    return events.map((e) => ({
-        ...e,
-        queryValue: `${getKeyMapping(e.event, 'event')?.label ?? e.event ?? ''} ${eventToDescription(e)}`.replace(
-            /['"]+/g,
-            ''
-        ),
-    }))
-}
-
 export interface SessionRecordingDataLogicProps {
-    sessionRecordingId: SessionRecordingId | null
+    sessionRecordingId: SessionRecordingId
+    recordingStartTime?: string
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -179,6 +167,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as number | null,
             {
                 loadRecordingMetaSuccess: () => (cache.loadStartTime ? performance.now() - cache.loadStartTime : null),
+            },
+        ],
+
+        isNotFound: [
+            false as boolean,
+            {
+                loadRecordingMeta: () => false,
+                loadRecordingMetaSuccess: () => false,
+                loadRecordingMetaFailure: () => true,
             },
         ],
         loadFirstSnapshotTimeMs: [
@@ -273,6 +270,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
                     const params = toParams({
                         save_view: true,
+                        recording_start_time: props.recordingStartTime,
                     })
                     const response = await api.get(
                         `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}?${params}`
@@ -297,9 +295,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (!props.sessionRecordingId) {
                         return values.sessionPlayerData
                     }
+                    const params = toParams({
+                        recording_start_time: props.recordingStartTime,
+                    })
                     const apiUrl =
                         nextUrl ||
-                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots`
+                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
                     const response = await api.get(apiUrl)
                     breakpoint()
                     // If we have a next url, we need to append the new snapshots to the existing ones
@@ -414,26 +415,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     selectors({
-        // TODO: Move eventsToShow into eventsListLogic
-        eventsToShow: [
-            (selectors) => [selectors.filters, selectors.sessionEventsData],
-            (filters, sessionEventsData) => {
-                const events: RecordingEventType[] = sessionEventsData?.events ?? []
-                return filters?.query
-                    ? new Fuse<RecordingEventType>(makeEventsQueryable(events), {
-                          threshold: 0.3,
-                          keys: ['queryValue'],
-                          findAllMatches: true,
-                          ignoreLocation: true,
-                          sortFn: (a, b) =>
-                              parseInt(events[a.idx].timestamp) - parseInt(events[b.idx].timestamp) ||
-                              a.score - b.score,
-                      })
-                          .search(filters.query)
-                          .map((result) => result.item)
-                    : events
-            },
-        ],
         eventsApiParams: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {

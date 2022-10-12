@@ -353,25 +353,25 @@ def snapshot_postgres_queries(fn):
 
 class BaseTestMigrations(QueryMatchingTest):
     @property
-    def app(self):
+    def app(self) -> str:
         return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
 
-    migrate_from = None
-    migrate_to = None
+    migrate_from: str
+    migrate_to: str
     apps = None
     assert_snapshots = False
 
     def setUp(self):
-        assert (
-            self.migrate_from and self.migrate_to  # type: ignore
+        assert hasattr(self, "migrate_from") and hasattr(
+            self, "migrate_to"
         ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
-        self.migrate_from = [(self.app, self.migrate_from)]  # type: ignore
-        self.migrate_to = [(self.app, self.migrate_to)]
+        migrate_from = [(self.app, self.migrate_from)]
+        migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
-        old_apps = executor.loader.project_state(self.migrate_from).apps
+        old_apps = executor.loader.project_state(migrate_from).apps
 
         # Reverse to the original migration
-        executor.migrate(self.migrate_from)
+        executor.migrate(migrate_from)  # type: ignore
 
         self.setUpBeforeMigration(old_apps)
 
@@ -382,13 +382,14 @@ class BaseTestMigrations(QueryMatchingTest):
         if self.assert_snapshots:
             self._execute_migration_with_snapshots(executor)
         else:
-            executor.migrate(self.migrate_to)
+            executor.migrate(migrate_to)  # type: ignore
 
-        self.apps = executor.loader.project_state(self.migrate_to).apps
+        self.apps = executor.loader.project_state(migrate_to).apps
 
     @snapshot_postgres_queries
     def _execute_migration_with_snapshots(self, executor):
-        executor.migrate(self.migrate_to)
+        migrate_to = [(self.app, self.migrate_to)]
+        executor.migrate(migrate_to)
 
     def setUpBeforeMigration(self, apps):
         pass
