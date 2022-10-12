@@ -196,7 +196,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
             const onEventEvent = JSON.parse(consoleOutput[1][1])
             expect(onEventEvent.elements).toEqual([
-                { attributes: {}, nth_child: 1, nth_of_type: 2, tag_name: 'div', text: '💻' },
+                expect.objectContaining({ attributes: {}, nth_child: 1, nth_of_type: 2, tag_name: 'div', text: '💻' }),
             ])
         }, 5000)
 
