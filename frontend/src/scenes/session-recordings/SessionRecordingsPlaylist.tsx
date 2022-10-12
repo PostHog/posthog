@@ -1,6 +1,6 @@
 import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { colonDelimitedDuration } from '~/lib/utils'
+import { colonDelimitedDuration, range } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
 import { getRecordingListLimit, PLAYLIST_LIMIT, sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
@@ -14,6 +14,7 @@ import { IconChevronLeft, IconChevronRight, IconSchedule } from 'lib/components/
 import { SessionRecordingsFilters } from './filters/SessionRecordingsFilters'
 import clsx from 'clsx'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -28,8 +29,9 @@ const DurationDisplay = ({ duration }: { duration: number }): JSX.Element => {
         <span className="flex items-center gap-1">
             <IconSchedule className="text-lg" />
             <span>
-                <span className={parts[0] === '00' ? 'opacity-5' : ''}>{parts[0]}:</span>
-                {parts[1]}:{parts[2]}
+                <span className={parts[0] === '00' ? 'opacity-50' : ''}>{parts[0]}:</span>
+                <span className={parts[0] === '00' && parts[1] === '00' ? 'opacity-50' : ''}>{parts[1]}:</span>
+                {parts[2]}
             </span>
         </span>
     )
@@ -89,36 +91,51 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                         <span className="font-bold uppercase text-xs">Recent Recordings</span>
                         {paginationControls}
                     </div>
-                    <ul>
-                        {sessionRecordings.map((rec, i) => (
-                            <li
-                                key={rec.id}
-                                className={clsx(
-                                    'p-2 px-4 cursor-pointer',
-                                    activeSessionRecording?.id === rec.id ? 'bg-primary-highlight font-semibold' : '',
-                                    i !== 0 && 'border-t'
-                                )}
-                                onClick={() => onRecordingClick(rec)}
-                            >
-                                <div className="flex justify-between items-center">
-                                    <div className="truncate font-medium text-primary">{asDisplay(rec.person, 25)}</div>
-                                    {!rec.viewed && (
-                                        <Tooltip title={'Indicates the recording has not been watched yet'}>
-                                            <div
-                                                className="w-2 h-2 rounded bg-primary-light"
-                                                aria-label="unwatched-recording-label"
-                                            />
-                                        </Tooltip>
+                    {sessionRecordingsResponseLoading && !sessionRecordings.length ? (
+                        <>
+                            {range(10).map((i) => (
+                                <div key={i} className="p-4 space-y-2 border-b">
+                                    <LemonSkeleton className="w-1/2" />
+                                    <LemonSkeleton className="w-1/3" />
+                                </div>
+                            ))}
+                        </>
+                    ) : (
+                        <ul className={clsx(sessionRecordingsResponseLoading ? 'opacity-50' : '')}>
+                            {sessionRecordings.map((rec, i) => (
+                                <li
+                                    key={rec.id}
+                                    className={clsx(
+                                        'p-2 px-4 cursor-pointer',
+                                        activeSessionRecording?.id === rec.id
+                                            ? 'bg-primary-highlight font-semibold'
+                                            : '',
+                                        i !== 0 && 'border-t'
                                     )}
-                                </div>
+                                    onClick={() => onRecordingClick(rec)}
+                                >
+                                    <div className="flex justify-between items-center">
+                                        <div className="truncate font-medium text-primary">
+                                            {asDisplay(rec.person, 25)}
+                                        </div>
+                                        {!rec.viewed && (
+                                            <Tooltip title={'Indicates the recording has not been watched yet'}>
+                                                <div
+                                                    className="w-2 h-2 rounded bg-primary-light"
+                                                    aria-label="unwatched-recording-label"
+                                                />
+                                            </Tooltip>
+                                        )}
+                                    </div>
 
-                                <div className="flex justify-between">
-                                    <TZLabel time={rec.start_time} formatDate="MMMM DD, YYYY" formatTime="h:mm A" />
-                                    <DurationDisplay duration={rec.recording_duration} />
-                                </div>
-                            </li>
-                        ))}
-                    </ul>
+                                    <div className="flex justify-between">
+                                        <TZLabel time={rec.start_time} formatDate="MMMM DD, YYYY" formatTime="h:mm A" />
+                                        <DurationDisplay duration={rec.recording_duration} />
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
                 </div>
 
                 {/* <LemonTable
