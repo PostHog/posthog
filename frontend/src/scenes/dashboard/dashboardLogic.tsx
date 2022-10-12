@@ -578,8 +578,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             tile.insight.filters.insight === InsightType.RETENTION &&
                             tile.insight.filters.display === ChartDisplayType.ActionsLineGraph
                         const isPathsViz = !!tile.insight && tile.insight.filters.display === ChartDisplayType.PathsViz
-                        const defaultWidth = !!tile.text ? 12 : isRetention || isPathsViz ? 8 : 6
-                        const defaultHeight = !!tile.text ? minW + 1 : isRetention ? 8 : isPathsViz ? 12.5 : 5
+                        const defaultWidth = isRetention || isPathsViz ? 8 : 6
+                        const defaultHeight = !!tile.text ? minH + 1 : isRetention ? 8 : isPathsViz ? 12.5 : 5
                         const layout = tile.layouts && tile.layouts[col]
                         const { x, y, w, h } = layout || {}
                         const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
