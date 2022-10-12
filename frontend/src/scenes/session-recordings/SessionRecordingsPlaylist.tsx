@@ -10,12 +10,29 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
+import { IconChevronLeft, IconChevronRight, IconSchedule } from 'lib/components/icons'
 import { SessionRecordingsFilters } from './filters/SessionRecordingsFilters'
+import clsx from 'clsx'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
     isPersonPage?: boolean
+}
+
+const DurationDisplay = ({ duration }: { duration: number }): JSX.Element => {
+    const formattedDuration = colonDelimitedDuration(duration)
+    const parts = formattedDuration.split(':')
+
+    return (
+        <span className="flex items-center gap-1">
+            <IconSchedule className="text-lg" />
+            <span>
+                <span className={parts[0] === '00' ? 'opacity-5' : ''}>{parts[0]}:</span>
+                {parts[1]}:{parts[2]}
+            </span>
+        </span>
+    )
 }
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
@@ -25,34 +42,86 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
     const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
     const playlistRef = useRef<HTMLDivElement>(null)
 
-    const columns: LemonTableColumns<SessionRecordingType> = [
-        {
-            title: 'Recordings',
-            render: function RenderPlayButton(_: any, sessionRecording: SessionRecordingType) {
-                return (
-                    <div>
-                        {asDisplay(sessionRecording.person, 25)}
-                        <div>
-                            <span>
-                                <TZLabel
-                                    time={sessionRecording.start_time}
-                                    formatDate="MMMM DD, YYYY"
-                                    formatTime="h:mm A"
-                                />
-                                {` · `}
-                                {colonDelimitedDuration(sessionRecording.recording_duration)}
-                            </span>
-                        </div>
-                    </div>
-                )
-            },
-        },
-    ]
+    const onRecordingClick = (recording: SessionRecordingType): void => {
+        openSessionPlayer({ id: recording.id })
+        window.scrollTo({
+            left: 0,
+            top: playlistRef?.current?.offsetTop ? playlistRef.current.offsetTop - 8 : 0,
+            behavior: 'smooth',
+        })
+    }
+
+    const paginationControls = (
+        <div className="flex items-center gap-1">
+            <span>{`${offset + 1} - ${
+                offset + (sessionRecordingsResponseLoading ? getRecordingListLimit(true) : sessionRecordings.length)
+            }`}</span>
+            <LemonButton
+                icon={<IconChevronLeft />}
+                status="stealth"
+                size="small"
+                disabled={!hasPrev}
+                onClick={() => {
+                    loadPrev()
+                    window.scrollTo(0, 0)
+                }}
+            />
+            <LemonButton
+                icon={<IconChevronRight />}
+                status="stealth"
+                disabled={!hasNext}
+                size="small"
+                onClick={() => {
+                    loadNext()
+                    window.scrollTo(0, 0)
+                }}
+            />
+        </div>
+    )
+
     return (
         <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
             <div className="SessionRecordingsPlaylist__left-column space-y-4">
                 <SessionRecordingsFilters personUUID={personUUID} />
-                <LemonTable
+
+                <div className="w-full overflow-hidden border rounded">
+                    <div className="flex justify-between items-center bg-mid py-3 px-4 border-b">
+                        <span className="font-bold uppercase text-xs">Recent Recordings</span>
+                        {paginationControls}
+                    </div>
+                    <ul>
+                        {sessionRecordings.map((rec, i) => (
+                            <li
+                                key={rec.id}
+                                className={clsx(
+                                    'p-2 px-4 cursor-pointer',
+                                    activeSessionRecording?.id === rec.id ? 'bg-primary-highlight' : '',
+                                    i !== 0 && 'border-t'
+                                )}
+                                onClick={() => onRecordingClick(rec)}
+                            >
+                                <div className="flex justify-between items-center">
+                                    <div className="truncate font-medium text-primary">{asDisplay(rec.person, 25)}</div>
+                                    {!rec.viewed && (
+                                        <Tooltip title={'Indicates the recording has not been watched yet'}>
+                                            <div
+                                                className="w-2 h-2 rounded bg-primary-highlight"
+                                                aria-label="unwatched-recording-label"
+                                            />
+                                        </Tooltip>
+                                    )}
+                                </div>
+
+                                <div className="flex justify-between">
+                                    <TZLabel time={rec.start_time} formatDate="MMMM DD, YYYY" formatTime="h:mm A" />
+                                    <DurationDisplay duration={rec.recording_duration} />
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+
+                {/* <LemonTable
                     dataSource={sessionRecordings}
                     columns={columns}
                     loading={sessionRecordingsResponseLoading}
@@ -75,31 +144,8 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     data-tooltip="session-recording-table"
                     emptyState="No matching recordings found"
                     loadingSkeletonRows={PLAYLIST_LIMIT}
-                />
-                <div className="flex justify-end items-center my-2">
-                    <span>{`${offset + 1} - ${
-                        offset +
-                        (sessionRecordingsResponseLoading ? getRecordingListLimit(true) : sessionRecordings.length)
-                    }`}</span>
-                    <LemonButton
-                        icon={<IconChevronLeft />}
-                        status="stealth"
-                        disabled={!hasPrev}
-                        onClick={() => {
-                            loadPrev()
-                            window.scrollTo(0, 0)
-                        }}
-                    />
-                    <LemonButton
-                        icon={<IconChevronRight />}
-                        status="stealth"
-                        disabled={!hasNext}
-                        onClick={() => {
-                            loadNext()
-                            window.scrollTo(0, 0)
-                        }}
-                    />
-                </div>
+                /> */}
+                <div className="flex justify-end my-2">{paginationControls}</div>
             </div>
             <div className="SessionRecordingsPlaylist__right-column">
                 {activeSessionRecording?.id ? (
