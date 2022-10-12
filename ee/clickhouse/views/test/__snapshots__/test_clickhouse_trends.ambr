@@ -7,7 +7,7 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') ) events
   '
 ---
@@ -30,7 +30,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
   GROUP BY actor_id
   LIMIT 100
@@ -66,7 +66,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -121,7 +121,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
              AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
         GROUP BY date)
@@ -178,7 +178,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -204,7 +204,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
   GROUP BY actor_id
   LIMIT 100
@@ -277,7 +277,7 @@
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
                    AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']) )
               GROUP BY person_id,
@@ -312,7 +312,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
@@ -352,7 +352,7 @@
                  HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
               WHERE team_id = 2
                 AND event = '$pageview'
-                AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
            GROUP BY person_id)
         GROUP BY date)
@@ -379,7 +379,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
   GROUP BY actor_id
   LIMIT 100
@@ -437,7 +437,7 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval'])
            GROUP BY day_start,
@@ -470,7 +470,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
@@ -597,7 +597,7 @@
                        breakdown_value
               ORDER BY d.timestamp)
            WHERE 11111 = 11111
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') ))
      GROUP BY day_start,
               breakdown_value
@@ -678,7 +678,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -750,7 +750,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-31 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -786,7 +786,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-02 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-16 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -815,7 +815,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND (NOT has([''], "$group_0")) )
         GROUP BY date)
@@ -864,7 +864,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start

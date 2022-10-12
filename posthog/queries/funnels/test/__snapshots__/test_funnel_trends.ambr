@@ -11,7 +11,7 @@
             countIf(steps_completed >= 3) AS reached_to_step_count
      FROM
        (SELECT aggregation_target,
-               toStartOfDay(toDateTime(timestamp), 'UTC') AS entrance_period_start,
+               toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS entrance_period_start,
                max(steps) AS steps_completed
         FROM
           (SELECT *,
@@ -108,7 +108,7 @@
             countIf(steps_completed >= 3) AS reached_to_step_count
      FROM
        (SELECT aggregation_target,
-               toStartOfDay(toDateTime(timestamp), 'US/Pacific') AS entrance_period_start,
+               toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) AS entrance_period_start,
                max(steps) AS steps_completed
         FROM
           (SELECT *,

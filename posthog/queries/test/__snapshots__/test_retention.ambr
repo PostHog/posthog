@@ -5,7 +5,7 @@
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(toDateTime(e.timestamp), 'UTC') AS event_date,
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -28,7 +28,7 @@
                           dateDiff(
                               'Day',
                               toStartOfDay(toDateTime('2020-06-10 00:00:00' , 'UTC')),
-                              toStartOfDay(e.timestamp , 'UTC')
+                              toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') )
                           )
                       ] as breakdown_values
         FROM events e
@@ -77,7 +77,7 @@
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(toDateTime(e.timestamp), 'UTC') AS event_date,
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -100,7 +100,7 @@
                           dateDiff(
                               'Day',
                               toStartOfDay(toDateTime('2020-06-10 00:00:00' , 'UTC')),
-                              toStartOfDay(e.timestamp , 'UTC')
+                              toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') )
                           )
                       ] as breakdown_values
         FROM events e
@@ -149,7 +149,7 @@
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfDay(toDateTime(e.timestamp), 'US/Pacific') AS event_date,
+       (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -172,7 +172,7 @@
                           dateDiff(
                               'Day',
                               toStartOfDay(toDateTime('2020-06-10 00:00:00' , 'US/Pacific')),
-                              toStartOfDay(e.timestamp , 'US/Pacific')
+                              toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific') )
                           )
                       ] as breakdown_values
         FROM events e
