@@ -1,11 +1,12 @@
 import React, { useEffect, useRef } from 'react'
-import { getSeriesColor } from 'lib/colors'
-import { Chart, ChartItem } from 'chart.js'
+import { getColorVar } from 'lib/colors'
+import { Chart, ChartDataset, ChartItem } from 'chart.js'
 import { DescriptionColumns } from './constants'
 import { MetricsOverviewProps } from './MetricsTab'
 import { LemonSkeleton } from '../../lib/components/LemonSkeleton'
 
 import './AppMetricsGraph.scss'
+import { lightenDarkenColor } from '../../lib/utils'
 
 export function AppMetricsGraph({ tab, metrics, metricsLoading }: MetricsOverviewProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -15,7 +16,6 @@ export function AppMetricsGraph({ tab, metrics, metricsLoading }: MetricsOvervie
     useEffect(() => {
         let chart: Chart
         if (canvasRef.current && metrics) {
-            const successColor = getSeriesColor(0)
             chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
                 type: 'line',
                 data: {
@@ -24,24 +24,22 @@ export function AppMetricsGraph({ tab, metrics, metricsLoading }: MetricsOvervie
                         {
                             label: descriptions.successes,
                             data: metrics.successes,
-                            fill: true,
-                            borderColor: successColor,
+                            borderColor: '',
+                            ...colorConfig('data-brand-blue'),
                         },
                         ...(descriptions.successes_on_retry
                             ? [
                                   {
                                       label: descriptions.successes_on_retry,
                                       data: metrics.successes_on_retry,
-                                      fill: true,
-                                      borderColor: successColor,
+                                      ...colorConfig('data-yellow'),
                                   },
                               ]
                             : []),
                         {
                             label: descriptions.failures,
                             data: metrics.failures,
-                            fill: true,
-                            borderColor: successColor,
+                            ...colorConfig('data-pink'),
                         },
                     ],
                 },
@@ -90,4 +88,18 @@ export function AppMetricsGraph({ tab, metrics, metricsLoading }: MetricsOvervie
             <canvas ref={canvasRef} />
         </div>
     )
+}
+
+function colorConfig(baseColorVar: string): Partial<ChartDataset<'line', any>> {
+    const mainColor = getColorVar(baseColorVar)
+
+    return {
+        borderColor: mainColor,
+        hoverBorderColor: lightenDarkenColor(mainColor, -20),
+        hoverBackgroundColor: lightenDarkenColor(mainColor, -20),
+        backgroundColor: mainColor,
+        fill: false,
+        borderWidth: 2,
+        pointRadius: 0,
+    }
 }
