@@ -41,6 +41,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
         KAFKA_MAX_MESSAGE_BATCH_SIZE: 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
+        APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         REDIS_URL: 'redis://127.0.0.1',
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
@@ -85,6 +86,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CONVERSION_BUFFER_ENABLED: !isTestEnv(),
         CONVERSION_BUFFER_ENABLED_TEAMS: '',
+        CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '',
         BUFFER_CONVERSION_SECONDS: 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
         PERSON_INFO_TO_REDIS_TEAMS: '',
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min

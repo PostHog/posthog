@@ -68,6 +68,17 @@ export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'UserName',
 ]
 
+// Feature Flags & Experiments
+export const INSTANTLY_AVAILABLE_PROPERTIES = [
+    '$geoip_city_name',
+    '$geoip_country_name',
+    '$geoip_country_code',
+    '$geoip_continent_name',
+    '$geoip_continent_code',
+    '$geoip_postal_code',
+    '$geoip_time_zone',
+]
+
 // Event constants
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
@@ -112,8 +123,6 @@ export const FEATURE_FLAGS = {
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
-    // Re-enable person modal CSV downloads when frontend can support new entity properties
-    PERSON_MODAL_EXPORTS: 'person-modal-exports', // hot potato see https://github.com/PostHog/posthog/pull/10824
     BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
     CANCEL_RUNNING_QUERIES: 'cancel-running-queries', // owner @timgl
     IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
@@ -125,6 +134,7 @@ export const FEATURE_FLAGS = {
     REGION_SELECT: 'region-select', //owner: @kappa90
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
     HOG_BOOK: 'hog-book', // owner: @pauldambra
+    SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -148,6 +158,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.SAML]: LicensePlan.Enterprise,
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
     [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
+    [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

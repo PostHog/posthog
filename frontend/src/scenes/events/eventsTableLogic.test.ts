@@ -31,7 +31,6 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
     elements_hash: '',
     event: '',
     properties: {},
-    matched_recordings: [],
 })
 
 const makePropertyFilter = (value: string = randomString()): PropertyFilter => ({
@@ -107,6 +106,26 @@ describe('eventsTableLogic', () => {
             const eventFilter = '$pageview'
             router.actions.push(combineUrl(personUrl, { eventFilter }).url)
             await expectLogic(logic).toDispatchActions(['setEventFilter', 'fetchEvents'])
+        })
+    })
+
+    describe('with fixed event filters', () => {
+        beforeEach(() => {
+            router.actions.push(urls.events())
+            logic = eventsTableLogic({
+                key: 'test-key',
+                sceneUrl: urls.events(),
+                fixedFilters: {
+                    event_filter: 'dashboard updated',
+                },
+            })
+            logic.mount()
+        })
+
+        it('can not set the fixed event filter', async () => {
+            await expectLogic(logic, () => logic.actions.setEventFilter('')).toMatchValues({
+                eventFilter: 'dashboard updated',
+            })
         })
     })
 

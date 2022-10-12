@@ -15,7 +15,6 @@ from posthog.models.element.element import Element, chain_to_elements, elements_
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
 from posthog.models.team import Team
-from posthog.queries.actor_base_query import EventInfoForRecording
 from posthog.settings import TEST
 
 ZERO_DATE = timezone.datetime(1970, 1, 1)
@@ -274,7 +273,6 @@ class ClickhouseEventSerializer(serializers.Serializer):
     person = serializers.SerializerMethodField()
     elements = serializers.SerializerMethodField()
     elements_chain = serializers.SerializerMethodField()
-    matched_recordings = serializers.SerializerMethodField()
 
     def get_id(self, event):
         return str(event["uuid"])
@@ -316,22 +314,6 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     def get_elements_chain(self, event):
         return event["elements_chain"]
-
-    def get_matched_recordings(self, event):
-        return (
-            [
-                {
-                    "session_id": event["session_id"],
-                    "events": [
-                        EventInfoForRecording(
-                            timestamp=event["timestamp"], uuid=event["uuid"], window_id=event["window_id"]
-                        )
-                    ],
-                }
-            ]
-            if event.get("session_id", None)
-            else []
-        )
 
 
 def get_event_count_for_team_and_period(
