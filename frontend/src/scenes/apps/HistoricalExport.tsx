@@ -1,6 +1,7 @@
 import { Card } from 'antd'
 import { useValues } from 'kea'
 import React from 'react'
+import { humanFriendlyDuration } from 'lib/utils'
 import { AppMetricsGraph } from './AppMetricsGraph'
 import { AppMetricsTab } from './appMetricsSceneLogic'
 import { historicalExportLogic, HistoricalExportLogicProps } from './historicalExportLogic'
@@ -12,6 +13,12 @@ export function HistoricalExport(props: HistoricalExportLogicProps): JSX.Element
     return (
         <div className="mt-4 mb-4 mr-8">
             <Card title="Overview">
+                {data && data.summary.duration ? (
+                    <div>
+                        <div className="card-secondary">Export duration</div>
+                        <div>{humanFriendlyDuration(data.summary.duration)}</div>
+                    </div>
+                ) : null}
                 <MetricsOverview
                     tab={AppMetricsTab.HistoricalExports}
                     metrics={data?.metrics ?? null}
