@@ -1689,3 +1689,20 @@ export function IconFullScreen(props: SvgIconProps): JSX.Element {
         </SvgIcon>
     )
 }
+
+export function IconSkipInactivity({ enabled, ...props }: SvgIconProps & { enabled?: boolean }): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M10.025 17.5L5.75 13.225L4.5 17L1.5 7L11.5 10L7.725 11.25L12 15.525L10.025 17.5Z"
+                fill="currentColor"
+            />
+            <path
+                d="M14 12.375L22.25 12.375M14 15.625L17.5 15.625M14 8.875L17.5 8.875"
+                stroke="currentColor"
+                strokeOpacity={enabled ? '1' : '0.3'}
+                strokeWidth="1.25"
+            />
+        </SvgIcon>
+    )
+}

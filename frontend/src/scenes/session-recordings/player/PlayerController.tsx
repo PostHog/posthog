@@ -10,10 +10,11 @@ import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/Time'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconFullScreen, IconGauge, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
+import { IconFullScreen, IconSkipInactivity, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
+import clsx from 'clsx'
 
 export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { togglePlayPause, setSpeed, setSkipInactivitySetting } = useActions(
@@ -175,32 +176,33 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                     </Tooltip>
 
                     <Tooltip title={`Skip inactivity (${skipInactivitySetting ? 'on' : 'off'})`}>
-                        <span
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                transform: skipInactivitySetting ? undefined : 'rotateY(180deg)',
+                        <LemonButton
+                            size="small"
+                            status="primary-alt"
+                            onClick={() => {
+                                setSkipInactivitySetting(!skipInactivitySetting)
                             }}
                         >
-                            <LemonButton
-                                size="small"
-                                status={skipInactivitySetting ? 'primary' : 'primary-alt'}
-                                onClick={() => {
-                                    setSkipInactivitySetting(!skipInactivitySetting)
-                                }}
-                            >
-                                <IconGauge className="text-2xl" />
-                            </LemonButton>
-                        </span>
+                            <IconSkipInactivity
+                                className={clsx(
+                                    'text-2xl',
+                                    skipInactivitySetting ? 'text-primary' : 'text-primary-alt'
+                                )}
+                                enabled={skipInactivitySetting}
+                            />
+                        </LemonButton>
                     </Tooltip>
                     <Tooltip title={`${!isFullScreen ? 'Go' : 'exit'} full screen (F)`}>
                         <LemonButton
                             size="small"
-                            status={'primary-alt'}
+                            status="primary-alt"
                             onClick={() => {
                                 setFullScreen(!isFullScreen)
                             }}
                         >
-                            <IconFullScreen className="text-2xl" />
+                            <IconFullScreen
+                                className={clsx('text-2xl', isFullScreen ? 'text-primary' : 'text-primary-alt')}
+                            />
                         </LemonButton>
                     </Tooltip>
                 </div>
