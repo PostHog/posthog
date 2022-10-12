@@ -16,6 +16,8 @@ export interface MetricsTabProps {
 export function MetricsTab({ tab, metrics, metricsLoading }: MetricsTabProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
+    const descriptions = DescriptionColumns[tab]
+
     useEffect(() => {
         let chart: Chart
         if (canvasRef.current && metrics) {
@@ -26,19 +28,23 @@ export function MetricsTab({ tab, metrics, metricsLoading }: MetricsTabProps): J
                     labels: metrics.dates,
                     datasets: [
                         {
-                            label: 'Events delivered on first try',
+                            label: descriptions.successes,
                             data: metrics.successes,
                             fill: true,
                             borderColor: successColor,
                         },
+                        ...(descriptions.successes_on_retry
+                            ? [
+                                  {
+                                      label: descriptions.successes_on_retry,
+                                      data: metrics.successes_on_retry,
+                                      fill: true,
+                                      borderColor: successColor,
+                                  },
+                              ]
+                            : []),
                         {
-                            label: 'Events delivered on retry',
-                            data: metrics.successes_on_retry,
-                            fill: true,
-                            borderColor: successColor,
-                        },
-                        {
-                            label: 'Events failed',
+                            label: descriptions.failures,
                             data: metrics.failures,
                             fill: true,
                             borderColor: successColor,
@@ -102,17 +108,17 @@ export function MetricsOverview({ tab, metrics, metricsLoading }: MetricsTabProp
     return (
         <Card title="Metrics overview">
             <div>
-                <div className="card-secondary">{DescriptionColumns[tab].success}</div>
+                <div className="card-secondary">{DescriptionColumns[tab].successes}</div>
                 <div>{renderNumber(metrics?.totals?.successes, metricsLoading)}</div>
             </div>
-            {DescriptionColumns[tab].success_on_retry && (
+            {DescriptionColumns[tab].successes_on_retry && (
                 <div>
-                    <div className="card-secondary">{DescriptionColumns[tab].success_on_retry}</div>
+                    <div className="card-secondary">{DescriptionColumns[tab].successes_on_retry}</div>
                     <div>{renderNumber(metrics?.totals?.successes_on_retry, metricsLoading)}</div>
                 </div>
             )}
             <div>
-                <div className="card-secondary">{DescriptionColumns[tab].failure}</div>
+                <div className="card-secondary">{DescriptionColumns[tab].failures}</div>
                 <div>{renderNumber(metrics?.totals?.failures, metricsLoading)}</div>
             </div>
         </Card>

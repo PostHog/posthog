@@ -2,25 +2,25 @@ import { AppMetricsTab } from './appMetricsSceneLogic'
 
 export const DescriptionColumns: Record<
     AppMetricsTab,
-    { success: string; success_on_retry?: string; failure: string }
+    { successes: string; successes_on_retry?: string; failures: string }
 > = {
     [AppMetricsTab.ProcessEvent]: {
-        success: 'Events processed',
-        failure: 'Failed events',
+        successes: 'Events processed',
+        failures: 'Failed events',
     },
     [AppMetricsTab.OnEvent]: {
-        success: 'Events processed',
-        success_on_retry: 'Events processed on retry',
-        failure: 'Failed events',
+        successes: 'Events processed',
+        successes_on_retry: 'Events processed on retry',
+        failures: 'Failed events',
     },
     [AppMetricsTab.ExportEvents]: {
-        success: 'Events delivered',
-        success_on_retry: 'Events delivered on retry',
-        failure: 'Failed events',
+        successes: 'Events delivered',
+        successes_on_retry: 'Events delivered on retry',
+        failures: 'Failed events',
     },
     [AppMetricsTab.HistoricalExports]: {
-        success: 'Events delivered',
-        success_on_retry: 'Events delivered on retry',
-        failure: 'Failed events',
+        successes: 'Events delivered',
+        successes_on_retry: 'Events delivered on retry',
+        failures: 'Failed events',
     },
 }
