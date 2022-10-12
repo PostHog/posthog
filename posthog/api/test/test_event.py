@@ -82,9 +82,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        expected_queries = (
-            10  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
-        )
+        expected_queries = 11  # Django session, PostHog user, PostHog team, PostHog org membership, look up if rate limit is enabled (cached after first lookup), 2x team(?), person and distinct id
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
