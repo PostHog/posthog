@@ -85,3 +85,52 @@ error_details
 FROM {settings.CLICKHOUSE_DATABASE}.kafka_app_metrics
 """
 )
+
+
+TRUNCATE_APP_METRICS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS sharded_app_metrics"
+
+INSERT_APP_METRICS_SQL = """
+INSERT INTO sharded_app_metrics (team_id, timestamp, plugin_config_id, category, job_id, successes, successes_on_retry, failures, _timestamp, _offset, _partition)
+SELECT %(team_id)s, %(timestamp)s, %(plugin_config_id)s, %(category)s, %(job_id)s, %(successes)s, %(successes_on_retry)s, %(failures)s, now(), 0, 0
+"""
+
+QUERY_APP_METRICS_TIME_SERIES = """
+SELECT groupArray(date), groupArray(successes), groupArray(successes_on_retry), groupArray(failures)
+FROM (
+    SELECT
+        date,
+        sum(successes) AS successes,
+        sum(successes_on_retry) AS successes_on_retry,
+        sum(failures) AS failures
+    FROM (
+        SELECT
+            dateTrunc(%(interval)s, toDateTime(%(date_from)s) + {interval_function}(number), %(timezone)s) AS date,
+            0 AS successes,
+            0 AS successes_on_retry,
+            0 AS failures
+        FROM numbers(
+            dateDiff(
+                %(interval)s,
+                dateTrunc(%(interval)s, toDateTime(%(date_from)s), %(timezone)s),
+                dateTrunc(%(interval)s, toDateTime(%(date_to)s) + {interval_function}(1), %(timezone)s)
+            )
+        )
+        UNION ALL
+        SELECT
+            dateTrunc(%(interval)s, timestamp, %(timezone)s) AS date,
+            sum(successes) AS successes,
+            sum(successes_on_retry) AS successes_on_retry,
+            sum(failures) AS failures
+        FROM app_metrics
+        WHERE team_id = %(team_id)s
+          AND plugin_config_id = %(plugin_config_id)s
+          AND category = %(category)s
+          {job_id_clause}
+          AND timestamp >= %(date_from)s
+          AND timestamp < %(date_to)s
+        GROUP BY dateTrunc(%(interval)s, timestamp, %(timezone)s)
+    )
+    GROUP BY date
+    ORDER BY date
+)
+"""
