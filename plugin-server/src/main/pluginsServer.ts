@@ -2,14 +2,14 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
-import { KafkaJSProtocolError } from 'kafkajs'
+import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
 import {
     Hub,
-    JobQueueConsumerControl,
+    JobsConsumerControl,
     PluginScheduleControl,
     PluginServerCapabilities,
     PluginsServerConfig,
@@ -21,9 +21,10 @@ import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
-import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
+import { startJobsConsumer } from './jobs/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startPluginSchedules } from './services/schedule'
@@ -59,7 +60,8 @@ export async function startPluginsServer(
     let hub: Hub | undefined
     let piscina: Piscina | undefined
     let queue: KafkaQueue | undefined | null // ingestion queue
-    let jobQueueConsumer: JobQueueConsumerControl | undefined
+    let jobQueueConsumer: JobsConsumerControl | undefined
+    let bufferConsumer: Consumer | undefined
     let closeHub: () => Promise<void> | undefined
     let pluginScheduleControl: PluginScheduleControl | undefined
     let mmdbServer: net.Server | undefined
@@ -75,6 +77,7 @@ export async function startPluginsServer(
         await queue?.stop()
         await pubSub?.stop()
         await jobQueueConsumer?.stop()
+        await bufferConsumer?.disconnect()
         await pluginScheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
@@ -137,6 +140,7 @@ export async function startPluginsServer(
 
         if (hub.capabilities.http) {
             // start http server used for the healthcheck
+            // TODO: include bufferConsumer in healthcheck
             httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
         }
 
@@ -157,7 +161,15 @@ export async function startPluginsServer(
             pluginScheduleControl = await startPluginSchedules(hub, piscina)
         }
         if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs) {
-            jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+            jobQueueConsumer = await startJobsConsumer(hub, piscina)
+        }
+        if (hub.capabilities.ingestion) {
+            bufferConsumer = await startAnonymousEventBufferConsumer({
+                kafka: hub.kafka,
+                producer: hub.kafkaProducer,
+                graphileWorker: hub.graphileWorker,
+                statsd: hub.statsd,
+            })
         }
 
         const queues = await startQueues(hub, piscina)
@@ -186,11 +198,6 @@ export async function startPluginsServer(
         })
 
         await pubSub.start()
-
-        if (hub.jobQueueManager) {
-            const queueString = hub.jobQueueManager.getJobQueueTypesAsString()
-            await hub!.db!.redisSet('@posthog-plugin-server/enabled-job-queues', queueString)
-        }
 
         // every 5 minutes all ActionManager caches are reloaded for eventual consistency
         schedule.scheduleJob('*/5 * * * *', async () => {

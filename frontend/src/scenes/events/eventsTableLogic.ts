@@ -142,7 +142,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
         eventFilter: [
             props.fixedFilters?.event_filter ?? '',
             {
-                setEventFilter: (_, { event }) => event,
+                setEventFilter: (_, { event }) => props.fixedFilters?.event_filter || event,
             },
         ],
         isLoading: [
@@ -277,7 +277,10 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        [decodeURI(props.sceneUrl)]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
+        '*': (_: Record<string, any>, searchParams: Record<string, any>): void => {
+            if (router.values.location.pathname !== props.sceneUrl) {
+                return
+            }
             const nextProperties = searchParams.properties || values.properties || {}
             if (!equal(nextProperties, values.properties)) {
                 actions.setProperties(nextProperties)

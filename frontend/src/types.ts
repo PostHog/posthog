@@ -727,7 +727,6 @@ export interface EventType {
     colonTimestamp?: string // Used in session recording events list
     person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     event: string
-    matched_recordings: MatchedRecording[]
 }
 
 export interface RecordingTimeMixinType {
@@ -1188,12 +1187,12 @@ export interface EditorFilterProps {
 
 export interface InsightEditorFilter {
     key: string
-    label?: string
+    label?: string | ((props: EditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
-    component?: (props: EditorFilterProps) => JSX.Element
+    component?: (props: EditorFilterProps) => JSX.Element | null
 }
 
 export interface SystemStatusSubrows {

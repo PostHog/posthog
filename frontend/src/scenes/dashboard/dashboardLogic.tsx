@@ -199,6 +199,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             dashboards: insight.dashboards?.filter((id) => id !== props.id) ?? [],
                         } as Partial<InsightModel>)
 
+                        dashboardsModel.actions.tileRemovedFromDashboard({
+                            insightId: insight.id,
+                            dashboardId: props.id,
+                        })
                         return {
                             ...values.allItems,
                             tiles: values.allItems?.tiles.filter((t) => t.insight.id !== insight.id),
@@ -824,6 +828,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     fetchItemFunctions.shift()?.().then(loadNextPromise)
                 }
             }
+
             for (let i = 0; i < 4; i++) {
                 void loadNextPromise()
             }

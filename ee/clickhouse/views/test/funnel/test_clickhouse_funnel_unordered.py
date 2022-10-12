@@ -60,9 +60,9 @@ class ClickhouseTestUnorderedFunnelGroups(ClickhouseTestMixin, LicensedTestMixin
 
         result = get_funnel_ok(self.client, self.team.pk, params)
 
-        assert result["user signed up"]["count"] == 2
-        assert result["paid"]["count"] == 1
-        assert result["paid"]["average_conversion_time"] == 86400
+        assert result["Completed 1 step"]["count"] == 2
+        assert result["Completed 2 steps"]["count"] == 1
+        assert result["Completed 2 steps"]["average_conversion_time"] == 86400
 
-        actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
+        actors = get_funnel_actors_ok(self.client, result["Completed 1 step"]["converted_people_url"])
         assert len(actors) == 2
