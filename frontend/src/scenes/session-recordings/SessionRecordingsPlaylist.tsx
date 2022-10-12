@@ -95,7 +95,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                 key={rec.id}
                                 className={clsx(
                                     'p-2 px-4 cursor-pointer',
-                                    activeSessionRecording?.id === rec.id ? 'bg-primary-highlight' : '',
+                                    activeSessionRecording?.id === rec.id ? 'bg-primary-highlight font-semibold' : '',
                                     i !== 0 && 'border-t'
                                 )}
                                 onClick={() => onRecordingClick(rec)}
@@ -105,7 +105,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                     {!rec.viewed && (
                                         <Tooltip title={'Indicates the recording has not been watched yet'}>
                                             <div
-                                                className="w-2 h-2 rounded bg-primary-highlight"
+                                                className="w-2 h-2 rounded bg-primary-light"
                                                 aria-label="unwatched-recording-label"
                                             />
                                         </Tooltip>
