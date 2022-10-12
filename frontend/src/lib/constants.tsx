@@ -136,6 +136,7 @@ export const FEATURE_FLAGS = {
     HOG_BOOK: 'hog-book', // owner: @pauldambra
     TEXT_CARDS: 'text-cards', // owner: @pauldambra
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
+    CURRENCY_UNITS: 'currency-units', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
