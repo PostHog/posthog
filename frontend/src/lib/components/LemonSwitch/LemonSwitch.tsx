@@ -29,7 +29,6 @@ export function LemonSwitch({
     disabled,
     label,
     icon,
-    size,
     'data-attr': dataAttr,
 }: LemonSwitchProps): JSX.Element {
     const id = useMemo(() => rawId || `lemon-checkbox-${switchCounter++}`, [rawId])
@@ -43,7 +42,6 @@ export function LemonSwitch({
                 'LemonSwitch--bordered': bordered,
                 'LemonSwitch--disabled': disabled,
                 'LemonSwitch--full-width': fullWidth,
-                [`LemonSwitch--${size}`]: size,
             })}
         >
             {icon}

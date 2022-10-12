@@ -13,7 +13,7 @@ from posthog.models.person import Person
 from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
-from posthog.utils import get_compare_period_dates, is_valid_regex
+from posthog.utils import get_compare_period_dates
 
 
 def determine_compared_filter(filter) -> Filter:
@@ -101,11 +101,18 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
     if operator == "not_icontains":
         return str(value).lower() not in str(override_value).lower()
 
-    if operator == "regex":
-        return is_valid_regex(str(value)) and re.compile(str(value)).search(str(override_value)) is not None
+    if operator in ("regex", "not_regex"):
+        try:
+            pattern = re.compile(str(value))
+            match = pattern.search(str(override_value))
 
-    if operator == "not_regex":
-        return is_valid_regex(str(value)) and re.compile(str(value)).search(str(override_value)) is None
+            if operator == "regex":
+                return match is not None
+            else:
+                return match is None
+
+        except re.error:
+            return False
 
     if operator == "gt":
         return type(override_value) == type(value) and override_value > value

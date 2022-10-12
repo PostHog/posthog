@@ -31,6 +31,11 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
                             tryFn: async () => await onEvent!(event),
                             catchFn: async (error) => await processError(hub, pluginConfig, error, event),
                             payload: event,
+                            appMetric: {
+                                teamId: event.team_id,
+                                pluginConfigId: pluginConfig.id,
+                                category: 'onEvent',
+                            },
                         })
                 )
             )
@@ -96,6 +101,12 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
                     throw new IllegalOperationError('Plugin tried to change event.team_id')
                 }
                 pluginsSucceeded.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
+                await hub.appMetrics.queueMetric({
+                    teamId,
+                    pluginConfigId: pluginConfig.id,
+                    category: 'processEvent',
+                    successes: 1,
+                })
             } catch (error) {
                 await processError(hub, pluginConfig, error, returnedEvent)
                 hub.statsd?.increment(`plugin.process_event.ERROR`, {
@@ -103,6 +114,12 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
                     teamId: String(event.team_id),
                 })
                 pluginsFailed.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
+                await hub.appMetrics.queueMetric({
+                    teamId,
+                    pluginConfigId: pluginConfig.id,
+                    category: 'processEvent',
+                    failures: 1,
+                })
             }
             hub.statsd?.timing(`plugin.process_event`, timer, {
                 plugin: pluginConfig.plugin?.name ?? '?',

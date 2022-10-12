@@ -10,10 +10,11 @@ import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/Time'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconGauge, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
+import { IconFullScreen, IconSkipInactivity, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
+import clsx from 'clsx'
 
 export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { togglePlayPause, setSpeed, setSkipInactivitySetting } = useActions(
@@ -88,10 +89,10 @@ export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRec
 }
 
 export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab } = useActions(
+    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
-    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, tab } = useValues(
+    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, tab, isFullScreen } = useValues(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
     const { featureFlags } = useValues(featureFlagLogic)
@@ -104,30 +105,34 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
             </div>
             <div className="flex justify-between items-center h-8 gap-2">
                 <div className="flex items-center gap-2 flex-1">
-                    <LemonButton
-                        size="small"
-                        icon={<UnverifiedEvent />}
-                        status={tab === SessionRecordingTab.EVENTS ? 'primary' : 'primary-alt'}
-                        active={tab === SessionRecordingTab.EVENTS}
-                        onClick={() => setTab(SessionRecordingTab.EVENTS)}
-                    >
-                        Events
-                    </LemonButton>
-                    {featureFlags[FEATURE_FLAGS.SESSION_CONSOLE] && (
-                        <LemonButton
-                            size="small"
-                            icon={<IconTerminal />}
-                            status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
-                            active={tab === SessionRecordingTab.CONSOLE}
-                            onClick={() => {
-                                setTab(SessionRecordingTab.CONSOLE)
-                            }}
-                        >
-                            Console
-                        </LemonButton>
+                    {!isFullScreen && (
+                        <>
+                            <LemonButton
+                                size="small"
+                                icon={<UnverifiedEvent />}
+                                status={tab === SessionRecordingTab.EVENTS ? 'primary' : 'primary-alt'}
+                                active={tab === SessionRecordingTab.EVENTS}
+                                onClick={() => setTab(SessionRecordingTab.EVENTS)}
+                            >
+                                Events
+                            </LemonButton>
+                            {featureFlags[FEATURE_FLAGS.SESSION_CONSOLE] && (
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconTerminal />}
+                                    status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
+                                    active={tab === SessionRecordingTab.CONSOLE}
+                                    onClick={() => {
+                                        setTab(SessionRecordingTab.CONSOLE)
+                                    }}
+                                >
+                                    Console
+                                </LemonButton>
+                            )}
+                        </>
                     )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                     <SeekBack sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                     <LemonButton status="primary-alt" size="small">
                         {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
@@ -138,7 +143,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                     </LemonButton>
                     <SeekForward sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                 </div>
-                <div className="flex items-center gap-2 flex-1 justify-end">
+                <div className="flex items-center gap-1 flex-1 justify-end">
                     <Tooltip title={'Playback speed'}>
                         <LemonButtonWithPopup
                             data-attr="session-recording-speed-select"
@@ -171,22 +176,34 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                     </Tooltip>
 
                     <Tooltip title={`Skip inactivity (${skipInactivitySetting ? 'on' : 'off'})`}>
-                        <span
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                transform: skipInactivitySetting ? undefined : 'rotateY(180deg)',
+                        <LemonButton
+                            size="small"
+                            status="primary-alt"
+                            onClick={() => {
+                                setSkipInactivitySetting(!skipInactivitySetting)
                             }}
                         >
-                            <LemonButton
-                                size="small"
-                                status={skipInactivitySetting ? 'primary' : 'primary-alt'}
-                                onClick={() => {
-                                    setSkipInactivitySetting(!skipInactivitySetting)
-                                }}
-                            >
-                                <IconGauge className="text-2xl" />
-                            </LemonButton>
-                        </span>
+                            <IconSkipInactivity
+                                className={clsx(
+                                    'text-2xl',
+                                    skipInactivitySetting ? 'text-primary' : 'text-primary-alt'
+                                )}
+                                enabled={skipInactivitySetting}
+                            />
+                        </LemonButton>
+                    </Tooltip>
+                    <Tooltip title={`${!isFullScreen ? 'Go' : 'exit'} full screen (F)`}>
+                        <LemonButton
+                            size="small"
+                            status="primary-alt"
+                            onClick={() => {
+                                setFullScreen(!isFullScreen)
+                            }}
+                        >
+                            <IconFullScreen
+                                className={clsx('text-2xl', isFullScreen ? 'text-primary' : 'text-primary-alt')}
+                            />
+                        </LemonButton>
                     </Tooltip>
                 </div>
             </div>

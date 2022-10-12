@@ -1,4 +1,6 @@
 import datetime
+import re
+from unittest.mock import patch
 
 from dateutil import parser, tz
 from django.test import TestCase
@@ -127,6 +129,17 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_d, {"key": 4}))
 
         self.assertFalse(match_property(property_d, {"key": "value"}))
+
+        # ensure regex compilation happens only once. to do this, we mock out re.compile,
+        # and make the return value of the mock match what the actual function would return.
+        # this allows us to intercept the call and assert that it was called exactly once.
+        property_e = Property(key="key", value=5, operator="regex")
+        pattern = re.compile("5")
+        with patch("re.compile") as mock_compile:
+            mock_compile.return_value = pattern
+            self.assertTrue(match_property(property_e, {"key": "5"}))
+
+        mock_compile.assert_called_once_with("5")
 
     def test_match_properties_math_operators(self):
         property_a = Property(key="key", value=1, operator="gt")

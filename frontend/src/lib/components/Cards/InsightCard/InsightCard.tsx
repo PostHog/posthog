@@ -25,16 +25,16 @@ import {
     InsightModel,
     InsightType,
 } from '~/types'
-import { Splotch, SplotchColor } from '../icons/Splotch'
-import { LemonButton, LemonButtonWithPopup } from '../LemonButton'
-import { More } from '../LemonButton/More'
-import { LemonDivider } from '../LemonDivider'
-import { Link } from '../Link'
+import { Splotch, SplotchColor } from '../../icons/Splotch'
+import { LemonButton, LemonButtonWithPopup } from '../../LemonButton'
+import { More } from '../../LemonButton/More'
+import { LemonDivider } from '../../LemonDivider'
+import { Link } from '../../Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from './handles'
 import './InsightCard.scss'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconSubtitles, IconSubtitlesOff } from '../icons'
+import { IconSubtitles, IconSubtitlesOff } from '../../icons'
 import { CSSTransition, Transition } from 'react-transition-group'
 import { InsightDetails } from './InsightDetails'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
@@ -51,11 +51,11 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
-import { AlertMessage } from '../AlertMessage'
-import { UserActivityIndicator } from '../UserActivityIndicator/UserActivityIndicator'
+import { AlertMessage } from '../../AlertMessage'
+import { UserActivityIndicator } from '../../UserActivityIndicator/UserActivityIndicator'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
-import { SpinnerOverlay } from '../Spinner/Spinner'
+import { SpinnerOverlay } from '../../Spinner/Spinner'
 
 // TODO: Add support for Retention to InsightDetails
 export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -127,7 +127,12 @@ function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
     ) as DisplayedType
 }
 
-export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface Resizeable {
+    showResizeHandles?: boolean
+    canResizeWidth?: boolean
+}
+
+export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
     insight: InsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
@@ -140,8 +145,6 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     highlighted?: boolean
     /** Whether loading timed out. */
     timedOut?: boolean
-    showResizeHandles?: boolean
-    canResizeWidth?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
