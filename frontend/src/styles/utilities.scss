@@ -621,6 +621,10 @@
 .rounded {
     border-radius: 0.25rem; /* 4px */
 }
+.rounded-t {
+    border-top-left-radius: 0.25rem; /* 4px */
+    border-top-right-radius: 0.25rem; /* 4px */
+}
 .rounded-md {
     border-radius: 0.375rem; /* 6px */
 }

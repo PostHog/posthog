@@ -27,7 +27,7 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
 
 export function TextCardBody({ text }: { text: string }): JSX.Element {
     return (
-        <div className="TextCard-Body px-2 pb-2 w-full h-full">
+        <div className="TextCard-Body p-2 w-full h-full">
             <Textfit mode={'multi'} min={14} max={100}>
                 <ReactMarkdown>{text}</ReactMarkdown>
             </Textfit>
@@ -66,7 +66,7 @@ export function TextCardInternal(
             {...divProps}
             ref={ref}
         >
-            <div className={clsx('flex flex-row p-2', showResizeHandles ? 'border-b' : 'border')}>
+            <div className={clsx('flex flex-row p-2', showResizeHandles ? 'border-b' : 'border rounded-t')}>
                 <UserActivityIndicator
                     className={'grow'}
                     at={text.last_modified_at}
