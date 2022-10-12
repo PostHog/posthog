@@ -213,7 +213,6 @@ if RATE_LIMIT_ENABLED or TEST:
         "posthog.rate_limit.PassThroughBurstRateThrottle",
         "posthog.rate_limit.PassThroughSustainedRateThrottle",
     ]
-    REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {"burst": "120/minute", "sustained": "1000/hour"}
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
@@ -250,6 +249,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/projects/\\d+/actions/?$",
                 "^/?api/projects/\\d+/session_recordings/?$",
                 "^/?api/projects/\\d+/exports/\\d+/content/?$",
+                "^/?api/projects/\\d+/activity_log/important_changes/?$",
             ]
         ),
     )

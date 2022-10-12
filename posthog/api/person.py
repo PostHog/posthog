@@ -30,19 +30,11 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import PKorUUIDViewSet, StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.client import sync_execute
-from posthog.constants import (
-    CSV_EXPORT_LIMIT,
-    INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
-    LIMIT,
-    OFFSET,
-    TRENDS_TABLE,
-    FunnelVizType,
-)
+from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User
-from posthog.models.activity_logging.activity_log import Change, Detail, Merge, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
@@ -64,6 +56,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
+from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
@@ -158,6 +151,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
     lifecycle_class = Lifecycle
     retention_class = Retention
     stickiness_class = Stickiness
@@ -287,51 +281,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         return result
 
     @action(methods=["POST"], detail=True)
-    def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        people = Person.objects.filter(team_id=self.team_id, uuid__in=request.data.get("uuids"))
-        person = self.get_object()
-        person.merge_people([p for p in people])
-
-        data = PersonSerializer(person).data
-        for p in people:
-            for distinct_id in p.distinct_ids:
-                data["distinct_ids"].append(distinct_id)
-
-            log_activity(
-                organization_id=self.organization.id,
-                team_id=self.team_id,
-                user=request.user,  # type: ignore
-                item_id=p.id,
-                scope="Person",
-                activity="was_merged_into_person",
-                detail=Detail(
-                    merge=Merge(
-                        type="Person",
-                        source=PersonSerializer(p).data,
-                        target=PersonSerializer(person).data,
-                    )
-                ),
-            )
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=request.user,  # type: ignore
-            item_id=person.id,
-            scope="Person",
-            activity="people_merged_into",
-            detail=Detail(
-                merge=Merge(
-                    type="Person",
-                    source=[PersonSerializer(p).data for p in people],
-                    target=PersonSerializer(person).data,
-                ),
-            ),
-        )
-
-        return response.Response(data, status=201)
-
-    @action(methods=["POST"], detail=True)
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
@@ -453,12 +402,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         if not results_package:
             return response.Response(data=[])
 
-        # NOTE: Since missing_persons was added some cached results may be missing this value
-        if len(results_package["result"]) > 3:
-            actors, next_url, initial_url, missing_persons = results_package["result"]
-        else:
-            actors, next_url, initial_url = results_package["result"]  # type: ignore
-            missing_persons = 0
+        actors, next_url, initial_url, missing_persons = results_package["result"]
 
         return response.Response(
             data={
@@ -578,7 +522,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request) -> response.Response:
-        display = request.GET.get("display", None)
         team = cast(User, request.user).team
         if not team:
             return response.Response(
@@ -589,14 +532,11 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         filter = prepare_actor_query_filter(filter)
         base_uri = request.build_absolute_uri("/")
 
-        if display == TRENDS_TABLE:
-            people = self.retention_class(base_uri=base_uri).actors_in_period(filter, team)
-        else:
-            people = self.retention_class(base_uri=base_uri).actors(filter, team)
+        people, raw_count = self.retention_class(base_uri=base_uri).actors_in_period(filter, team)
 
-        next_url = paginated_result(request, len(people), filter.offset, filter.limit)
+        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
 
-        return response.Response({"result": people, "next": next_url})
+        return response.Response({"result": people, "next": next_url, "missing_persons": raw_count - len(people)})
 
     @action(methods=["GET"], detail=False)
     def stickiness(self, request: request.Request) -> response.Response:

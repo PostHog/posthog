@@ -4,11 +4,16 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person import Person
 from posthog.queries.retention import Retention
-from posthog.queries.test.test_retention import _create_events, _date, pluck, retention_test_factory
-from posthog.test.base import snapshot_clickhouse_queries, test_with_materialized_columns
+from posthog.queries.test.test_retention import _create_events, _date, pluck
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    snapshot_clickhouse_queries,
+    test_with_materialized_columns,
+)
 
 
-class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignore
+class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
     def _create_groups_and_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
@@ -104,9 +109,8 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
             [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
         )
 
-        actor_result = Retention().actors(filter.with_data({"selected_interval": 0}), self.team)
-
-        assert [actor["id"] for actor in actor_result] == ["org:5", "org:6"]
+        actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+        self.assertCountEqual([actor["person"]["id"] for actor in actor_result], ["org:5", "org:6"])
 
         filter = RetentionFilter(
             data={
@@ -138,13 +142,13 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
             team=self.team,
         )
 
-        actor_result = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+        actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
 
-        self.assertTrue(actor_result[0]["person"]["id"] == "org:6")
-        self.assertEqual(actor_result[0]["appearances"], [1, 1, 0, 1, 1, 0, 1])
+        self.assertEqual(actor_result[0]["person"]["id"], "org:5")
+        self.assertEqual(actor_result[0]["appearances"], [1, 1, 1, 1, 1, 0, 0])
 
-        self.assertTrue(actor_result[1]["person"]["id"] == "org:5")
-        self.assertEqual(actor_result[1]["appearances"], [1, 1, 1, 1, 1, 0, 0])
+        self.assertEqual(actor_result[1]["person"]["id"], "org:6")
+        self.assertEqual(actor_result[1]["appearances"], [1, 1, 0, 1, 1, 0, 1])
 
     @test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
@@ -224,9 +228,9 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
                 [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
             )
 
-            actor_result = Retention().actors(filter.with_data({"selected_interval": 0}), self.team)
+            actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
 
-            assert [actor["id"] for actor in actor_result] == ["org:5", "org:6"]
+            self.assertCountEqual([actor["person"]["id"] for actor in actor_result], ["org:5", "org:6"])
 
             filter = RetentionFilter(
                 data={
@@ -263,10 +267,10 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            actor_result = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+            actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
 
-            self.assertTrue(actor_result[0]["person"]["id"] == "org:6")
-            self.assertEqual(actor_result[0]["appearances"], [1, 1, 0, 1, 1, 0, 1])
+            self.assertTrue(actor_result[0]["person"]["id"] == "org:5")
+            self.assertEqual(actor_result[0]["appearances"], [1, 1, 1, 1, 1, 0, 0])
 
-            self.assertTrue(actor_result[1]["person"]["id"] == "org:5")
-            self.assertEqual(actor_result[1]["appearances"], [1, 1, 1, 1, 1, 0, 0])
+            self.assertTrue(actor_result[1]["person"]["id"] == "org:6")
+            self.assertEqual(actor_result[1]["appearances"], [1, 1, 0, 1, 1, 0, 1])

@@ -53,7 +53,7 @@
         display: none;
 
         img {
-            width: 390px;
+            height: 300px;
         }
 
         .BridgePage__art__message {
@@ -105,6 +105,12 @@
     }
 
     .BridgePage__header-logo {
+        &.mobile {
+            display: block;
+            @include screen($md) {
+                display: none;
+            }
+        }
         .header-logo {
             padding-bottom: 2rem;
             text-align: center;

@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { pluginsLogic } from '../pluginsLogic'
 import { Drawer } from 'antd'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { pluginActivityDescriber } from '../pluginActivityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 
 export function HistoryDrawer(): JSX.Element {
@@ -19,11 +18,7 @@ export function HistoryDrawer(): JSX.Element {
             placement="left"
             destroyOnClose
         >
-            <ActivityLog
-                scope={ActivityScope.PLUGIN}
-                id={showingHistoryPlugin?.pluginConfig.id}
-                describer={pluginActivityDescriber}
-            />
+            <ActivityLog scope={ActivityScope.PLUGIN} id={showingHistoryPlugin?.pluginConfig.id} />
         </Drawer>
     )
 }

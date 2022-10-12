@@ -18,7 +18,6 @@ import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
@@ -74,9 +73,13 @@ function OverViewTab(): JSX.Element {
                 return (
                     <>
                         {featureFlag.active ? (
-                            <LemonTag type="success">Enabled</LemonTag>
+                            <LemonTag type="success" className="uppercase">
+                                Enabled
+                            </LemonTag>
                         ) : (
-                            <LemonTag type="default">Disabled</LemonTag>
+                            <LemonTag type="default" className="uppercase">
+                                Disabled
+                            </LemonTag>
                         )}
                     </>
                 )
@@ -244,7 +247,7 @@ export function FeatureFlags(): JSX.Element {
                     <OverViewTab />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="History" key="history">
-                    <ActivityLog scope={ActivityScope.FEATURE_FLAG} describer={flagActivityDescriber} />
+                    <ActivityLog scope={ActivityScope.FEATURE_FLAG} />
                 </Tabs.TabPane>
             </Tabs>
         </div>

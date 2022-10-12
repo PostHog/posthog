@@ -15,7 +15,6 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { IconPlayCircle } from 'lib/components/icons'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { teamLogic } from 'scenes/teamLogic'
-import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
 
 interface RecordingRowProps {
     recording: SessionRecordingType
@@ -30,7 +29,7 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
         <LemonButton
             fullWidth
             onClick={() => {
-                openSessionPlayer(recording.id)
+                openSessionPlayer(recording)
                 reportRecordingOpenedFromRecentRecordingList()
             }}
         >
@@ -43,7 +42,7 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
                 </div>
 
                 <span>{humanFriendlyDuration(recording.recording_duration)}</span>
-                <IconPlayCircle className="text-lg ml-2" />
+                <IconPlayCircle className="text-2xl ml-2" />
             </div>
         </LemonButton>
     )
@@ -53,11 +52,10 @@ export function RecentRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ key: 'projectHomepage' })
     const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsTableLogicInstance)
-    const { closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
 
     return (
         <>
-            <SessionPlayerDrawer onClose={closeSessionPlayer} />
+            <SessionPlayerDrawer />
             <CompactList
                 title="Recent recordings"
                 viewAllURL={urls.sessionRecordings()}
@@ -68,7 +66,7 @@ export function RecentRecordings(): JSX.Element {
                               title: 'There are no recordings for this project',
                               description: 'Make sure you have the javascript snippet setup in your website.',
                               buttonText: 'Learn more',
-                              buttonHref: 'https://posthog.com/docs/user-guides/recordings',
+                              buttonTo: 'https://posthog.com/docs/user-guides/recordings',
                           }
                         : {
                               title: 'Recordings are not enabled for this project',

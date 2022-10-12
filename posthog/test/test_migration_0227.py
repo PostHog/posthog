@@ -7,8 +7,8 @@ pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 class CreatingDashboardTilesTestCase(TestMigrations):
 
-    migrate_from = "0226_longer_action_slack_message_format"  # type: ignore
-    migrate_to = "0227_add_dashboard_tiles"  # type: ignore
+    migrate_from = "0226_longer_action_slack_message_format"
+    migrate_to = "0227_add_dashboard_tiles"
 
     def setUpBeforeMigration(self, apps):
         Organization = apps.get_model("posthog", "Organization")

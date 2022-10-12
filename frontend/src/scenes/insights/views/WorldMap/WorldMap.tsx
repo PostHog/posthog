@@ -9,12 +9,11 @@ import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
 import { ensureTooltipElement } from '../LineGraph/LineGraph'
 import { worldMapLogic } from './worldMapLogic'
 import { countryCodeToFlag, countryCodeToName } from './countryCodes'
-import { personsModalLogic, PersonsModalParams } from 'scenes/trends/persons-modal/personsModalLogic'
 import { countryVectors } from './countryVectors'
 import { groupsModel } from '~/models/groupsModel'
 import { toLocalFilters } from '../../filters/ActionFilter/entityFilterLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { openPersonsModal, shouldUsePersonsModalV2 } from 'scenes/trends/persons-modal/PersonsModalV2'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2
@@ -105,7 +104,6 @@ interface WorldMapSVGProps extends ChartParams {
     showTooltip: (countryCode: string, countrySeries: TrendResult | null) => void
     hideTooltip: () => void
     updateTooltipCoordinates: (x: number, y: number) => void
-    loadPeople: (peopleParams: PersonsModalParams) => void
 }
 
 // eslint-disable-next-line react/display-name
@@ -119,7 +117,6 @@ const WorldMapSVG = React.memo(
                 showTooltip,
                 hideTooltip,
                 updateTooltipCoordinates,
-                loadPeople,
             },
             ref
         ) => {
@@ -157,36 +154,21 @@ const WorldMapSVG = React.memo(
                             },
                             onClick: () => {
                                 if (showPersonsModal && countrySeries) {
-                                    if (shouldUsePersonsModalV2()) {
-                                        if (countrySeries.persons?.url) {
-                                            openPersonsModal({
-                                                url: countrySeries.persons?.url,
-                                                title: (
-                                                    <>
-                                                        Persons
-                                                        {countrySeries.breakdown_value
-                                                            ? ` in ${countryCodeToFlag(
-                                                                  countrySeries.breakdown_value as string
-                                                              )} ${
-                                                                  countryCodeToName[
-                                                                      countrySeries.breakdown_value as string
-                                                                  ]
-                                                              }`
-                                                            : ''}
-                                                    </>
-                                                ),
-                                            })
-                                        }
-                                    } else {
-                                        loadPeople({
-                                            action: countrySeries.action,
-                                            label: countryCodeToName[countrySeries.breakdown_value as string],
-                                            date_from: countrySeries.filter?.date_from as string,
-                                            date_to: countrySeries.filter?.date_to as string,
-                                            filters: countrySeries.filter || {},
-                                            breakdown_value: countrySeries.breakdown_value,
-                                            saveOriginal: true,
-                                            pointValue: countrySeries.aggregated_value,
+                                    if (countrySeries.persons?.url) {
+                                        openPersonsModal({
+                                            url: countrySeries.persons?.url,
+                                            title: (
+                                                <>
+                                                    Persons
+                                                    {countrySeries.breakdown_value
+                                                        ? ` in ${countryCodeToFlag(
+                                                              countrySeries.breakdown_value as string
+                                                          )} ${
+                                                              countryCodeToName[countrySeries.breakdown_value as string]
+                                                          }`
+                                                        : ''}
+                                                </>
+                                            ),
                                         })
                                     }
                                 }
@@ -204,7 +186,6 @@ export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element 
     const localLogic = worldMapLogic(insightProps)
     const { countryCodeToSeries, maxAggregatedValue } = useValues(localLogic)
     const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(localLogic)
-    const { loadPeople } = useActions(personsModalLogic)
 
     const svgRef = useWorldMapTooltip(showPersonsModal)
 
@@ -216,7 +197,6 @@ export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element 
             showTooltip={showTooltip}
             hideTooltip={hideTooltip}
             updateTooltipCoordinates={updateTooltipCoordinates}
-            loadPeople={loadPeople}
             ref={svgRef}
         />
     )

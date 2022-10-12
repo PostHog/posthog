@@ -105,7 +105,10 @@ export function SystemStatus(): JSX.Element {
                         <Tabs.TabPane
                             tab={
                                 <>
-                                    Settings <LemonTag type="warning">Beta</LemonTag>
+                                    Settings{' '}
+                                    <LemonTag type="warning" className="uppercase">
+                                        Beta
+                                    </LemonTag>
                                 </>
                             }
                             key="settings"
@@ -123,7 +126,10 @@ export function SystemStatus(): JSX.Element {
                     <Tabs.TabPane
                         tab={
                             <>
-                                Kafka Inspector <LemonTag type="warning">Beta</LemonTag>
+                                Kafka Inspector{' '}
+                                <LemonTag type="warning" className="uppercase">
+                                    Beta
+                                </LemonTag>
                             </>
                         }
                         key="kafka_inspector"

@@ -7,7 +7,7 @@ import './LemonSelect.scss'
 import clsx from 'clsx'
 
 export interface LemonSelectOption<T> {
-    value?: T
+    value: T
     label: string | JSX.Element
     icon?: React.ReactElement
     sideIcon?: React.ReactElement
@@ -22,6 +22,7 @@ export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<
 export interface LemonSelectSection<T> {
     title?: string | React.ReactNode
     options: LemonSelectOption<T>[]
+    footer?: string | React.ReactNode
 }
 
 export interface LemonSelectProps<T>
@@ -143,6 +144,7 @@ export function LemonSelect<T>({
                                     {option.element}
                                 </LemonButton>
                             ))}
+                            {section.footer ? <div>{section.footer}</div> : null}
                             {i < sections.length - 1 ? <LemonDivider /> : null}
                         </div>
                     )),

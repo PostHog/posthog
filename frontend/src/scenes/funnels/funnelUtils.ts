@@ -8,7 +8,6 @@ import {
     BreakdownKeyType,
     FunnelAPIResponse,
     FunnelStepReference,
-    FlattenedFunnelStepByBreakdown,
     FunnelConversionWindow,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
@@ -142,13 +141,12 @@ export function isValidBreakdownParameter(
     )
 }
 
-export function getVisibilityIndex(step: FunnelStep, key?: BreakdownKeyType): string {
-    if (step.type === 'actions') {
-        return `${step.type}/${step.action_id}/${step.order}`
-    } else {
-        const breakdownValues = getBreakdownStepValues({ breakdown: key, breakdown_value: key }, -1).breakdown_value
-        return `${step.type}/${step.action_id}/${step.order}/${breakdownValues.join('_')}`
-    }
+export function getVisibilityKey(breakdownValue?: BreakdownKeyType): string {
+    const breakdownValues = getBreakdownStepValues(
+        { breakdown: breakdownValue, breakdown_value: breakdownValue },
+        -1
+    ).breakdown_value
+    return breakdownValues.join('::')
 }
 
 export const SECONDS_TO_POLL = 3 * 60
@@ -161,7 +159,7 @@ interface BreakdownStepValues {
 }
 
 export const getBreakdownStepValues = (
-    breakdownStep: Pick<FlattenedFunnelStepByBreakdown, 'breakdown' | 'breakdown_value'>,
+    breakdownStep: Pick<FunnelStep, 'breakdown' | 'breakdown_value'>,
     index: number,
     isBaseline: boolean = false
 ): BreakdownStepValues => {

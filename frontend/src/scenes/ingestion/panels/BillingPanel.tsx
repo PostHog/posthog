@@ -5,7 +5,7 @@ import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import BlushingHog from 'public/blushing-hog.png'
+import { BlushingHog } from 'lib/components/hedgehogs'
 import { BillingEnrollment } from 'scenes/billing/BillingEnrollment'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/components/icons'
@@ -19,7 +19,7 @@ export function BillingPanel(): JSX.Element {
 
     return (
         <CardContainer>
-            {!billing?.plan && (
+            {(!billing?.plan || billing.should_setup_billing) && (
                 <div className="text-left flex flex-col space-y-4">
                     <h1 className="ingestion-title">Add payment method</h1>
                     <p>
@@ -36,7 +36,7 @@ export function BillingPanel(): JSX.Element {
                             </p>
                         </div>
                         <div className="billing-hog">
-                            <img src={BlushingHog} alt="Blushing Hog" className="billing-hog-img" />
+                            <BlushingHog className="billing-hog-img" />
                         </div>
                     </div>
                     <BillingEnrollment />
@@ -66,7 +66,7 @@ export function BillingPanel(): JSX.Element {
                     </LemonButton>
                 </div>
             )}
-            {billing?.plan && (
+            {billing?.plan && !billing?.should_setup_billing && (
                 <div className="flex flex-col space-y-4">
                     <h1 className="ingestion-title">You're good to go!</h1>
                     <Plan plan={billing.plan} currentPlan canHideDetails={false} primaryCallToAction={false} />

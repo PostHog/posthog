@@ -21,10 +21,11 @@ from posthog.api import (
     router,
     sharing,
     signup,
+    site_app,
     unsubscribe,
     user,
 )
-from posthog.api.decide import hostname_in_app_urls
+from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.demo import demo_route
 from posthog.models import User
 
@@ -72,7 +73,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
 
-    if not current_team or not hostname_in_app_urls(current_team, redirect_url.hostname):
+    if not current_team or not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname):
         return HttpResponse(f"Can only redirect to a permitted domain.", status=400)
 
     if referer_url.hostname != redirect_url.hostname:
@@ -134,6 +135,7 @@ urlpatterns = [
     path("embedded/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path("exporter/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
+    path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     opt_slash_path("decide", decide.get_decide),

@@ -34,7 +34,7 @@ const selectOperator = (operator, openPopUp) => {
         cy.get('[data-attr="property-filter-0"] .property-filter .property-filter-button-label').click()
     }
 
-    cy.get('.taxonomic-operator').click()
+    cy.get('[data-attr="taxonomic-operator"]').click()
     cy.get('.operator-value-option').its('length').should('eql', 8)
     cy.get('.operator-value-option').contains('< before').should('be.visible')
     cy.get('.operator-value-option').contains('> after').should('be.visible')
@@ -85,7 +85,7 @@ describe('Events', () => {
     it('use before and after with a DateTime property', () => {
         selectNewTimestampPropertyFilter()
 
-        cy.get('.taxonomic-operator').click()
+        cy.get('[data-attr="taxonomic-operator"]').click()
         cy.get('.operator-value-option').should('contain.text', '> after')
         cy.get('.operator-value-option').should('contain.text', '< before')
     })
@@ -95,8 +95,8 @@ describe('Events', () => {
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
         cy.get('.taxonomic-list-row').should('have.length', 1).click()
 
-        cy.get('.taxonomic-operator').click()
-        cy.get('.operator-value-option').its('length').should('eql', 10)
+        cy.get('[data-attr="taxonomic-operator"]').click()
+        cy.get('.operator-value-option').its('length').should('eql', 11) // 10 + 1 for the label in the LemonSelect button
         cy.get('.operator-value-option').contains('< less than').should('be.visible')
         cy.get('.operator-value-option').contains('> greater than').should('be.visible')
     })
@@ -108,6 +108,17 @@ describe('Events', () => {
         cy.get('.column-display-item').should('have.length', 5)
         cy.get('[data-attr=column-display-item-remove-icon').last().click()
         cy.get('.column-display-item').should('have.length', 4)
+    })
+
+    it('keeps the popop open after selecting an option', () => {
+        cy.get('[data-attr=new-prop-filter-EventsTable]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
+        cy.get('.taxonomic-list-row').should('have.length', 1).click()
+
+        cy.get('[data-attr="taxonomic-operator"]').click()
+        cy.get('.operator-value-option').contains('> greater than').click()
+        cy.wait(500)
+        cy.get('[data-attr="taxonomic-operator"]').should('be.visible')
     })
 
     /**
@@ -122,7 +133,7 @@ describe('Events', () => {
 
         const oneDayAgo = dayjs().hour(19).minute(1).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
         selectOperator('< before', undefined)
-        cy.get('.taxonomic-value-select').click()
+        cy.get('[data-attr=taxonomic-value-select]').click()
         cy.get('.filter-date-picker').type(oneDayAgo)
         cy.get('.ant-picker-ok').click()
         cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')

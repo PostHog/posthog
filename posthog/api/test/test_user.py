@@ -180,8 +180,9 @@ class TestUserAPI(APIBaseTest):
 
     # UPDATING USER
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_update_current_user(self, mock_capture):
+    def test_update_current_user(self, mock_capture, mock_identify_task):
         another_org = Organization.objects.create(name="Another Org")
         another_team = Team.objects.create(name="Another Team", organization=another_org)
         user = self._create_user("old@posthog.com", password="12345678")
@@ -194,6 +195,7 @@ class TestUserAPI(APIBaseTest):
                 "anonymize_data": True,
                 "email_opt_in": False,
                 "events_column_config": {"active": ["column_1", "column_2"]},
+                "notification_settings": {"plugin_disabled": False},
                 "uuid": 1,  # should be ignored
                 "id": 1,  # should be ignored
                 "organization": str(another_org.id),  # should be ignored
@@ -219,12 +221,20 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(user.first_name, "Cooper")
         self.assertEqual(user.email, "updated@posthog.com")
         self.assertEqual(user.anonymize_data, True)
+        self.assertDictContainsSubset({"plugin_disabled": False}, user.notification_settings)
 
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "user updated",
             properties={
-                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name"]
+                "updated_attrs": [
+                    "anonymize_data",
+                    "email",
+                    "email_opt_in",
+                    "events_column_config",
+                    "first_name",
+                    "partial_notification_settings",
+                ]
             },
             groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
@@ -240,8 +250,9 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertEqual(self.user.is_staff, False)
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_can_update_current_organization(self, mock_capture):
+    def test_can_update_current_organization(self, mock_capture, mock_identify):
         response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -263,8 +274,9 @@ class TestUserAPI(APIBaseTest):
             groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(self.new_project.uuid)},
         )
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_can_update_current_project(self, mock_capture):
+    def test_can_update_current_project(self, mock_capture, mock_identify):
         team = Team.objects.create(name="Local Team", organization=self.new_org)
         response = self.client.patch("/api/users/@me/", {"set_current_team": team.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -389,8 +401,9 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/").json()
         self.assertEqual(response["team"]["id"], team2.pk)
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_can_update_password(self, mock_capture):
+    def test_user_can_update_password(self, mock_capture, mock_identify):
 
         user = self._create_user("bob@posthog.com", password="A12345678")
         self.client.force_login(user)
@@ -421,8 +434,9 @@ class TestUserAPI(APIBaseTest):
         response = self.client.post("/api/login", {"email": "bob@posthog.com", "password": "a_new_password"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_with_no_password_set_can_set_password(self, mock_capture):
+    def test_user_with_no_password_set_can_set_password(self, mock_capture, mock_identify):
         user = self._create_user("no_password@posthog.com", password=None)
         self.client.force_login(user)
 
@@ -471,8 +485,9 @@ class TestUserAPI(APIBaseTest):
         user.refresh_from_db()
         self.assertTrue(user.check_password("a_new_password"))
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_cant_update_to_insecure_password(self, mock_capture):
+    def test_cant_update_to_insecure_password(self, mock_capture, mock_identify):
 
         response = self.client.patch("/api/users/@me/", {"current_password": self.CONFIG_PASSWORD, "password": "123"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

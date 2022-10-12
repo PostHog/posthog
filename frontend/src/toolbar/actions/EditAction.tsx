@@ -10,7 +10,6 @@ import {
     CloseOutlined,
     DeleteOutlined,
 } from '@ant-design/icons'
-import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
 export function EditAction(): JSX.Element {
     const [form] = Form.useForm()
@@ -18,7 +17,6 @@ export function EditAction(): JSX.Element {
     const { initialValuesForForm, selectedActionId, inspectingElement, editingFields } = useValues(actionsTabLogic)
     const { selectAction, inspectForElementWithIndex, setEditingFields, setForm, saveAction, deleteAction } =
         useActions(actionsTabLogic)
-    const { shouldSimplifyActions } = useValues(featureFlagsLogic)
 
     const { getFieldValue } = form
 
@@ -44,7 +42,7 @@ export function EditAction(): JSX.Element {
             </Button>
             <h1 className="section-title" style={{ paddingTop: 4 }}>
                 {selectedActionId === 'new' ? 'New ' : 'Edit '}
-                {shouldSimplifyActions ? 'Calculated Event' : 'Action'}
+                action
             </h1>
 
             <Form
@@ -168,7 +166,7 @@ export function EditAction(): JSX.Element {
                     ) : null}
                     <Button type="primary" htmlType="submit">
                         {selectedActionId === 'new' ? 'Create ' : 'Save '}
-                        {shouldSimplifyActions ? 'calculated event' : 'action'}
+                        action
                     </Button>
                 </Form.Item>
             </Form>

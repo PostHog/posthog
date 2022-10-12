@@ -2,7 +2,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as fetch from 'node-fetch'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
-import { JobQueueManager } from '../../src/main/job-queues/job-queue-manager'
+import { GraphileWorker } from '../../src/main/jobs/graphile-worker'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
@@ -15,7 +15,8 @@ import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 jest.mock('../../src/utils/db/kafka-producer-wrapper')
-jest.mock('../../src/main/job-queues/job-queue-manager')
+jest.mock('../../src/main/jobs/graphile-worker')
+
 jest.setTimeout(100000)
 
 const defaultEvent = {
@@ -776,6 +777,7 @@ describe('vm tests', () => {
                 await posthog.api.get('/api/event', { data: { url: 'param' } })
                 await posthog.api.post('/api/event', { data: { a: 1 }})
                 await posthog.api.put('/api/event', { data: { b: 2 } })
+                await posthog.api.patch('/api/event', { data: { c: 3 }})
                 await posthog.api.delete('/api/event')
 
                 // test auth defaults override
@@ -797,7 +799,7 @@ describe('vm tests', () => {
         await vm.methods.processEvent!(event)
 
         expect(event.properties?.get).toEqual({ hello: 'world' })
-        expect((fetch as any).mock.calls.length).toEqual(7)
+        expect((fetch as any).mock.calls.length).toEqual(8)
         expect((fetch as any).mock.calls).toEqual([
             [
                 'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
@@ -830,6 +832,17 @@ describe('vm tests', () => {
                     headers: { Authorization: expect.stringContaining('Bearer phx_') },
                     method: 'PUT',
                     body: JSON.stringify({ b: 2 }),
+                },
+            ],
+            [
+                'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+                {
+                    headers: {
+                        Authorization: expect.stringContaining('Bearer phx_'),
+                        'Content-Type': 'application/json',
+                    },
+                    method: 'PATCH',
+                    body: JSON.stringify({ c: 3 }),
                 },
             ],
             [
@@ -1130,8 +1143,8 @@ describe('vm tests', () => {
             await delay(1010)
 
             // get the enqueued job
-            expect(JobQueueManager).toHaveBeenCalled()
-            const mockJobQueueInstance = (JobQueueManager as any).mock.instances[0]
+            expect(GraphileWorker).toHaveBeenCalled()
+            const mockJobQueueInstance = (GraphileWorker as any).mock.instances[0]
             const mockEnqueue = mockJobQueueInstance.enqueue
             expect(mockEnqueue).toHaveBeenCalledTimes(1)
             expect(mockEnqueue).toHaveBeenCalledWith(
@@ -1143,7 +1156,8 @@ describe('vm tests', () => {
                     timestamp: expect.any(Number),
                     type: 'exportEventsWithRetry',
                 },
-                { key: 'plugin', tag: '?' }
+                { key: 'plugin', tag: '?' },
+                true
             )
             const jobPayload = mockEnqueue.mock.calls[0][1].payload
 
@@ -1161,7 +1175,8 @@ describe('vm tests', () => {
                     timestamp: expect.any(Number),
                     type: 'exportEventsWithRetry',
                 },
-                { key: 'plugin', tag: '?' }
+                { key: 'plugin', tag: '?' },
+                true
             )
             const jobPayload2 = mockEnqueue.mock.calls[1][1].payload
 
@@ -1200,7 +1215,7 @@ describe('vm tests', () => {
             await vm.methods.onEvent!(defaultEvent)
             await delay(1010)
 
-            const mockJobQueueInstance = (JobQueueManager as any).mock.instances[0]
+            const mockJobQueueInstance = (GraphileWorker as any).mock.instances[0]
             const mockEnqueue = mockJobQueueInstance.enqueue
 
             // won't retry after the nth time where n = MAXIMUM_RETRIES

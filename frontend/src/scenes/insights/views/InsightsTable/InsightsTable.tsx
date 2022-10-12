@@ -35,7 +35,6 @@ interface InsightsTableProps {
     isLegend?: boolean
     /** Whether this is table is embedded in another card or whether it should be a card of its own. Default: false. */
     embedded?: boolean
-    showTotalCount?: boolean
     /** Key for the entityFilterLogic */
     filterKey: string
     canEditSeriesNameInline?: boolean
@@ -58,7 +57,7 @@ export function DashboardInsightsTable(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     return (
         <BindLogic logic={trendsLogic} props={insightProps}>
-            <InsightsTable showTotalCount filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded />
+            <InsightsTable filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded />
         </BindLogic>
     )
 }
@@ -66,7 +65,6 @@ export function DashboardInsightsTable(): JSX.Element {
 export function InsightsTable({
     isLegend = false,
     embedded = false,
-    showTotalCount = false,
     filterKey,
     canEditSeriesNameInline = false,
     canCheckUncheckSeries = true,
@@ -84,8 +82,8 @@ export function InsightsTable({
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
-    const logic = insightsTableLogic({ hasMathUniqueFilter })
-    const { calcColumnState } = useValues(logic)
+    const logic = insightsTableLogic({ hasMathUniqueFilter, filters })
+    const { calcColumnState, showTotalCount } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
 
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
@@ -128,7 +126,24 @@ export function InsightsTable({
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
     if (isLegend) {
+        const isAnySeriesChecked = indexedResults.some((series) => !hiddenLegendKeys[series.id])
+        const areAllSeriesChecked = isAnySeriesChecked && indexedResults.every((series) => !hiddenLegendKeys[series.id])
         columns.push({
+            title: (
+                <LemonCheckbox
+                    checked={areAllSeriesChecked || (isAnySeriesChecked ? 'indeterminate' : false)}
+                    onChange={(checked) =>
+                        indexedResults.forEach((i) => {
+                            if (checked && hiddenLegendKeys[i.id]) {
+                                toggleVisibility(i.id)
+                            } else if (!checked && !hiddenLegendKeys[i.id]) {
+                                toggleVisibility(i.id)
+                            }
+                        })
+                    }
+                    disabled={!canCheckUncheckSeries}
+                />
+            ),
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
                     <LemonCheckbox
@@ -253,7 +268,10 @@ export function InsightsTable({
             render: function RenderCalc(_: any, item: IndexedTrendResult) {
                 let value: number | undefined = undefined
                 if (calcColumnState === 'total' || isDisplayModeNonTimeSeries) {
-                    value = item.count || item.aggregated_value
+                    value = item.count ?? item.aggregated_value
+                    if (item.aggregated_value > item.count) {
+                        value = item.aggregated_value
+                    }
                 } else if (calcColumnState === 'average') {
                     value = average(item.data)
                 } else if (calcColumnState === 'median') {

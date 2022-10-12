@@ -106,9 +106,12 @@ class Team(UUIDClassicModel):
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
+    capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
+    # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
+    inject_web_apps: models.BooleanField = models.BooleanField(null=True)
 
     test_account_filters: models.JSONField = models.JSONField(default=list)
     test_account_filters_default_checked: models.BooleanField = models.BooleanField(null=True, blank=True)
@@ -118,6 +121,7 @@ class Team(UUIDClassicModel):
     data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
     person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
     live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
+    recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
 
     primary_dashboard: models.ForeignKey = models.ForeignKey(
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
@@ -207,8 +211,13 @@ class Team(UUIDClassicModel):
             return posthoganalytics.feature_enabled(
                 "person-on-events-enabled",
                 str(self.uuid),
-                groups={"project": str(self.uuid)},
-                group_properties={"project": {"id": str(self.pk)}},
+                groups={"organization": str(self.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(self.organization.id),
+                        "created_at": self.organization.created_at,
+                    }
+                },
                 only_evaluate_locally=True,
             )
 
@@ -222,11 +231,6 @@ class Team(UUIDClassicModel):
     @property
     def strict_caching_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
-        return str(self.pk) in enabled_teams or "all" in enabled_teams
-
-    @property
-    def geoip_property_overrides_enabled(self) -> bool:
-        enabled_teams = get_list(get_instance_setting("GEOIP_PROPERTY_OVERRIDES_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
     def __str__(self):

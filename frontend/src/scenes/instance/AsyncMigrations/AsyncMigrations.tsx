@@ -106,7 +106,11 @@ export function AsyncMigrations(): JSX.Element {
                     : status === AsyncMigrationStatus.RolledBack
                     ? 'warning'
                     : 'default'
-            return <LemonTag type={type}>{migrationStatusNumberToMessage[status]}</LemonTag>
+            return (
+                <LemonTag type={type} className="uppercase">
+                    {migrationStatusNumberToMessage[status]}
+                </LemonTag>
+            )
         },
     }
     const lastOpColumn: AsyncMigrationColumnType = {

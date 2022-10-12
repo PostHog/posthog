@@ -5,7 +5,7 @@ import { delay, idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import type { dashboardsModelType } from './dashboardsModelType'
-import { InsightModel, DashboardType, InsightShortId } from '~/types'
+import { DashboardType, InsightShortId, DashboardTile, InsightModel } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/components/lemonToast'
@@ -22,8 +22,12 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // can provide extra dashboard ids if not all listeners will choose to respond to this action
         // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
         // specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
-        updateDashboardInsight: (item: InsightModel, extraDashboardIds?: number[]) => ({
-            item,
+        updateDashboardInsight: (insight: InsightModel, extraDashboardIds?: number[]) => ({
+            insight,
+            extraDashboardIds,
+        }),
+        updateDashboardTile: (tile: DashboardTile, extraDashboardIds?: number[]) => ({
+            tile,
             extraDashboardIds,
         }),
         // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
@@ -45,15 +49,20 @@ export const dashboardsModel = kea<dashboardsModelType>({
             name: name || `#${id}`,
             show: show || false,
         }),
+        tileMovedToDashboard: (tile: DashboardTile, dashboardId: number) => ({ tile, dashboardId }),
+        tileRemovedFromDashboard: ({ insightId, dashboardId }: { insightId?: number; dashboardId?: number }) => ({
+            insightId,
+            dashboardId,
+        }),
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         rawDashboards: [
             {} as Record<string, DashboardType>,
             {
                 loadDashboards: async (_, breakpoint) => {
                     // looking at a fully exported dashboard, return its contents
                     const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
-                    if (exportedDashboard?.id && exportedDashboard?.items) {
+                    if (exportedDashboard?.id && exportedDashboard?.tiles) {
                         return { [exportedDashboard.id]: exportedDashboard }
                     }
 
@@ -74,11 +83,14 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
             __default: null as null | DashboardType,
-            updateDashboard: async ({ id, ...payload }, breakpoint) => {
+            updateDashboard: async ({ id, allowUndo, ...payload }, breakpoint) => {
                 if (!Object.entries(payload).length) {
                     return
                 }
-                await breakpoint(700)
+                breakpoint()
+
+                const beforeChange = { ...values.rawDashboards[id] }
+
                 const response = (await api.update(
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
@@ -90,6 +102,21 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
                         payload[updatedAttribute].length
                     )
+                }
+                if (allowUndo) {
+                    lemonToast.success('Dashboard updated', {
+                        button: {
+                            label: 'Undo',
+                            action: async () => {
+                                const reverted = (await api.update(
+                                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                                    beforeChange
+                                )) as DashboardType
+                                actions.updateDashboardSuccess(reverted)
+                                lemonToast.success('Dashboard change reverted')
+                            },
+                        },
+                    })
                 }
                 return response
             },

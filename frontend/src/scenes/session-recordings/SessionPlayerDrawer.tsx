@@ -7,37 +7,50 @@ import {
 import { Button, Col, Row } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { IconClose } from 'lib/components/icons'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { sessionPlayerDrawerLogic } from './sessionPlayerDrawerLogic'
 import { LemonModal } from '@posthog/lemon-ui'
 import { PlayerMetaV3 } from './player/PlayerMeta'
+import { sessionRecordingPlayerLogic } from './player/sessionRecordingPlayerLogic'
 
 interface SessionPlayerDrawerProps {
     isPersonPage?: boolean
-    onClose: () => void
 }
 
-export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPlayerDrawerProps): JSX.Element {
+export function SessionPlayerDrawer({ isPersonPage = false }: SessionPlayerDrawerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { activeSessionRecordingId } = useValues(sessionPlayerDrawerLogic)
+    const { activeSessionRecording } = useValues(sessionPlayerDrawerLogic())
+    const { closeSessionPlayer } = useActions(sessionPlayerDrawerLogic())
+    const { isFullScreen } = useValues(
+        sessionRecordingPlayerLogic({ sessionRecordingId: activeSessionRecording?.id || '', playerKey: 'drawer' })
+    )
     const isSessionRecordingsPlayerV3 = !!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]
 
     if (isSessionRecordingsPlayerV3) {
         return (
-            <LemonModal isOpen={!!activeSessionRecordingId} onClose={onClose} simple title={''}>
-                <header className="border-b">
-                    {activeSessionRecordingId ? (
-                        <PlayerMetaV3 playerKey="drawer" sessionRecordingId={activeSessionRecordingId} />
+            <LemonModal
+                isOpen={!!activeSessionRecording}
+                onClose={closeSessionPlayer}
+                simple
+                title={''}
+                width={880}
+                fullScreen={isFullScreen}
+                closable={!isFullScreen}
+            >
+                <header>
+                    {activeSessionRecording ? (
+                        <PlayerMetaV3 playerKey="drawer" sessionRecordingId={activeSessionRecording?.id} />
                     ) : null}
                 </header>
-                <LemonModal.Content>
-                    <div className="session-player-wrapper-v3">
-                        {activeSessionRecordingId && (
+                <LemonModal.Content embedded>
+                    <div className="SessionPlayerModal">
+                        {activeSessionRecording?.id && (
                             <SessionRecordingPlayerV3
                                 playerKey="drawer"
-                                sessionRecordingId={activeSessionRecordingId}
+                                sessionRecordingId={activeSessionRecording?.id}
+                                matching={activeSessionRecording?.matching_events}
                                 includeMeta={false}
                             />
                         )}
@@ -47,7 +60,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
         )
     }
 
-    if (!activeSessionRecordingId) {
+    if (!activeSessionRecording) {
         return <></>
     }
 
@@ -56,7 +69,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
             destroyOnClose
             visible
             width="100%"
-            onClose={onClose}
+            onClose={closeSessionPlayer}
             className="session-player-wrapper-v2"
             closable={false}
             // zIndex: 1061 ensures it opens above the insight person modal which is 1060
@@ -68,20 +81,20 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                     align="middle"
                     justify="space-between"
                 >
-                    <Button type="link" onClick={onClose}>
+                    <Button type="link" onClick={closeSessionPlayer}>
                         <ArrowLeftOutlined /> Back to {isPersonPage ? 'persons' : 'recordings'}
                     </Button>
                     <div
                         className="text-muted cursor-pointer flex items-center"
                         style={{ fontSize: '1.5em', paddingRight: 8 }}
-                        onClick={onClose}
+                        onClick={closeSessionPlayer}
                     >
                         <IconClose />
                     </div>
                 </Row>
                 <Row className="session-drawer-body">
-                    {activeSessionRecordingId && (
-                        <SessionRecordingPlayerV2 playerKey="drawer" sessionRecordingId={activeSessionRecordingId} />
+                    {activeSessionRecording && (
+                        <SessionRecordingPlayerV2 playerKey="drawer" sessionRecordingId={activeSessionRecording?.id} />
                     )}
                 </Row>
             </Col>

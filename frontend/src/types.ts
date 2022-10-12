@@ -24,6 +24,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -61,6 +62,11 @@ export enum Realm {
     SelfHostedClickHouse = 'hosted-clickhouse',
 }
 
+export enum Region {
+    US = 'US',
+    EU = 'EU',
+}
+
 export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
 export interface AuthBackends {
     'google-oauth2'?: boolean
@@ -90,6 +96,7 @@ export interface UserBasicType extends UserBaseType {
 export interface UserType extends UserBaseType {
     date_joined: string
     email_opt_in: boolean
+    notification_settings: NotificationSettings
     events_column_config: ColumnConfig
     anonymize_data: boolean
     toolbar_mode: 'disabled' | 'toolbar'
@@ -101,6 +108,9 @@ export interface UserType extends UserBaseType {
     organizations: OrganizationBasicType[]
     realm?: Realm
     posthog_version?: string
+}
+export interface NotificationSettings {
+    plugin_disabled: boolean
 }
 
 export interface PluginAccess {
@@ -233,8 +243,10 @@ export interface TeamType extends TeamBasicType {
     updated_at: string
     anonymize_ips: boolean
     app_urls: string[]
+    recording_domains: string[]
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
+    capture_console_log_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
     path_cleaning_filters: Record<string, any>[]
@@ -415,7 +427,7 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     value: number
 }
 
-export type SessionRecordingId = string
+export type SessionRecordingId = SessionRecordingType['id']
 
 export interface PlayerPosition {
     time: number
@@ -483,6 +495,7 @@ export enum SessionPlayerState {
     PAUSE = 'pause',
     SCRUB = 'scrub',
     SKIP = 'skip',
+    ERROR = 'error',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -562,13 +575,14 @@ export interface PersonListParams {
     distinct_id?: string
 }
 
-interface MatchedRecordingEvents {
+export interface MatchedRecordingEvents {
     uuid: string
+    session_id: string
     window_id: string
     timestamp: string
 }
 export interface MatchedRecording {
-    session_id: string
+    session_id?: string
     events: MatchedRecordingEvents[]
 }
 
@@ -689,6 +703,7 @@ export enum PersonsTabType {
     COHORTS = 'cohorts',
     RELATED = 'related',
     HISTORY = 'history',
+    FEATURE_FLAGS = 'featureFlags',
 }
 
 export enum LayoutView {
@@ -722,6 +737,7 @@ export interface RecordingTimeMixinType {
 
 export interface RecordingEventType extends EventType, RecordingTimeMixinType {
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
+    level?: RowStatus.Match | RowStatus.Information // If undefined, by default information row
 }
 
 export interface EventsTableRowItem {
@@ -740,6 +756,8 @@ export interface SessionRecordingType {
     start_time: string
     /** When the recording ends in ISO format. */
     end_time: string
+    /** List of matching events. **/
+    matching_events?: MatchedRecording[]
     distinct_id?: string
     email?: string
     person?: PersonType
@@ -759,7 +777,7 @@ export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean
     plan: PlanInterface | null
-    billing_period_ends: string
+    billing_period_ends: string | null
     event_allocation: number | null
     current_usage: number | null
     subscription_url: string
@@ -768,7 +786,7 @@ export interface BillingType {
     should_display_current_bill: boolean
     billing_limit: number | null
     billing_limit_exceeded: boolean | null
-    current_bill_cycle: CurrentBillCycleType
+    current_bill_cycle: CurrentBillCycleType | null
     tiers: BillingTierType[] | null
 }
 
@@ -801,16 +819,22 @@ export enum InsightColor {
     Purple = 'purple',
 }
 
-export interface DashboardTile {
-    result: any | null
-    layouts: Record<string, any>
-    color: InsightColor | null
+export interface Cacheable {
     last_refresh: string | null
-    filters: Partial<FilterType>
     filters_hash: string
+    refreshing: boolean
 }
 
-export interface InsightModel extends DashboardTile {
+export interface Tileable {
+    layouts: Record<string, any>
+    color: InsightColor | null
+}
+
+export interface DashboardTile extends Tileable, Cacheable {
+    insight: InsightModel
+}
+
+export interface InsightModel extends Cacheable {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -820,11 +844,11 @@ export interface InsightModel extends DashboardTile {
     description?: string
     favorited?: boolean
     order: number | null
+    result: any | null
     deleted: boolean
     saved: boolean
     created_at: string
     created_by: UserBasicType | null
-    refreshing: boolean
     is_sample: boolean
     dashboards: number[] | null
     updated_at: string
@@ -836,6 +860,9 @@ export interface InsightModel extends DashboardTile {
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
+    /** Only used in the frontend to toggle showing Baseline in funnels or not */
+    disable_baseline?: boolean
+    filters: Partial<FilterType>
 }
 
 export interface DashboardType {
@@ -843,7 +870,7 @@ export interface DashboardType {
     name: string
     description: string
     pinned: boolean
-    items: InsightModel[]
+    tiles: DashboardTile[]
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
@@ -925,7 +952,7 @@ export interface FrontendApp {
 }
 
 export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date' | 'daterange'
     title?: string
     required?: boolean
     default?: any
@@ -1159,12 +1186,12 @@ export interface EditorFilterProps {
 
 export interface InsightEditorFilter {
     key: string
-    label?: string
+    label?: string | ((props: EditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
-    component?: (props: EditorFilterProps) => JSX.Element
+    component?: (props: EditorFilterProps) => JSX.Element | null
 }
 
 export interface SystemStatusSubrows {
@@ -1347,7 +1374,8 @@ export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
     breakdown?: BreakdownKeyType
-    breakdown_value?: BreakdownKeyType
+    // :KLUDGE: Data transforms done in `getBreakdownStepValues`
+    breakdown_value?: Array<string | number>
     breakdownIndex?: number
     conversionRates?: {
         total: number
@@ -1459,6 +1487,7 @@ export interface PreflightStatus {
     demo: boolean
     celery: boolean
     realm: Realm
+    region: Region
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
@@ -1572,7 +1601,7 @@ export interface PropertyDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null
+    volume_30_day?: number | null // TODO: Deprecated, replace or remove
     query_usage_30_day?: number | null
     updated_at?: string
     updated_by?: UserBasicType | null
@@ -1982,11 +2011,7 @@ export type Duration = {
     unit: SmallTimeUnit
 }
 
-export type CombinedEvent = EventDefinition | ActionType
-
-export enum CombinedEventType {
-    All = 'all',
-    ActionEvent = 'action_event',
+export enum EventDefinitionType {
     Event = 'event',
     EventCustom = 'event_custom',
     EventPostHog = 'event_posthog',
@@ -2046,4 +2071,11 @@ export interface SessionRecordingPlayerProps {
     sessionRecordingId: SessionRecordingId
     playerKey: string
     includeMeta?: boolean
+    recordingStartTime?: string
+    matching?: MatchedRecording[]
+}
+
+export enum FeatureFlagReleaseType {
+    ReleaseToggle = 'Release toggle',
+    Variants = 'Multiple variants',
 }

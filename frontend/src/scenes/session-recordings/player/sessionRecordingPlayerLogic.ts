@@ -1,11 +1,17 @@
 import { KeyboardEvent } from 'react'
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
 import * as Sentry from '@sentry/react'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { PlayerPosition, RecordingSegment, SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
+import {
+    PlayerPosition,
+    RecordingSegment,
+    SessionPlayerState,
+    SessionRecordingPlayerProps,
+    SessionRecordingType,
+} from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
@@ -16,6 +22,7 @@ import {
 } from './playerUtils'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import equal from 'fast-deep-equal'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
@@ -24,17 +31,22 @@ export interface Player {
     windowId: string
 }
 
+export interface SessionRecordingPlayerLogicProps extends SessionRecordingPlayerProps {
+    recordingStartTime?: string
+}
+
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
-    props({} as SessionRecordingPlayerProps),
-    key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
+    props({} as SessionRecordingPlayerLogicProps),
+    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect(({ sessionRecordingId, playerKey, recordingStartTime }: SessionRecordingPlayerLogicProps) => ({
         logic: [eventUsageLogic],
         values: [
-            sessionRecordingDataLogic({ sessionRecordingId }),
+            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
             [
                 'sessionRecordingId',
                 'sessionPlayerData',
+                'sessionPlayerDataLoading',
                 'loadMetaTimeMs',
                 'loadFirstSnapshotTimeMs',
                 'loadAllSnapshotsTimeMs',
@@ -45,7 +57,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['speed', 'skipInactivitySetting'],
         ],
         actions: [
-            sessionRecordingDataLogic({ sessionRecordingId }),
+            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
             ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess'],
             sharedListLogic({ sessionRecordingId, playerKey }),
             ['setTab'],
@@ -53,6 +65,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['setSpeed', 'setSkipInactivitySetting'],
         ],
     })),
+    propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
+        // Ensures that if filter results change, then matching results in this player logic will also change
+        if (!equal(matching, oldMatching)) {
+            actions.setMatching(matching)
+        }
+    }),
     actions({
         tryInitReplayer: () => true,
         setPlayer: (player: Player | null) => ({ player }),
@@ -62,7 +80,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endBuffer: true,
         startScrub: true,
         endScrub: true,
+        setErrorPlayerState: (show: boolean) => ({ show }),
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
+        setFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         syncPlayerSpeed: true,
         setCurrentPlayerPosition: (playerPosition: PlayerPosition | null) => ({ playerPosition }),
         setScale: (scale: number) => ({ scale }),
@@ -80,8 +100,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         handleKeyDown: (event: KeyboardEvent<HTMLDivElement>) => ({ event }),
         incrementErrorCount: true,
         incrementWarningCount: true,
+        setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
     }),
-    reducers(() => ({
+    reducers(({ props }) => ({
         rootFrame: [
             null as HTMLDivElement | null,
             {
@@ -107,6 +128,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isSkippingInactivity: [false, { setSkippingInactivity: (_, { isSkippingInactivity }) => isSkippingInactivity }],
+        isFullScreen: [false, { setFullScreen: (_, { isFullScreen }) => isFullScreen }],
         scale: [
             1,
             {
@@ -121,22 +143,33 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
+        isErrored: [false, { setErrorPlayerState: (_, { show }) => show }],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
         errorCount: [0, { incrementErrorCount: (prevErrorCount, {}) => prevErrorCount + 1 }],
         warningCount: [0, { incrementWarningCount: (prevWarningCount, {}) => prevWarningCount + 1 }],
+        matching: [
+            props.matching ?? ([] as SessionRecordingType['matching_events']),
+            {
+                setMatching: (_, { matching }) => matching,
+            },
+        ],
     })),
     selectors({
         currentPlayerState: [
             (selectors) => [
                 selectors.playingState,
                 selectors.isBuffering,
+                selectors.isErrored,
                 selectors.isScrubbing,
                 selectors.isSkippingInactivity,
             ],
-            (playingState, isBuffering, isScrubbing, isSkippingInactivity) => {
+            (playingState, isBuffering, isErrored, isScrubbing, isSkippingInactivity) => {
                 if (isScrubbing) {
                     // If scrubbing, playingState takes precedence
                     return playingState
+                }
+                if (isErrored) {
+                    return SessionPlayerState.ERROR
                 }
                 if (isBuffering) {
                     return SessionPlayerState.BUFFER
@@ -157,6 +190,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
+        matchingEvents: [
+            (s) => [s.matching],
+            (matching) => (matching ?? []).map((filterMatches) => filterMatches.events).flat(),
+        ],
     }),
     listeners(({ values, actions, cache }) => ({
         setRootFrame: () => {
@@ -309,6 +346,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         startBuffer: () => {
             actions.stopAnimation()
         },
+        setErrorPlayerState: ({ show }) => {
+            if (show) {
+                actions.stopAnimation()
+            }
+        },
         startScrub: () => {
             actions.stopAnimation()
         },
@@ -333,8 +375,26 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
 
-            // If next time is greater than last buffered time, set to buffering
+            // If not currently loading anything and part of the recording hasn't loaded, set error state
             if (
+                (!values.sessionPlayerDataLoading && !values.sessionPlayerData.bufferedTo) ||
+                (!!values.sessionPlayerData?.bufferedTo &&
+                    !!playerPosition &&
+                    !!values.currentSegment &&
+                    comparePlayerPositions(
+                        playerPosition,
+                        values.sessionPlayerData.bufferedTo,
+                        values.sessionPlayerData.metadata.segments
+                    ) > 0 &&
+                    !values.sessionPlayerDataLoading)
+            ) {
+                values.player?.replayer?.pause()
+                actions.endBuffer()
+                actions.setErrorPlayerState(true)
+            }
+
+            // If next time is greater than last buffered time, set to buffering
+            else if (
                 !values.sessionPlayerData?.bufferedTo ||
                 !playerPosition ||
                 !values.currentSegment ||
@@ -346,18 +406,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ) {
                 values.player?.replayer?.pause()
                 actions.startBuffer()
+                actions.setErrorPlayerState(false)
             }
 
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
                 values.player?.replayer?.pause(playerPosition.time)
                 actions.endBuffer()
+                actions.setErrorPlayerState(false)
             }
             // Otherwise play
             else {
                 values.player?.replayer?.play(playerPosition.time)
                 actions.updateAnimation()
                 actions.endBuffer()
+                actions.setErrorPlayerState(false)
             }
             breakpoint()
         },
@@ -446,6 +509,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setCurrentPlayerPosition(values.sessionPlayerData.metadata.segments[0].startPlayerPosition)
                 }
             }
+            // If next position tries to access snapshot that is not loaded, show error state
+            else if (
+                !!values.sessionPlayerData?.bufferedTo &&
+                !!nextPlayerPosition &&
+                !!values.currentSegment &&
+                comparePlayerPositions(
+                    nextPlayerPosition,
+                    values.sessionPlayerData.bufferedTo,
+                    values.sessionPlayerData.metadata.segments
+                ) > 0 &&
+                !values.sessionPlayerDataLoading
+            ) {
+                values.player?.replayer?.pause()
+                actions.endBuffer()
+                actions.setErrorPlayerState(true)
+            }
 
             // If we're beyond buffered position, set to buffering
             else if (
@@ -462,6 +541,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // when the buffering progresses
                 values.player?.replayer?.pause()
                 actions.startBuffer()
+                actions.setErrorPlayerState(false)
             } else {
                 // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentPlayerPosition(nextPlayerPosition)

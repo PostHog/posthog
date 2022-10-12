@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
-import { InsightEditorFilterGroup, InsightLogicProps, InsightModel } from '~/types'
+import { EditorFilterProps, InsightEditorFilterGroup, InsightLogicProps, InsightModel } from '~/types'
 import { cleanFilters } from '../utils/cleanFilters'
 import './EditorFilterGroup.scss'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { slugify } from 'lib/utils'
-import { LemonBubble } from 'lib/components/LemonBubble/LemonBubble'
+import { LemonBadge } from 'lib/components/LemonBadge/LemonBadge'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -44,29 +44,46 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
                     >
                         <div className="flex items-center space-x-2 font-semibold">
                             <span>{title}</span>
-                            <LemonBubble count={count} />
+                            <LemonBadge count={count} />
                         </div>
                     </LemonButton>
                 </div>
             )}
             {!usingEditorPanels || isRowExpanded ? (
                 <div className="EditorFilterGroup__content">
-                    {editorFilters.map(({ label, tooltip, showOptional, key, valueSelector, component: Component }) => (
-                        <div key={key}>
-                            <PureField label={label} info={tooltip} showOptional={showOptional}>
-                                {Component ? (
-                                    <Component
-                                        insight={insight}
-                                        insightProps={insightProps}
-                                        filters={insight.filters ?? cleanFilters({})}
-                                        value={
-                                            (valueSelector ? valueSelector(insight) : insight?.filters?.[key]) ?? null
+                    {editorFilters.map(
+                        ({ label: Label, tooltip, showOptional, key, valueSelector, component: Component }) => {
+                            // Don't calculate editorFilterProps if not needed
+                            const editorFilterProps: EditorFilterProps | null =
+                                typeof Label === 'function' || Component
+                                    ? {
+                                          insight,
+                                          insightProps,
+                                          filters: insight.filters ?? cleanFilters({}),
+                                          value:
+                                              (valueSelector ? valueSelector(insight) : insight?.filters?.[key]) ??
+                                              null,
+                                      }
+                                    : null
+                            return (
+                                <div key={key}>
+                                    <PureField
+                                        label={
+                                            typeof Label === 'function' ? (
+                                                <Label {...(editorFilterProps as EditorFilterProps)} />
+                                            ) : (
+                                                Label
+                                            )
                                         }
-                                    />
-                                ) : null}
-                            </PureField>
-                        </div>
-                    ))}
+                                        info={tooltip}
+                                        showOptional={showOptional}
+                                    >
+                                        {Component ? <Component {...(editorFilterProps as EditorFilterProps)} /> : null}
+                                    </PureField>
+                                </div>
+                            )
+                        }
+                    )}
                 </div>
             ) : null}
         </div>

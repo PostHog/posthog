@@ -8,8 +8,9 @@ from rest_framework import status
 
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
-from posthog.models.person.person import Person
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.person import Person
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -170,7 +171,12 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "alpha-feature", "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "alpha-feature",
+                        "short_id": None,
+                    },
                 }
             ],
         )
@@ -397,7 +403,7 @@ class TestFeatureFlag(APIBaseTest):
                                 },
                             },
                         ],
-                        "merge": None,
+                        "trigger": None,
                         "name": "a-feature-flag-that-is-updated",
                         "short_id": None,
                     },
@@ -410,7 +416,7 @@ class TestFeatureFlag(APIBaseTest):
                     "item_id": str(flag_id),
                     "detail": {
                         "changes": None,
-                        "merge": None,
+                        "trigger": None,
                         "name": "a-feature-flag-that-is-updated",
                         "short_id": None,
                     },
@@ -479,7 +485,7 @@ class TestFeatureFlag(APIBaseTest):
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
-                        "merge": None,
+                        "trigger": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -490,7 +496,12 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity", "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "feature_with_activity",
+                        "short_id": None,
+                    },
                 },
             ],
         )
@@ -543,7 +554,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:29:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(second_flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "flag-two", "short_id": None},
+                    "detail": {"changes": None, "trigger": None, "name": "flag-two", "short_id": None},
                 },
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
@@ -561,7 +572,7 @@ class TestFeatureFlag(APIBaseTest):
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
-                        "merge": None,
+                        "trigger": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -572,7 +583,12 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity", "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "feature_with_activity",
+                        "short_id": None,
+                    },
                 },
             ],
         )
@@ -992,9 +1008,8 @@ class TestFeatureFlag(APIBaseTest):
             created_by=self.user,
         )
 
-        key = PersonalAPIKey(label="Test", user=self.user)
-        key.save()
-        personal_api_key = key.value
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
 
         self.client.logout()
         # `local_evaluation` is called by logged out clients!
@@ -1033,10 +1048,7 @@ class TestFeatureFlag(APIBaseTest):
                 },
                 "deleted": False,
                 "active": True,
-                "is_simple_flag": True,
-                "rollout_percentage": 20,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[0],
         )
@@ -1051,10 +1063,7 @@ class TestFeatureFlag(APIBaseTest):
                 },
                 "deleted": False,
                 "active": True,
-                "is_simple_flag": False,
-                "rollout_percentage": None,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[1],
         )
@@ -1065,10 +1074,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filters": {"groups": [{"rollout_percentage": 21}], "aggregation_group_type_index": 0},
                 "deleted": False,
                 "active": True,
-                "is_simple_flag": False,
-                "rollout_percentage": None,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[2],
         )
@@ -1079,15 +1085,103 @@ class TestFeatureFlag(APIBaseTest):
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "deleted": False,
                 "active": False,
-                "is_simple_flag": True,
-                "rollout_percentage": 100,
                 "ensure_experience_continuity": False,
-                "experiment_set": [],
             },
             sorted_flags[3],
         )
 
         self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company"})
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_local_evaluation_for_cohorts(self, mock_capture):
+        FeatureFlag.objects.all().delete()
+
+        cohort_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 20,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                        }
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
+        self.assertEqual(len(response_data["flags"]), 1)
+
+        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}],
+                            "rollout_percentage": 20,
+                        },
+                        {
+                            "properties": [{"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}],
+                            "rollout_percentage": 20,
+                        },
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+                "deleted": False,
+                "active": True,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[0],
+        )
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_evaluation_reasons(self, mock_capture):

@@ -22,6 +22,7 @@
     window.JS_POSTHOG_HOST = {{js_posthog_host | safe}};
     window.JS_POSTHOG_SELF_CAPTURE = {{self_capture | yesno:"true,false" }};
     window.JS_CAPTURE_INTERNAL_METRICS = {{js_capture_internal_metrics | yesno:"true,false"}}
+    window.POSTHOG_USER_IDENTITY_WITH_FLAGS = JSON.parse("{{ posthog_bootstrap | escapejs }}")
     </script>
 {% endif %}
 {% if sentry_dsn %}

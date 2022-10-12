@@ -8,7 +8,7 @@
         "test": "jest --runInBand --forceExit tests/",
         "start": "yarn start:dist",
         "start:dist": "BASE_DIR=.. node dist/index.js",
-        "start:dev": "NODE_ENV=dev BASE_DIR=.. ts-node-dev --debug --exit-child src/index.ts",
+        "start:dev": "NODE_ENV=dev BASE_DIR=.. ts-node-dev --debug --exit-child src/index.ts 2>&1 | pino-pretty",
         "build": "yarn clean && yarn compile",
         "clean": "rimraf dist/*",
         "typescript:compile": "tsc -b",
@@ -66,14 +66,14 @@
         "node-fetch": "^2.6.1",
         "node-schedule": "^2.1.0",
         "pg": "^8.6.0",
+        "pino": "^8.6.0",
         "posthog-node": "2.0.2",
         "pretty-bytes": "^5.6.0",
         "re2": "^1.16.0",
         "redlock": "^4.2.0",
         "snowflake-sdk": "^1.6.10",
-        "structlog": "^1.0.2",
         "uuid": "^8.3.2",
-        "vm2": "3.9.6"
+        "vm2": "3.9.11"
     },
     "devDependencies": {
         "@babel/cli": "^7.18.10",
@@ -110,6 +110,7 @@
         "eslint-plugin-promise": "^6.0.0",
         "eslint-plugin-simple-import-sort": "^7.0.0",
         "jest": "^28.1.1",
+        "pino-pretty": "^9.1.0",
         "prettier": "^2.7.1",
         "rimraf": "^3.0.2",
         "ts-node": "^10.9.1",

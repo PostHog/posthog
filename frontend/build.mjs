@@ -47,6 +47,9 @@ await buildInParallel(
             entryPoints: ['src/toolbar/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
+            // make sure we don't link to a global window.define
+            banner: { js: 'var posthogToolbar = (function () { var define = undefined;' },
+            footer: { js: 'return posthogToolbar })();' },
             ...common,
         },
     ],

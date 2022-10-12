@@ -28,7 +28,6 @@ import {
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import type { PersonsModalParams } from 'scenes/trends/persons-modal/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 
@@ -212,7 +211,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportEventsTablePollingReactedToPageVisibility: (pageIsVisible: boolean) => ({ pageIsVisible }),
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
-        reportInsightCreated: (insight: InsightType | null) => ({ insight }),
+        reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
+        reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
             filters: Partial<FilterType>,
@@ -232,10 +232,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             changedFilters,
             isUsingSessionAnalysis,
         }),
-        reportPersonsModalViewed: (params: PersonsModalParams, count: number, hasNext: boolean) => ({
+        reportPersonsModalViewed: (params: any) => ({
             params,
-            count,
-            hasNext,
         }),
         reportCohortCreatedFromPersonsModal: (filters: Partial<FilterType>) => ({ filters }),
         reportBookmarkletDragged: true,
@@ -460,6 +458,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionTryWithBookmarkletClicked: true,
         reportIngestionContinueWithoutVerifying: true,
         reportIngestionContinueWithoutBilling: true,
+        reportIngestionBillingCancelled: true,
         reportIngestionThirdPartyAboutClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
@@ -537,9 +536,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightCreated: async ({ insight }, breakpoint) => {
+        reportInsightCreated: async ({ insightType }, breakpoint) => {
+            // "insight created" essentially means that the user clicked "New insight"
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
-            posthog.capture('insight created', { insight })
+            posthog.capture('insight created', { insight: insightType })
+        },
+        reportInsightSaved: async ({ filters, isNewInsight }) => {
+            // "insight saved" is a proxy for the new insight's results being valuable to the user
+            posthog.capture('insight saved', { ...filters, is_new_insight: isNewInsight })
         },
         reportInsightViewed: ({
             insightModel,
@@ -623,20 +627,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
             posthog.capture(eventName, { ...properties, ...(changedFilters ? changedFilters : {}) })
         },
-        reportPersonsModalViewed: async ({ params, count, hasNext }) => {
-            const { funnelStep, filters, breakdown_value, saveOriginal, searchTerm, date_from, date_to } = params
-            const properties = {
-                ...sanitizeFilterParams(filters),
-                date_from,
-                date_to,
-                funnel_step: funnelStep,
-                has_breakdown_value: Boolean(breakdown_value),
-                save_original: saveOriginal,
-                has_search_term: Boolean(searchTerm),
-                count,
-                has_next: hasNext,
-            }
-            posthog.capture('insight person modal viewed', properties)
+        reportPersonsModalViewed: async ({ params }) => {
+            posthog.capture('insight person modal viewed', params)
         },
         reportCohortCreatedFromPersonsModal: async ({ filters }) => {
             posthog.capture('person modal cohort created', sanitizeFilterParams(filters))
@@ -652,21 +644,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 pinned,
                 creation_mode,
                 sample_items_count: 0,
-                item_count: dashboard.items?.length || 0,
+                item_count: dashboard.tiles?.length || 0,
                 created_by_system: !dashboard.created_by,
                 dashboard_id: id,
                 lastRefreshed: lastRefreshed?.toISOString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
             }
 
-            for (const item of dashboard.items || []) {
-                const key = `${item.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
+            for (const item of dashboard.tiles || []) {
+                const key = `${item.insight.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                 if (!properties[key]) {
                     properties[key] = 1
                 } else {
                     properties[key] += 1
                 }
-                properties.sample_items_count += item.is_sample ? 1 : 0
+                properties.sample_items_count += item.insight.is_sample ? 1 : 0
             }
 
             const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
@@ -1093,6 +1085,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportIngestionContinueWithoutBilling: () => {
             posthog.capture('ingestion continue without adding billing details')
+        },
+        reportIngestionBillingCancelled: () => {
+            posthog.capture('ingestion billing cancelled')
         },
         reportIngestionThirdPartyAboutClicked: ({ name }) => {
             posthog.capture('ingestion third party about clicked', {

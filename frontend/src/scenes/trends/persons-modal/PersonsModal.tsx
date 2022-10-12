@@ -1,362 +1,343 @@
-import React, { useMemo } from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { DownloadOutlined } from '@ant-design/icons'
-import { Skeleton } from 'antd'
-import { ActorType, ChartDisplayType, ExporterFormat, FilterType, InsightType } from '~/types'
+import { ActorType, ExporterFormat, SessionRecordingType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
-import './PersonsModal.scss'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { DateDisplay } from 'lib/components/DateDisplay'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
-import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
-import { IconPersonFilled, IconSave } from 'lib/components/icons'
-import { InsightLabel } from 'lib/components/InsightLabel'
-import { getSeriesColor } from 'lib/colors'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
-import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
-import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
+import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
+import ReactDOM from 'react-dom'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { SaveCohortModal } from './SaveCohortModal'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { Skeleton, Tabs } from 'antd'
+import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
-import api from 'lib/api'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export interface PersonsModalProps {
-    isOpen: boolean
-    view: InsightType
-    filters: Partial<FilterType>
-    onSaveCohort: () => void
-    showModalActions?: boolean
-    aggregationTargetLabel: { singular: string; plural: string }
+    onAfterClose?: () => void
+    url?: string
+    urlsIndex?: number
+    urls?: {
+        label: string | JSX.Element
+        value: string
+    }[]
+    title: React.ReactNode | ((actorLabel: string) => React.ReactNode)
 }
 
-export function PersonsModal({
-    isOpen,
-    view,
-    filters,
-    onSaveCohort,
-    showModalActions = true,
-    aggregationTargetLabel,
-}: PersonsModalProps): JSX.Element {
-    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, isInitialLoad, peopleParams, actorLabel } =
-        useValues(personsModalLogic)
+function PersonsModal({ url: _url, urlsIndex, urls, title, onAfterClose }: PersonsModalProps): JSX.Element {
+    const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
+    const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
+
+    const logic = personsModalLogic({
+        url: originalUrl,
+    })
+
     const {
-        hidePeople,
-        loadMorePeople,
-        setFirstLoadedActors,
-        setPersonsModalFilters,
-        setSearchTerm,
-        switchToDataPoint,
-    } = useActions(personsModalLogic)
-    const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+        actors,
+        actorsResponseLoading,
+        actorsResponse,
+        searchTerm,
+        actorLabel,
+        isCohortModalOpen,
+        isModalOpen,
+        missingActorsCount,
+    } = useValues(logic)
+    const { loadActors, setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal } = useActions(logic)
+    const { openSessionPlayer } = useActions(sessionPlayerDrawerLogic)
 
-    const title = useMemo(
-        () =>
-            isInitialLoad ? (
-                `Loading ${aggregationTargetLabel.plural}…`
-            ) : filters.shown_as === 'Stickiness' ? (
-                <>
-                    <PropertyKeyInfo value={people?.label || ''} disablePopover /> stickiness on day {people?.day}
-                </>
-            ) : filters.display === ChartDisplayType.ActionsBarValue ||
-              filters.display === ChartDisplayType.ActionsPie ||
-              filters.display === ChartDisplayType.BoldNumber ? (
-                <PropertyKeyInfo value={people?.label || ''} disablePopover />
-            ) : filters.insight === InsightType.FUNNELS ? (
-                <>
-                    {(people?.funnelStep ?? 0) >= 0 ? 'Completed' : 'Dropped off at'} step{' '}
-                    {Math.abs(people?.funnelStep ?? 0)} • <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
-                    {!!people?.breakdown_value ? `• ${people.breakdown_value}` : ''}
-                </>
-            ) : filters.insight === InsightType.PATHS ? (
-                <>
-                    {people?.pathsDropoff ? 'Dropped off after' : 'Completed'} step{' '}
-                    <PropertyKeyInfo value={people?.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
-                </>
-            ) : filters.display === ChartDisplayType.WorldMap ? (
-                <>
-                    {capitalizeFirstLetter(actorLabel)}
-                    {peopleParams?.breakdown_value
-                        ? ` in ${countryCodeToFlag(peopleParams?.breakdown_value as string)} ${
-                              countryCodeToName[peopleParams?.breakdown_value as string]
-                          }`
-                        : ''}
-                </>
-            ) : (
-                <>
-                    {capitalizeFirstLetter(actorLabel)} on{' '}
-                    <DateDisplay interval={filters.interval || 'day'} date={people?.day?.toString() || ''} />
-                </>
-            ),
-        [filters, people, isInitialLoad]
-    )
-
-    const flaggedInsights = featureFlags[FEATURE_FLAGS.NEW_INSIGHT_COHORTS]
-    const isDownloadCsvAvailable: boolean =
-        !!featureFlags[FEATURE_FLAGS.PERSON_MODAL_EXPORTS] && InsightType.TRENDS && showModalActions && !!people?.action
-    const isSaveAsCohortAvailable =
-        (view === InsightType.TRENDS ||
-            view === InsightType.STICKINESS ||
-            (!!flaggedInsights && (view === InsightType.FUNNELS || view === InsightType.PATHS))) && // make sure flaggedInsights isn't evaluated as undefined
-        showModalActions
-
-    const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
-    const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
-
-    const filterSearchResults = (): void => {
-        if (!searchTerm) {
-            setFirstLoadedActors(firstLoadedPeople)
-        }
-        people && setPersonsModalFilters(searchTerm, people, filters)
-    }
+    const totalActorsCount = missingActorsCount + actors.length
 
     return (
         <>
             <LemonModal
-                title={title}
-                isOpen={isOpen}
-                onClose={hidePeople}
-                footer={
-                    people &&
-                    people.count > 0 &&
-                    (isDownloadCsvAvailable || isSaveAsCohortAvailable) && (
-                        <div className="flex gap-2">
-                            {isDownloadCsvAvailable && (
-                                <LemonButton
-                                    icon={<DownloadOutlined />}
-                                    type="secondary"
-                                    onClick={() => {
-                                        triggerExport({
-                                            export_format: ExporterFormat.CSV,
-                                            export_context: {
-                                                path: api.actions.determinePeopleCsvUrl(
-                                                    {
-                                                        label: people.label,
-                                                        action: people.action,
-                                                        date_from: people.day,
-                                                        date_to: people.day,
-                                                        breakdown_value: people.breakdown_value,
-                                                    },
-                                                    filters
-                                                ),
-                                            },
-                                        })
-                                    }}
-                                    data-attr="person-modal-download-csv"
-                                >
-                                    Download CSV
-                                </LemonButton>
-                            )}
-                            {isSaveAsCohortAvailable && (
-                                <LemonButton
-                                    onClick={onSaveCohort}
-                                    icon={<IconSave />}
-                                    type="secondary"
-                                    data-attr="person-modal-save-as-cohort"
-                                >
-                                    Save as cohort
-                                </LemonButton>
-                            )}
-                        </div>
-                    )
-                }
+                title={''}
+                isOpen={isModalOpen}
+                onClose={closeModal}
+                onAfterClose={onAfterClose}
+                simple
                 width={600}
             >
-                {people && !!people.missingPersons && (
-                    <AlertMessage type="info" className="mb-2">
-                        {people.missingPersons}{' '}
-                        {people.missingPersons > 1
-                            ? `${aggregationTargetLabel.plural} are`
-                            : `${aggregationTargetLabel.singular} is`}{' '}
-                        not shown because they've been lost.{' '}
-                        <a href="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
-                            Read more here for when this can happen
-                        </a>
-                        .
-                    </AlertMessage>
-                )}
-                <LemonInput
-                    type="search"
-                    placeholder="Search for persons by email, name, or ID"
-                    fullWidth
-                    onChange={(value) => {
-                        setSearchTerm(value)
-                    }}
-                    onBlur={() => filterSearchResults()}
-                    onPressEnter={() => filterSearchResults()}
-                    value={searchTerm}
-                    disabled={isInitialLoad}
-                    className="mb-2"
-                />
-                {isInitialLoad ? (
-                    <div className="p-4">
-                        <Skeleton active />
-                    </div>
-                ) : (
-                    <>
-                        {people && (
+                <LemonModal.Header>
+                    <h3>{typeof title === 'function' ? title(capitalizeFirstLetter(actorLabel.plural)) : title}</h3>
+                </LemonModal.Header>
+                <div className="px-6 py-2">
+                    {actorsResponse && !!missingActorsCount && (
+                        <AlertMessage type="info" className="mb-2">
+                            {missingActorsCount}{' '}
+                            {missingActorsCount > 1 ? `${actorLabel.plural} are` : `${actorLabel.singular} is`} not
+                            shown because they've been lost.{' '}
+                            <a href="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
+                                Read more here for when this can happen
+                            </a>
+                            .
+                        </AlertMessage>
+                    )}
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for persons by email, name, or ID"
+                        fullWidth
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                        className="my-2"
+                    />
+
+                    {urls ? (
+                        <LemonSelect
+                            fullWidth
+                            className="mb-2"
+                            value={selectedUrlIndex}
+                            onChange={(v) => v && setSelectedUrlIndex(v)}
+                            options={(urls || []).map((url, index) => ({
+                                value: index,
+                                label: url.label,
+                            }))}
+                        />
+                    ) : null}
+
+                    <div className="flex items-center gap-2 text-muted">
+                        {actorsResponseLoading ? (
                             <>
-                                {!!people.crossDataset?.length && people.seriesId !== undefined && (
-                                    <LemonSelect
-                                        fullWidth
-                                        className="mb-2"
-                                        value={String(people.seriesId)}
-                                        onChange={(_id) =>
-                                            typeof _id === 'string' ? switchToDataPoint(parseInt(_id, 10)) : null
-                                        }
-                                        options={people.crossDataset.map((dataPoint) => ({
-                                            value: `${dataPoint.id}`,
-                                            label: (
-                                                <InsightLabel
-                                                    seriesColor={getSeriesColor(dataPoint.id)}
-                                                    action={dataPoint.action}
-                                                    breakdownValue={
-                                                        dataPoint.breakdown_value === ''
-                                                            ? 'None'
-                                                            : dataPoint.breakdown_value?.toString()
-                                                    }
-                                                    showCountedByTag={showCountedByTag}
-                                                    hasMultipleSeries={hasMultipleSeries}
-                                                />
-                                            ),
-                                        }))}
-                                    />
-                                )}
-                                <div className="user-count-subheader">
-                                    <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
-                                    <span>
-                                        This list contains{' '}
-                                        <b>
-                                            {people.count} unique {aggregationTargetLabel.plural}
-                                        </b>
-                                        {peopleParams?.pointValue !== undefined &&
-                                            (!peopleParams.action?.math || peopleParams.action?.math === 'total') && (
-                                                <>
-                                                    {' '}
-                                                    who performed the event{' '}
-                                                    <b>
-                                                        {peopleParams.pointValue} total{' '}
-                                                        {pluralize(peopleParams.pointValue, 'time', undefined, false)}
-                                                    </b>
-                                                </>
-                                            )}
-                                        .
-                                    </span>
-                                </div>
-                                {people.count > 0 ? (
-                                    <LemonTable
-                                        columns={
-                                            [
-                                                {
-                                                    title: 'Person',
-                                                    key: 'person',
-                                                    render: function Render(_, actor: ActorType) {
-                                                        return <ActorRow actor={actor} />
-                                                    },
-                                                },
-                                                {
-                                                    width: 0,
-                                                    title: 'Recordings',
-                                                    key: 'recordings',
-                                                    render: function Render(_, actor: ActorType) {
-                                                        if (
-                                                            actor.matched_recordings?.length &&
-                                                            actor.matched_recordings?.length > 0
-                                                        ) {
-                                                            return (
-                                                                <MultiRecordingButton
-                                                                    sessionRecordings={actor.matched_recordings}
-                                                                    onOpenRecording={(sessionRecording) => {
-                                                                        openSessionPlayer(sessionRecording.session_id)
-                                                                    }}
-                                                                />
-                                                            )
-                                                        }
-                                                    },
-                                                },
-                                            ] as LemonTableColumns<ActorType>
-                                        }
-                                        className="persons-table"
-                                        rowKey="id"
-                                        expandable={{
-                                            expandedRowRender: function RenderPropertiesTable({ properties }) {
-                                                return Object.keys(properties).length ? (
-                                                    <PropertiesTable properties={properties} />
-                                                ) : (
-                                                    'This person has no properties.'
-                                                )
-                                            },
-                                        }}
-                                        embedded
-                                        showHeader={false}
-                                        dataSource={people.people}
-                                        nouns={['person', 'persons']}
-                                    />
-                                ) : (
-                                    <div className="person-row-container person-row">
-                                        We couldn't find any matching {aggregationTargetLabel.plural} for this data
-                                        point.
-                                    </div>
-                                )}
-                                {people?.next && (
-                                    <div className="m-4 flex justify-center">
-                                        <LemonButton
-                                            type="primary"
-                                            size="small"
-                                            onClick={loadMorePeople}
-                                            loading={loadingMorePeople}
-                                        >
-                                            Load more {aggregationTargetLabel.plural}
-                                        </LemonButton>
-                                    </div>
-                                )}
+                                <Spinner />
+                                <span>Loading {actorLabel.plural}...</span>
                             </>
+                        ) : (
+                            <span>
+                                {actorsResponse?.next ? 'More than ' : ''}
+                                <b>
+                                    {totalActorsCount || 'No'} unique{' '}
+                                    {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
+                                </b>
+                            </span>
                         )}
-                    </>
-                )}
+                    </div>
+                </div>
+                <div className="px-6 overflow-hidden flex flex-col">
+                    <div className="relative min-h-20 p-2 space-y-2 rounded bg-border-light overflow-y-auto mb-2">
+                        {actors && actors.length > 0 ? (
+                            <>
+                                {actors.map((x) => (
+                                    <ActorRow
+                                        key={x.id}
+                                        actor={x}
+                                        onOpenRecording={(sessionRecording) => {
+                                            openSessionPlayer(sessionRecording)
+                                        }}
+                                    />
+                                ))}
+                            </>
+                        ) : actorsResponseLoading ? (
+                            <Skeleton title={false} />
+                        ) : (
+                            <div className="text-center p-5">
+                                We couldn't find any matching {actorLabel.plural} for this data point.
+                            </div>
+                        )}
+
+                        {actorsResponse?.next && (
+                            <div className="m-4 flex justify-center">
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => actorsResponse?.next && loadActors({ url: actorsResponse?.next })}
+                                    loading={actorsResponseLoading}
+                                >
+                                    Load more {actorLabel.plural}
+                                </LemonButton>
+                            </div>
+                        )}
+                    </div>
+                </div>
+                <LemonModal.Footer>
+                    <div className="flex-1">
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                triggerExport({
+                                    export_format: ExporterFormat.CSV,
+                                    export_context: {
+                                        path: originalUrl,
+                                    },
+                                })
+                            }}
+                            data-attr="person-modal-download-csv"
+                            disabled={!actors.length}
+                        >
+                            Download CSV
+                        </LemonButton>
+                    </div>
+                    <LemonButton type="secondary" onClick={closeModal}>
+                        Close
+                    </LemonButton>
+                    <LemonButton
+                        onClick={() => setIsCohortModalOpen(true)}
+                        type="primary"
+                        data-attr="person-modal-save-as-cohort"
+                        disabled={!actors.length}
+                    >
+                        Save as cohort
+                    </LemonButton>
+                </LemonModal.Footer>
             </LemonModal>
-            <SessionPlayerDrawer onClose={closeSessionPlayer} />
+            <SaveCohortModal
+                onSave={(title) => saveCohortWithUrl(title)}
+                onCancel={() => setIsCohortModalOpen(false)}
+                isOpen={isCohortModalOpen}
+            />
+            <SessionPlayerDrawer />
         </>
     )
 }
 
 interface ActorRowProps {
     actor: ActorType
+    onOpenRecording: (sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>) => void
 }
 
-export function ActorRow({ actor }: ActorRowProps): JSX.Element {
-    if (isGroupType(actor)) {
-        return (
-            <div key={actor.id} className="person-row">
-                <div className="person-ids">
-                    <strong>
-                        <GroupActorHeader actor={actor} />
-                    </strong>
-                </div>
-            </div>
-        )
-    } else {
-        return (
-            <div key={actor.id} className="person-ids">
-                <strong>
-                    <PersonHeader person={actor} withIcon={false} />
-                </strong>
-                <CopyToClipboardInline
-                    explicitValue={actor.distinct_ids[0]}
-                    iconStyle={{ color: 'var(--primary)' }}
-                    iconPosition="end"
-                    className="text-xs text-muted-alt"
-                >
-                    {midEllipsis(actor.distinct_ids[0], 32)}
-                </CopyToClipboardInline>
-            </div>
-        )
+export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const [tab, setTab] = useState('properties')
+    const name = isGroupType(actor) ? groupDisplayId(actor.group_key, actor.properties) : asDisplay(actor)
+
+    const onOpenRecordingClick = (): void => {
+        if (!actor.matched_recordings) {
+            return
+        }
+        if (actor.matched_recordings?.length > 1) {
+            setExpanded(true)
+            setTab('recordings')
+        } else {
+            actor.matched_recordings[0].session_id &&
+                onOpenRecording({
+                    id: actor.matched_recordings[0].session_id,
+                    matching_events: actor.matched_recordings,
+                })
+        }
     }
+
+    const matchedRecordings = actor.matched_recordings || []
+
+    return (
+        <div className="border rounded overflow-hidden bg-white">
+            <div className="flex items-center gap-2 p-2">
+                <LemonButton
+                    noPadding
+                    status="stealth"
+                    active={expanded}
+                    onClick={() => setExpanded(!expanded)}
+                    icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                    title={expanded ? 'Show less' : 'Show more'}
+                />
+
+                <ProfilePicture name={name} size="md" />
+
+                <div className="flex-1 overflow-hidden">
+                    {isGroupType(actor) ? (
+                        <strong>
+                            <GroupActorHeader actor={actor} />
+                        </strong>
+                    ) : (
+                        <>
+                            <strong>
+                                <PersonHeader person={actor} withIcon={false} />
+                            </strong>
+                            <CopyToClipboardInline
+                                explicitValue={actor.distinct_ids[0]}
+                                iconStyle={{ color: 'var(--primary)' }}
+                                iconPosition="end"
+                                className="text-xs text-muted-alt"
+                            >
+                                {midEllipsis(actor.distinct_ids[0], 32)}
+                            </CopyToClipboardInline>
+                        </>
+                    )}
+                </div>
+
+                {matchedRecordings.length && matchedRecordings.length > 0 ? (
+                    <div className="shrink-0">
+                        <LemonButton
+                            onClick={onOpenRecordingClick}
+                            sideIcon={matchedRecordings.length === 1 ? <IconPlayCircle /> : null}
+                            type="secondary"
+                            size="small"
+                        >
+                            {matchedRecordings.length > 1 ? `${matchedRecordings.length} recordings` : 'View recording'}
+                        </LemonButton>
+                    </div>
+                ) : null}
+            </div>
+
+            {expanded ? (
+                <div className="bg-side border-t">
+                    <Tabs defaultActiveKey={tab} onChange={setTab} tabBarStyle={{ paddingLeft: 20, marginBottom: 0 }}>
+                        <Tabs.TabPane tab="Properties" key="properties">
+                            {Object.keys(actor.properties).length ? (
+                                <PropertiesTable properties={actor.properties} />
+                            ) : (
+                                <p className="text-center m-4">There are no properties.</p>
+                            )}
+                        </Tabs.TabPane>
+                        <Tabs.TabPane tab="Recordings" key="recordings">
+                            <div className="p-2 space-y-2 font-medium mt-1">
+                                <div className="flex justify-between items-center px-2">
+                                    <span>{pluralize(matchedRecordings.length, 'matched recording')}</span>
+                                </div>
+                                <ul className="space-y-px">
+                                    {matchedRecordings?.length
+                                        ? matchedRecordings.map((recording, i) => (
+                                              <>
+                                                  <LemonDivider className="my-0" />
+                                                  <li key={i}>
+                                                      <LemonButton
+                                                          key={i}
+                                                          fullWidth
+                                                          onClick={() => {
+                                                              recording.session_id &&
+                                                                  onOpenRecording({
+                                                                      id: recording.session_id,
+                                                                      matching_events: [
+                                                                          {
+                                                                              events: recording.events,
+                                                                              session_id: recording.session_id,
+                                                                          },
+                                                                      ],
+                                                                  })
+                                                          }}
+                                                      >
+                                                          <div className="flex flex-1 justify-between gap-2 items-center">
+                                                              <span>View recording {i + 1}</span>
+                                                              <IconPlayCircle className="text-xl text-muted" />
+                                                          </div>
+                                                      </LemonButton>
+                                                  </li>
+                                              </>
+                                          ))
+                                        : null}
+                                </ul>
+                            </div>
+                        </Tabs.TabPane>
+                    </Tabs>
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
+export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfterClose'>
+
+export const openPersonsModal = (props: OpenPersonsModalProps): void => {
+    const div = document.createElement('div')
+    function destroy(): void {
+        const unmountResult = ReactDOM.unmountComponentAtNode(div)
+        if (unmountResult && div.parentNode) {
+            div.parentNode.removeChild(div)
+        }
+    }
+
+    document.body.appendChild(div)
+    ReactDOM.render(<PersonsModal {...props} onAfterClose={destroy} />, div)
 }

@@ -9,16 +9,15 @@ import {
     Properties,
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
-import { TaskList } from 'graphile-worker'
 import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { JobQueueManager } from 'main/job-queues/job-queue-manager'
 import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
+import { GraphileWorker } from './main/jobs/graphile-worker'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
@@ -143,6 +142,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CONVERSION_BUFFER_ENABLED: boolean
     CONVERSION_BUFFER_ENABLED_TEAMS: string
+    CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
     BUFFER_CONVERSION_SECONDS: number
     PERSON_INFO_TO_REDIS_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
@@ -197,13 +197,14 @@ export interface Hub extends PluginsServerConfig {
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
     personManager: PersonManager
-    jobQueueManager: JobQueueManager
     siteUrlManager: SiteUrlManager
+    graphileWorker: GraphileWorker
     // diagnostics
     lastActivity: number
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
+    conversionBufferTopicEnabledTeams: Set<number>
 }
 
 export interface PluginServerCapabilities {
@@ -221,46 +222,18 @@ export interface EnqueuedPluginJob {
     timestamp: number
     pluginConfigId: number
     pluginConfigTeam: number
+    jobKey?: string
 }
 
 export interface EnqueuedBufferJob {
     eventPayload: PluginEvent
     timestamp: number
+    jobKey?: string
 }
 
 export enum JobName {
     PLUGIN_JOB = 'pluginJob',
     BUFFER_JOB = 'bufferJob',
-}
-
-export interface JobQueue {
-    startConsumer: (jobHandlers: TaskList) => Promise<void> | void
-    stopConsumer: () => Promise<void> | void
-    pauseConsumer: () => Promise<void> | void
-    resumeConsumer: () => Promise<void> | void
-    isConsumerPaused: () => boolean
-
-    connectProducer: () => Promise<void> | void
-    enqueue: (jobName: string, job: EnqueuedJob) => Promise<void> | void
-    disconnectProducer: () => Promise<void> | void
-}
-
-export enum JobQueueType {
-    FS = 'fs',
-    Graphile = 'graphile',
-}
-
-export enum JobQueuePersistence {
-    /** Job queues that store jobs on the local server */
-    Local = 'local',
-    /** Remote persistent job queues that can be read from concurrently */
-    Concurrent = 'concurrent',
-}
-
-export type JobQueueExport = {
-    type: JobQueueType
-    persistence: JobQueuePersistence
-    getQueue: (serverConfig: PluginsServerConfig) => JobQueue
 }
 
 export type PluginId = Plugin['id']
@@ -278,7 +251,7 @@ export type StoredPluginMetrics = Record<string, StoredMetricMathOperations> | n
 export type PluginMetricsVmResponse = Record<string, string> | null
 
 export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date' | 'daterange'
     title?: string
     required?: boolean
     default?: any
@@ -306,6 +279,8 @@ export interface Plugin {
     source__index_ts?: string
     /** Cached source for frontend.tsx from a joined PluginSourceFile query */
     source__frontend_tsx?: string
+    /** Cached source for site.ts from a joined PluginSourceFile query */
+    source__site_ts?: string
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
@@ -875,9 +850,9 @@ export interface PluginScheduleControl {
     reloadSchedule: () => Promise<void>
 }
 
-export interface JobQueueConsumerControl {
+export interface JobsConsumerControl {
     stop: () => Promise<void>
-    resume: () => Promise<void> | void
+    resume: () => Promise<void>
 }
 
 export type IngestEventResponse =

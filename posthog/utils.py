@@ -29,6 +29,7 @@ from typing import (
 from urllib.parse import urljoin, urlparse
 
 import lzstring
+import posthoganalytics
 import pytz
 import structlog
 from celery.schedules import crontab
@@ -308,6 +309,9 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     if country_code:
         posthog_app_context["week_start"] = get_week_start_for_country_code(country_code)
 
+    posthog_bootstrap: Dict[str, Any] = {}
+    posthog_distinct_id: Optional[str] = None
+
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.team import TeamSerializer
@@ -326,6 +330,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         if request.user.pk:
             user_serialized = UserSerializer(request.user, context={"request": request}, many=False)
             posthog_app_context["current_user"] = user_serialized.data
+            posthog_distinct_id = user_serialized.data.get("distinct_id")
             team = cast(User, request.user).team
             if team:
                 team_serialized = TeamSerializer(team, context={"request": request}, many=False)
@@ -333,6 +338,16 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
                 posthog_app_context["frontend_apps"] = get_frontend_apps(team.pk)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
+
+    if posthog_distinct_id:
+        feature_flags = posthoganalytics.get_all_flags(posthog_distinct_id, only_evaluate_locally=True)
+        # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
+        posthog_bootstrap["featureFlags"] = feature_flags
+
+    # This allows immediate flag availability on the frontend, atleast for flags
+    # that don't depend on any person properties. To get these flags, add person properties to the
+    # `get_all_flags` call above.
+    context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
     html = template.render(context, request=request)
     return HttpResponse(html)
@@ -460,7 +475,7 @@ def cors_response(request, response):
     response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
 
     # Handle headers that sentry randomly sends for every request.
-    #  Would cause a CORS failure otherwise.
+    # Would cause a CORS failure otherwise.
     allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
     allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id"]]
 
@@ -708,6 +723,15 @@ def get_instance_realm() -> str:
         return "demo"
     else:
         return "hosted-clickhouse"
+
+
+def get_instance_region() -> Optional[str]:
+    """
+    Returns the region for the current instance. `US` or 'EU'.
+    """
+    if settings.MULTI_TENANCY:
+        return settings.REGION
+    return None
 
 
 def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:
@@ -1032,22 +1056,6 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     except Exception as err:
         capture_exception(err)
         return None
-
-
-def should_write_recordings_to_object_storage(team_id: Optional[int]) -> bool:
-    return (
-        team_id is not None
-        and settings.OBJECT_STORAGE_ENABLED
-        and team_id == settings.WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM
-    )
-
-
-def should_read_recordings_from_object_storage(team_id: Optional[int]) -> bool:
-    return (
-        team_id is not None
-        and settings.OBJECT_STORAGE_ENABLED
-        and team_id == settings.READ_RECORDINGS_FROM_OBJECT_STORAGE_FOR_TEAM
-    )
 
 
 def generate_short_id():

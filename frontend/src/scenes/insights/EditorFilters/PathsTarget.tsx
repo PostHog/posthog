@@ -1,13 +1,12 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { BarChartOutlined } from '@ant-design/icons'
 import { FunnelPathType, EditorFilterProps } from '~/types'
 
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import { IconClose } from 'lib/components/icons'
+import { IconClose, IconFunnelVertical } from 'lib/components/icons'
 
 export function PathsTargetStart(props: EditorFilterProps): JSX.Element {
     return <PathsTarget position="start" {...props} />
@@ -48,8 +47,8 @@ export function PathsTarget({
     function _getStepLabel(funnelFilters?: Record<string, any>, index?: number, shift: number = 0): JSX.Element {
         if (funnelFilters && index) {
             return (
-                <div>
-                    <BarChartOutlined />
+                <div className="flex items-center gap-2">
+                    <IconFunnelVertical className="text-2xl" />
                     <span className="label">{`${
                         index > 0 ? 'Funnel step ' + (index + shift) : 'Funnel dropoff ' + index * -1
                     }: ${_getStepNameAtIndex(funnelFilters, index > 0 ? index + shift : index * -1)}`}</span>

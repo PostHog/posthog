@@ -1,5 +1,6 @@
 .project-homepage {
     .homepage-dashboard-header {
+        display: flex;
         justify-content: space-between;
         align-items: center;
 
@@ -7,10 +8,6 @@
             display: flex;
             flex-direction: row;
             align-items: center;
-
-            .dashboard-name {
-                margin: 0;
-            }
 
             .ant-skeleton {
                 width: 300px;

@@ -5,7 +5,7 @@ import { Divider } from 'antd'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, PropertyDefinition } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
@@ -25,6 +25,9 @@ import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 import { EventsTable } from 'scenes/events'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
+import { IconPlayCircle } from 'lib/components/icons'
+import { combineUrl } from 'kea-router/lib/utils'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -106,13 +109,35 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     }
                                 />
                                 <div className="definition-sent-as">
-                                    Raw event name: <pre>{definition.name}</pre>
+                                    Raw {singular} name: <pre>{definition.name}</pre>
                                 </div>
                             </>
                         }
                         buttons={
-                            hasTaxonomyFeatures && (
-                                <>
+                            <>
+                                <LemonButton
+                                    type="secondary"
+                                    to={
+                                        combineUrl(urls.sessionRecordings(), {
+                                            filters: {
+                                                events: [
+                                                    {
+                                                        id: definition.name,
+                                                        type: 'events',
+                                                        order: 0,
+                                                        name: definition.name,
+                                                    },
+                                                ],
+                                            },
+                                        }).url
+                                    }
+                                    sideIcon={<IconPlayCircle />}
+                                    data-attr="event-definition-view-recordings"
+                                >
+                                    View recordings
+                                </LemonButton>
+
+                                {hasTaxonomyFeatures && (
                                     <LemonButton
                                         data-attr="edit-definition"
                                         type="secondary"
@@ -122,20 +147,33 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     >
                                         Edit
                                     </LemonButton>
-                                </>
-                            )
+                                )}
+                            </>
                         }
                     />
                     <Divider />
                     <DefinitionPopup.Grid cols={2}>
-                        <DefinitionPopup.Card title="First seen" value={formatTimeFromNow(definition.created_at)} />
-                        <DefinitionPopup.Card title="Last seen" value={formatTimeFromNow(definition.last_seen_at)} />
-                        <DefinitionPopup.Card
-                            title={<ThirtyDayVolumeTitle />}
-                            value={
-                                definition.volume_30_day == null ? '-' : humanFriendlyNumber(definition.volume_30_day)
-                            }
-                        />
+                        {isEvent && (
+                            <>
+                                <DefinitionPopup.Card
+                                    title="First seen"
+                                    value={formatTimeFromNow(definition.created_at)}
+                                />
+                                <DefinitionPopup.Card
+                                    title="Last seen"
+                                    value={formatTimeFromNow(definition.last_seen_at)}
+                                />
+                                <DefinitionPopup.Card
+                                    title={<ThirtyDayVolumeTitle />}
+                                    value={
+                                        definition.volume_30_day == null
+                                            ? '-'
+                                            : humanFriendlyNumber(definition.volume_30_day)
+                                    }
+                                />
+                            </>
+                        )}
+
                         <DefinitionPopup.Card
                             title={<ThirtyDayQueryCountTitle />}
                             value={
@@ -144,6 +182,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     : humanFriendlyNumber(definition.query_usage_30_day)
                             }
                         />
+                        {!isEvent && (
+                            <DefinitionPopup.Card
+                                title="Property Type"
+                                value={(definition as PropertyDefinition).property_type ?? '-'}
+                            />
+                        )}
                     </DefinitionPopup.Grid>
                     <Divider />
                     {isEvent && definition.id !== 'new' && (

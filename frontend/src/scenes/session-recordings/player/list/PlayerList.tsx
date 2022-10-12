@@ -1,5 +1,5 @@
 import './PlayerList.scss'
-import React, { useEffect, useRef } from 'react'
+import React, { ReactElement, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import {
@@ -26,16 +26,21 @@ interface RowConfig<T extends Record<string, any>> {
     /** Status of each row. Defaults no status */
     status?: RowStatus | ((record: T) => RowStatus | null)
     /** Callback to render main content on left side of row */
-    content?: JSX.Element | ((record: T) => JSX.Element | null)
+    content?: ReactElement | ((record: T, index: number, expanded: boolean) => ReactElement | null)
     /** Callback to render main content on right side of row */
-    sideContent?: JSX.Element | ((record: T) => JSX.Element | null)
+    sideContent?: ReactElement | ((record: T, index: number, expanded: boolean) => ReactElement | null)
     /** Side menu options for each row in the list **/
     options?: ListRowOptions<T> | ((record: T, index: number) => ListRowOptions<T>)
 }
 
+export interface PlayerListExpandableConfig<T extends Record<string, any>> extends ExpandableConfig<T> {
+    /** If specified, replace the preview content in the row with custom render */
+    expandedPreviewContentRender?: (record: T, recordIndex: number) => any
+}
+
 export interface PlayerListProps<T> extends SessionRecordingPlayerProps {
     tab: SessionRecordingTab
-    expandable?: ExpandableConfig<T>
+    expandable?: PlayerListExpandableConfig<T>
     row?: RowConfig<T>
 }
 
@@ -120,6 +125,12 @@ export function PlayerList<T extends Record<string, any>>({
                                     rowCount={data.length}
                                     rowRenderer={({ index, style, key }) => {
                                         const record = data[index] as T
+                                        const expandedDetermined = getRowExpandedState(
+                                            record,
+                                            index,
+                                            expandable,
+                                            expandedRows.has(index)
+                                        )
                                         const rowKeyDetermined = key ?? index
                                         const rowClassNameDetermined =
                                             typeof row?.className === 'function'
@@ -129,21 +140,17 @@ export function PlayerList<T extends Record<string, any>>({
                                             typeof row?.status === 'function' ? row.status(record) : row?.status
                                         const rowCurrentDetermined = isCurrent(index)
                                         const rowContentDetermined =
-                                            typeof row?.content === 'function' ? row.content(record) : row?.content
+                                            typeof row?.content === 'function'
+                                                ? row.content(record, index, expandedDetermined)
+                                                : row?.content
                                         const rowSideContentDetermined =
                                             typeof row?.sideContent === 'function'
-                                                ? row.sideContent(record)
+                                                ? row.sideContent(record, index, expandedDetermined)
                                                 : row?.sideContent
                                         const optionsDetermined =
                                             typeof row?.options === 'function'
                                                 ? row.options(record, index)
                                                 : row?.options
-                                        const expandedDetermined = getRowExpandedState(
-                                            record,
-                                            index,
-                                            expandable,
-                                            expandedRows.has(index)
-                                        )
 
                                         return (
                                             <PlayerListRow

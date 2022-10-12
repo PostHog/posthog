@@ -20,7 +20,6 @@ import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
@@ -31,6 +30,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/SessionRecordingsPlaylist'
 import { NotFound } from 'lib/components/NotFound'
+import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
 const { TabPane } = Tabs
 
@@ -119,13 +119,15 @@ export function Person(): JSX.Element | null {
                             Delete person
                         </LemonButton>
 
-                        <LemonButton
-                            onClick={() => setSplitMergeModalShown(true)}
-                            data-attr="merge-person-button"
-                            type="secondary"
-                        >
-                            Split or merge IDs
-                        </LemonButton>
+                        {person.distinct_ids.length > 1 && (
+                            <LemonButton
+                                onClick={() => setSplitMergeModalShown(true)}
+                                data-attr="merge-person-button"
+                                type="secondary"
+                            >
+                                Split IDs
+                            </LemonButton>
+                        )}
                     </div>
                 }
             />
@@ -174,7 +176,7 @@ export function Person(): JSX.Element | null {
                             </AlertMessage>
                         </div>
                     ) : null}
-                    {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST] ? (
+                    {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3] ? (
                         <SessionRecordingsPlaylist
                             key={person.uuid} // force refresh if user changes
                             personUUID={person.uuid}
@@ -207,12 +209,19 @@ export function Person(): JSX.Element | null {
                         <RelatedGroups id={person.uuid} groupTypeIndex={null} />
                     </TabPane>
                 )}
+                {person.uuid && (
+                    <TabPane
+                        tab={<span data-attr="persons-related-flags-tab">Feature flags</span>}
+                        key={PersonsTabType.FEATURE_FLAGS}
+                    >
+                        <RelatedFeatureFlags distinctId={person.distinct_ids[0]} />
+                    </TabPane>
+                )}
 
                 <TabPane tab="History" key="history">
                     <ActivityLog
                         scope={ActivityScope.PERSON}
                         id={person.id}
-                        describer={personActivityDescriber}
                         caption={
                             <div>
                                 <InfoCircleOutlined style={{ marginRight: '.25rem' }} />

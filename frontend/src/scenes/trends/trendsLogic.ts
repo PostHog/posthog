@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import api from 'lib/api'
 import { insightLogic } from '../insights/insightLogic'
@@ -6,39 +6,35 @@ import { InsightLogicProps, FilterType, InsightType, TrendResult, ActionFilter, 
 import type { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { personsModalLogic } from './persons-modal/personsModalLogic'
 import { groupsModel } from '~/models/groupsModel'
+import { subscriptions } from 'kea-subscriptions'
 
-export const trendsLogic = kea<trendsLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps('all_trends'),
-    path: (key) => ['scenes', 'trends', 'trendsLogic', key],
+export const trendsLogic = kea<trendsLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('all_trends')),
+    path((key) => ['scenes', 'trends', 'trendsLogic', key]),
 
-    connect: (props: InsightLogicProps) => ({
+    connect((props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'hiddenLegendKeys'],
+            ['filters', 'insight', 'insightLoading', 'hiddenLegendKeys', 'localFilters'],
             groupsModel,
             ['aggregationLabel'],
         ],
-        actions: [
-            insightLogic(props),
-            ['loadResultsSuccess', 'toggleVisibility', 'setHiddenById'],
-            personsModalLogic,
-            ['loadPeople', 'loadPeopleFromUrl'],
-        ],
-    }),
+        actions: [insightLogic(props), ['loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
+    })),
 
-    actions: () => ({
+    actions(() => ({
         setFilters: (filters: Partial<FilterType>, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
         setTargetAction: (action: ActionFilter) => ({ action }),
-    }),
+        setIsFormulaOn: (enabled: boolean) => ({ enabled }),
+    })),
 
-    reducers: () => ({
+    reducers(({ props }) => ({
         toggledLifecycles: [
             ['new', 'resurrecting', 'returning', 'dormant'],
             {
@@ -62,9 +58,15 @@ export const trendsLogic = kea<trendsLogicType>({
                 setBreakdownValuesLoading: (_, { loading }) => loading,
             },
         ],
-    }),
+        isFormulaOn: [
+            () => !!props.cachedInsight?.filters?.formula,
+            {
+                setIsFormulaOn: (_, { enabled }) => enabled,
+            },
+        ],
+    })),
 
-    selectors: {
+    selectors({
         loadedFilters: [
             (s) => [s.insight],
             ({ filters }): Partial<FilterType> => (isTrendsInsight(filters?.insight) ? filters ?? {} : {}),
@@ -94,19 +96,6 @@ export const trendsLogic = kea<trendsLogicType>({
                     results.sort((a, b) => b.aggregated_value - a.aggregated_value)
                 }
                 return results.map((result, index) => ({ ...result, id: index }))
-            },
-        ],
-        showModalActions: [
-            (s) => [s.filters],
-            (filters): boolean => {
-                const isNotAggregatingByGroup = (entity: Record<string, any>): boolean =>
-                    entity.math_group_type_index == undefined
-
-                return (
-                    (filters.events || []).every(isNotAggregatingByGroup) &&
-                    (filters.actions || []).every(isNotAggregatingByGroup) &&
-                    filters.breakdown_type !== 'group'
-                )
             },
         ],
         aggregationTargetLabel: [
@@ -149,15 +138,9 @@ export const trendsLogic = kea<trendsLogicType>({
                     : 'none' // mixed group types
             },
         ],
-    },
+    }),
 
-    listeners: ({ actions, values, props }) => ({
-        loadPeople: ({ peopleParams: { action } }) => {
-            action && actions.setTargetAction(action)
-        },
-        loadPeopleFromUrl: ({ action }) => {
-            action && actions.setTargetAction(action)
-        },
+    listeners(({ actions, values, props }) => ({
         setFilters: async ({ filters, mergeFilters }) => {
             insightLogic(props).actions.setFilters(mergeFilters ? { ...values.filters, ...filters } : filters)
         },
@@ -180,5 +163,19 @@ export const trendsLogic = kea<trendsLogicType>({
             })
             actions.setBreakdownValuesLoading(false)
         },
-    }),
-})
+        setIsFormulaOn: ({ enabled }) => {
+            if (!enabled) {
+                actions.setFilters({ formula: undefined })
+            }
+        },
+    })),
+    subscriptions(({ values, actions }) => ({
+        filters: (filters: Partial<FilterType>) => {
+            const shouldFormulaBeOn = !!filters.formula
+            // Prevent too many renders by only firing the action if needed
+            if (values.isFormulaOn !== shouldFormulaBeOn) {
+                actions.setIsFormulaOn(shouldFormulaBeOn)
+            }
+        },
+    })),
+])

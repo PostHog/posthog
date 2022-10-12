@@ -5,13 +5,13 @@ import Modal from 'react-modal'
 import './LemonModal.scss'
 import clsx from 'clsx'
 
-export type LemonModalContentProps = {
+interface LemonModalInnerProps {
     children?: React.ReactNode
     className?: string
 }
 
-export type LemonModalFooterProps = {
-    children?: React.ReactNode
+export interface LemonModalContentProps extends LemonModalInnerProps {
+    embedded?: boolean
 }
 
 export interface LemonModalProps {
@@ -27,20 +27,26 @@ export interface LemonModalProps {
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
     closable?: boolean
+    /** Expands the modal to fill the entire screen */
+    fullScreen?: boolean
     contentRef?: React.RefCallback<HTMLDivElement>
     overlayRef?: React.RefCallback<HTMLDivElement>
 }
 
-export const LemonModalHeader = ({ children, className }: LemonModalContentProps): JSX.Element => {
+export const LemonModalHeader = ({ children, className }: LemonModalInnerProps): JSX.Element => {
     return <header className={clsx('LemonModal__header', className)}>{children}</header>
 }
 
-export const LemonModalFooter = ({ children, className }: LemonModalContentProps): JSX.Element => {
+export const LemonModalFooter = ({ children, className }: LemonModalInnerProps): JSX.Element => {
     return <footer className={clsx('LemonModal__footer', className)}>{children}</footer>
 }
 
-export const LemonModalContent = ({ children, className }: LemonModalContentProps): JSX.Element => {
-    return <section className={clsx('LemonModal__content', className)}>{children}</section>
+export const LemonModalContent = ({ children, className, embedded = false }: LemonModalContentProps): JSX.Element => {
+    return (
+        <section className={clsx('LemonModal__content', embedded && 'LemonModal__content--embedded', className)}>
+            {children}
+        </section>
+    )
 }
 
 export function LemonModal({
@@ -55,6 +61,7 @@ export function LemonModal({
     inline,
     simple,
     closable = true,
+    fullScreen = false,
     contentRef,
     overlayRef,
 }: LemonModalProps): JSX.Element {
@@ -97,6 +104,9 @@ export function LemonModal({
             </div>
         </>
     )
+
+    width = !fullScreen ? width : undefined
+
     return inline ? (
         // eslint-disable-next-line react/forbid-dom-props
         <div className="LemonModal ReactModal__Content--after-open" style={{ width }}>
@@ -110,7 +120,7 @@ export function LemonModal({
             shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
-            className="LemonModal"
+            className={clsx('LemonModal', fullScreen && 'LemonModal--fullscreen')}
             overlayClassName="LemonModal__overlay"
             style={{
                 content: {
