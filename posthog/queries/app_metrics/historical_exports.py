@@ -3,6 +3,7 @@ from typing import Dict, Optional
 
 import pytz
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.queries.app_metrics.app_metrics import AppMetricsQuery
@@ -27,6 +28,7 @@ def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Opt
     for job_id, trigger_entry in by_category["job_triggered"].items():
         record = {
             "created_at": trigger_entry.created_at,
+            "created_by": UserBasicSerializer(instance=trigger_entry.user).data,
             "job_id": job_id,
             "payload": trigger_entry.detail["trigger"]["payload"],
         }
