@@ -405,7 +405,7 @@
               AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -434,7 +434,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
              AND (has(['1'], "mat_name")) )
         GROUP BY date)
@@ -483,7 +483,7 @@
               AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
