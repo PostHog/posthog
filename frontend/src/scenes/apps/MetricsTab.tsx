@@ -1,43 +1,39 @@
-import React, { useEffect, useMemo, useRef } from 'react'
-import { dayjs } from 'lib/dayjs'
+import React, { useEffect, useRef } from 'react'
 import { getSeriesColor } from 'lib/colors'
 import { Card } from 'antd'
 import { Chart, ChartItem } from 'chart.js'
-import { range } from 'lib/utils'
+import { useValues } from 'kea'
+import { appMetricsSceneLogic } from './appMetricsSceneLogic'
 
 export function MetricsTab(): JSX.Element {
+    const { metrics, metricsLoading } = useValues(appMetricsSceneLogic)
+
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
-
-    const dates = useMemo(
-        () =>
-            range(0, 30)
-                .map((i) => dayjs().subtract(i, 'days').format('D MMM YYYY'))
-                .reverse(),
-        []
-    )
-
-    const dataSuccess = useMemo(() => range(0, 30).map((x) => ((x + 2) % 7) * 100), [])
-
-    const dataFail = useMemo(() => range(0, 30).map((x) => ((x + 2) % 7) * 1), [])
 
     useEffect(() => {
         let chart: Chart
-        if (canvasRef.current) {
+        if (canvasRef.current && metrics) {
             const successColor = getSeriesColor(0)
             chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
                 type: 'line',
                 data: {
-                    labels: dates,
+                    labels: metrics.dates,
                     datasets: [
                         {
                             label: 'Events delivered on first try',
-                            data: dataSuccess,
+                            data: metrics.successes,
+                            fill: true,
+                            borderColor: successColor,
+                        },
+                        {
+                            label: 'Events delivered on retry',
+                            data: metrics.successes_on_retry,
                             fill: true,
                             borderColor: successColor,
                         },
                         {
                             label: 'Events failed',
-                            data: dataFail,
+                            data: metrics.failures,
                             fill: true,
                             borderColor: successColor,
                         },
@@ -77,22 +73,27 @@ export function MetricsTab(): JSX.Element {
         return () => {
             chart?.destroy()
         }
-    }, [])
+    }, [metrics])
 
+    if (metricsLoading || !metrics) {
+        return <></>
+    }
+
+    // :TODO: Format numbers
     return (
         <div className="mt-4">
             <Card title="Metrics overview">
                 <div>
                     <div className="card-secondary">Events delivered on first try</div>
-                    <div>568,048</div>
+                    <div>{metrics.totals.successes}</div>
                 </div>
                 <div>
                     <div className="card-secondary">Events delivered on retry</div>
-                    <div>134</div>
+                    <div>{metrics.totals.successes_on_retry}</div>
                 </div>
                 <div>
                     <div className="card-secondary">Events failed</div>
-                    <div>0</div>
+                    <div>{metrics.totals.failures}</div>
                 </div>
             </Card>
 
