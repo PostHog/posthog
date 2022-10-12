@@ -2,6 +2,10 @@ VOLUME_SQL = """
 SELECT {aggregate_operation} AS data, {interval}(toDateTime(timestamp), {start_of_week_fix} %(timezone)s) AS date FROM ({event_query}) GROUP BY date
 """
 
+VOLUME_AGGREGATE_SQL = """
+SELECT {aggregate_operation} as data FROM ({event_query}) events
+"""
+
 VOLUME_PER_ACTOR_SQL = """
 SELECT {aggregate_operation} AS data, date FROM (
     SELECT COUNT(*) AS intermediate_count, {aggregator}, {interval}(toDateTime(timestamp), {start_of_week_fix} %(timezone)s) AS date
@@ -10,22 +14,26 @@ SELECT {aggregate_operation} AS data, date FROM (
 ) GROUP BY date
 """
 
-VOLUME_TOTAL_AGGREGATE_SQL = """
-SELECT {aggregate_operation} as data FROM ({event_query}) events
-"""
-
-SESSION_VOLUME_TOTAL_AGGREGATE_SQL = """
+VOLUME_PER_ACTOR_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM (
-    SELECT any(session_duration) as session_duration FROM ({event_query}) events GROUP BY $session_id
-)
+    SELECT COUNT(*) AS intermediate_count, {aggregator}
+    FROM ({event_query})
+    GROUP BY {aggregator}
+) events
 """
 
-SESSION_DURATION_VOLUME_SQL = """
+SESSION_DURATION_SQL = """
 SELECT {aggregate_operation} as data, date FROM (
     SELECT {interval}(toDateTime(timestamp), {start_of_week_fix} %(timezone)s) as date, any(session_duration) as session_duration
     FROM ({event_query})
     GROUP BY $session_id, date
 ) GROUP BY date
+"""
+
+SESSION_DURATION_AGGREGATE_SQL = """
+SELECT {aggregate_operation} as data FROM (
+    SELECT any(session_duration) as session_duration FROM ({event_query}) events GROUP BY $session_id
+)
 """
 
 ACTIVE_USER_SQL = """

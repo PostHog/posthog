@@ -20,11 +20,12 @@ from posthog.queries.trends.sql import (
     ACTIVE_USER_SQL,
     AGGREGATE_SQL,
     CUMULATIVE_SQL,
-    SESSION_DURATION_VOLUME_SQL,
-    SESSION_VOLUME_TOTAL_AGGREGATE_SQL,
+    SESSION_DURATION_AGGREGATE_SQL,
+    SESSION_DURATION_SQL,
+    VOLUME_AGGREGATE_SQL,
+    VOLUME_PER_ACTOR_AGGREGATE_SQL,
     VOLUME_PER_ACTOR_SQL,
     VOLUME_SQL,
-    VOLUME_TOTAL_AGGREGATE_SQL,
 )
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import enumerate_time_range, parse_response, process_math
@@ -60,13 +61,18 @@ class TrendsTotalVolume:
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
-
             if entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
-                content_sql = SESSION_VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
+                content_sql = SESSION_DURATION_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
+            elif entity.math_property == EVENT_COUNT_PER_ACTOR:
+                content_sql = VOLUME_PER_ACTOR_AGGREGATE_SQL.format(
+                    event_query=event_query,
+                    **content_sql_params,
+                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                )
             else:
-                content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
+                content_sql = VOLUME_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
         else:
@@ -100,7 +106,7 @@ class TrendsTotalVolume:
             elif entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
-                content_sql = SESSION_DURATION_VOLUME_SQL.format(
+                content_sql = SESSION_DURATION_SQL.format(
                     event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params
                 )
             else:
