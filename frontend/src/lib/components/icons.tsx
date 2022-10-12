@@ -1214,25 +1214,6 @@ export function IconRefresh(props: SvgIconProps): JSX.Element {
     )
 }
 
-export function IconPlay(props: SvgIconProps): JSX.Element {
-    return (
-        <SvgIcon viewBox="0 0 24 24" {...props}>
-            <path d="M6 20L18.4444 12L6 4V20Z" fill="currentColor" />
-        </SvgIcon>
-    )
-}
-
-export function IconPlayCircle(props: SvgIconProps): JSX.Element {
-    return (
-        <SvgIcon viewBox="0 0 24 24" {...props}>
-            <path
-                d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 20C7.59 20 4 16.41 4 12C4 7.59 7.59 4 12 4C16.41 4 20 7.59 20 12C20 16.41 16.41 20 12 20ZM9.5 16.5L16.5 12L9.5 7.5V16.5Z"
-                fill="currentColor"
-            />
-        </SvgIcon>
-    )
-}
-
 /** Material Design Play icon. */
 export function IconReplay(props: SvgIconProps): JSX.Element {
     return (
@@ -1692,6 +1673,33 @@ export function IconSkipInactivity({ enabled, ...props }: SvgIconProps & { enabl
                 strokeOpacity={enabled ? '1' : '0.3'}
                 strokeWidth="1.25"
             />
+        </SvgIcon>
+    )
+}
+
+export function IconPlay(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M6 20.291L18.4444 12.291L6 4.29102V20.291Z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+export function IconPlayCircle(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 20C7.59 20 4 16.41 4 12C4 7.59 7.59 4 12 4C16.41 4 20 7.59 20 12C20 16.41 16.41 20 12 20ZM9.5 16.5L16.5 12L9.5 7.5V16.5Z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+export function IconPause(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M6 19H10V5H6V19ZM14 5V19H18V5H14Z" fill="currentColor" />
         </SvgIcon>
     )
 }

@@ -33,20 +33,11 @@
         align-items: center;
 
         z-index: 10;
+        transition: background-color 200ms;
+        background-color: rgba(0, 0, 0, 0.08);
 
-        .PlayerFrame__overlay__content {
-            transition: background-color 200ms;
-            background-color: rgba(0, 0, 0, 0.08);
-
-            &:hover {
-                background-color: rgba(0, 0, 0, 0.15);
-            }
-            .rrweb-overlay-icon {
-                svg {
-                    width: 5rem;
-                    height: 5rem;
-                }
-            }
+        &:hover {
+            background-color: rgba(0, 0, 0, 0.15);
         }
     }
 }

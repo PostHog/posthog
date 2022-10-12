@@ -3,11 +3,55 @@ import { Handler, viewportResizeDimension } from 'rrweb/typings/types'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
-import { IconPlay } from 'scenes/session-recordings/player/icons'
 import useSize from '@react-hook/size'
-import { IconErrorOutline } from 'lib/components/icons'
+import { IconErrorOutline, IconPlay } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import './PlayerFrame.scss'
+
+const PlayerFrameOverlay = ({ currentPlayerState }: { currentPlayerState: SessionPlayerState }): JSX.Element | null => {
+    let content = null
+    if (currentPlayerState === SessionPlayerState.ERROR) {
+        content = (
+            <div className="flex flex-col justify-center items-center p-6 bg-white rounded m-6 gap-2 max-w-120 shadow">
+                <IconErrorOutline className="text-danger text-5xl" />
+                <div className="font-bold text-default text-lg">We're unable to play this recording</div>
+                <div className="text-muted text-sm text-center">
+                    An error occurred that is preventing this recording from being played. You can refresh the page to
+                    reload the recording.
+                </div>
+                <LemonButton
+                    onClick={() => {
+                        window.location.reload()
+                    }}
+                    type="primary"
+                    fullWidth
+                    center
+                >
+                    Reload
+                </LemonButton>
+                <LemonButton
+                    targetBlank
+                    to="https://posthog.com/support?utm_medium=in-product&utm_campaign=recording-not-found"
+                    type="secondary"
+                    fullWidth
+                    center
+                >
+                    Contact support
+                </LemonButton>
+            </div>
+        )
+    }
+    if (currentPlayerState === SessionPlayerState.BUFFER) {
+        content = <div className="text-4xl text-white">Buffering...</div>
+    }
+    if (currentPlayerState === SessionPlayerState.PAUSE) {
+        content = <IconPlay className="text-6xl text-white" />
+    }
+    if (currentPlayerState === SessionPlayerState.SKIP) {
+        content = <div className="text-4xl text-white">Skipping inactivity</div>
+    }
+    return content ? <div className="PlayerFrame__overlay">{content}</div> : null
+}
 
 export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
     { sessionRecordingId, playerKey }: SessionRecordingPlayerProps,
@@ -61,59 +105,10 @@ export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
         setScale(scale)
     }
 
-    const renderPlayerState = (): JSX.Element | null => {
-        let content = null
-        if (currentPlayerState === SessionPlayerState.ERROR) {
-            content = (
-                <div className="flex flex-col justify-center items-center p-6 bg-white rounded m-6 gap-2 max-w-120 shadow">
-                    <IconErrorOutline className="text-danger text-5xl" />
-                    <div className="font-bold text-default text-lg">We're unable to play this recording</div>
-                    <div className="text-muted text-sm text-center">
-                        An error occurred that is preventing this recording from being played. You can refresh the page
-                        to reload the recording.
-                    </div>
-                    <LemonButton
-                        onClick={() => {
-                            window.location.reload()
-                        }}
-                        type="primary"
-                        fullWidth
-                        center
-                    >
-                        Reload
-                    </LemonButton>
-                    <LemonButton
-                        targetBlank
-                        to="https://posthog.com/support?utm_medium=in-product&utm_campaign=recording-not-found"
-                        type="secondary"
-                        fullWidth
-                        center
-                    >
-                        Contact support
-                    </LemonButton>
-                </div>
-            )
-        }
-        if (currentPlayerState === SessionPlayerState.BUFFER) {
-            content = <div className="text-4xl text-white">Buffering...</div>
-        }
-        if (currentPlayerState === SessionPlayerState.PAUSE) {
-            content = <IconPlay className="PlayerFrame__icon text-white" />
-        }
-        if (currentPlayerState === SessionPlayerState.SKIP) {
-            content = <div className="text-4xl text-white">Skipping inactivity</div>
-        }
-        return content ? (
-            <div className="PlayerFrame__overlay__content justify-center absolute flex items-center h-full w-full cursor-pointer">
-                {content}
-            </div>
-        ) : null
-    }
-
     return (
         <div ref={containerRef} className="PlayerFrame ph-no-capture" onClick={togglePlayPause}>
             <div className="PlayerFrame__content" ref={ref} style={{ position: 'absolute' }} />
-            <div className="PlayerFrame__overlay">{renderPlayerState()}</div>
+            <PlayerFrameOverlay currentPlayerState={currentPlayerState} />
         </div>
     )
 })

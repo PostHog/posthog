@@ -41,18 +41,6 @@
             }
         }
     }
-
-    .rrweb-timestamp {
-        white-space: nowrap;
-        font-size: 14px;
-        margin-right: 1rem;
-    }
-
-    .rrweb-progress {
-        width: 100%;
-        cursor: pointer;
-        margin: 0 1rem;
-    }
 }
 
 .SessionPlayerModal {
@@ -61,33 +49,24 @@
     padding: 0;
 }
 
-// .PlayerControllerV3 {
-//     .rrweb-controller-icon {
-//         cursor: pointer;
-//         display: flex;
-//         justify-content: center;
-//         align-items: center;
+.PlayerControlSeekIcon {
+    position: relative;
+    height: 18px;
+    width: 18px;
 
-//         .rrweb-controller-icon-seek {
-//             position: relative;
-//             height: 18px;
-//             width: 18px;
+    .PlayerControlSeekIcon__seconds {
+        position: absolute;
+        height: 18px;
+        width: 18px;
+        line-height: 18px;
+        font-size: 6px;
+        text-align: center;
+    }
 
-//             span.seek-seconds {
-//                 position: absolute;
-//                 height: 18px;
-//                 width: 18px;
-//                 line-height: 18px;
-//                 font-size: 6px;
-//                 text-align: center;
-//             }
-
-//             .seek-icon {
-//                 position: absolute;
-//                 top: 0;
-//                 left: 0;
-//                 font-size: 18px;
-//             }
-//         }
-//     }
-// }
+    .PlayerControlSeekIcon__icon {
+        position: absolute;
+        top: 0;
+        left: 0;
+        font-size: 18px;
+    }
+}

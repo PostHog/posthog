@@ -5,11 +5,17 @@ import {
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
-import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconFullScreen, IconSkipInactivity, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
+import {
+    IconFullScreen,
+    IconPause,
+    IconPlay,
+    IconSkipInactivity,
+    IconTerminal,
+    UnverifiedEvent,
+} from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -61,11 +67,11 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                 </div>
                 <div className="flex items-center gap-1">
                     <SeekBack sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                    <LemonButton status="primary-alt" size="small">
+                    <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>
                         {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
-                            <IconPause onClick={togglePlayPause} />
+                            <IconPause className="text-2xl" />
                         ) : (
-                            <IconPlay onClick={togglePlayPause} />
+                            <IconPlay className="text-2xl" />
                         )}
                     </LemonButton>
                     <SeekForward sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
