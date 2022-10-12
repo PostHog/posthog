@@ -39,8 +39,6 @@ import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { EventBufferNotice } from './EventBufferNotice'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 
@@ -155,8 +153,6 @@ export function EventsTable({
 
     const { reportEventsTablePollingReactedToPageVisibility } = useActions(eventUsageLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const allowColumnChoice = featureFlags[FEATURE_FLAGS.ALLOW_CSV_EXPORT_COLUMN_CHOICE]
     const { openSessionPlayer } = useActions(sessionPlayerDrawerLogic)
 
     usePageVisibility((pageIsVisible) => {
@@ -524,7 +520,7 @@ export function EventsTable({
                                     defaultColumns={defaultColumns.map((e) => e.key || '')}
                                 />
                             )}
-                            {showExport && allowColumnChoice ? (
+                            {showExport ? (
                                 <LemonButtonWithPopup
                                     popup={{
                                         sameWidth: false,
