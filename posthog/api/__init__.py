@@ -19,6 +19,7 @@ from . import (
     instance_status,
     integration,
     kafka_inspector,
+    media,
     organization,
     organization_domain,
     organization_invite,
@@ -104,7 +105,7 @@ projects_router.register(
 projects_router.register(
     r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"]
 )
-
+projects_router.register(r"media", media.MediaViewSet, "project_media", ["team_id"])
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet)
