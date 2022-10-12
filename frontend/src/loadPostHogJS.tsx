@@ -1,6 +1,7 @@
 import posthog, { PostHogConfig } from 'posthog-js'
 import * as Sentry from '@sentry/react'
 import { Integration } from '@sentry/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig> => {
     if ((window as any).SENTRY_DSN) {
@@ -32,6 +33,12 @@ export function loadPostHogJS(): void {
                 opt_in_site_apps: true,
             })
         )
+
+        // This is a helpful flag to set to automatically reset the recording session on load for testing multiple recordings
+        const shouldResetSessionOnLoad = posthog.getFeatureFlag(FEATURE_FLAGS.SESSION_RESET_ON_LOAD)
+        if (shouldResetSessionOnLoad) {
+            posthog.sessionManager.resetSessionId()
+        }
         // Make sure we have access to the object in window for debugging
         window.posthog = posthog
     } else {
