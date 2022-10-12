@@ -59,7 +59,6 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
         setLocalAxisFormat(format)
         setLocalAxisPrefix(prefix || '')
         setLocalAxisPostfix(postfix || '')
-        debouncedVisibilityChange()
         setFilters({
             ...filters,
             aggregation_axis_format: format,
