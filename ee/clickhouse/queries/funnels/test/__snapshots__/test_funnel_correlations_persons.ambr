@@ -125,11 +125,11 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
   JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'insight loaded'
     AND actors.steps = target_step
@@ -348,11 +348,11 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
   JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'insight loaded'
     AND actors.steps <> target_step

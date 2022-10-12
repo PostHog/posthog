@@ -89,11 +89,11 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
   JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event NOT IN []
   GROUP BY name
@@ -1132,11 +1132,11 @@
             arrayJoin(arrayZip(prop_keys, prop_values)) as prop
      FROM events AS event
      JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1
-     WHERE event.timestamp >= date_from
-       AND event.timestamp < date_to
+     WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
        AND event.team_id = 2
-       AND event.timestamp > actors.first_timestamp
-       AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
        AND event.event NOT IN funnel_step_names
        AND event.event IN ['positively_related', 'negatively_related'] )
   GROUP BY name
@@ -1229,11 +1229,11 @@
             arrayJoin(arrayZip(prop_keys, prop_values)) as prop
      FROM events AS event
      JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1
-     WHERE event.timestamp >= date_from
-       AND event.timestamp < date_to
+     WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
        AND event.team_id = 2
-       AND event.timestamp > actors.first_timestamp
-       AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
        AND event.event NOT IN funnel_step_names
        AND event.event IN ['positively_related', 'negatively_related'] )
   GROUP BY name
@@ -1319,11 +1319,11 @@
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event NOT IN []
   GROUP BY name
@@ -1405,11 +1405,11 @@
   SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'positively_related'
     AND actors.steps = target_step
@@ -1490,11 +1490,11 @@
   SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'positively_related'
     AND actors.steps <> target_step
@@ -1575,11 +1575,11 @@
   SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'negatively_related'
     AND actors.steps = target_step
@@ -1660,11 +1660,11 @@
   SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'negatively_related'
     AND actors.steps <> target_step
@@ -1756,11 +1756,11 @@
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event NOT IN []
   GROUP BY name
@@ -1851,11 +1851,11 @@
   SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'negatively_related'
     AND actors.steps = target_step
@@ -1945,11 +1945,11 @@
   SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'negatively_related'
     AND actors.steps <> target_step
