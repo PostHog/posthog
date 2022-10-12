@@ -9,7 +9,7 @@ import * as schedule from 'node-schedule'
 import { defaultConfig } from '../config/config'
 import {
     Hub,
-    JobQueueConsumerControl,
+    JobsConsumerControl,
     PluginScheduleControl,
     PluginServerCapabilities,
     PluginsServerConfig,
@@ -24,9 +24,7 @@ import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
-import { GraphileQueue } from './job-queues/concurrent/graphile-queue'
-import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
-import { jobQueueMap } from './job-queues/job-queues'
+import { startJobsConsumer } from './jobs/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startPluginSchedules } from './services/schedule'
@@ -62,7 +60,7 @@ export async function startPluginsServer(
     let hub: Hub | undefined
     let piscina: Piscina | undefined
     let queue: KafkaQueue | undefined | null // ingestion queue
-    let jobQueueConsumer: JobQueueConsumerControl | undefined
+    let jobQueueConsumer: JobsConsumerControl | undefined
     let bufferConsumer: Consumer | undefined
     let closeHub: () => Promise<void> | undefined
     let pluginScheduleControl: PluginScheduleControl | undefined
@@ -163,13 +161,13 @@ export async function startPluginsServer(
             pluginScheduleControl = await startPluginSchedules(hub, piscina)
         }
         if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs) {
-            jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+            jobQueueConsumer = await startJobsConsumer(hub, piscina)
         }
         if (hub.capabilities.ingestion) {
             bufferConsumer = await startAnonymousEventBufferConsumer({
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
-                graphileQueue: jobQueueMap.graphile.getQueue(serverConfig) as GraphileQueue,
+                graphileWorker: hub.graphileWorker,
                 statsd: hub.statsd,
             })
         }
@@ -200,11 +198,6 @@ export async function startPluginsServer(
         })
 
         await pubSub.start()
-
-        if (hub.jobQueueManager) {
-            const queueString = hub.jobQueueManager.getJobQueueTypesAsString()
-            await hub!.db!.redisSet('@posthog-plugin-server/enabled-job-queues', queueString)
-        }
 
         // every 5 minutes all ActionManager caches are reloaded for eventual consistency
         schedule.scheduleJob('*/5 * * * *', async () => {
