@@ -4,9 +4,10 @@ import { loaders } from 'kea-loaders'
 import type { appMetricsSceneLogicType } from './appMetricsSceneLogicType'
 import { urls } from 'scenes/urls'
 import { Breadcrumb, PluginConfigWithPluginInfo } from '~/types'
-import api from '../../lib/api'
+import api from 'lib/api'
 import { teamLogic } from '../teamLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
+import { toParams } from 'lib/utils'
 
 export interface AppMetricsLogicProps {
     /** Used as the logic's key */
@@ -27,6 +28,18 @@ export interface HistoricalExportInfo {
     started_at: string
     finished_at?: string
     duration?: number
+}
+
+export interface AppMetrics {
+    dates: Array<string>
+    successes: Array<number>
+    successes_on_retry: Array<number>
+    failures: Array<number>
+    totals: {
+        successes: number
+        successes_on_retry: number
+        failures: number
+    }
 }
 
 const INITIAL_TABS: Array<AppMetricsTab> = [
@@ -61,7 +74,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         ],
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ values, props }) => ({
         pluginConfig: [
             null as PluginConfigWithPluginInfo | null,
             {
@@ -69,6 +82,18 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                     return await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/plugin_configs/${props.pluginConfigId}`
                     )
+                },
+            },
+        ],
+        metrics: [
+            null as AppMetrics | null,
+            {
+                loadMetrics: async () => {
+                    const params = toParams({ category: values.activeTab })
+                    const { results } = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}?${params}`
+                    )
+                    return results
                 },
             },
         ],
@@ -128,6 +153,13 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 actions.setActiveTab(firstAppropriateTab)
             }
         },
+        setActiveTab: ({ tab }) => {
+            if (tab === AppMetricsTab.HistoricalExports) {
+                actions.loadHistoricalExports()
+            } else {
+                actions.loadMetrics()
+            }
+        },
     })),
 
     actionToUrl(({ values, props }) => ({
@@ -141,13 +173,17 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
     })),
 
     urlToAction(({ values, actions }) => ({
-        '/app/:pluginConfigId/:tab': (params: Record<string, string | undefined>) => {
+        '/app/:pluginConfigId/:page': (
+            url: Record<string, string | undefined>,
+            params: Record<string, string | undefined>
+        ) => {
             if (!values.pluginConfig) {
                 actions.loadPluginConfig()
             }
-            if (params.tab === AppMetricsTab.HistoricalExports) {
+            if (url.page === AppMetricsTab.HistoricalExports) {
                 actions.setActiveTab(AppMetricsTab.HistoricalExports)
-                actions.loadHistoricalExports()
+            } else if (params.tab && INITIAL_TABS.includes(params.tab as any)) {
+                actions.setActiveTab(params.tab as AppMetricsTab)
             }
         },
     })),
