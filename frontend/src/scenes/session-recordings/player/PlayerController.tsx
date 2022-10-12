@@ -7,7 +7,7 @@ import {
 import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
-import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/Time'
+import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { IconFullScreen, IconSkipInactivity, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,7 +16,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 
 export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setFullScreen } = useActions(
+    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setIsFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
     const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, tab, isFullScreen } = useValues(
@@ -25,7 +25,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
-        <div className="PlayerControllerV3">
+        <div className="PlayerControllerV3 p-3 bg-light flex flex-col select-none">
             <div className="flex items-center h-8 mb-2" data-attr="rrweb-controller">
                 {!isSmallScreen && <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
                 <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
@@ -124,7 +124,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                             size="small"
                             status="primary-alt"
                             onClick={() => {
-                                setFullScreen(!isFullScreen)
+                                setIsFullScreen(!isFullScreen)
                             }}
                         >
                             <IconFullScreen

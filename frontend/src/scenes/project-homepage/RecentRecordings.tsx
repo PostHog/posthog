@@ -7,7 +7,7 @@ import { CompactList } from 'lib/components/CompactList/CompactList'
 import { LemonButton } from 'lib/components/LemonButton'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/sessionRecordingsListLogic'
 import { urls } from 'scenes/urls'
 import { SessionRecordingType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -21,8 +21,8 @@ interface RecordingRowProps {
 }
 
 function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ key: 'projectHomepage' })
-    const { openSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
+    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ key: 'projectHomepage' })
+    const { openSessionPlayer } = useActions(sessionRecordingsListLogicInstance)
     const { reportRecordingOpenedFromRecentRecordingList } = useActions(eventUsageLogic)
 
     return (
@@ -50,8 +50,8 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
 
 export function RecentRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ key: 'projectHomepage' })
-    const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsTableLogicInstance)
+    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ key: 'projectHomepage' })
+    const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsListLogicInstance)
 
     return (
         <>

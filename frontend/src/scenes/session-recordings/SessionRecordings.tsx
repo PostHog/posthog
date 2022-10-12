@@ -4,7 +4,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
-import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/sessionRecordingsListLogic'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
 import { SessionRecordingsTopBar } from './filters/SessionRecordingsTopBar'
 import { AlertMessage } from 'lib/components/AlertMessage'
@@ -31,5 +31,5 @@ export function SessionsRecordings(): JSX.Element {
 
 export const scene: SceneExport = {
     component: SessionsRecordings,
-    logic: sessionRecordingsTableLogic,
+    logic: sessionRecordingsListLogic,
 }

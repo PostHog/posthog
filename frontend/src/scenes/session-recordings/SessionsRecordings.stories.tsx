@@ -8,7 +8,7 @@ import { App } from 'scenes/App'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
-import { SessionRecordingPlayerV3 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
 export default {
     title: 'Scenes-App/Recordings',
@@ -44,7 +44,7 @@ export function Recording(): JSX.Element {
 export function NewRecording(): JSX.Element {
     return (
         <div className="session-player-wrapper-v3">
-            <SessionRecordingPlayerV3 sessionRecordingId={recordings[0].id} playerKey={'storybook'} />
+            <SessionRecordingPlayer sessionRecordingId={recordings[0].id} playerKey={'storybook'} />
         </div>
     )
 }

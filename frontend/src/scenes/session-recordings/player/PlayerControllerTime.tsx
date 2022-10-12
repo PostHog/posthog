@@ -18,7 +18,7 @@ export function Timestamp({ style, sessionRecordingId, playerKey }: TimeControlP
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic({ sessionRecordingId, playerKey }))
 
     return (
-        <div className="rrweb-timestamp" style={style}>
+        <div className="whitespace-nowrap mr-4" style={style}>
             {colonDelimitedDuration(((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000)} /{' '}
             {colonDelimitedDuration(Math.floor((sessionPlayerData?.metadata?.recordingDurationMs ?? 0) / 1000))}
         </div>

@@ -4,7 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { useValues } from 'kea'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
+import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { percentage, truncate } from 'lib/utils'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
@@ -13,6 +13,7 @@ import { SessionRecordingPlayerProps } from '~/types'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { Link } from '@posthog/lemon-ui'
+import { playerSettingsLogic } from './playerSettingsLogic'
 
 export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const {
@@ -24,8 +25,9 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
         currentWindowIndex,
         recordingStartTime,
         loading,
-        isFullScreen,
-    } = useValues(metaLogic({ sessionRecordingId, playerKey }))
+    } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
+
+    const { isFullScreen } = useValues(playerSettingsLogic)
     return (
         <div
             className={clsx('PlayerMetaV3', {

@@ -1,4 +1,4 @@
-import './styles.scss'
+import './SessionRecordingPlayer.scss'
 import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
@@ -32,14 +32,14 @@ export function useFrameRef({
     return frame
 }
 
-export function SessionRecordingPlayerV3({
+export function SessionRecordingPlayer({
     sessionRecordingId,
     playerKey,
     includeMeta = true,
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
     matching,
 }: SessionRecordingPlayerProps): JSX.Element {
-    const { handleKeyDown, setFullScreen } = useActions(
+    const { handleKeyDown, setIsFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
     )
     const { isNotFound } = useValues(sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }))
@@ -49,9 +49,9 @@ export function SessionRecordingPlayerV3({
     useKeyboardHotkeys(
         {
             f: {
-                action: () => setFullScreen(!isFullScreen),
+                action: () => setIsFullScreen(!isFullScreen),
             },
-            ...(isFullScreen ? { escape: { action: () => setFullScreen(false) } } : {}),
+            ...(isFullScreen ? { escape: { action: () => setIsFullScreen(false) } } : {}),
         },
         [isFullScreen]
     )
@@ -76,17 +76,15 @@ export function SessionRecordingPlayerV3({
 
     return (
         <div
-            className={clsx('SessionPlayerV3', { 'SessionPlayerV3--fullscreen': isFullScreen })}
+            className={clsx('SessionRecordingPlayer', { 'SessionRecordingPlayer--fullscreen': isFullScreen })}
             onKeyDown={handleKeyDown}
             tabIndex={0}
         >
             {includeMeta || isFullScreen ? (
                 <PlayerMetaV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             ) : null}
-            <div className="session-player-body flex">
-                <div className="player-container ph-no-capture">
-                    <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
-                </div>
+            <div className="SessionRecordingPlayer__body">
+                <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
             </div>
             <LemonDivider className="my-0" />
             <PlayerControllerV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />

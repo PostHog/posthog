@@ -7,6 +7,7 @@ import { IconPlay } from 'scenes/session-recordings/player/icons'
 import useSize from '@react-hook/size'
 import { IconErrorOutline } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
+import './PlayerFrame.scss'
 
 export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
     { sessionRecordingId, playerKey }: SessionRecordingPlayerProps,
@@ -97,22 +98,22 @@ export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
             content = <div className="text-4xl text-white">Buffering...</div>
         }
         if (currentPlayerState === SessionPlayerState.PAUSE) {
-            content = <IconPlay className="rrweb-overlay-icon text-white" />
+            content = <IconPlay className="PlayerFrame__icon text-white" />
         }
         if (currentPlayerState === SessionPlayerState.SKIP) {
             content = <div className="text-4xl text-white">Skipping inactivity</div>
         }
         return content ? (
-            <div className="rrweb-overlay justify-center absolute flex items-center h-full w-full cursor-pointer">
+            <div className="PlayerFrame__overlay__content justify-center absolute flex items-center h-full w-full cursor-pointer">
                 {content}
             </div>
         ) : null
     }
 
     return (
-        <div ref={containerRef} className="rrweb-player" onClick={togglePlayPause}>
-            <div className="player-frame" ref={ref} style={{ position: 'absolute' }} />
-            <div className="rrweb-overlay-container">{renderPlayerState()}</div>
+        <div ref={containerRef} className="PlayerFrame ph-no-capture" onClick={togglePlayPause}>
+            <div className="PlayerFrame__content" ref={ref} style={{ position: 'absolute' }} />
+            <div className="PlayerFrame__overlay">{renderPlayerState()}</div>
         </div>
     )
 })
