@@ -5,6 +5,7 @@ import { Chart, ChartItem } from 'chart.js'
 import { AppMetrics, AppMetricsTab } from './appMetricsSceneLogic'
 import { DescriptionColumns } from './constants'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { humanFriendlyNumber } from 'lib/utils'
 
 export interface MetricsTabProps {
     tab: AppMetricsTab
@@ -122,6 +123,5 @@ function renderNumber(value: number | undefined, loading: boolean): JSX.Element 
     if (loading) {
         return <LemonSkeleton />
     }
-    // :TODO: Format numbers
-    return <>{value}</>
+    return <>{value ? humanFriendlyNumber(value) : value}</>
 }
