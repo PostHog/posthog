@@ -91,11 +91,7 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                     <LemonSkeleton className="w-1/3" />
                 ) : (
                     <>
-                        <IconWindow
-                            value={currentWindowIndex + 1}
-                            className="text-muted"
-                            style={{ marginRight: '0.25rem' }}
-                        />
+                        <IconWindow value={currentWindowIndex + 1} className="text-muted" />
                         <div className="window-number">Window {currentWindowIndex + 1}</div>
                         {currentUrl && (
                             <>
