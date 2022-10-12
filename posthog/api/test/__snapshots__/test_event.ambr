@@ -19,6 +19,7 @@
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
+  LIMIT 10
   '
 ---
 # name: TestEvents.test_event_property_values.2
