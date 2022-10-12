@@ -168,11 +168,6 @@ class QueryDateRange:
 
     def _get_timezone_aware_date_condition(self, operator: str, date_clause: str) -> str:
         if self.should_round:
-            # Truncate function in clickhouse will remove the time granularity and leave only the date
-            # Specify that this truncated date is the local timezone target
-            # Convert target to UTC so that stored timestamps can be compared accordingly
-            # Example: `2022-04-05 07:00:00` -> truncated to `2022-04-05` -> 2022-04-05 00:00:00 PST -> 2022-04-05 07:00:00 UTC
-
             return f"AND toDateTime({self._table}timestamp, 'UTC') {operator} {self._timezone_date_clause(date_clause)}"
         else:
             return (
