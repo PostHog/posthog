@@ -19,7 +19,7 @@ export function MetricsTab({ tab, metrics, metricsLoading }: MetricsTabProps): J
                 <MetricsOverview tab={tab} metrics={metrics} metricsLoading={metricsLoading} />
             </Card>
 
-            <Card title="graph" className="mt-4">
+            <Card title="Delivery trends" className="mt-4">
                 <AppMetricsGraph tab={tab} metrics={metrics} metricsLoading={metricsLoading} />
             </Card>
         </div>
