@@ -7,7 +7,7 @@ import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Form } from 'kea-forms'
 
 export function UserDetails(): JSX.Element {
-    const { userLoading, isUserDetailsSubmitting } = useValues(userLogic)
+    const { userLoading, isUserDetailsSubmitting, userDetailsChanged } = useValues(userLogic)
 
     return (
         <Form
@@ -16,15 +16,23 @@ export function UserDetails(): JSX.Element {
             enableFormOnSubmit
             className="space-y-4"
             style={{
-                maxWidth: 400,
+                maxWidth: '28rem',
             }}
         >
             <Field name="first_name" label="Your name">
                 <LemonInput
                     className="ph-ignore-input"
-                    autoFocus
                     data-attr="settings-update-first-name"
                     placeholder="Jane Doe"
+                    disabled={userLoading}
+                />
+            </Field>
+
+            <Field name="email" label="Your email">
+                <LemonInput
+                    className="ph-ignore-input"
+                    data-attr="settings-update-email"
+                    placeholder="email@yourcompany.com"
                     disabled={userLoading}
                 />
             </Field>
@@ -33,9 +41,10 @@ export function UserDetails(): JSX.Element {
                 type="primary"
                 htmlType="submit"
                 loading={isUserDetailsSubmitting}
+                disabled={!userDetailsChanged}
                 data-attr="user-details-submit-bottom"
             >
-                Save name
+                Save name and email
             </LemonButton>
         </Form>
     )

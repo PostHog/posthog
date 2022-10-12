@@ -77,32 +77,32 @@ describe('graphileWorker', () => {
             )
             expect(graphileWorker.started).toBeFalsy()
 
-            await graphileWorker.startConsumer({})
-            await graphileWorker.pauseConsumer()
+            await graphileWorker.start({})
+            await graphileWorker.pause()
             await graphileWorker.syncState()
 
             expect(graphileWorker.consumerPool!.end).toHaveBeenCalled()
         })
     })
 
-    test('pauseConsumer()', async () => {
+    test('pause()', async () => {
         jest.spyOn(graphileWorker, 'syncState')
-        expect(graphileWorker.isConsumerPaused()).toBeFalsy()
-        await graphileWorker.pauseConsumer()
+        expect(graphileWorker.isPaused()).toBeFalsy()
+        await graphileWorker.pause()
 
-        expect(graphileWorker.isConsumerPaused()).toBeTruthy()
+        expect(graphileWorker.isPaused()).toBeTruthy()
         expect(graphileWorker.syncState).toHaveBeenCalled()
     })
 
-    test('stopConsumer()', async () => {
+    test('stop()', async () => {
         jest.spyOn(graphileWorker, 'syncState')
         jest.spyOn(graphileWorker, 'createPool').mockImplementation(() => Promise.resolve({ end: jest.fn() } as any))
 
         expect(graphileWorker.started).toBeFalsy()
-        await graphileWorker.startConsumer({})
+        await graphileWorker.start({})
         expect(graphileWorker.started).toBeTruthy()
 
-        await graphileWorker.stopConsumer()
+        await graphileWorker.stop()
         expect(graphileWorker.started).toBeFalsy()
         expect(graphileWorker.syncState).toHaveBeenCalled()
     })
@@ -110,15 +110,15 @@ describe('graphileWorker', () => {
     test('resumeConsumer()', async () => {
         jest.spyOn(graphileWorker, 'syncState')
 
-        expect(graphileWorker.isConsumerPaused()).toBeFalsy()
+        expect(graphileWorker.isPaused()).toBeFalsy()
         await graphileWorker.resumeConsumer()
         expect(graphileWorker.syncState).not.toHaveBeenCalled()
 
-        await graphileWorker.pauseConsumer()
-        expect(graphileWorker.isConsumerPaused()).toBeTruthy()
+        await graphileWorker.pause()
+        expect(graphileWorker.isPaused()).toBeTruthy()
 
         await graphileWorker.resumeConsumer()
-        expect(graphileWorker.isConsumerPaused()).toBeFalsy()
+        expect(graphileWorker.isPaused()).toBeFalsy()
         expect(graphileWorker.syncState).toHaveBeenCalled()
     })
 })

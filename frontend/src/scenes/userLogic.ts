@@ -11,6 +11,7 @@ import { forms } from 'kea-forms'
 
 export interface UserDetailsFormType {
     first_name: string
+    email: string
 }
 
 export const userLogic = kea<userLogicType>([
@@ -27,11 +28,16 @@ export const userLogic = kea<userLogicType>([
     })),
     forms(({ actions }) => ({
         userDetails: {
-            errors: ({ first_name }) => ({
+            errors: ({ first_name, email }) => ({
                 first_name: !first_name
-                    ? 'You need to set a name'
+                    ? 'You need to have a name.'
                     : first_name.length > 150
-                    ? 'The name you have given is too long. Please pick something shorter.'
+                    ? 'This name is too long. Please keep it under 151 characters.'
+                    : null,
+                email: !email
+                    ? 'You need to have an email.'
+                    : first_name.length > 254
+                    ? 'This email is too long. Please keep it under 255 characters.'
                     : null,
             }),
             submit: (user) => {
@@ -75,9 +81,11 @@ export const userLogic = kea<userLogicType>([
             {
                 loadUserSuccess: (_, { user }) => ({
                     first_name: user?.first_name || '',
+                    email: user?.email || '',
                 }),
                 updateUserSuccess: (_, { user }) => ({
                     first_name: user?.first_name || '',
+                    email: user?.email || '',
                 }),
             },
         ],
