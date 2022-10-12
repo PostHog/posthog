@@ -114,7 +114,17 @@ export function Login(): JSX.Element {
                         />
                     </Field>
                     <div className={clsx('PasswordWrapper', isPasswordHidden && 'hidden')}>
-                        <Field name="password" label="Password">
+                        <Field
+                            name="password"
+                            label={
+                                <div className="flex flex-1 items-center justify-between">
+                                    <span>Password</span>
+                                    <Link to="/reset" data-attr="forgot-password">
+                                        Forgot your password?
+                                    </Link>
+                                </div>
+                            }
+                        >
                             <LemonInput
                                 type="password"
                                 ref={passwordInputRef}
