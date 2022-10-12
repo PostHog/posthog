@@ -478,7 +478,7 @@
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_ingestion_warnings')
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_ingestion_warnings', rand())
   
   '
 ---
