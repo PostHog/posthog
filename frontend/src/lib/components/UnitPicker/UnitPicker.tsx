@@ -104,7 +104,7 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                             {aggregationAxisFormatSelectOptions.map(({ value, label }, index) => (
                                 <LemonButton
                                     key={index}
-                                    onClick={() => handleChange({ format: value })}
+                                    onClick={() => handleChange({ format: value, close: true })}
                                     status="stealth"
                                     active={value === localAxisFormat}
                                     fullWidth
