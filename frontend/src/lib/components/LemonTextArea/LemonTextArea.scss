@@ -38,20 +38,7 @@
 }
 
 .LemonTextMarkdown {
-    &.filedrop {
-        min-height: 120px;
-        border: 3px solid #d3d3d3;
-        text-align: center;
-        font-size: 24px;
-        padding: 32px;
-        border-radius: 4px;
-    }
-
     &.filedrop.drag {
         border: 3px dashed #1e90ff;
-    }
-
-    &.filedrop.ready {
-        border: 3px solid #32cd32;
     }
 }
