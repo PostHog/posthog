@@ -48,6 +48,7 @@ export enum AvailableFeature {
     BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
     WHITE_LABELLING = 'white_labelling',
     SUBSCRIPTIONS = 'subscriptions',
+    APP_METRICS = 'app_metrics',
 }
 
 export enum LicensePlan {
@@ -831,7 +832,17 @@ export interface Tileable {
 }
 
 export interface DashboardTile extends Tileable, Cacheable {
-    insight: InsightModel
+    id: number
+    insight?: InsightModel
+    text?: TextModel
+    deleted?: boolean
+}
+
+export interface TextModel {
+    body: string
+    created_by?: UserBasicType
+    last_modified_by?: UserBasicType
+    last_modified_at: string
 }
 
 export interface InsightModel extends Cacheable {
