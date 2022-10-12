@@ -21,8 +21,14 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
     const { previewInsightId, metrics, isModalOpen, isSecondaryMetricModalSubmitting, existingModalSecondaryMetric } =
         useValues(logic)
 
-    const { setFilters, deleteMetric, openModalToCreateSecondaryMetric, openModalToEditSecondaryMetric, closeModal } =
-        useActions(logic)
+    const {
+        setFilters,
+        deleteMetric,
+        openModalToCreateSecondaryMetric,
+        openModalToEditSecondaryMetric,
+        closeModal,
+        saveSecondaryMetric,
+    } = useActions(logic)
 
     const { insightProps } = useValues(
         insightLogic({
@@ -46,7 +52,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                         </LemonButton>
                         <LemonButton
                             form="secondary-metric-modal-form"
-                            htmlType="submit"
+                            onClick={saveSecondaryMetric}
                             type="primary"
                             loading={isSecondaryMetricModalSubmitting}
                             data-attr="create-annotation-submit"
@@ -60,7 +66,6 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                     logic={secondaryMetricsLogic}
                     formKey="secondaryMetricModal"
                     id="secondary-metric-modal-form"
-                    enableFormOnSubmit
                     className="space-y-4"
                 >
                     <Field name="name" label="Name">
