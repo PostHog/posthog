@@ -69,7 +69,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                 "results": [
                     {
                         "job_id": "1234",
-                        "started_at": "2021-12-05T13:23:00+00:00",
+                        "created_at": "2021-12-05T13:23:00+00:00",
                         "status": "not_finished",
                         "payload": {},
                     }
@@ -147,7 +147,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                     "finished_at": "2021-08-25T05:00:00+00:00",
                     "job_id": "1234",
                     "payload": SAMPLE_PAYLOAD,
-                    "started_at": "2021-08-25T00:00:00+00:00",
+                    "created_at": "2021-08-25T00:00:00+00:00",
                     "status": "success",
                 },
             },

@@ -27,7 +27,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             activities[0],
             {
                 "job_id": "1234",
-                "started_at": "2021-08-25T13:00:00+00:00",
+                "created_at": "2021-08-25T13:00:00+00:00",
                 "status": "not_finished",
                 "payload": SAMPLE_PAYLOAD,
             },
@@ -58,7 +58,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             activities[0],
             {
                 "job_id": "1234",
-                "started_at": "2021-08-25T11:00:00+00:00",
+                "created_at": "2021-08-25T11:00:00+00:00",
                 "finished_at": "2021-08-25T13:00:00+00:00",
                 "status": "success",
                 "payload": SAMPLE_PAYLOAD,
@@ -91,7 +91,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             activities[0],
             {
                 "job_id": "1234",
-                "started_at": "2021-08-25T11:00:00+00:00",
+                "created_at": "2021-08-25T11:00:00+00:00",
                 "finished_at": "2021-08-25T13:00:00+00:00",
                 "status": "fail",
                 "payload": SAMPLE_PAYLOAD,
@@ -151,13 +151,13 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             activities[0],
             {
                 "job_id": "1234",
-                "started_at": "2021-08-25T13:00:00+00:00",
+                "created_at": "2021-08-25T13:00:00+00:00",
                 "status": "not_finished",
                 "payload": SAMPLE_PAYLOAD,
             },
         )
 
-    def test_historical_exports_orders_activity_by_started_at(self):
+    def test_historical_exports_orders_activity_by_created_at(self):
         for hour in range(10, 15):
             with freeze_time(f"2021-08-25T{hour}:00:00Z"):
                 self._create_activity_log(
@@ -171,7 +171,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 )
 
         activities = historical_exports_activity(self.team.pk, 3)
-        start_times = [activity["started_at"] for activity in activities]
+        start_times = [activity["created_at"] for activity in activities]
         self.assertEqual(
             start_times,
             [
@@ -252,7 +252,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                     "finished_at": "2021-08-25T05:00:00+00:00",
                     "job_id": "1234",
                     "payload": SAMPLE_PAYLOAD,
-                    "started_at": "2021-08-25T00:00:00+00:00",
+                    "created_at": "2021-08-25T00:00:00+00:00",
                     "status": "success",
                 },
             },

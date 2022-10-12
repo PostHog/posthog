@@ -25,7 +25,7 @@ export interface HistoricalExportInfo {
     job_id: string
     status: 'success' | 'fail' | 'not_finished'
     payload: Record<string, any>
-    started_at: string
+    created_at: string
     finished_at?: string
     duration?: number
 }
