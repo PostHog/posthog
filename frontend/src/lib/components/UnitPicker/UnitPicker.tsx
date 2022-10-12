@@ -51,10 +51,12 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
         format,
         prefix,
         postfix,
+        close,
     }: {
         format?: AggregationAxisFormat
         prefix?: string
         postfix?: string
+        close?: boolean
     }): void => {
         setLocalAxisFormat(format)
         setLocalAxisPrefix(prefix || '')
@@ -65,6 +67,9 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
             aggregation_axis_prefix: prefix,
             aggregation_axis_postfix: postfix,
         })
+        if (close) {
+            debouncedVisibilityChange()
+        }
     }
 
     const display = useMemo(() => {
@@ -114,14 +119,14 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                                         <LemonInput
                                             value={localAxisPrefix}
                                             onChange={(prefix) => handleChange({ prefix })}
-                                            onPressEnter={(prefix) => handleChange({ prefix })}
+                                            onPressEnter={(prefix) => handleChange({ prefix, close: true })}
                                         />
                                     </PureField>
                                     <PureField label={'postfix:'}>
                                         <LemonInput
                                             value={localAxisPostfix}
                                             onChange={(postfix) => handleChange({ postfix })}
-                                            onPressEnter={(postfix) => handleChange({ postfix })}
+                                            onPressEnter={(postfix) => handleChange({ postfix, close: true })}
                                         />
                                     </PureField>
                                 </>
