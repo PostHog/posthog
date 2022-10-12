@@ -15,7 +15,7 @@ export const scene: SceneExport = {
 }
 
 export function AppMetrics(): JSX.Element {
-    const { activeTab, pluginConfigLoading, showTab, metrics, metricsLoading } = useValues(appMetricsSceneLogic)
+    const { activeTab, pluginConfigLoading, showTab } = useValues(appMetricsSceneLogic)
     const { setActiveTab } = useActions(appMetricsSceneLogic)
 
     if (pluginConfigLoading || !activeTab) {
@@ -37,25 +37,17 @@ export function AppMetrics(): JSX.Element {
                 >
                     {showTab(AppMetricsTab.ProcessEvent) && (
                         <Tabs.TabPane tab="processEvent" key={AppMetricsTab.ProcessEvent}>
-                            <MetricsTab
-                                tab={AppMetricsTab.ProcessEvent}
-                                metrics={metrics}
-                                metricsLoading={metricsLoading}
-                            />
+                            <MetricsTab tab={AppMetricsTab.ProcessEvent} />
                         </Tabs.TabPane>
                     )}
                     {showTab(AppMetricsTab.OnEvent) && (
                         <Tabs.TabPane tab="onEvent" key={AppMetricsTab.OnEvent}>
-                            <MetricsTab tab={AppMetricsTab.OnEvent} metrics={metrics} metricsLoading={metricsLoading} />
+                            <MetricsTab tab={AppMetricsTab.OnEvent} />
                         </Tabs.TabPane>
                     )}
                     {showTab(AppMetricsTab.ExportEvents) && (
                         <Tabs.TabPane tab="exportEvents" key={AppMetricsTab.ExportEvents}>
-                            <MetricsTab
-                                tab={AppMetricsTab.ExportEvents}
-                                metrics={metrics}
-                                metricsLoading={metricsLoading}
-                            />
+                            <MetricsTab tab={AppMetricsTab.ExportEvents} />
                         </Tabs.TabPane>
                     )}
                     {showTab(AppMetricsTab.HistoricalExports) && (

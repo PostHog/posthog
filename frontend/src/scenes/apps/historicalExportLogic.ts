@@ -1,8 +1,10 @@
-import { kea, events, key, props } from 'kea'
+import { kea, events, key, props, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { teamLogic } from '../teamLogic'
 import { AppMetrics, HistoricalExportInfo } from './appMetricsSceneLogic'
+
+import type { historicalExportLogicType } from './historicalExportLogicType'
 
 export interface HistoricalExportLogicProps {
     pluginConfigId: number
@@ -14,10 +16,10 @@ export interface ExportData {
     summary: HistoricalExportInfo
 }
 
-export const historicalExportLogic = kea([
+export const historicalExportLogic = kea<historicalExportLogicType>([
+    path(['scenes', 'apps', 'historicalExportLogic']),
     props({} as HistoricalExportLogicProps),
     key(({ pluginConfigId, jobId }) => `${pluginConfigId}_${jobId}`),
-
     loaders(({ props }) => ({
         data: [
             null as ExportData | null,
@@ -30,7 +32,6 @@ export const historicalExportLogic = kea([
             },
         ],
     })),
-
     events(({ actions }) => ({
         afterMount: actions.loadExportData,
     })),

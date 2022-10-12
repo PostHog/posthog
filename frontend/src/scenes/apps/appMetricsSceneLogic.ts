@@ -56,6 +56,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
 
     actions({
         setActiveTab: (tab: AppMetricsTab) => ({ tab }),
+        setDateFrom: (dateFrom: string) => ({ dateFrom }),
     }),
 
     reducers({
@@ -63,6 +64,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             null as AppMetricsTab | null,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        dateFrom: [
+            '-30d' as string,
+            {
+                setDateFrom: (_, { dateFrom }) => dateFrom,
             },
         ],
     }),
@@ -82,7 +89,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             null as AppMetrics | null,
             {
                 loadMetrics: async () => {
-                    const params = toParams({ category: values.activeTab })
+                    const params = toParams({ category: values.activeTab, date_from: values.dateFrom })
                     const { results } = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}?${params}`
                     )
@@ -152,6 +159,9 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             } else {
                 actions.loadMetrics()
             }
+        },
+        setDateFrom: () => {
+            actions.loadMetrics()
         },
     })),
 

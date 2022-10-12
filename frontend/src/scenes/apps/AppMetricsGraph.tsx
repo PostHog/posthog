@@ -2,12 +2,12 @@ import React, { useEffect, useRef } from 'react'
 import { getSeriesColor } from 'lib/colors'
 import { Chart, ChartItem } from 'chart.js'
 import { DescriptionColumns } from './constants'
-import { MetricsTabProps } from './MetricsTab'
+import { MetricsOverviewProps } from './MetricsTab'
 import { LemonSkeleton } from '../../lib/components/LemonSkeleton'
 
 import './AppMetricsGraph.scss'
 
-export function AppMetricsGraph({ tab, metrics, metricsLoading }: MetricsTabProps): JSX.Element {
+export function AppMetricsGraph({ tab, metrics, metricsLoading }: MetricsOverviewProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
     const descriptions = DescriptionColumns[tab]

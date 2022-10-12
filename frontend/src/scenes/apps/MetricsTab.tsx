@@ -1,21 +1,45 @@
 import React from 'react'
 import { Card } from 'antd'
-import { AppMetrics, AppMetricsTab } from './appMetricsSceneLogic'
+import { AppMetrics, appMetricsSceneLogic, AppMetricsTab } from './appMetricsSceneLogic'
 import { DescriptionColumns } from './constants'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { humanFriendlyNumber } from 'lib/utils'
 import { AppMetricsGraph } from './AppMetricsGraph'
+import { LemonSelect } from 'lib/components/LemonSelect'
+import { useActions, useValues } from 'kea'
 
 export interface MetricsTabProps {
+    tab: AppMetricsTab
+}
+
+export interface MetricsOverviewProps {
     tab: AppMetricsTab
     metrics: AppMetrics | null
     metricsLoading: boolean
 }
 
-export function MetricsTab({ tab, metrics, metricsLoading }: MetricsTabProps): JSX.Element {
+export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
+    const { metrics, metricsLoading, dateFrom } = useValues(appMetricsSceneLogic)
+    const { setDateFrom } = useActions(appMetricsSceneLogic)
+
     return (
         <div className="mt-4">
-            <Card title="Metrics overview">
+            <Card
+                title={
+                    <div className="flex items-center justify-between gap-2">
+                        <span>Metrics overview</span>
+                        <LemonSelect
+                            value={dateFrom}
+                            onChange={(newValue) => setDateFrom(newValue as string)}
+                            options={[
+                                { label: 'Last 30 days', value: '-30d' },
+                                { label: 'Last 7 days', value: '-7d' },
+                                { label: 'Last 24 hours', value: '-24h' },
+                            ]}
+                        />
+                    </div>
+                }
+            >
                 <MetricsOverview tab={tab} metrics={metrics} metricsLoading={metricsLoading} />
             </Card>
 
@@ -26,7 +50,7 @@ export function MetricsTab({ tab, metrics, metricsLoading }: MetricsTabProps): J
     )
 }
 
-export function MetricsOverview({ tab, metrics, metricsLoading }: MetricsTabProps): JSX.Element {
+export function MetricsOverview({ tab, metrics, metricsLoading }: MetricsOverviewProps): JSX.Element {
     if (metricsLoading) {
         return <LemonSkeleton className="h-20" />
     }
