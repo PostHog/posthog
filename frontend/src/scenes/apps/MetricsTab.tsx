@@ -27,29 +27,30 @@ export function MetricsTab({ tab, metrics, metricsLoading }: MetricsTabProps): J
 }
 
 export function MetricsOverview({ tab, metrics, metricsLoading }: MetricsTabProps): JSX.Element {
+    if (metricsLoading) {
+        return <LemonSkeleton className="h-20" />
+    }
+
     return (
         <>
             <div>
                 <div className="card-secondary">{DescriptionColumns[tab].successes}</div>
-                <div>{renderNumber(metrics?.totals?.successes, metricsLoading)}</div>
+                <div>{renderNumber(metrics?.totals?.successes)}</div>
             </div>
             {DescriptionColumns[tab].successes_on_retry && (
                 <div>
                     <div className="card-secondary">{DescriptionColumns[tab].successes_on_retry}</div>
-                    <div>{renderNumber(metrics?.totals?.successes_on_retry, metricsLoading)}</div>
+                    <div>{renderNumber(metrics?.totals?.successes_on_retry)}</div>
                 </div>
             )}
             <div>
                 <div className="card-secondary">{DescriptionColumns[tab].failures}</div>
-                <div>{renderNumber(metrics?.totals?.failures, metricsLoading)}</div>
+                <div>{renderNumber(metrics?.totals?.failures)}</div>
             </div>
         </>
     )
 }
 
-function renderNumber(value: number | undefined, loading: boolean): JSX.Element {
-    if (loading) {
-        return <LemonSkeleton className="w-16" />
-    }
+function renderNumber(value: number | undefined): JSX.Element {
     return <>{value ? humanFriendlyNumber(value) : value}</>
 }

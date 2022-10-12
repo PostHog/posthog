@@ -3,6 +3,9 @@ import { getSeriesColor } from 'lib/colors'
 import { Chart, ChartItem } from 'chart.js'
 import { DescriptionColumns } from './constants'
 import { MetricsTabProps } from './MetricsTab'
+import { LemonSkeleton } from '../../lib/components/LemonSkeleton'
+
+import './AppMetricsGraph.scss'
 
 export function AppMetricsGraph({ tab, metrics, metricsLoading }: MetricsTabProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -79,11 +82,11 @@ export function AppMetricsGraph({ tab, metrics, metricsLoading }: MetricsTabProp
     }, [metrics])
 
     if (metricsLoading || !metrics) {
-        return <></>
+        return <LemonSkeleton className="AppMetricsGraph" />
     }
 
     return (
-        <div style={{ height: '300px' }}>
+        <div className="AppMetricsGraph">
             <canvas ref={canvasRef} />
         </div>
     )
