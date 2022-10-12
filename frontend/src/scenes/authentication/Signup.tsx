@@ -68,17 +68,6 @@ export function Signup(): JSX.Element | null {
         >
             <div className="space-y-2">
                 <h2>{!preflight?.demo ? 'Get started' : 'Explore PostHog yourself'}</h2>
-                {!preflight?.demo && (preflight?.cloud || preflight?.initiated) && (
-                    // If we're in the demo environment, login is unified with signup and it's passwordless
-                    // For now, if you're not on Cloud, you wouldn't see this page,
-                    // but future-proofing this (with `preflight.initiated`) in case this changes
-                    <div className="text-center">
-                        Already have an account?{' '}
-                        <Link to="/login" data-attr="signup-login-link">
-                            Log in
-                        </Link>
-                    </div>
-                )}
                 {!isSignupSubmitting && signupManualErrors.generic && (
                     <AlertMessage type="error">
                         {signupManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}
@@ -161,6 +150,18 @@ export function Signup(): JSX.Element | null {
                             ? 'Enter the demo environment'
                             : 'Preparing demo data…'}
                     </LemonButton>
+
+                    {!preflight?.demo && (preflight?.cloud || preflight?.initiated) && (
+                        // If we're in the demo environment, login is unified with signup and it's passwordless
+                        // For now, if you're not on Cloud, you wouldn't see this page,
+                        // but future-proofing this (with `preflight.initiated`) in case this changes
+                        <div className="text-center mt-4">
+                            Already have an account?{' '}
+                            <Link to="/login" data-attr="signup-login-link" className="font-bold">
+                                Log in
+                            </Link>
+                        </div>
+                    )}
 
                     <div className="text-center text-muted-alt">
                         By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you agree to
