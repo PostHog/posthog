@@ -215,9 +215,6 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
             // processEvent did not modify
             expect(events[0].snapshot_data).toEqual('yes way')
-
-            // onSnapshot ran
-            expect(testConsole.read()).toEqual([['onSnapshot', '$snapshot']])
         }, 5000)
 
         test('console logging is persistent', async () => {
