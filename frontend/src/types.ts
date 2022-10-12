@@ -48,6 +48,7 @@ export enum AvailableFeature {
     BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
     WHITE_LABELLING = 'white_labelling',
     SUBSCRIPTIONS = 'subscriptions',
+    APP_METRICS = 'app_metrics',
 }
 
 export enum LicensePlan {
@@ -831,7 +832,17 @@ export interface Tileable {
 }
 
 export interface DashboardTile extends Tileable, Cacheable {
-    insight: InsightModel
+    id: number
+    insight?: InsightModel
+    text?: TextModel
+    deleted?: boolean
+}
+
+export interface TextModel {
+    body: string
+    created_by?: UserBasicType
+    last_modified_by?: UserBasicType
+    last_modified_at: string
 }
 
 export interface InsightModel extends Cacheable {
@@ -1159,7 +1170,9 @@ export interface FilterType {
     breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
     breakdown_attribution_value?: number // funnels breakdown attribution specific step value
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
-    aggregation_axis_format?: AggregationAxisFormat
+    aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
+    aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
+    aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
 }
 
 export interface RecordingEventsFilters {

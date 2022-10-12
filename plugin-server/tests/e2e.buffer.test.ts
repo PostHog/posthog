@@ -1,7 +1,7 @@
 import IORedis from 'ioredis'
 
 import { ONE_HOUR } from '../src/config/constants'
-import { GraphileQueue } from '../src/main/job-queues/concurrent/graphile-queue'
+import { GraphileWorker } from '../src/main/jobs/graphile-worker'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
@@ -99,11 +99,11 @@ describe('E2E with buffer topic enabled', () => {
 
             const uuid = new UUIDT().toString()
 
-            // Setup the GraphileQueue function to raise a connection error.
+            // Setup the GraphileWorker function to raise a connection error.
             // NOTE: We want to retry on connection errors but not on other
             // errors, e.g. programming errors. We don't handle these cases
             // separately at the moment however.
-            const graphileQueueEnqueue = jest.spyOn(GraphileQueue.prototype, 'enqueue').mockImplementation(() => {
+            const graphileWorkerEnqueue = jest.spyOn(GraphileWorker.prototype, 'enqueue').mockImplementation(() => {
                 const err = new Error('connection refused') as any
                 err.name = 'SystemError'
                 err.code = 'ECONNREFUSED'
@@ -115,14 +115,14 @@ describe('E2E with buffer topic enabled', () => {
 
             // Wait up to 5 seconds for the mock to be called. Note we abused
             // the delayUntilEventIngested function here.
-            await delayUntilEventIngested(() => graphileQueueEnqueue.mock.calls.length, undefined, 100, 50)
-            expect(graphileQueueEnqueue.mock.calls.length).toBeGreaterThan(0)
+            await delayUntilEventIngested(() => graphileWorkerEnqueue.mock.calls.length, undefined, 100, 50)
+            expect(graphileWorkerEnqueue.mock.calls.length).toBeGreaterThan(0)
             let events = await hub.db.fetchEvents()
             expect(events.length).toBe(0)
 
-            // Now let's make the GraphileQueue function work again, then wait
+            // Now let's make the GraphileWorker function work again, then wait
             // for the event to be ingested.
-            graphileQueueEnqueue.mockRestore()
+            graphileWorkerEnqueue.mockRestore()
             await delayUntilEventIngested(() => hub.db.fetchEvents(), undefined, 100, 100)
             events = await hub.db.fetchEvents()
             expect(events.length).toBe(1)

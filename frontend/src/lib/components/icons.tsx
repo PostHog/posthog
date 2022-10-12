@@ -1668,6 +1668,17 @@ export function IconNotification(props: SvgIconProps): JSX.Element {
     )
 }
 
+export function IconMarkdown(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M20.56 18H3.44C2.65 18 2 17.37 2 16.59V7.41C2 6.63 2.65 6 3.44 6H20.56C21.35 6 22 6.63 22 7.41V16.59C22 17.37 21.35 18 20.56 18M6.81 15.19V11.53L8.73 13.88L10.65 11.53V15.19H12.58V8.81H10.65L8.73 11.16L6.81 8.81H4.89V15.19H6.81M19.69 12H17.77V8.81H15.85V12H13.92L16.81 15.28L19.69 12Z"
+            />
+        </SvgIcon>
+    )
+}
+
 export function IconFullScreen(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon viewBox="0 0 24 24" {...props}>
@@ -1675,6 +1686,23 @@ export function IconFullScreen(props: SvgIconProps): JSX.Element {
             <path d="M10 6L10 4L3 4L3 10L5 10L5 6L10 6Z" fill="currentColor" />
             <path d="M19 14H21V20H14V18H19V14Z" fill="currentColor" />
             <path d="M14 6L14 4L21 4L21 10L19 10L19 6L14 6Z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+export function IconSkipInactivity({ enabled, ...props }: SvgIconProps & { enabled?: boolean }): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M10.025 17.5L5.75 13.225L4.5 17L1.5 7L11.5 10L7.725 11.25L12 15.525L10.025 17.5Z"
+                fill="currentColor"
+            />
+            <path
+                d="M14 12.375L22.25 12.375M14 15.625L17.5 15.625M14 8.875L17.5 8.875"
+                stroke="currentColor"
+                strokeOpacity={enabled ? '1' : '0.3'}
+                strokeWidth="1.25"
+            />
         </SvgIcon>
     )
 }

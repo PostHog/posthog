@@ -6,18 +6,18 @@ import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 import { KAFKA_BUFFER, KAFKA_EVENTS_DEAD_LETTER_QUEUE } from '../../config/kafka-topics'
 import { JobName } from '../../types'
 import { status } from '../../utils/status'
-import { GraphileQueue } from '../job-queues/concurrent/graphile-queue'
+import { GraphileWorker } from '../jobs/graphile-worker'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
 export const startAnonymousEventBufferConsumer = async ({
     kafka,
     producer,
-    graphileQueue,
+    graphileWorker,
     statsd,
 }: {
     kafka: Kafka
     producer: KafkaProducerWrapper
-    graphileQueue: GraphileQueue
+    graphileWorker: GraphileWorker
     statsd?: StatsD
 }) => {
     /*
@@ -79,7 +79,10 @@ export const startAnonymousEventBufferConsumer = async ({
 
             status.debug('⬆️', 'Enqueuing anonymous event for processing', { job })
             try {
-                await graphileQueue.enqueue(JobName.BUFFER_JOB, job)
+                await graphileWorker.enqueue(JobName.BUFFER_JOB, job, {
+                    key: 'team_id',
+                    tag: eventPayload.team_id.toString(),
+                })
                 statsd?.increment('anonymous_event_buffer_consumer.enqueued')
             } catch (error) {
                 status.error('⚠️', 'Failed to enqueue anonymous event for processing', { error })

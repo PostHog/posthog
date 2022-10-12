@@ -92,6 +92,13 @@ export function upgradeExportEvents(
                 plugin: pluginConfig.plugin?.name ?? '?',
                 teamId: pluginConfig.team_id.toString(),
             })
+            await hub.appMetrics.queueMetric({
+                teamId: pluginConfig.team_id,
+                pluginConfigId: pluginConfig.id,
+                category: 'exportEvents',
+                successes: payload.retriesPerformedSoFar == 0 ? payload.batch.length : 0,
+                successesOnRetry: payload.retriesPerformedSoFar == 0 ? 0 : payload.batch.length,
+            })
         } catch (err) {
             if (err instanceof RetryError) {
                 if (payload.retriesPerformedSoFar < MAXIMUM_RETRIES) {
@@ -121,8 +128,20 @@ export function upgradeExportEvents(
                         plugin: pluginConfig.plugin?.name ?? '?',
                         teamId: pluginConfig.team_id.toString(),
                     })
+                    await hub.appMetrics.queueMetric({
+                        teamId: pluginConfig.team_id,
+                        pluginConfigId: pluginConfig.id,
+                        category: 'exportEvents',
+                        failures: payload.batch.length,
+                    })
                 }
             } else {
+                await hub.appMetrics.queueMetric({
+                    teamId: pluginConfig.team_id,
+                    pluginConfigId: pluginConfig.id,
+                    category: 'exportEvents',
+                    failures: payload.batch.length,
+                })
                 throw err
             }
         }

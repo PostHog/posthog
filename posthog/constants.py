@@ -24,6 +24,7 @@ class AvailableFeature(str, Enum):
     BEHAVIORAL_COHORT_FILTERING = "behavioral_cohort_filtering"
     WHITE_LABELLING = "white_labelling"
     SUBSCRIPTIONS = "subscriptions"
+    APP_METRICS = "app_metrics"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

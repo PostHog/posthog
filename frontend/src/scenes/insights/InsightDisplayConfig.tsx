@@ -17,9 +17,8 @@ import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonSelect } from 'lib/components/LemonSelect'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { aggregationAxisFormatSelectOptions, axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -157,20 +156,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                     <>
                         {activeView === InsightType.TRENDS && (
                             <ConfigFilter>
-                                <span>{axisLabel(filters.display)}</span>
-                                <LemonSelect
-                                    value={filters.aggregation_axis_format || 'numeric'}
-                                    onChange={(value) => {
-                                        if (value) {
-                                            setFilters({ ...filters, aggregation_axis_format: value })
-                                        }
-                                    }}
-                                    dropdownPlacement={'bottom-end'}
-                                    dropdownMatchSelectWidth={false}
-                                    data-attr="chart-aggregation-axis-format"
-                                    options={aggregationAxisFormatSelectOptions}
-                                    size="small"
-                                />
+                                <UnitPicker filters={filters} setFilters={setFilters} />
                             </ConfigFilter>
                         )}
                         <ConfigFilter>

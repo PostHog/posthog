@@ -1,4 +1,13 @@
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypedDict
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    TypedDict,
+)
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -25,6 +34,8 @@ NOTIFICATION_DEFAULTS: Notifications = {"plugin_disabled": True}
 
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
+
+    model: Type["User"]
 
     use_in_migrations = True
 

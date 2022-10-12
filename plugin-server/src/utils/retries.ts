@@ -2,6 +2,7 @@ import { RetryError } from '@posthog/plugin-scaffold'
 
 import { runInTransaction } from '../sentry'
 import { Hub } from '../types'
+import { AppMetricIdentifier } from '../worker/ingestion/app-metrics'
 
 export function getNextRetryMs(baseMs: number, multiplier: number, attempt: number): number {
     if (attempt < 1) {
@@ -26,6 +27,7 @@ export interface RetryParams {
 export interface MetricsDefinition {
     metricName: string
     metricTags?: Record<string, string>
+    appMetric?: AppMetricIdentifier
 }
 
 export type RetriableFunctionPayload = RetriableFunctionDefinition &
@@ -44,6 +46,7 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
         maxAttempts = 5,
         retryBaseMs = 5000,
         retryMultiplier = 2,
+        appMetric,
     } = retriableFunctionPayload
     return runInTransaction(
         {
@@ -60,6 +63,13 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
             let nextIterationPromise: Promise<void> | undefined
             try {
                 await tryFn()
+                if (appMetric) {
+                    await hub.appMetrics.queueMetric({
+                        ...appMetric,
+                        successes: attempt == 1 ? 1 : 0,
+                        successesOnRetry: attempt == 1 ? 0 : 1,
+                    })
+                }
             } catch (error) {
                 if (error instanceof RetryError) {
                     error._attempt = attempt
@@ -81,6 +91,12 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
                 } else {
                     await catchFn?.(error)
                     hub.statsd?.increment(`${metricName}.ERROR`, metricTags)
+                    if (appMetric) {
+                        await hub.appMetrics.queueMetric({
+                            ...appMetric,
+                            failures: 1,
+                        })
+                    }
                 }
             }
             if (!nextIterationPromise) {

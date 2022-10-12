@@ -2,7 +2,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as fetch from 'node-fetch'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
-import { JobQueueManager } from '../../src/main/job-queues/job-queue-manager'
+import { GraphileWorker } from '../../src/main/jobs/graphile-worker'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
@@ -15,7 +15,8 @@ import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 jest.mock('../../src/utils/db/kafka-producer-wrapper')
-jest.mock('../../src/main/job-queues/job-queue-manager')
+jest.mock('../../src/main/jobs/graphile-worker')
+
 jest.setTimeout(100000)
 
 const defaultEvent = {
@@ -1067,6 +1068,10 @@ describe('vm tests', () => {
     })
 
     describe('exportEvents', () => {
+        beforeEach(() => {
+            jest.spyOn(hub.appMetrics, 'queueMetric')
+        })
+
         test('normal operation', async () => {
             const indexJs = `
                 async function exportEvents (events, meta) {
@@ -1087,12 +1092,20 @@ describe('vm tests', () => {
                 },
                 indexJs
             )
+
             await vm.methods.onEvent!(defaultEvent)
             await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent' })
             await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent2' })
             await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent3' })
             await delay(1010)
             expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=otherEvent2&events=2')
+            expect(hub.appMetrics.queueMetric).toHaveBeenCalledWith({
+                teamId: pluginConfig39.team_id,
+                pluginConfigId: pluginConfig39.id,
+                category: 'exportEvents',
+                successes: 2,
+                successesOnRetry: 0,
+            })
 
             // adds exportEventsWithRetry job and onEvent function
             expect(Object.keys(vm.tasks.job)).toEqual(expect.arrayContaining(['exportEventsWithRetry']))
@@ -1142,8 +1155,8 @@ describe('vm tests', () => {
             await delay(1010)
 
             // get the enqueued job
-            expect(JobQueueManager).toHaveBeenCalled()
-            const mockJobQueueInstance = (JobQueueManager as any).mock.instances[0]
+            expect(GraphileWorker).toHaveBeenCalled()
+            const mockJobQueueInstance = (GraphileWorker as any).mock.instances[0]
             const mockEnqueue = mockJobQueueInstance.enqueue
             expect(mockEnqueue).toHaveBeenCalledTimes(1)
             expect(mockEnqueue).toHaveBeenCalledWith(
@@ -1155,7 +1168,8 @@ describe('vm tests', () => {
                     timestamp: expect.any(Number),
                     type: 'exportEventsWithRetry',
                 },
-                { key: 'plugin', tag: '?' }
+                { key: 'plugin', tag: '?' },
+                true
             )
             const jobPayload = mockEnqueue.mock.calls[0][1].payload
 
@@ -1173,7 +1187,8 @@ describe('vm tests', () => {
                     timestamp: expect.any(Number),
                     type: 'exportEventsWithRetry',
                 },
-                { key: 'plugin', tag: '?' }
+                { key: 'plugin', tag: '?' },
+                true
             )
             const jobPayload2 = mockEnqueue.mock.calls[1][1].payload
 
@@ -1182,6 +1197,13 @@ describe('vm tests', () => {
 
             // now it passed
             expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=exported&events=3')
+            expect(hub.appMetrics.queueMetric).toHaveBeenCalledWith({
+                teamId: pluginConfig39.team_id,
+                pluginConfigId: pluginConfig39.id,
+                category: 'exportEvents',
+                successes: 0,
+                successesOnRetry: 3,
+            })
         })
 
         test('max retries', async () => {
@@ -1212,7 +1234,7 @@ describe('vm tests', () => {
             await vm.methods.onEvent!(defaultEvent)
             await delay(1010)
 
-            const mockJobQueueInstance = (JobQueueManager as any).mock.instances[0]
+            const mockJobQueueInstance = (GraphileWorker as any).mock.instances[0]
             const mockEnqueue = mockJobQueueInstance.enqueue
 
             // won't retry after the nth time where n = MAXIMUM_RETRIES
