@@ -1,6 +1,6 @@
 from typing import Any, Dict, Tuple
 
-from posthog.constants import MONTHLY_ACTIVE, UNIQUE_USERS, WEEKLY_ACTIVE, PropertyOperatorType
+from posthog.constants import EVENT_COUNT_PER_ACTOR, MONTHLY_ACTIVE, UNIQUE_USERS, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
@@ -10,7 +10,7 @@ from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.trends.util import get_active_user_params
+from posthog.queries.trends.util import MATH_FUNCTIONS, get_active_user_params
 
 
 class TrendsEventQuery(EventQuery):
@@ -117,6 +117,15 @@ class TrendsEventQuery(EventQuery):
         if self._using_person_on_events:
             self._should_join_distinct_ids = False
             self._should_join_persons = False
+        elif any(
+            # Check if any entity uses event count per user
+            (
+                entity.math in MATH_FUNCTIONS and entity.math_property == EVENT_COUNT_PER_ACTOR
+                for entity in self._filter.entities
+            )
+        ):
+            self._should_join_distinct_ids = True
+            self._should_join_persons = True
 
     def _get_extra_person_columns(self) -> str:
         if self._using_person_on_events:

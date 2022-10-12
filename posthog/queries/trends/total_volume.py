@@ -26,7 +26,7 @@ from posthog.queries.trends.sql import (
     VOLUME_SQL,
     VOLUME_TOTAL_AGGREGATE_SQL,
 )
-from posthog.queries.trends.trend_event_query import TrendsEventQuery
+from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import enumerate_time_range, parse_response, process_math
 from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch, start_of_week_fix
 from posthog.utils import encode_get_request_params
