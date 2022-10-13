@@ -379,52 +379,52 @@ class Migration(AsyncMigrationDefinition):
                     group0_properties = if(
                         group0_properties = '',
                         dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 0, $group_0), toJSONString(map())),
-                        groupX_properties
+                        group0_properties
                     ),
                     group1_properties = if(
                         group1_properties = '',
                         dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 1, $group_1), toJSONString(map())),
-                        groupX_properties
+                        group1_properties
                     ),
                     group2_properties = if(
                         group2_properties = '',
                         dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 2, $group_2), toJSONString(map())),
-                        groupX_properties
+                        group2_properties
                     ),
                     group3_properties = if(
                         group3_properties = '',
                         dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 3, $group_3), toJSONString(map())),
-                        groupX_properties
+                        group3_properties
                     ),
                     group4_properties = if(
                         group4_properties = '',
                         dictGetStringOrDefault('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 4, $group_4), toJSONString(map())),
-                        groupX_properties
+                        group4_properties
                     ),
                     group0_created_at = if(
                         group0_created_at = toDateTime(0),
                         dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 0, $group_0)),
-                        groupX_properties
+                        group0_created_at
                     ),
                     group1_created_at = if(
                         group1_created_at = toDateTime(0),
                         dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 1, $group_1)),
-                        groupX_properties
+                        group1_created_at
                     ),
                     group2_created_at = if(
                         group2_created_at = toDateTime(0),
                         dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
-                        groupX_properties
+                        group2_created_at
                     ),
                     group3_created_at = if(
                         group3_created_at = toDateTime(0),
                         dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
-                        groupX_properties
+                        group3_created_at
                     ),
                     group4_created_at = if(
                         group4_created_at = toDateTime(0),
                         dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4))
-                        groupX_properties
+                        group4_created_at
                     )
                 {where_clause}
             """,
