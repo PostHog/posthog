@@ -459,10 +459,10 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return new_plugin_config
 
     def get_plugin_info(self, plugin_config: PluginConfig):
-        if self.context["view"].action == "list":
-            return None
-        else:
+        if self.context["view"].action == "retrieve":
             return PluginSerializer(instance=plugin_config.plugin).data
+        else:
+            return None
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(Team.objects.get(id=self.context["team_id"]).organization_id):
