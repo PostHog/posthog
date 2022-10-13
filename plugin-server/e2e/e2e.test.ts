@@ -18,7 +18,7 @@ import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
 import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
-import { insertRow, POSTGRES_TRUNCATE_TABLES_QUERY } from '../tests/helpers/sql'
+import { insertRow } from '../tests/helpers/sql'
 
 const { console: testConsole } = writeToFile
 
@@ -69,7 +69,6 @@ beforeAll(async () => {
         // so set max connections to 1.
         max: 1,
     })
-    await postgres.query(POSTGRES_TRUNCATE_TABLES_QUERY)
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
         port: 8123,
