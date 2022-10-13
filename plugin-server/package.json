@@ -71,6 +71,8 @@
         "pretty-bytes": "^5.6.0",
         "re2": "^1.16.0",
         "redlock": "^4.2.0",
+        "safe-stable-stringify": "^2.4.0",
+        "serialize-error": "^11.0.0",
         "snowflake-sdk": "^1.6.10",
         "uuid": "^8.3.2",
         "vm2": "3.9.11"
