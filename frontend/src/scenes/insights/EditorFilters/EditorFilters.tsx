@@ -36,6 +36,7 @@ import { InsightTypeSelector } from './InsightTypeSelector'
 import './EditorFilters.scss'
 import clsx from 'clsx'
 import { Attribution } from './AttributionFilter'
+import { UserSQLInput } from './UserSQLInput'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -62,6 +63,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const isPaths = filters.insight === InsightType.PATHS
     const isFunnels = filters.insight === InsightType.FUNNELS
     const isTrendsLike = isTrends || isLifecycle || isStickiness
+    const isUserSQL = filters.insight === InsightType.USER_SQL
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(filters.display || ChartDisplayType.ActionsLineGraph)) ||
@@ -302,18 +304,22 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                     'EditorFiltersWrapper--singlecolumn': usingEditorPanels || isFunnels,
                 })}
             >
-                <div className="EditorFilters">
-                    {(usingEditorPanels || isFunnels ? editorFilters : legacyEditorFilterGroups).map(
-                        (editorFilterGroup) => (
-                            <EditorFilterGroup
-                                key={editorFilterGroup.title}
-                                editorFilterGroup={editorFilterGroup}
-                                insight={insight}
-                                insightProps={insightProps}
-                            />
-                        )
-                    )}
-                </div>
+                {isUserSQL ? (
+                    <UserSQLInput />
+                ) : (
+                    <div className="EditorFilters">
+                        {(usingEditorPanels || isFunnels ? editorFilters : legacyEditorFilterGroups).map(
+                            (editorFilterGroup) => (
+                                <EditorFilterGroup
+                                    key={editorFilterGroup.title}
+                                    editorFilterGroup={editorFilterGroup}
+                                    insight={insight}
+                                    insightProps={insightProps}
+                                />
+                            )
+                        )}
+                    </div>
+                )}
             </div>
         </CSSTransition>
     )

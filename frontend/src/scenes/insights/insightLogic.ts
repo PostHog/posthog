@@ -9,6 +9,7 @@ import {
     FilterType,
     InsightLogicProps,
     InsightModel,
+    InsightResponseStatus,
     InsightShortId,
     InsightType,
     ItemMode,
@@ -43,6 +44,14 @@ import { loaders } from 'kea-loaders'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
+
+const INITIAL_STATUS_OBJECT: InsightResponseStatus = {
+    num_rows: 0,
+    total_rows: 0,
+    complete: false,
+    error: false,
+    error_message: null,
+}
 
 export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {
     // if the current _global_ value is true respect that over any local preference
@@ -148,6 +157,7 @@ export const insightLogic = kea<insightLogicType>([
             callback,
         }),
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
+        loadResultsWithProgress: (refresh = false) => ({ refresh }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
@@ -338,6 +348,12 @@ export const insightLogic = kea<insightLogicType>([
                                 params,
                                 cache.abortController.signal
                             )
+                        } else if (insight === InsightType.USER_SQL) {
+                            // SUPER HACK to enable loadResultsWithProgress in this case
+                            response = {
+                                result: [],
+                                next: null,
+                            }
                         } else {
                             throw new Error(`Cannot load insight of type ${insight}`)
                         }
@@ -394,6 +410,45 @@ export const insightLogic = kea<insightLogicType>([
                         timezone: response.timezone,
                         filters,
                     } as Partial<InsightModel>
+                },
+                loadResultsWithProgress: async () => {
+                    const { currentTeamId } = values
+                    const { filters } = values
+                    const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
+                    const params = { refresh: true, ...filters }
+                    let queryResultId = null
+                    if (insight === InsightType.USER_SQL) {
+                        if (params.user_sql) {
+                            const response = await api.get(
+                                `api/projects/${currentTeamId}/insights/user_sql?${toParams(params)}`
+                            )
+                            queryResultId = response.query_id
+                        }
+                    }
+                    return {
+                        ...values.insight,
+                        resultQueryId: queryResultId,
+                        status: INITIAL_STATUS_OBJECT,
+                    }
+                },
+                checkInsightResultProgress: async () => {
+                    const { currentTeamId } = values
+                    const resultQueryId = values.insight.resultQueryId
+                    const response = await api.get(
+                        `api/projects/${currentTeamId}/insights/check_insight_result?${toParams({
+                            query_id: resultQueryId,
+                        })}`
+                    )
+                    const status = response.status as InsightResponseStatus
+                    delete status['results']
+
+                    const result = status.complete ? response.result : undefined
+
+                    return {
+                        ...values.insight,
+                        result,
+                        status,
+                    }
                 },
             },
         ],
@@ -567,7 +622,13 @@ export const insightLogic = kea<insightLogicType>([
         activeView: [(s) => [s.filters], (filters) => filters.insight || InsightType.TRENDS],
         loadedView: [
             (s) => [s.insight, s.activeView],
-            ({ filters }, activeView) => filters?.insight || activeView || InsightType.TRENDS,
+            ({ filters }, activeView) => {
+                return filters?.insight || activeView || InsightType.TRENDS
+            },
+        ],
+        pollingInProgress: [
+            (s) => [s.insight],
+            (insight) => insight.status !== undefined && !insight.status?.complete && !insight.status?.error,
         ],
         insightChanged: [
             (s) => [s.insight, s.savedInsight, s.filters],
@@ -971,6 +1032,14 @@ export const insightLogic = kea<insightLogicType>([
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
             if (!insight.result && values.filters) {
                 actions.loadResults()
+            }
+        },
+        loadResultsWithProgressSuccess: async () => {
+            actions.checkInsightResultProgress()
+        },
+        checkInsightResultProgressSuccess: async () => {
+            if (values.pollingInProgress) {
+                setTimeout(actions.checkInsightResultProgress, 100)
             }
         },
         toggleInsightLegend: () => {

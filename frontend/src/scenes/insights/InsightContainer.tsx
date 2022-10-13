@@ -33,6 +33,7 @@ import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 import { FunnelInsight } from './views/Funnels/FunnelInsight'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { UserSQLInsight } from 'scenes/userSQL/UserSQL'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -41,6 +42,7 @@ const VIEW_MAP = {
     [`${InsightType.FUNNELS}`]: <FunnelInsight />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
     [`${InsightType.PATHS}`]: <Paths />,
+    [`${InsightType.USER_SQL}`]: <UserSQLInsight />,
 }
 
 export function InsightContainer(
@@ -74,6 +76,7 @@ export function InsightContainer(
         showErrorMessage,
         exporterResourceParams,
         isUsingSessionAnalysis,
+        pollingInProgress,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
@@ -81,7 +84,7 @@ export function InsightContainer(
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
+        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage && !pollingInProgress)) {
             return (
                 <div className="text-center">
                     <Animation type={AnimationType.LaptopHog} />
@@ -174,7 +177,6 @@ export function InsightContainer(
 
         return null
     }
-
     return (
         <>
             {isUsingSessionAnalysis ? (
@@ -210,7 +212,7 @@ export function InsightContainer(
                         justify="space-between"
                     >
                         {/*Don't add more than two columns in this row.*/}
-                        {!disableLastComputation && (
+                        {!disableLastComputation && !(activeView == InsightType.USER_SQL) && (
                             <Col>
                                 <ComputationTimeWithRefresh />
                             </Col>

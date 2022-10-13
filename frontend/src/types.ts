@@ -875,6 +875,9 @@ export interface InsightModel extends Cacheable {
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
     timezone?: string | null
+    source_query?: string
+    status?: InsightResponseStatus
+    resultQueryId?: string
     /** Only used in the frontend to store the next breakdown url */
     next?: string
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
@@ -1066,6 +1069,7 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
+    USER_SQL = 'USER_SQL',
 }
 
 export enum PathType {
@@ -1179,6 +1183,7 @@ export interface FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
+    user_sql?: string
 }
 
 export interface RecordingEventsFilters {
@@ -1426,6 +1431,14 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+}
+
+export interface InsightResponseStatus {
+    num_rows: number
+    total_rows: number
+    complete: boolean
+    error: boolean
+    error_message: string | null
 }
 
 export interface SetInsightOptions {
