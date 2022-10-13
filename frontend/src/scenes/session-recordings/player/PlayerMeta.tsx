@@ -44,7 +44,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
             )}
 
             <div
-                className={clsx('flex items-center gap-2 overflow-x-auto', {
+                className={clsx('flex items-center gap-2', {
                     'p-3 border-b': !isFullScreen,
                     'px-3 p-1 text-xs': isFullScreen,
                 })}
