@@ -24,9 +24,6 @@ export async function emitToBufferStep(
     }
 
     const person = await personContainer.get()
-    if (person) {
-        status.debug('🙋‍♀️', 'Got person', { personId: person.id })
-    }
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
         status.debug('🔁', 'Emitting event to buffer', {
