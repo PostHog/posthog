@@ -75,23 +75,25 @@ export async function startPluginsServer(
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
-        await queue?.stop()
-        await pubSub?.stop()
-        await jobQueueConsumer?.stop()
-        await bufferConsumer?.disconnect()
-        await pluginScheduleControl?.stopSchedule()
-        await new Promise<void>((resolve, reject) =>
-            !mmdbServer
-                ? resolve()
-                : mmdbServer.close((error) => {
-                      if (error) {
-                          reject(error)
-                      } else {
-                          status.info('🛑', 'Closed internal MMDB server!')
-                          resolve()
-                      }
-                  })
-        )
+        await Promise.all([
+            queue?.stop(),
+            pubSub?.stop(),
+            jobQueueConsumer?.stop(),
+            bufferConsumer?.disconnect(),
+            pluginScheduleControl?.stopSchedule(),
+            new Promise<void>((resolve, reject) =>
+                !mmdbServer
+                    ? resolve()
+                    : mmdbServer.close((error) => {
+                          if (error) {
+                              reject(error)
+                          } else {
+                              status.info('🛑', 'Closed internal MMDB server!')
+                              resolve()
+                          }
+                      })
+            ),
+        ])
         if (piscina) {
             await stopPiscina(piscina)
         }
@@ -99,8 +101,6 @@ export async function startPluginsServer(
         httpServer?.close()
 
         status.info('👋', 'Over and out!')
-        // wait an extra second for any misc async task to finish
-        await delay(1000)
     }
 
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
