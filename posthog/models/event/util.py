@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import pytz
 from dateutil.parser import isoparse
@@ -10,13 +10,10 @@ from rest_framework import serializers
 from posthog.client import query_with_columns, sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
-from posthog.models import Group
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
-from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
-from posthog.models.person import Person
+from posthog.models.event.sql import GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import EventInfoForRecording
-from posthog.settings import TEST
 
 ZERO_DATE = timezone.datetime(1970, 1, 1)
 
@@ -90,153 +87,6 @@ def format_clickhouse_timestamp(
         isoparse(raw_timestamp) if isinstance(raw_timestamp, str) else (raw_timestamp or default).astimezone(pytz.utc)
     )
     return parsed_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
-
-
-def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Dict[str, Person]] = None) -> None:
-    """
-    TEST ONLY
-    Insert events in bulk. List of dicts:
-    bulk_create_events([{
-        "event": "user signed up",
-        "distinct_id": "1",
-        "team": team,
-        "timestamp": "2022-01-01T12:00:00"
-    }])
-    """
-    if not TEST:
-        raise Exception("This function is only meant for setting up tests")
-    inserts = []
-    params: Dict[str, Any] = {}
-    for index, event in enumerate(events):
-        timestamp = event.get("timestamp")
-        datetime64_default_timestamp = timezone.now().astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
-        if not timestamp:
-            timestamp = timezone.now()
-        # clickhouse specific formatting
-        if isinstance(timestamp, str):
-            timestamp = isoparse(timestamp)
-        else:
-            timestamp = timestamp.astimezone(pytz.utc)
-
-        timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
-
-        elements_chain = ""
-        if event.get("elements") and len(event["elements"]) > 0:
-            elements_chain = elements_to_string(elements=event.get("elements"))  # type: ignore
-
-        inserts.append(
-            """(
-                %(uuid_{i})s,
-                %(event_{i})s,
-                %(properties_{i})s,
-                %(timestamp_{i})s,
-                %(team_id_{i})s,
-                %(distinct_id_{i})s,
-                %(elements_chain_{i})s,
-                %(person_id_{i})s,
-                %(person_properties_{i})s,
-                %(person_created_at_{i})s,
-                %(group0_properties_{i})s,
-                %(group1_properties_{i})s,
-                %(group2_properties_{i})s,
-                %(group3_properties_{i})s,
-                %(group4_properties_{i})s,
-                %(group0_created_at_{i})s,
-                %(group1_created_at_{i})s,
-                %(group2_created_at_{i})s,
-                %(group3_created_at_{i})s,
-                %(group4_created_at_{i})s,
-                %(created_at_{i})s,
-                now(),
-                0
-            )""".format(
-                i=index
-            )
-        )
-
-        #  use person properties mapping to populate person properties in given event
-        team_id = event["team"].pk if event.get("team") else event["team_id"]
-        if person_mapping and person_mapping.get(event["distinct_id"]):
-            person = person_mapping[event["distinct_id"]]
-            person_properties = person.properties
-            person_id = person.uuid
-            person_created_at = person.created_at
-        else:
-            try:
-                person = Person.objects.get(
-                    persondistinctid__distinct_id=event["distinct_id"], persondistinctid__team_id=team_id
-                )
-                person_properties = person.properties
-                person_id = person.uuid
-                person_created_at = person.created_at
-            except Person.DoesNotExist:
-                person_properties = {}
-                person_id = event.get("person_id", uuid.uuid4())
-                person_created_at = datetime64_default_timestamp
-
-        event = {
-            **event,
-            "person_properties": {**person_properties, **event.get("person_properties", {})},
-            "person_id": person_id,
-            "person_created_at": person_created_at,
-        }
-
-        # Populate group properties as well
-        for property_key, value in (event.get("properties") or {}).items():
-            if property_key.startswith("$group_"):
-                group_type_index = property_key[-1]
-                try:
-                    group = Group.objects.get(team_id=team_id, group_type_index=group_type_index, group_key=value)
-                    group_property_key = f"group{group_type_index}_properties"
-                    group_created_at_key = f"group{group_type_index}_created_at"
-
-                    event = {
-                        **event,
-                        group_property_key: {**group.group_properties, **event.get(group_property_key, {})},
-                        group_created_at_key: event.get(group_created_at_key, datetime64_default_timestamp),
-                    }
-
-                except Group.DoesNotExist:
-                    continue
-
-        event = {
-            "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
-            "event": event["event"],
-            "properties": json.dumps(event["properties"]) if event.get("properties") else "{}",
-            "timestamp": timestamp,
-            "team_id": team_id,
-            "distinct_id": str(event["distinct_id"]),
-            "elements_chain": elements_chain,
-            "created_at": timestamp,
-            "person_id": event["person_id"] if event.get("person_id") else str(uuid.uuid4()),
-            "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
-            "person_created_at": event["person_created_at"]
-            if event.get("person_created_at")
-            else datetime64_default_timestamp,
-            "group0_properties": json.dumps(event["group0_properties"]) if event.get("group0_properties") else "{}",
-            "group1_properties": json.dumps(event["group1_properties"]) if event.get("group1_properties") else "{}",
-            "group2_properties": json.dumps(event["group2_properties"]) if event.get("group2_properties") else "{}",
-            "group3_properties": json.dumps(event["group3_properties"]) if event.get("group3_properties") else "{}",
-            "group4_properties": json.dumps(event["group4_properties"]) if event.get("group4_properties") else "{}",
-            "group0_created_at": event["group0_created_at"]
-            if event.get("group0_created_at")
-            else datetime64_default_timestamp,
-            "group1_created_at": event["group1_created_at"]
-            if event.get("group1_created_at")
-            else datetime64_default_timestamp,
-            "group2_created_at": event["group2_created_at"]
-            if event.get("group2_created_at")
-            else datetime64_default_timestamp,
-            "group3_created_at": event["group3_created_at"]
-            if event.get("group3_created_at")
-            else datetime64_default_timestamp,
-            "group4_created_at": event["group4_created_at"]
-            if event.get("group4_created_at")
-            else datetime64_default_timestamp,
-        }
-
-        params = {**params, **{"{}_{}".format(key, index): value for key, value in event.items()}}
-    sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
 
 
 def get_events_by_team(team_id: Union[str, int]):

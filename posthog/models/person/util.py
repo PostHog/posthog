@@ -1,6 +1,5 @@
 import datetime
 import json
-from contextlib import ExitStack
 from typing import Dict, List, Optional, Union
 
 import pytz
@@ -15,13 +14,7 @@ from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.models.person import Person, PersonDistinctId
-from posthog.models.person.sql import (
-    BULK_INSERT_PERSON_DISTINCT_ID2,
-    INSERT_PERSON_BULK_SQL,
-    INSERT_PERSON_DISTINCT_ID,
-    INSERT_PERSON_DISTINCT_ID2,
-    INSERT_PERSON_SQL,
-)
+from posthog.models.person.sql import INSERT_PERSON_DISTINCT_ID, INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_SQL
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
@@ -52,45 +45,6 @@ if TEST:
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
         create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid), is_deleted=True)
-
-    try:
-        from freezegun import freeze_time
-    except:
-        pass
-
-    def bulk_create_persons(persons_list: List[Dict]):
-        persons = []
-        person_mapping = {}
-        for _person in persons_list:
-            with ExitStack() as stack:
-                if _person.get("created_at"):
-                    stack.enter_context(freeze_time(_person["created_at"]))
-                persons.append(Person(**{key: value for key, value in _person.items() if key != "distinct_ids"}))
-
-        inserted = Person.objects.bulk_create(persons)
-
-        person_inserts = []
-        distinct_ids = []
-        distinct_id_inserts = []
-        for index, person in enumerate(inserted):
-            for distinct_id in persons_list[index]["distinct_ids"]:
-                distinct_ids.append(
-                    PersonDistinctId(person_id=person.pk, distinct_id=distinct_id, team_id=person.team_id)
-                )
-                distinct_id_inserts.append(f"('{distinct_id}', '{person.uuid}', {person.team_id}, 0, 0, now(), 0, 0)")
-                person_mapping[distinct_id] = person
-
-            created_at = now().strftime("%Y-%m-%d %H:%M:%S.%f")
-            timestamp = now().strftime("%Y-%m-%d %H:%M:%S")
-            person_inserts.append(
-                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0)"
-            )
-
-        PersonDistinctId.objects.bulk_create(distinct_ids)
-        sync_execute(INSERT_PERSON_BULK_SQL + ", ".join(person_inserts), flush=False)
-        sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts), flush=False)
-
-        return person_mapping
 
 
 def create_person(

@@ -1,47 +1,61 @@
 import inspect
+import json
 import re
 import threading
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from functools import wraps
 from typing import Any, Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
 
 import pytest
+import pytz
 import sqlparse
+from dateutil.parser import isoparse
 from django.apps import apps
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from django.utils.timezone import now
+from freezegun import freeze_time
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.client import ch_pool, sync_execute
-from posthog.models import Organization, Team, User
+from posthog.models import Group, Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
-from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
-from posthog.models.event.util import bulk_create_events
+from posthog.models.element.element import elements_to_string
+from posthog.models.event.sql import (
+    BULK_INSERT_EVENT_SQL,
+    DISTRIBUTED_EVENTS_TABLE_SQL,
+    DROP_EVENTS_TABLE_SQL,
+    EVENTS_TABLE_SQL,
+)
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
+from posthog.models.person.person import PersonDistinctId
 from posthog.models.person.sql import (
+    BULK_INSERT_PERSON_DISTINCT_ID2,
     DROP_PERSON_TABLE_SQL,
+    INSERT_PERSON_BULK_SQL,
     PERSONS_TABLE_SQL,
     TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
     TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
-from posthog.models.person.util import bulk_create_persons, create_person
+from posthog.models.person.util import create_person
 from posthog.models.session_recording_event.sql import (
+    BULK_INSERT_SESSION_RECORDING_EVENT_SQL,
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
-from posthog.models.session_recording_event.util import bulk_create_session_recording_event
 from posthog.settings import CLICKHOUSE_REPLICATION
+from posthog.settings.base_variables import TEST
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
@@ -412,6 +426,234 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
     """
     Can be used to test migrations where atomic=False.
     """
+
+
+def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Dict[str, Person]] = None) -> None:
+    """
+    TEST ONLY
+    Insert events in bulk. List of dicts:
+    bulk_create_events([{
+        "event": "user signed up",
+        "distinct_id": "1",
+        "team": team,
+        "timestamp": "2022-01-01T12:00:00"
+    }])
+    """
+    if not TEST:
+        raise Exception("This function is only meant for setting up tests")
+    inserts = []
+    params: Dict[str, Any] = {}
+    for index, event in enumerate(events):
+        timestamp = event.get("timestamp")
+        datetime64_default_timestamp = timezone.now().astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
+        if not timestamp:
+            timestamp = timezone.now()
+        # clickhouse specific formatting
+        if isinstance(timestamp, str):
+            timestamp = isoparse(timestamp)
+        else:
+            timestamp = timestamp.astimezone(pytz.utc)
+
+        timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        elements_chain = ""
+        if event.get("elements") and len(event["elements"]) > 0:
+            elements_chain = elements_to_string(elements=event.get("elements"))  # type: ignore
+
+        inserts.append(
+            """(
+                %(uuid_{i})s,
+                %(event_{i})s,
+                %(properties_{i})s,
+                %(timestamp_{i})s,
+                %(team_id_{i})s,
+                %(distinct_id_{i})s,
+                %(elements_chain_{i})s,
+                %(person_id_{i})s,
+                %(person_properties_{i})s,
+                %(person_created_at_{i})s,
+                %(group0_properties_{i})s,
+                %(group1_properties_{i})s,
+                %(group2_properties_{i})s,
+                %(group3_properties_{i})s,
+                %(group4_properties_{i})s,
+                %(group0_created_at_{i})s,
+                %(group1_created_at_{i})s,
+                %(group2_created_at_{i})s,
+                %(group3_created_at_{i})s,
+                %(group4_created_at_{i})s,
+                %(created_at_{i})s,
+                now(),
+                0
+            )""".format(
+                i=index
+            )
+        )
+
+        #  use person properties mapping to populate person properties in given event
+        team_id = event["team"].pk if event.get("team") else event["team_id"]
+        if person_mapping and person_mapping.get(event["distinct_id"]):
+            person = person_mapping[event["distinct_id"]]
+            person_properties = person.properties
+            person_id = person.uuid
+            person_created_at = person.created_at
+        else:
+            try:
+                person = Person.objects.get(
+                    persondistinctid__distinct_id=event["distinct_id"], persondistinctid__team_id=team_id
+                )
+                person_properties = person.properties
+                person_id = person.uuid
+                person_created_at = person.created_at
+            except Person.DoesNotExist:
+                person_properties = {}
+                person_id = event.get("person_id", uuid.uuid4())
+                person_created_at = datetime64_default_timestamp
+
+        event = {
+            **event,
+            "person_properties": {**person_properties, **event.get("person_properties", {})},
+            "person_id": person_id,
+            "person_created_at": person_created_at,
+        }
+
+        # Populate group properties as well
+        for property_key, value in (event.get("properties") or {}).items():
+            if property_key.startswith("$group_"):
+                group_type_index = property_key[-1]
+                try:
+                    group = Group.objects.get(team_id=team_id, group_type_index=group_type_index, group_key=value)
+                    group_property_key = f"group{group_type_index}_properties"
+                    group_created_at_key = f"group{group_type_index}_created_at"
+
+                    event = {
+                        **event,
+                        group_property_key: {**group.group_properties, **event.get(group_property_key, {})},
+                        group_created_at_key: event.get(group_created_at_key, datetime64_default_timestamp),
+                    }
+
+                except Group.DoesNotExist:
+                    continue
+
+        event = {
+            "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
+            "event": event["event"],
+            "properties": json.dumps(event["properties"]) if event.get("properties") else "{}",
+            "timestamp": timestamp,
+            "team_id": team_id,
+            "distinct_id": str(event["distinct_id"]),
+            "elements_chain": elements_chain,
+            "created_at": timestamp,
+            "person_id": event["person_id"] if event.get("person_id") else str(uuid.uuid4()),
+            "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
+            "person_created_at": event["person_created_at"]
+            if event.get("person_created_at")
+            else datetime64_default_timestamp,
+            "group0_properties": json.dumps(event["group0_properties"]) if event.get("group0_properties") else "{}",
+            "group1_properties": json.dumps(event["group1_properties"]) if event.get("group1_properties") else "{}",
+            "group2_properties": json.dumps(event["group2_properties"]) if event.get("group2_properties") else "{}",
+            "group3_properties": json.dumps(event["group3_properties"]) if event.get("group3_properties") else "{}",
+            "group4_properties": json.dumps(event["group4_properties"]) if event.get("group4_properties") else "{}",
+            "group0_created_at": event["group0_created_at"]
+            if event.get("group0_created_at")
+            else datetime64_default_timestamp,
+            "group1_created_at": event["group1_created_at"]
+            if event.get("group1_created_at")
+            else datetime64_default_timestamp,
+            "group2_created_at": event["group2_created_at"]
+            if event.get("group2_created_at")
+            else datetime64_default_timestamp,
+            "group3_created_at": event["group3_created_at"]
+            if event.get("group3_created_at")
+            else datetime64_default_timestamp,
+            "group4_created_at": event["group4_created_at"]
+            if event.get("group4_created_at")
+            else datetime64_default_timestamp,
+        }
+
+        params = {**params, **{"{}_{}".format(key, index): value for key, value in event.items()}}
+    sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
+
+
+def bulk_create_session_recording_event(events: List[Dict[str, Any]]) -> None:
+    """
+    Test only
+    """
+    # timestamp = cast_timestamp_or_now(timestamp)
+
+    inserts = []
+    params: Dict[str, Any] = {}
+    for index, event in enumerate(events):
+        timestamp = event["timestamp"]
+        if isinstance(timestamp, str):
+            timestamp = isoparse(timestamp)
+        else:
+            timestamp = timestamp.astimezone(pytz.utc)
+        timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+        data = {
+            "uuid": str(event["uuid"]),
+            "team_id": event["team_id"],
+            "distinct_id": event["distinct_id"],
+            "session_id": event["session_id"],
+            "window_id": event.get("window_id"),
+            "snapshot_data": json.dumps(event.get("snapshot_data", {})),
+            "timestamp": timestamp,
+            "created_at": timestamp,
+        }
+        inserts.append(
+            """(
+
+                %(uuid_{i})s,
+                %(timestamp_{i})s,
+                %(team_id_{i})s,
+                %(distinct_id_{i})s,
+                %(session_id_{i})s,
+                %(window_id_{i})s,
+                %(snapshot_data_{i})s,
+                %(created_at_{i})s,
+                now(),
+                0
+            )""".format(
+                i=index
+            )
+        )
+
+        params = {**params, **{"{}_{}".format(key, index): value for key, value in data.items()}}
+
+    sync_execute(BULK_INSERT_SESSION_RECORDING_EVENT_SQL() + ", ".join(inserts), params, flush=False)
+
+
+def bulk_create_persons(persons_list: List[Dict]):
+    persons = []
+    person_mapping = {}
+    for _person in persons_list:
+        with ExitStack() as stack:
+            if _person.get("created_at"):
+                stack.enter_context(freeze_time(_person["created_at"]))
+            persons.append(Person(**{key: value for key, value in _person.items() if key != "distinct_ids"}))
+
+    inserted = Person.objects.bulk_create(persons)
+
+    person_inserts = []
+    distinct_ids = []
+    distinct_id_inserts = []
+    for index, person in enumerate(inserted):
+        for distinct_id in persons_list[index]["distinct_ids"]:
+            distinct_ids.append(PersonDistinctId(person_id=person.pk, distinct_id=distinct_id, team_id=person.team_id))
+            distinct_id_inserts.append(f"('{distinct_id}', '{person.uuid}', {person.team_id}, 0, 0, now(), 0, 0)")
+            person_mapping[distinct_id] = person
+
+        created_at = now().strftime("%Y-%m-%d %H:%M:%S.%f")
+        timestamp = now().strftime("%Y-%m-%d %H:%M:%S")
+        person_inserts.append(
+            f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0)"
+        )
+
+    PersonDistinctId.objects.bulk_create(distinct_ids)
+    sync_execute(INSERT_PERSON_BULK_SQL + ", ".join(person_inserts), flush=False)
+    sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts), flush=False)
+
+    return person_mapping
 
 
 def flush_persons_and_events():

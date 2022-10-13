@@ -69,11 +69,6 @@ runs:
               python -m pip install -r requirements-dev.txt
               python -m pip install -r requirements.txt
 
-        - name: Install reportlog
-          shell: bash
-          run: |
-              python -m pip install pytest-reportlog
-
         - name: Set up needed files
           shell: bash
           run: |
@@ -101,7 +96,6 @@ runs:
               pytest ee/ posthog/ -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
-                  --store-durations \
                   --cov \
                   --cov-report=xml:coverage-clickhouse.xml \
                   --durations=100 --durations-min=1.0 \
