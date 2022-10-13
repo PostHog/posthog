@@ -10,6 +10,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import posthog from 'posthog-js'
 
 export interface LemonTextAreaProps
     extends Pick<
@@ -111,8 +112,11 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                 formData.append('image', e.dataTransfer.files[0])
                 const media = await api.media.upload(formData)
                 onChange(value + `\n\n![${media.name}](${media.image_location})`)
+                posthog.capture('markdown image uploaded', { name: media.name })
             } catch (error) {
-                lemonToast.error(`Error uploading image: ${(error as any).detail || 'unknown error'}`)
+                const errorDetail = (error as any).detail || 'unknown error'
+                posthog.capture('markdown image upload failed', { error: errorDetail })
+                lemonToast.error(`Error uploading image: ${errorDetail}`)
             } finally {
                 setIsUploading(false)
             }

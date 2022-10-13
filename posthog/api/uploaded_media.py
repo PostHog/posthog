@@ -70,6 +70,7 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 if uploaded_media is None:
                     raise APIException("Could not save media")
                 headers = self.get_success_headers(uploaded_media.get_absolute_url())
+                incr("uploaded_media.uploaded", tags={"team_id": self.team.pk, "content_type": file.content_type})
                 return Response(
                     {
                         "id": uploaded_media.id,
