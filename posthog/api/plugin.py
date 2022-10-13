@@ -52,11 +52,11 @@ def _update_plugin_attachments(request: request.Request, plugin_config: PluginCo
     for key, file in request.FILES.items():
         match = re.match(r"^add_attachment\[([^]]+)\]$", key)
         if match:
-            _update_plugin_attachment(plugin_config, match.group(1), file)
+            _update_plugin_attachment(plugin_config, match.group(1), file, request.user)
     for key, file in request.POST.items():
         match = re.match(r"^remove_attachment\[([^]]+)\]$", key)
         if match:
-            _update_plugin_attachment(plugin_config, match.group(1), None)
+            _update_plugin_attachment(plugin_config, match.group(1), None, request.user)
 
 
 def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, Any], secret_fields=[]) -> List[Change]:
@@ -107,10 +107,13 @@ def log_config_update_activity(
     log_enabled_change_activity(new_plugin_config=new_plugin_config, old_enabled=old_enabled, user=user)
 
 
-def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optional[UploadedFile]):
+def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optional[UploadedFile], user: Any):
     try:
         plugin_attachment = PluginAttachment.objects.get(team=plugin_config.team, plugin_config=plugin_config, key=key)
         if file:
+            activity = "attachment_updated"
+            change = Change(type="PluginConfig", action="changed", before=plugin_attachment.file_name, after=file.name)
+
             plugin_attachment.content_type = file.content_type
             plugin_attachment.file_name = file.name
             plugin_attachment.file_size = file.size
@@ -118,6 +121,9 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
             plugin_attachment.save()
         else:
             plugin_attachment.delete()
+
+            activity = "attachment_deleted"
+            change = Change(type="PluginConfig", action="deleted", before=plugin_attachment.file_name, after=None)
     except ObjectDoesNotExist:
         if file:
             PluginAttachment.objects.create(
@@ -129,6 +135,19 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
                 file_size=file.size,
                 contents=file.file.read(),
             )
+
+            activity = "attachment_created"
+            change = Change(type="PluginConfig", action="created", before=None, after=file.name)
+
+    log_activity(
+        organization_id=plugin_config.team.organization.id,
+        team_id=plugin_config.team.id,
+        user=user,
+        item_id=plugin_config.id,
+        scope="PluginConfig",
+        activity=activity,
+        detail=Detail(name=plugin_config.plugin.name, changes=[change]),
+    )
 
 
 # sending files via a multipart form puts the config JSON in a un-serialized format
