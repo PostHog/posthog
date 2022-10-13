@@ -4,91 +4,25 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { Select, Switch } from 'antd'
 import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
-import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
-import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/Time'
+import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconFullScreen, IconGauge, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
+import {
+    IconFullScreen,
+    IconPause,
+    IconPlay,
+    IconSkipInactivity,
+    IconTerminal,
+    UnverifiedEvent,
+} from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
-
-export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting } = useActions(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
-    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting } = useValues(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
-
-    return (
-        <div className="rrweb-controller" data-attr="rrweb-controller">
-            <span>
-                {currentPlayerState === SessionPlayerState.PLAY ? (
-                    <IconPause
-                        onClick={togglePlayPause}
-                        className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                        style={isSmallScreen ? {} : { marginRight: '0.5rem' }}
-                    />
-                ) : (
-                    <IconPlay
-                        onClick={togglePlayPause}
-                        className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                        style={isSmallScreen ? {} : { marginRight: '0.5rem' }}
-                    />
-                )}
-            </span>
-            {!isSmallScreen && (
-                <>
-                    <SeekBack
-                        sessionRecordingId={sessionRecordingId}
-                        style={{ marginRight: '0.25rem' }}
-                        playerKey={playerKey}
-                    />
-                    <SeekForward
-                        sessionRecordingId={sessionRecordingId}
-                        style={{ marginRight: '0.5rem' }}
-                        playerKey={playerKey}
-                    />
-                    <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                </>
-            )}
-            <div className="rrweb-progress">
-                <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            </div>
-            <Select
-                onChange={(nextSpeed: number) => setSpeed(nextSpeed)}
-                value={speed}
-                dropdownMatchSelectWidth={false}
-                size="small"
-                defaultValue={1}
-                className="rrweb-speed-toggle"
-            >
-                <Select.OptGroup label="Speed">
-                    {PLAYBACK_SPEEDS.map((speedToggle) => (
-                        <Select.Option key={speedToggle} value={speedToggle}>
-                            {speedToggle}x
-                        </Select.Option>
-                    ))}
-                </Select.OptGroup>
-            </Select>
-            <div
-                onClick={() => {
-                    setSkipInactivitySetting(!skipInactivitySetting)
-                }}
-                className="rrweb-inactivity-toggle"
-            >
-                <span className="inactivity-label">Skip inactivity</span>
-                <Switch checked={skipInactivitySetting} size="small" />
-            </div>
-        </div>
-    )
-}
+import clsx from 'clsx'
 
 export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setFullScreen } = useActions(
+    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setIsFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
     const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, tab, isFullScreen } = useValues(
@@ -97,7 +31,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
-        <div className="PlayerControllerV3">
+        <div className="PlayerControllerV3 p-3 bg-light flex flex-col select-none">
             <div className="flex items-center h-8 mb-2" data-attr="rrweb-controller">
                 {!isSmallScreen && <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
                 <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
@@ -133,11 +67,11 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                 </div>
                 <div className="flex items-center gap-1">
                     <SeekBack sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                    <LemonButton status="primary-alt" size="small">
+                    <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>
                         {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
-                            <IconPause onClick={togglePlayPause} />
+                            <IconPause className="text-2xl" />
                         ) : (
-                            <IconPlay onClick={togglePlayPause} />
+                            <IconPlay className="text-2xl" />
                         )}
                     </LemonButton>
                     <SeekForward sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
@@ -175,32 +109,33 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                     </Tooltip>
 
                     <Tooltip title={`Skip inactivity (${skipInactivitySetting ? 'on' : 'off'})`}>
-                        <span
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                transform: skipInactivitySetting ? undefined : 'rotateY(180deg)',
+                        <LemonButton
+                            size="small"
+                            status="primary-alt"
+                            onClick={() => {
+                                setSkipInactivitySetting(!skipInactivitySetting)
                             }}
                         >
-                            <LemonButton
-                                size="small"
-                                status={skipInactivitySetting ? 'primary' : 'primary-alt'}
-                                onClick={() => {
-                                    setSkipInactivitySetting(!skipInactivitySetting)
-                                }}
-                            >
-                                <IconGauge className="text-2xl" />
-                            </LemonButton>
-                        </span>
+                            <IconSkipInactivity
+                                className={clsx(
+                                    'text-2xl',
+                                    skipInactivitySetting ? 'text-primary' : 'text-primary-alt'
+                                )}
+                                enabled={skipInactivitySetting}
+                            />
+                        </LemonButton>
                     </Tooltip>
                     <Tooltip title={`${!isFullScreen ? 'Go' : 'exit'} full screen (F)`}>
                         <LemonButton
                             size="small"
-                            status={'primary-alt'}
+                            status="primary-alt"
                             onClick={() => {
-                                setFullScreen(!isFullScreen)
+                                setIsFullScreen(!isFullScreen)
                             }}
                         >
-                            <IconFullScreen className="text-2xl" />
+                            <IconFullScreen
+                                className={clsx('text-2xl', isFullScreen ? 'text-primary' : 'text-primary-alt')}
+                            />
                         </LemonButton>
                     </Tooltip>
                 </div>

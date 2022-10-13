@@ -9,10 +9,12 @@
 
     .top-bar {
         width: 100%;
+
         .ant-tabs,
         .ant-tabs-nav-list {
             width: 100%;
         }
+
         .ant-btn-loading-icon {
             display: none;
         }
@@ -46,6 +48,7 @@
         border-radius: 0;
         border: 0;
         border-bottom: 2px solid transparent;
+
         &.active {
             border-bottom: 2px solid var(--primary);
         }
@@ -65,9 +68,11 @@
             background-color: var(--primary-bg-hover) !important;
             border-color: var(--primary-bg-hover) !important;
         }
+
         // TODO: Remove deprecated style if we fully remove or actively support again
         .deprecated {
             color: var(--muted);
+
             .hotkey {
                 margin-bottom: 0;
                 background-color: var(--light) !important;
@@ -75,6 +80,7 @@
                 color: var(--muted);
             }
         }
+
         &.ant-tabs-tab-active {
             .deprecated {
                 color: var(--primary);
@@ -87,6 +93,7 @@
         .hotkey {
             background-color: var(--primary-bg-active) !important;
         }
+
         .deprecated {
             .hotkey {
                 background-color: var(--light) !important;
@@ -176,6 +183,7 @@
     .advanced-options-dropdown {
         font-size: 1.4em;
         color: var(--primary-alt);
+
         &.expanded {
             transform: rotateX(180deg);
         }
@@ -192,6 +200,7 @@
     .retention-date-picker {
         background-color: transparent;
         border: 0;
+
         input::placeholder {
             color: var(--default);
         }
@@ -208,6 +217,7 @@
 
 .insight-metadata-tags {
     margin-top: 0.5rem;
+
     .ant-tag {
         margin-top: 0;
     }
@@ -218,6 +228,7 @@
     min-height: min(calc(90vh - 16rem), 36rem);
     display: flex;
     justify-content: center;
+
     .LineGraph {
         height: calc(100% - 1rem) !important;
     }
@@ -232,6 +243,7 @@
         position: relative;
         margin-bottom: 0;
     }
+
     .ant-table-wrapper {
         margin-top: 0 !important;
     }
@@ -252,6 +264,7 @@
     display: inline-flex;
     background: var(--primary);
     color: var(--bg-light);
+
     .LemonIcon {
         color: var(--bg-light);
     }

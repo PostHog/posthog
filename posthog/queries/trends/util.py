@@ -10,7 +10,7 @@ from posthog.models.filters import Filter, PathFilter
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
-from posthog.queries.util import format_ch_timestamp, get_earliest_timestamp
+from posthog.queries.util import get_earliest_timestamp
 
 MATH_FUNCTIONS = {
     "sum": "sum",
@@ -76,8 +76,11 @@ def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, te
     params.update({"prev_interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 day"})
     diff = timedelta(days=7) if entity.math == WEEKLY_ACTIVE else timedelta(days=30)
     if filter.date_from:
+        prev_range = (filter.date_from - diff).strftime("%Y-%m-%d %H:%M:%S")
         params.update(
-            {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(filter.date_from - diff)}'"}
+            {
+                "parsed_date_from_prev_range": f"AND toDateTime(timestamp, 'UTC') >= toDateTime('{prev_range}', %(timezone)s)"
+            }
         )
     else:
         try:
@@ -85,8 +88,11 @@ def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, te
         except IndexError:
             raise ValidationError("Active User queries require a lower date bound")
         else:
+            prev_range = (earliest_date - diff).strftime("%Y-%m-%d %H:%M:%S")
             params.update(
-                {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(earliest_date - diff)}'"}
+                {
+                    "parsed_date_from_prev_range": f"AND toDateTime(timestamp, 'UTC') >= toDateTime('{prev_range}', %(timezone)s)"
+                }
             )
 
     return params

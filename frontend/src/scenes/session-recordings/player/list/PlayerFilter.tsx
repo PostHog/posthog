@@ -1,7 +1,7 @@
 import React from 'react'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { useActions, useValues } from 'kea'
-import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
+import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { RecordingWindowFilter, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { IconInfo } from 'lib/components/icons'
@@ -17,7 +17,7 @@ export function PlayerFilter({ sessionRecordingId, playerKey, matching }: Sessio
     const { setWindowIdFilter, setShowOnlyMatching } = useActions(sharedListLogic(logicProps))
     const { localFilters } = useValues(eventsListLogic(logicProps))
     const { setLocalFilters } = useActions(eventsListLogic(logicProps))
-    const { windowIds } = useValues(metaLogic(logicProps))
+    const { windowIds } = useValues(playerMetaLogic(logicProps))
 
     return (
         <div className="PlayerFilter flex justify-between gap-2 bg-side p-2 flex-wrap">

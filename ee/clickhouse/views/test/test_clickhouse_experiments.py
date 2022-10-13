@@ -17,46 +17,6 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_getting_archived_experiments(self):
-        archived_experiment = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": "a-b-tests",
-                "archived": True,
-                "parameters": None,
-                "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
-                    "properties": [
-                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
-                    ],
-                },
-            },
-        )
-        self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": "a-b-tests2",
-                "parameters": None,
-                "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
-                    "properties": [
-                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
-                    ],
-                },
-            },
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments?archived=true")
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], archived_experiment.json()["id"])
-
     @pytest.mark.skip_on_multitenancy
     def test_cannot_list_experiments_without_proper_license(self):
         self.organization.available_features = []
@@ -64,6 +24,54 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertEqual(response.json(), self.license_required_response())
+
+    def test_getting_experiments_is_not_nplus1(self) -> None:
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            data={
+                "name": "Test Experiment",
+                "feature_flag_key": f"flag_0",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        ).json()
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            data={
+                "name": "Test Experiment",
+                "feature_flag_key": f"exp_flag_000",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "end_date": "2021-12-01T10:23",
+                "archived": True,
+                "parameters": None,
+            },
+            format="json",
+        ).json()
+
+        with self.assertNumQueries(9):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(1, 5):
+            self.client.post(
+                f"/api/projects/{self.team.id}/experiments/",
+                data={
+                    "name": "Test Experiment",
+                    "feature_flag_key": f"flag_{i}",
+                    "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                    "start_date": "2021-12-01T10:23",
+                    "parameters": None,
+                },
+                format="json",
+            ).json()
+
+        with self.assertNumQueries(9):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_creating_updating_basic_experiment(self):
         ff_key = "a-b-tests"
