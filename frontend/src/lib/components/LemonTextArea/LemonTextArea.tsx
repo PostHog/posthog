@@ -54,10 +54,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
 
                 onKeyDown?.(e)
             }}
-            onChange={(event) => {
-                console.log('onChange', event.target.value)
-                onChange?.(event.currentTarget.value ?? '')
-            }}
+            onChange={(event) => onChange?.(event.currentTarget.value ?? '')}
             {...textProps}
         />
     )
