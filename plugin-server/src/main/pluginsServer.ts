@@ -172,8 +172,9 @@ export async function startPluginsServer(
 
                 // TODO: In the future we might benefit from scheduling tasks more granularly i.e. <taskType, pluginConfigId>
                 // KLUDGE: Given we're currently not doing the above, if we throw after executing n tasks for given type, those n tasks will be re-run
-                // Note: backfillPeriod must be explicitly defined here, but we'd currently not like to use it as it has a lot of limitations
-                // (see: https://github.com/graphile/worker#limiting-backfill). We might benefit from changing this setting in the future
+                // Note: backfillPeriod must be explicitly defined here (without passing options it defaults to 0 anyway) but we'd currently 
+                // not like to use it as it has a lot of limitations (see: https://github.com/graphile/worker#limiting-backfill)
+                // We might benefit from changing this setting in the future
                 crontab.push({
                     task: 'runEveryMinute',
                     identifier: 'runEveryMinute',
