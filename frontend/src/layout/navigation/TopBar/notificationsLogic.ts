@@ -18,6 +18,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
         setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
         setMarkReadTimeout: (markReadTimeout: number) => ({ markReadTimeout }),
         incrementErrorCount: true,
+        clearErrorCount: true,
     }),
     loaders(({ actions, values }) => ({
         importantChanges: [
@@ -32,6 +33,8 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         const response = (await api.get(
                             `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
                         )) as ActivityLogItem[]
+                        // we can't rely on automatic success action here because we swallow errors so always succeed
+                        actions.clearErrorCount()
                         return humanize(response, describerFor, true)
                     } catch (e) {
                         // swallow errors as this isn't user initiated
@@ -54,7 +57,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
             0,
             {
                 incrementErrorCount: (state) => state + 1,
-                importantChangesSuccess: () => 0,
+                clearErrorCount: () => 0,
             },
         ],
         isNotificationPopoverOpen: [
