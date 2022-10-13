@@ -117,15 +117,6 @@ class TrendsEventQuery(EventQuery):
         if self._using_person_on_events:
             self._should_join_distinct_ids = False
             self._should_join_persons = False
-        elif any(
-            # Check if any entity uses event count per user
-            (
-                entity.math in MATH_FUNCTIONS and entity.math_property == EVENT_COUNT_PER_ACTOR
-                for entity in self._filter.entities
-            )
-        ):
-            self._should_join_distinct_ids = True
-            self._should_join_persons = True
 
     def _get_extra_person_columns(self) -> str:
         if self._using_person_on_events:
@@ -151,8 +142,11 @@ class TrendsEventQuery(EventQuery):
             )
 
     def _determine_should_join_distinct_ids(self) -> None:
+        is_entity_per_user = self._entity.math == UNIQUE_USERS or (
+            self._entity.math in MATH_FUNCTIONS and self._entity.math_property == EVENT_COUNT_PER_ACTOR
+        )
         if (
-            self._entity.math == UNIQUE_USERS and not self._aggregate_users_by_distinct_id
+            is_entity_per_user and not self._aggregate_users_by_distinct_id
         ) or self._column_optimizer.is_using_cohort_propertes:
             self._should_join_distinct_ids = True
 
