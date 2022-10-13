@@ -44,6 +44,7 @@ import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { EVENT_COUNT_PER_ACTOR } from 'lib/constants'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
@@ -409,6 +410,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getName: (option) => option.name,
                         getValue: (option) => option.value,
                         getPopupHeader: () => 'Session',
+                    },
+                    {
+                        name: 'Event count',
+                        searchPlaceholder: 'event count',
+                        type: TaxonomicFilterGroupType.EventCount,
+                        options: [
+                            {
+                                name: 'Event count per user',
+                                value: EVENT_COUNT_PER_ACTOR,
+                            },
+                        ],
+                        getName: (option) => option.name,
+                        getValue: (option) => option.value,
+                        getPopupHeader: () => 'Event Count',
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
