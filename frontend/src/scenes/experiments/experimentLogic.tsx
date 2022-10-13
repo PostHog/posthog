@@ -45,7 +45,6 @@ const DEFAULT_DURATION = 14 // days
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
     name: '',
-    feature_flag: 0,
     feature_flag_key: '',
     filters: {},
     parameters: {
@@ -88,7 +87,6 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentInsightId: (shortId: InsightShortId) => ({ shortId }),
         createNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
-        // setNewExperimentData: (experimentData: Partial<Experiment>) => ({ experimentData }),
         updateExperimentGroup: (variant: Partial<MultivariateFlagVariant>, idx: number) => ({ variant, idx }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
@@ -97,8 +95,6 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentResultCalculationError: (error: string) => ({ error }),
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setFlagAvailabilityWarning: (warning: boolean) => ({ warning }),
-        // resetExperiment,
-        // resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
@@ -121,19 +117,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                     return { ...state, ...experiment }
                 },
-                // setNewExperimentData: (vals, { experimentData }) => {
-                //     if (experimentData.filters) {
-                //         const newFilters = { ...vals?.filters, ...experimentData.filters }
-                //         return { ...vals, ...experimentData, filters: newFilters }
-                //     }
-
-                //     // assuming setNewExperimentData isn't called with new filters & parameters at the same time
-                //     if (experimentData.parameters) {
-                //         const newParameters = { ...vals?.parameters, ...experimentData.parameters }
-                //         return { ...vals, ...experimentData, parameters: newParameters }
-                //     }
-                //     return { ...vals, ...experimentData }
-                // },
                 updateExperimentGroup: (state, { variant, idx }) => {
                     const featureFlagVariants = [...(state?.parameters?.feature_flag_variants || [])]
                     featureFlagVariants[idx] = { ...featureFlagVariants[idx], ...variant }
@@ -191,105 +174,8 @@ export const experimentLogic = kea<experimentLogicType>([
                         },
                     }
                 },
-                setSecondaryMetrics: (state, { secondaryMetrics }) => {
-                    const metrics = secondaryMetrics.map((metric) => metric)
-                    return {
-                        ...state,
-                        secondary_metrics: metrics,
-                    }
-                },
-                // resetNewExperiment: () => ({
-                //     parameters: {
-                //         feature_flag_variants: [
-                //             { key: 'control', rollout_percentage: 50 },
-                //             { key: 'test', rollout_percentage: 50 },
-                //         ],
-                //     },
-                // }),
             },
         ],
-        // newExperimentData: [
-        //     null as Partial<Experiment> | null,
-        //     {
-        //         setNewExperimentData: (vals, { experimentData }) => {
-        //             if (experimentData.filters) {
-        //                 const newFilters = { ...vals?.filters, ...experimentData.filters }
-        //                 return { ...vals, ...experimentData, filters: newFilters }
-        //             }
-
-        //             // assuming setNewExperimentData isn't called with new filters & parameters at the same time
-        //             if (experimentData.parameters) {
-        //                 const newParameters = { ...vals?.parameters, ...experimentData.parameters }
-        //                 return { ...vals, ...experimentData, parameters: newParameters }
-        //             }
-        //             return { ...vals, ...experimentData }
-        //         },
-        //         updateExperimentGroup: (state, { variant, idx }) => {
-        //             const featureFlagVariants = [...(state?.parameters?.feature_flag_variants || [])]
-        //             featureFlagVariants[idx] = { ...featureFlagVariants[idx], ...variant }
-        //             return {
-        //                 ...state,
-        //                 parameters: { ...state?.parameters, feature_flag_variants: featureFlagVariants },
-        //             }
-        //         },
-        //         addExperimentGroup: (state) => {
-        //             if (state?.parameters?.feature_flag_variants) {
-        //                 const newRolloutPercentages = percentageDistribution(
-        //                     state.parameters.feature_flag_variants.length + 1
-        //                 )
-        //                 const updatedRolloutPercentageVariants = state.parameters.feature_flag_variants.map(
-        //                     (variant: MultivariateFlagVariant, i: number) => ({
-        //                         ...variant,
-        //                         rollout_percentage: newRolloutPercentages[i],
-        //                     })
-        //                 )
-        //                 return {
-        //                     ...state,
-        //                     parameters: {
-        //                         ...state.parameters,
-        //                         feature_flag_variants: [
-        //                             ...updatedRolloutPercentageVariants,
-        //                             {
-        //                                 key: `test_group_${state.parameters.feature_flag_variants.length}`,
-        //                                 rollout_percentage: newRolloutPercentages[newRolloutPercentages.length - 1],
-        //                             },
-        //                         ],
-        //                     },
-        //                 }
-        //             }
-        //             return state
-        //         },
-        //         removeExperimentGroup: (state, { idx }) => {
-        //             if (!state) {
-        //                 return state
-        //             }
-        //             const variants = [...(state.parameters?.feature_flag_variants || [])]
-        //             variants.splice(idx, 1)
-        //             const newRolloutPercentages = percentageDistribution(
-        //                 (state?.parameters?.feature_flag_variants || []).length - 1
-        //             )
-        //             const updatedVariants = variants.map((variant: MultivariateFlagVariant, i: number) => ({
-        //                 ...variant,
-        //                 rollout_percentage: newRolloutPercentages[i],
-        //             }))
-
-        //             return {
-        //                 ...state,
-        //                 parameters: {
-        //                     ...state.parameters,
-        //                     feature_flag_variants: updatedVariants,
-        //                 },
-        //             }
-        //         },
-        //         setSecondaryMetrics: (state, { secondaryMetrics }) => {
-        //             const metrics = secondaryMetrics.map((metric) => metric)
-        //             return {
-        //                 ...state,
-        //                 secondary_metrics: metrics,
-        //             }
-        //         },
-        //     },
-        // ],
         experimentInsightType: [
             InsightType.TRENDS as InsightType,
             {
@@ -467,44 +353,44 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentSuccess: async ({ experiment }) => {
             actions.updateExperiments(experiment)
         },
-        // setNewExperimentData: async ({ experimentData }, breakpoint) => {
-        //     const experimentEntitiesChanged =
-        //         (experimentData.filters?.events && experimentData.filters.events.length > 0) ||
-        //         (experimentData.filters?.actions && experimentData.filters.actions.length > 0)
+        setExperiment: async ({ experiment }, breakpoint) => {
+            const experimentEntitiesChanged =
+                (experiment.filters?.events && experiment.filters.events.length > 0) ||
+                (experiment.filters?.actions && experiment.filters.actions.length > 0)
 
-        //     if (!experimentData.filters || Object.keys(experimentData.filters).length === 0) {
-        //         return
-        //     }
+            if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
+                return
+            }
 
-        //     if (experimentEntitiesChanged) {
-        //         const url = `/api/projects/${values.currentTeamId}/experiments/requires_flag_implementation?${toParams(
-        //             experimentData.filters || {}
-        //         )}`
-        //         await breakpoint(100)
+            if (experimentEntitiesChanged) {
+                const url = `/api/projects/${values.currentTeamId}/experiments/requires_flag_implementation?${toParams(
+                    experiment.filters || {}
+                )}`
+                await breakpoint(100)
 
-        //         try {
-        //             const response = await api.get(url)
-        //             actions.setFlagImplementationWarning(response.result)
-        //         } catch (e) {
-        //             // default to not showing the warning
-        //             actions.setFlagImplementationWarning(false)
-        //         }
-        //     }
+                try {
+                    const response = await api.get(url)
+                    actions.setFlagImplementationWarning(response.result)
+                } catch (e) {
+                    // default to not showing the warning
+                    actions.setFlagImplementationWarning(false)
+                }
+            }
 
-        //     if (experimentData.filters?.properties) {
-        //         const targetProperties = convertPropertyGroupToProperties(experimentData.filters.properties) || []
+            if (experiment.filters?.properties) {
+                const targetProperties = convertPropertyGroupToProperties(experiment.filters.properties) || []
 
-        //         if (targetProperties.length > 0) {
-        //             const hasNonInstantProperty = !!targetProperties.find(
-        //                 (property) =>
-        //                     property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
-        //             )
-        //             actions.setFlagAvailabilityWarning(hasNonInstantProperty)
-        //         } else {
-        //             actions.setFlagAvailabilityWarning(false)
-        //         }
-        //     }
-        // },
+                if (targetProperties.length > 0) {
+                    const hasNonInstantProperty = !!targetProperties.find(
+                        (property) =>
+                            property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
+                    )
+                    actions.setFlagAvailabilityWarning(hasNonInstantProperty)
+                } else {
+                    actions.setFlagAvailabilityWarning(false)
+                }
+            }
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -576,10 +462,7 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
         ],
-        experimentData: [
-            (s) => [s.experiment],
-            (experiment) => experiment
-        ],
+        experimentData: [(s) => [s.experiment], (experiment) => experiment],
         breadcrumbs: [
             (s) => [s.experimentData, s.experimentId],
             (experimentData, experimentId): Breadcrumb[] => [
@@ -822,18 +705,44 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    forms(({ actions }) => ({
+    forms(() => ({
         experiment: {
             defaults: { ...NEW_EXPERIMENT } as Experiment,
-            errors: () => ({}),
-            submit: async (data) => {
-                // const filler = false
-                debugger
-                if (data) {
-                    // actions.createExperiment(true, 1, 2)
-                    // actions.createExperiment(true, exposure, sampleSize)
-                }
-            },
+            errors: ({ name, feature_flag_key, parameters }) => ({
+                name: !name && 'You have to enter a name.',
+                feature_flag_key: !feature_flag_key
+                    ? 'You have to enter a feature flag key.'
+                    : !feature_flag_key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
+                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                    : undefined,
+                parameters: {
+                    feature_flag_variants: parameters.feature_flag_variants?.map(({ key }) => ({
+                        key: !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
+                            ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                            : undefined,
+                    })),
+                },
+            }),
+            // submit: async (data, breakpoint) => {
+            //     // const filler = false
+            //     debugger
+            //     const conversionMetrics = funnelLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.values.conversionMetrics
+            //     const trendResults = trendsLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.values.results
+            //     await breakpoint(200)
+            //     if (data) {
+            //         // ?.totalRate * 100
+            //         const conversionRate = conversionMetrics.totalRate * 100
+            //         const sampleSizePerVariant = values.minimumSampleSizePerVariant(conversionRate)
+            //         const sampleSize = sampleSizePerVariant * data.parameters.feature_flag_variants.length
+            //         // const sampleSize = values.minimumSampleSizePerVariant()
+            //         // actions.createExperiment(true, 1, 2)
+            //         const trendCount = trendResults[0]?.count
+            //         const entrants = results?.[0]?.count
+            //         const exposure = recommendedExposureForCountData(trendCount)
+            //         actions.createExperiment(true, exposure, sampleSize)
+
+            //     }
+            // },
         },
     })),
     urlToAction(({ actions, values }) => ({
@@ -860,14 +769,15 @@ export const experimentLogic = kea<experimentLogicType>([
         },
     })),
     afterMount(({ props, actions }) => {
-        const foundExperiment = experimentsLogic.findMounted()?.values.experiments.find((experiment) => experiment.id === props.experimentId)
+        const foundExperiment = experimentsLogic
+            .findMounted()
+            ?.values.experiments.find((experiment) => experiment.id === props.experimentId)
         if (foundExperiment) {
             actions.setExperiment(foundExperiment)
         } else if (props.experimentId !== 'new') {
             actions.loadExperiment()
         }
     }),
-
 ])
 
 function percentageDistribution(variantCount: number): number[] {

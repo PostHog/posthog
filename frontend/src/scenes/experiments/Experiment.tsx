@@ -87,6 +87,7 @@ export function Experiment(): JSX.Element {
         setExperimentInsightType,
         archiveExperiment,
         loadExperiment,
+        createExperiment,
     } = useActions(experimentLogic)
 
     const [showWarning, setShowWarning] = useState(true)
@@ -165,7 +166,11 @@ export function Experiment(): JSX.Element {
                         formKey="experiment"
                         props={props}
                         id="experiment-form"
-                        enableFormOnSubmit
+                        // enableFormOnSubmit
+                        onSubmit={() => {
+                            // debugger
+                            createExperiment(true, exposure, sampleSize)
+                        }}
                         className="space-y-4 experiment-form"
                     >
                         <PageHeader
@@ -258,7 +263,7 @@ export function Experiment(): JSX.Element {
                                                             </div>
                                                             <Field name="key">
                                                                 <LemonInput
-                                                                    disabled={index === 0}
+                                                                    disabled={index === 0 || experimentId !== 'new'}
                                                                     data-attr="experiment-variant-key"
                                                                     data-key-index={index.toString()}
                                                                     className="ph-ignore-input"
@@ -290,16 +295,17 @@ export function Experiment(): JSX.Element {
                                                     </Group>
                                                 ))}
 
-                                                {(experiment.parameters.feature_flag_variants.length ?? 0) < 4 && (
-                                                    <div className="feature-flag-variant border-b">
-                                                        <LemonButton
-                                                            onClick={() => addExperimentGroup()}
-                                                            icon={<IconPlusMini />}
-                                                        >
-                                                            Add test variant
-                                                        </LemonButton>
-                                                    </div>
-                                                )}
+                                                {(experiment.parameters.feature_flag_variants.length ?? 0) < 4 &&
+                                                    experimentId === 'new' && (
+                                                        <div className="feature-flag-variant border-b">
+                                                            <LemonButton
+                                                                onClick={() => addExperimentGroup()}
+                                                                icon={<IconPlusMini />}
+                                                            >
+                                                                Add test variant
+                                                            </LemonButton>
+                                                        </div>
+                                                    )}
                                             </Col>
                                         </Col>
                                     )}

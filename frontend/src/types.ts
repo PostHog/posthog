@@ -1651,13 +1651,13 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     // ID of feature flag
-    feature_flag: number
+    feature_flag?: number
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number
         recommended_running_time?: number
         recommended_sample_size?: number
-        feature_flag_variants?: MultivariateFlagVariant[]
+        feature_flag_variants: MultivariateFlagVariant[]
     }
     start_date?: string
     end_date?: string
