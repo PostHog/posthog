@@ -70,14 +70,14 @@ export function InsightLegend({
                 {indexedResults &&
                     indexedResults
                         .sort((a, b) => b.aggregated_value - a.aggregated_value)
-                        .map((item) => {
+                        .map((item, index) => {
                             return (
                                 <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row">
                                     <LemonCheckbox
                                         className="text-xs mr-4"
                                         color={getSeriesColor(item.id, !!filters.compare)}
-                                        checked={!hiddenLegendKeys[item.id]}
-                                        onChange={() => toggleVisibility(item.id)}
+                                        checked={!hiddenLegendKeys[index]}
+                                        onChange={() => toggleVisibility(index)}
                                         fullWidth
                                         label={
                                             <InsightLabel
