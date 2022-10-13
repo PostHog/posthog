@@ -23,7 +23,6 @@ import { insertRow, POSTGRES_TRUNCATE_TABLES_QUERY } from './helpers/sql'
 const { console: testConsole } = writeToFile
 
 jest.setTimeout(60000) // 60 sec timeout
-jest.useFakeTimers('modern')
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 1,
