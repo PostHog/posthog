@@ -43,6 +43,17 @@ export interface AppMetrics {
     }
 }
 
+export interface AppErrorSummary {
+    error_type: string
+    count: number
+    last_seen: string
+}
+
+export interface AppMetricsResponse {
+    metrics: AppMetrics
+    errors: Array<AppErrorSummary>
+}
+
 const INITIAL_TABS: Array<AppMetricsTab> = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
@@ -85,15 +96,14 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 },
             },
         ],
-        metrics: [
-            null as AppMetrics | null,
+        appMetricsResponse: [
+            null as AppMetricsResponse | null,
             {
                 loadMetrics: async () => {
                     const params = toParams({ category: values.activeTab, date_from: values.dateFrom })
-                    const { results } = await api.get(
+                    return await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}?${params}`
                     )
-                    return results
                 },
             },
         ],

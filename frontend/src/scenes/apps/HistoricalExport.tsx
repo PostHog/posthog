@@ -5,7 +5,7 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { AppMetricsGraph } from './AppMetricsGraph'
 import { AppMetricsTab } from './appMetricsSceneLogic'
 import { historicalExportLogic, HistoricalExportLogicProps } from './historicalExportLogic'
-import { MetricsOverview } from './MetricsTab'
+import { ErrorsOverview, MetricsOverview } from './MetricsTab'
 
 export function HistoricalExport(props: HistoricalExportLogicProps): JSX.Element {
     const { data, dataLoading } = useValues(historicalExportLogic(props))
@@ -32,6 +32,10 @@ export function HistoricalExport(props: HistoricalExportLogicProps): JSX.Element
                     metrics={data?.metrics ?? null}
                     metricsLoading={dataLoading}
                 />
+            </Card>
+
+            <Card title="Errors" className="mt-4">
+                <ErrorsOverview errors={data?.errors || []} loading={dataLoading} />
             </Card>
         </div>
     )

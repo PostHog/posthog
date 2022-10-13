@@ -49,6 +49,7 @@ export function HistoricalExportsTab(): JSX.Element {
                                 )
                         }
                     },
+                    align: 'right',
                 },
                 createdByColumn() as LemonTableColumn<HistoricalExportInfo, any>,
                 createdAtColumn() as LemonTableColumn<HistoricalExportInfo, any>,
