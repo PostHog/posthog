@@ -8,6 +8,8 @@ import { TextCardBody } from 'lib/components/Cards/TextCard/TextCard'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
+import { useValues } from 'kea'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export interface LemonTextAreaProps
     extends Pick<
@@ -67,6 +69,8 @@ interface LemonTextMarkdownProps {
 }
 
 export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
+    const { objectStorageAvailable } = useValues(preflightLogic)
+
     const [drag, setDrag] = React.useState(false)
     const [isUploading, setIsUploading] = React.useState(false)
 
@@ -119,7 +123,7 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
 
     useEffect(() => {
         const div = dropRef.current
-        if (!div) {
+        if (!div || !objectStorageAvailable) {
             return
         } else {
             div.addEventListener('dragenter', handleDragIn)
@@ -133,20 +137,22 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                 div?.removeEventListener('drop', handleDrop)
             }
         }
-    }, [value])
+    }, [value, objectStorageAvailable])
 
     return (
         <Tabs>
             <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
                 <div
                     ref={dropRef}
-                    className={clsx('LemonTextMarkdown flex flex-col p-2 rounded', drag && 'FileDropTarget')}
+                    className={clsx('LemonTextMarkdown flex flex-col p-2 space-y-1 rounded', drag && 'FileDropTarget')}
                 >
                     <LemonTextArea {...editAreaProps} autoFocus value={value} onChange={onChange} />
                     <div className="text-muted inline-flex items-center space-x-1">
                         <IconMarkdown className={'text-2xl'} />
-                        <span>Markdown formatting support</span>
+                        <span>Markdown formatting support (learn more)</span>
+                        {/*TODO add a page and a link*/}
                     </div>
+
                     {isUploading && (
                         <div className="text-muted inline-flex items-center space-x-1">
                             <Spinner />
