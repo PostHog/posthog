@@ -29,7 +29,6 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
         <LemonButton
             fullWidth
             onClick={() => {
-                openSessionPlayer(recording)
                 openSessionPlayer({
                     id: recording.id,
                     matching_events: recording.matching_events,

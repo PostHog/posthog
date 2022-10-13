@@ -29,8 +29,14 @@ const DurationDisplay = ({ duration }: { duration: number }): JSX.Element => {
         <span className="flex items-center gap-1">
             <IconSchedule className="text-lg" />
             <span>
-                <span className={parts[0] === '00' ? 'opacity-50' : ''}>{parts[0]}:</span>
-                <span className={parts[0] === '00' && parts[1] === '00' ? 'opacity-50' : ''}>{parts[1]}:</span>
+                <span className={clsx(parts[0] === '00' && 'opacity-50')}>{parts[0]}:</span>
+                <span
+                    className={clsx({
+                        'opacity-50': parts[0] === '00' && parts[1] === '00',
+                    })}
+                >
+                    {parts[1]}:
+                </span>
                 {parts[2]}
             </span>
         </span>
@@ -46,11 +52,16 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
-        window.scrollTo({
-            left: 0,
-            top: playlistRef?.current?.offsetTop ? playlistRef.current.offsetTop - 8 : 0,
-            behavior: 'smooth',
-        })
+
+        const scrollToTop = playlistRef?.current?.offsetTop ? playlistRef.current.offsetTop - 8 : 0
+
+        if (window.scrollY > scrollToTop) {
+            window.scrollTo({
+                left: 0,
+                top: scrollToTop,
+                behavior: 'smooth',
+            })
+        }
     }
 
     const nextLength = offset + (sessionRecordingsResponseLoading ? PLAYLIST_LIMIT : sessionRecordings.length)
