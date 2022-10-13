@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import type { metaLogicType } from './metaLogicType'
+import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from 'rrweb/typings/types'
@@ -7,7 +7,7 @@ import { PersonType, RecordingEventType, SessionRecordingPlayerProps } from '~/t
 import { findLastIndex } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
 import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
-import { sessionRecordingsTableLogic } from '../sessionRecordingsTableLogic'
+import { sessionRecordingsListLogic } from '../sessionRecordingsListLogic'
 
 const getPersonProperties = (person: Partial<PersonType>, keys: string[]): string | null => {
     if (keys.some((k) => !person?.properties?.[k])) {
@@ -23,8 +23,8 @@ const getEventProperties = (event: RecordingEventType, keys: string[]): string |
     return keys.map((k) => event?.properties?.[k]).join(', ')
 }
 
-export const metaLogic = kea<metaLogicType>({
-    path: (key) => ['scenes', 'session-recordings', 'player', 'metaLogic', key],
+export const playerMetaLogic = kea<playerMetaLogicType>({
+    path: (key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key],
     props: {} as SessionRecordingPlayerProps,
     key: (props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`,
     connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
@@ -32,10 +32,10 @@ export const metaLogic = kea<metaLogicType>({
             sessionRecordingDataLogic({ sessionRecordingId }),
             ['sessionPlayerData', 'sessionEventsData'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
-            ['currentPlayerPosition', 'scale', 'isFullScreen'],
+            ['currentPlayerPosition', 'scale'],
             eventsListLogic({ sessionRecordingId, playerKey }),
             ['currentStartIndex'],
-            sessionRecordingsTableLogic,
+            sessionRecordingsListLogic,
             ['sessionRecordings'],
         ],
         actions: [sessionRecordingDataLogic({ sessionRecordingId }), ['loadRecordingMetaSuccess']],

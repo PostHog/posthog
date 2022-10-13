@@ -1,12 +1,6 @@
 @import '../../../../styles/mixins';
 
-.player-events-container-v2 {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-}
-
-.player-events-container-v2,
-.player-events-container-v3 {
+.player-events-container {
     display: flex;
     flex-direction: column;
     background-color: var(--bg-light);

@@ -4744,7 +4744,7 @@ def trend_test_factory(trends):
                 )
 
             #  volume
-            with freeze_time("2020-01-26T07:00:00Z"):
+            with freeze_time("2020-01-26T07:00:00Z"):  # this is UTC
                 response = trends().run(
                     Filter(
                         data={
@@ -4757,8 +4757,8 @@ def trend_test_factory(trends):
                     self.team,
                 )
 
-            self.assertEqual(response[0]["data"], [1.0, 1.0, 0.0])
-            self.assertEqual(response[0]["labels"], ["12-Jan-2020", "19-Jan-2020", "26-Jan-2020"])
+            self.assertEqual(response[0]["data"], [1.0, 1.0, 1.0])
+            self.assertEqual(response[0]["labels"], ["5-Jan-2020", "12-Jan-2020", "19-Jan-2020"])
 
         def test_same_day(self):
             _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
