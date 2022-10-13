@@ -17,6 +17,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
         setMarkReadTimeout: (markReadTimeout: number) => ({ markReadTimeout }),
+        incrementErrorCount: true,
     }),
     loaders(({ actions, values }) => ({
         importantChanges: [
@@ -32,15 +33,27 @@ export const notificationsLogic = kea<notificationsLogicType>([
                             `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
                         )) as ActivityLogItem[]
                         return humanize(response, describerFor, true)
+                    } catch (e) {
+                        // swallow errors as this isn't user initiated
+                        // increment a counter to backoff calling the API while errors persist
+                        actions.incrementErrorCount()
+                        return []
                     } finally {
                         const timeout = window.setTimeout(actions.loadImportantChanges, POLL_TIMEOUT)
-                        actions.setPollTimeout(timeout)
+                        actions.setPollTimeout(values.errorCounter ? timeout * values.errorCounter : timeout)
                     }
                 },
             },
         ],
     })),
     reducers({
+        errorCounter: [
+            0,
+            {
+                incrementErrorCount: (state) => state + 1,
+                importantChangesSuccess: () => 0,
+            },
+        ],
         isNotificationPopoverOpen: [
             false,
             {
