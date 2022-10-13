@@ -2,13 +2,17 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import {
+    parseMetadataResponse,
+    sessionRecordingDataLogic,
+} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
@@ -34,6 +38,46 @@ describe('sessionRecordingPlayerLogic', () => {
                 sharedListLogic({ sessionRecordingId: '2', playerKey: 'test' }),
                 playerSettingsLogic,
             ])
+        })
+    })
+
+    describe('loading session core', () => {
+        it('load snapshot errors and triggers error state', async () => {
+            silenceKeaLoadersErrors()
+            // Unmount and remount the logic to trigger fetching the data again after the mock change
+            logic.unmount()
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recordings/:id/snapshots': () => [500, { status: 0 }],
+                },
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.seek(
+                    {
+                        time: 50, // greater than null buffered time
+                        windowId: '1',
+                    },
+                    true
+                )
+            })
+                .toDispatchActionsInAnyOrder([
+                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
+                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsFailure,
+                    'seek',
+                    'setErrorPlayerState',
+                ])
+                .toMatchValues({
+                    sessionPlayerData: {
+                        person: recordingMetaJson.person,
+                        metadata: parseMetadataResponse(recordingMetaJson.session_recording),
+                        snapshotsByWindowId: {},
+                        bufferedTo: null,
+                    },
+                    isErrored: true,
+                })
+            resumeKeaLoadersErrors()
         })
     })
 

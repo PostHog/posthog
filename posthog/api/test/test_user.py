@@ -4,6 +4,7 @@ from unittest.mock import ANY, patch
 import pytest
 from django.core.cache import cache
 from django.utils.text import slugify
+from freezegun.api import freeze_time
 from rest_framework import status
 
 from posthog.models import Tag, Team, User
@@ -191,10 +192,10 @@ class TestUserAPI(APIBaseTest):
             "/api/users/@me/",
             {
                 "first_name": "Cooper",
-                "email": "updated@posthog.com",
                 "anonymize_data": True,
                 "email_opt_in": False,
                 "events_column_config": {"active": ["column_1", "column_2"]},
+                "notification_settings": {"plugin_disabled": False},
                 "uuid": 1,  # should be ignored
                 "id": 1,  # should be ignored
                 "organization": str(another_org.id),  # should be ignored
@@ -207,7 +208,6 @@ class TestUserAPI(APIBaseTest):
 
         self.assertNotEqual(response_data["uuid"], 1)
         self.assertEqual(response_data["first_name"], "Cooper")
-        self.assertEqual(response_data["email"], "updated@posthog.com")
         self.assertEqual(response_data["anonymize_data"], True)
         self.assertEqual(response_data["email_opt_in"], False)
         self.assertEqual(response_data["events_column_config"], {"active": ["column_1", "column_2"]})
@@ -218,17 +218,95 @@ class TestUserAPI(APIBaseTest):
         self.assertNotEqual(user.pk, 1)
         self.assertNotEqual(user.uuid, 1)
         self.assertEqual(user.first_name, "Cooper")
-        self.assertEqual(user.email, "updated@posthog.com")
         self.assertEqual(user.anonymize_data, True)
+        self.assertDictContainsSubset({"plugin_disabled": False}, user.notification_settings)
 
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "user updated",
             properties={
-                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name"]
+                "updated_attrs": [
+                    "anonymize_data",
+                    "email_opt_in",
+                    "events_column_config",
+                    "first_name",
+                    "partial_notification_settings",
+                ]
             },
             groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
+
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_notifications_sent_when_user_email_is_changed_and_email_available(
+        self, mock_send_email_change_emails, mock_is_email_available
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        with freeze_time("2020-01-01T21:37:00+00:00"):
+            response = self.client.patch(
+                "/api/users/@me/",
+                {
+                    "email": "beta@example.com",
+                },
+            )
+        response_data = response.json()
+        self.user.refresh_from_db()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response_data["email"] == "beta@example.com"
+        assert self.user.email == "beta@example.com"
+        mock_is_email_available.assert_called_once()
+        mock_send_email_change_emails.assert_called_once_with(
+            "2020-01-01T21:37:00+00:00", self.user.first_name, "alpha@example.com", "beta@example.com"
+        )
+
+    @patch("posthog.api.user.is_email_available", return_value=False)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_no_notifications_when_user_email_is_changed_and_email_not_available(
+        self, mock_send_email_change_emails, mock_is_email_available
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "email": "beta@example.com",
+            },
+        )
+        response_data = response.json()
+        self.user.refresh_from_db()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response_data["email"] == "beta@example.com"
+        assert self.user.email == "beta@example.com"
+        mock_is_email_available.assert_called_once()
+        mock_send_email_change_emails.assert_not_called()
+
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_no_notifications_when_user_email_is_changed_and_only_case_differs(
+        self, mock_send_email_change_emails, mock_is_email_available
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "email": "ALPHA@example.com",
+            },
+        )
+        response_data = response.json()
+        self.user.refresh_from_db()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response_data["email"] == "ALPHA@example.com"
+        assert self.user.email == "ALPHA@example.com"
+        mock_is_email_available.assert_not_called()
+        mock_send_email_change_emails.assert_not_called()
 
     def test_cannot_upgrade_yourself_to_staff_user(self):
         response = self.client.patch("/api/users/@me/", {"is_staff": True})

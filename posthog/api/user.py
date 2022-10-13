@@ -9,9 +9,9 @@ from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
@@ -21,10 +21,13 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
+from posthog.email import is_email_available
 from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
+from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.tasks import user_identify
+from posthog.tasks.email import send_email_change_emails
 from posthog.utils import get_js_url
 
 
@@ -48,6 +51,7 @@ class UserSerializer(serializers.ModelSerializer):
     set_current_organization = serializers.CharField(write_only=True, required=False)
     set_current_team = serializers.CharField(write_only=True, required=False)
     current_password = serializers.CharField(write_only=True, required=False)
+    notification_settings = serializers.DictField(required=False)
 
     class Meta:
         model = User
@@ -58,6 +62,7 @@ class UserSerializer(serializers.ModelSerializer):
             "first_name",
             "email",
             "email_opt_in",
+            "notification_settings",
             "anonymize_data",
             "toolbar_mode",
             "has_password",
@@ -102,6 +107,17 @@ class UserSerializer(serializers.ModelSerializer):
 
         raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
 
+    def validate_notification_settings(self, notification_settings: Notifications) -> Notifications:
+        for key, value in notification_settings.items():
+            if key not in Notifications.__annotations__:
+                raise serializers.ValidationError(f"Key {key} is not valid as a key for notification settings")
+
+            if not isinstance(value, Notifications.__annotations__[key]):
+                raise serializers.ValidationError(
+                    f"{value} is not a valid type for notification settings, should be {Notifications.__annotations__[key]}"
+                )
+        return {**NOTIFICATION_DEFAULTS, **notification_settings}  # type: ignore
+
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
     ) -> Optional[str]:
@@ -130,7 +146,7 @@ class UserSerializer(serializers.ModelSerializer):
             raise exceptions.PermissionDenied("You are not a staff user, contact your instance admin.")
         return value
 
-    def update(self, instance: models.Model, validated_data: Any) -> Any:
+    def update(self, instance: "User", validated_data: Any) -> Any:
 
         # Update current_organization and current_team
         current_organization = validated_data.pop("set_current_organization", None)
@@ -147,11 +163,23 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
 
+        if (
+            "email" in validated_data
+            and validated_data["email"].lower() != instance.email.lower()
+            and is_email_available()
+        ):
+            send_email_change_emails.delay(
+                timezone.now().isoformat(), instance.first_name, instance.email, validated_data["email"]
+            )
+
         # Update password
         current_password = validated_data.pop("current_password", None)
         password = self.validate_password_change(
             cast(User, instance), current_password, validated_data.pop("password", None)
         )
+
+        if validated_data.get("notification_settings"):
+            validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
 
         updated_attrs = list(validated_data.keys())
         instance = cast(User, super().update(instance, validated_data))
@@ -180,12 +208,13 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
 
-    def get_object(self) -> Any:
+    def get_object(self) -> User:
         lookup_value = self.kwargs[self.lookup_field]
+        request_user = cast(User, self.request.user)  # Must be authenticated to access this endpoint
         if lookup_value == "@me":
-            return self.request.user
+            return request_user
 
-        if not self.request.user.is_staff:
+        if not request_user.is_staff:
             raise exceptions.PermissionDenied(
                 "As a non-staff user you're only allowed to access the `@me` user instance."
             )

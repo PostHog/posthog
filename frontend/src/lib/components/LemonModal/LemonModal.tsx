@@ -27,6 +27,8 @@ export interface LemonModalProps {
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
     closable?: boolean
+    /** Expands the modal to fill the entire screen */
+    fullScreen?: boolean
     contentRef?: React.RefCallback<HTMLDivElement>
     overlayRef?: React.RefCallback<HTMLDivElement>
 }
@@ -59,6 +61,7 @@ export function LemonModal({
     inline,
     simple,
     closable = true,
+    fullScreen = false,
     contentRef,
     overlayRef,
 }: LemonModalProps): JSX.Element {
@@ -101,6 +104,9 @@ export function LemonModal({
             </div>
         </>
     )
+
+    width = !fullScreen ? width : undefined
+
     return inline ? (
         // eslint-disable-next-line react/forbid-dom-props
         <div className="LemonModal ReactModal__Content--after-open" style={{ width }}>
@@ -114,7 +120,7 @@ export function LemonModal({
             shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
-            className="LemonModal"
+            className={clsx('LemonModal', fullScreen && 'LemonModal--fullscreen')}
             overlayClassName="LemonModal__overlay"
             style={{
                 content: {

@@ -4,7 +4,9 @@ from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.settings import EE_AVAILABLE
 
 from . import (
+    activity_log,
     annotation,
+    app_metrics,
     async_migration,
     authentication,
     dashboard,
@@ -27,6 +29,7 @@ from . import (
     prompt,
     property_definition,
     sharing,
+    site_app,
     team,
     user,
 )
@@ -58,6 +61,7 @@ project_plugins_configs_router.register(
     r"logs", plugin_log_entry.PluginLogEntryViewSet, "project_plugins_config_logs", ["team_id", "plugin_config_id"]
 )
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
+projects_router.register(r"activity_log", activity_log.ActivityLogViewSet, "project_activity_log", ["team_id"])
 projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
@@ -67,6 +71,13 @@ projects_router.register(r"exports", exports.ExportedAssetViewSet, "exports", ["
 projects_router.register(r"integrations", integration.IntegrationViewSet, "integrations", ["team_id"])
 projects_router.register(
     r"ingestion_warnings", ingestion_warnings.IngestionWarningsViewSet, "ingestion_warnings", ["team_id"]
+)
+app_metrics_router = projects_router.register(r"app_metrics", app_metrics.AppMetricsViewSet, "app_metrics", ["team_id"])
+app_metrics_router.register(
+    r"historical_exports",
+    app_metrics.HistoricalExportsAppMetricsViewSet,
+    "historical_exports",
+    ["team_id", "plugin_config_id"],
 )
 
 # Organizations nested endpoints

@@ -1,3 +1,5 @@
+/* eslint-disable  @typescript-eslint/no-non-null-assertion */
+// let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
 import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -5,24 +7,68 @@ import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { InsightModel, DashboardType, InsightShortId } from '~/types'
+import {
+    ChartDisplayType,
+    DashboardTile,
+    DashboardType,
+    InsightColor,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+} from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dayjs, now } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+import api from 'lib/api'
+
 import anything = jasmine.anything
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
-function insightsOnDashboard(dashboardsRelation: number[]): InsightModel[] {
-    return dashboardJson.items.map((i) => ({ ...i, dashboards: dashboardsRelation }))
+function insightOnDashboard(
+    insightId: number,
+    dashboardsRelation: number[],
+    insight: Partial<InsightModel> = {}
+): InsightModel {
+    const tiles = dashboardJson.tiles.filter((tile) => !!tile.insight && tile.insight?.id === insightId)
+    let tile = dashboardJson.tiles[0] as DashboardTile
+    if (tiles.length) {
+        tile = tiles[0] as DashboardTile
+    }
+    if (!tile.insight) {
+        throw new Error('tile has no insight')
+    }
+    return { ...tile.insight, dashboards: dashboardsRelation, filters: { ...tile.insight.filters, ...insight.filters } }
 }
 
-const dashboardResult = (dashboardId: number, items: InsightModel[]): DashboardType => {
+const TEXT_TILE: DashboardTile = {
+    id: 4,
+    text: { body: 'I AM A TEXT', last_modified_at: '2021-01-01T00:00:00Z' },
+    layouts: {},
+    color: InsightColor.Blue,
+    last_refresh: '2021-01-01T00:00:00Z',
+    filters_hash: '',
+    refreshing: false,
+}
+
+let tileId = 0
+const tileFromInsight = (insight: InsightModel, id: number = tileId++): DashboardTile => ({
+    id: id,
+    layouts: {},
+    color: null,
+    insight: insight,
+    last_refresh: insight.last_refresh,
+    filters_hash: insight.filters_hash,
+    refreshing: false,
+})
+
+const dashboardResult = (dashboardId: number, tiles: DashboardTile[]): DashboardType => {
     return {
         ...dashboardJson,
         id: dashboardId,
-        items: [...items],
+        tiles,
     }
 }
 
@@ -38,7 +84,7 @@ const boxToString = (param: string | readonly string[]): string => {
 }
 
 const insight800 = (): InsightModel => ({
-    ...insightsOnDashboard([9, 10])[1],
+    ...insightOnDashboard(800, [9, 10]),
     id: 800,
     short_id: '800' as InsightShortId,
     last_refresh: now().toISOString(),
@@ -65,20 +111,27 @@ describe('dashboardLogic', () => {
      *               /     \
      *             i666    i999
      */
-    let dashboards = {}
+    let dashboards: Record<number, DashboardType> = {}
 
     beforeEach(() => {
+        jest.spyOn(api, 'update')
+
         const insights: Record<number, InsightModel> = {
-            172: { ...insightsOnDashboard([5, 6])[1], short_id: '172' as InsightShortId },
-            175: { ...insightsOnDashboard([5, 6])[0], short_id: '175' as InsightShortId },
+            172: {
+                ...insightOnDashboard(172, [5, 6], {
+                    filters: { insight: InsightType.RETENTION, display: ChartDisplayType.ActionsLineGraph },
+                }),
+                short_id: '172' as InsightShortId,
+            },
+            175: { ...insightOnDashboard(175, [5, 6]), short_id: '175' as InsightShortId },
             666: {
-                ...insightsOnDashboard([6])[0],
+                ...insightOnDashboard(666, [6]),
                 id: 666,
                 short_id: '666' as InsightShortId,
                 last_refresh: now().toISOString(),
             },
             999: {
-                ...insightsOnDashboard([6])[0],
+                ...insightOnDashboard(999, [6]),
                 id: 999,
                 short_id: '999' as InsightShortId,
                 last_refresh: now().toISOString(),
@@ -87,23 +140,25 @@ describe('dashboardLogic', () => {
             800: insight800(),
         }
         dashboards = {
-            5: { ...dashboardResult(5, [insights['172'], insights['175']]) },
+            5: {
+                ...dashboardResult(5, [tileFromInsight(insights['172']), tileFromInsight(insights['175']), TEXT_TILE]),
+            },
             6: {
                 ...dashboardResult(6, [
-                    uncached(insights['172']),
-                    uncached(insights['175']),
-                    insights['666'],
-                    insights['999'],
+                    tileFromInsight(uncached(insights['172'])),
+                    tileFromInsight(uncached(insights['175'])),
+                    tileFromInsight(insights['666']),
+                    tileFromInsight(insights['999']),
                 ]),
             },
             8: {
-                ...dashboardResult(8, [insights['1001']]),
+                ...dashboardResult(8, [tileFromInsight(insights['1001'])]),
             },
             9: {
-                ...dashboardResult(9, [insights['800']]),
+                ...dashboardResult(9, [tileFromInsight(insights['800'])]),
             },
             10: {
-                ...dashboardResult(10, [insights['800']]),
+                ...dashboardResult(10, [tileFromInsight(insights['800'])]),
             },
         }
         useMocks({
@@ -142,6 +197,38 @@ describe('dashboardLogic', () => {
                 },
             },
             patch: {
+                '/api/projects/:team/dashboards/:id/': async (req) => {
+                    const dashboardId = req.params['id'][0]
+                    const payload = await req.json()
+                    return [200, { ...dashboards[dashboardId], ...payload }]
+                },
+                '/api/projects/:team/dashboards/:id/move_tile/': async (req) => {
+                    // backend updates the two dashboards and the insight
+                    const jsonPayload = await req.json()
+                    const { toDashboard, tile: tileToUpdate } = jsonPayload
+                    const from = dashboards[Number(req.params.id)]
+                    // remove the tile from the source dashboard
+                    const fromIndex = from.tiles.findIndex(
+                        (tile) => !!tile.insight && tile.insight.id === tileToUpdate.insight.id
+                    )
+                    const removedTile = from.tiles.splice(fromIndex, 1)[0] as DashboardTile
+
+                    // update the insight
+                    const insightId = tileToUpdate.insight.id
+                    const insight = insights[insightId]
+                    insight.dashboards?.splice(
+                        insight.dashboards?.findIndex((d) => d === from.id),
+                        1
+                    )
+                    insight.dashboards?.push(toDashboard)
+
+                    // add the tile to the target dashboard
+                    removedTile.insight = insight
+                    const targetDashboard = dashboards[toDashboard]
+                    targetDashboard.tiles.push(removedTile)
+
+                    return [200, { ...from }]
+                },
                 '/api/projects/:team/insights/:id/': async (req) => {
                     try {
                         const updates = await req.json()
@@ -158,14 +245,14 @@ describe('dashboardLogic', () => {
 
                         starting.dashboards?.forEach((dashboardId) => {
                             // remove this insight from any dashboard it is already on
-                            dashboards[dashboardId].items = dashboards[dashboardId].items.filter(
-                                (i: InsightModel) => i.id !== starting.id
+                            dashboards[dashboardId].tiles = dashboards[dashboardId].tiles.filter(
+                                (t) => !!t.insight && t.insight.id !== starting.id
                             )
                         })
 
                         insights[insightId].dashboards?.forEach((dashboardId: number) => {
-                            // then add it to any it now references
-                            dashboards[dashboardId].items.push(insights[insightId])
+                            // then add it to any it new references
+                            dashboards[dashboardId].tiles.push(tileFromInsight(insights[insightId]))
                         })
 
                         return [200, insights[insightId]]
@@ -176,6 +263,8 @@ describe('dashboardLogic', () => {
             },
         })
         initKeaTests()
+        dashboardsModel.mount()
+        insightsModel.mount()
     })
 
     describe('moving between dashboards', () => {
@@ -185,19 +274,92 @@ describe('dashboardLogic', () => {
         })
 
         it('only replaces the source dashboard with the target', async () => {
+            jest.spyOn(api, 'update')
+
+            const dashboardEightlogic = dashboardLogic({ id: 8 })
+            dashboardEightlogic.mount()
+
+            // insight 800 starts on dashboard 9 and 10
+            // dashboard 9 has only that 1 insight
+            // so moving insight 800 to dashboard 8 means dashboard 9 has no insights
+            // and that insight800 is on dashboard 8 and 10
             const startingDashboard = dashboards['9']
-            const expectedDashboard = dashboardResult(9, [])
 
-            const insights = startingDashboard.items
-            const sourceInsight = insights[0]
+            const tiles = startingDashboard.tiles
+            const sourceTile = tiles[0] as DashboardTile
 
-            await expectLogic(logic, () => {
-                insightsModel.actions.moveToDashboard(sourceInsight, 9, 8, 'targetDashboard')
-            })
+            await expectLogic(logic)
                 .toFinishAllListeners()
                 .toMatchValues({
-                    allItems: expectedDashboard,
+                    allItems: truth(({ tiles }) => {
+                        return tiles.length === 1 && tiles[0].insight.id === 800
+                    }),
                 })
+
+            await expectLogic(dashboardEightlogic).toFinishAllListeners()
+
+            expect(dashboardEightlogic.values.allItems?.tiles.length).toEqual(1)
+            expect(dashboardEightlogic.values.insightTiles?.map((t) => t.insight?.id)).toEqual([1001])
+
+            await expectLogic(logic, () => {
+                logic.actions.moveToDashboard(sourceTile, 9, 8, 'targetDashboard')
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['moveToDashboardSuccess'])
+                .toMatchValues({
+                    allItems: truth(({ tiles }) => {
+                        return tiles.length === 0
+                    }),
+                })
+
+            await expectLogic(dashboardEightlogic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                `api/projects/${MOCK_TEAM_ID}/dashboards/${9}/move_tile`,
+                expect.objectContaining({ tile: sourceTile, toDashboard: 8 })
+            )
+        })
+
+        it('adds tile on moveToDashboardSuccess', async () => {
+            const dashboardEightlogic = dashboardLogic({ id: 8 })
+            dashboardEightlogic.mount()
+
+            await expectLogic(dashboardEightlogic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    allItems: truth(({ tiles }) => {
+                        return tiles.length === 1 && tiles[0].insight.id === 1001
+                    }),
+                })
+
+            await expectLogic(dashboardEightlogic, () => {
+                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 8)
+            }).toMatchValues({
+                allItems: truth(({ tiles }) => {
+                    return tiles.length === 2
+                }),
+            })
+        })
+
+        it('ignores tile on moveToDashboardSuccess for a different dashboard', async () => {
+            const dashboardEightlogic = dashboardLogic({ id: 8 })
+            dashboardEightlogic.mount()
+
+            await expectLogic(dashboardEightlogic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    allItems: truth(({ tiles }) => {
+                        return tiles.length === 1 && tiles[0].insight.id === 1001
+                    }),
+                })
+
+            await expectLogic(dashboardEightlogic, () => {
+                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 10)
+            }).toMatchValues({
+                allItems: truth(({ tiles }) => {
+                    return tiles.length === 1
+                }),
+            })
         })
     })
 
@@ -263,12 +425,16 @@ describe('dashboardLogic', () => {
                     .toDispatchActions(['loadDashboardItems'])
                     .toMatchValues({
                         allItems: null,
-                        items: undefined,
+                        tiles: [],
+                        insightTiles: [],
+                        textTiles: [],
                     })
                     .toDispatchActions(['loadDashboardItemsSuccess'])
                     .toMatchValues({
                         allItems: dashboards['5'],
-                        items: truth((items) => items.length === 2),
+                        tiles: truth((tiles) => tiles.length === 3),
+                        insightTiles: truth((insightTiles) => insightTiles.length === 2),
+                        textTiles: truth((textTiles) => textTiles.length === 1),
                         receivedErrorsFromAPI: false,
                     })
             })
@@ -285,14 +451,25 @@ describe('dashboardLogic', () => {
                         'refreshAllDashboardItems',
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses(
-                            dashboards['5'].items.map(({ short_id }: InsightModel) => short_id),
+                            dashboards['5'].tiles.reduce((acc, curr) => {
+                                if (curr.insight) {
+                                    acc.push(curr.insight.short_id)
+                                }
+                                return acc
+                            }, [] as InsightShortId[]),
                             true
                         ),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].items[0].short_id]: { loading: true, timer: anything() },
-                            [dashboards['5'].items[1].short_id]: { loading: true, timer: anything() },
+                            [(dashboards['5'].tiles[0] as DashboardTile).insight!.short_id]: {
+                                loading: true,
+                                timer: anything(),
+                            },
+                            [(dashboards['5'].tiles[1] as DashboardTile).insight!.short_id]: {
+                                loading: true,
+                                timer: anything(),
+                            },
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -303,18 +480,32 @@ describe('dashboardLogic', () => {
                         // and updates the action in the model
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                            a.payload.item.short_id === dashboards['5'].items[1].short_id,
+                            a.payload.insight.short_id ===
+                                (dashboards['5'].tiles[1] as DashboardTile).insight!.short_id,
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                            a.payload.item.short_id === dashboards['5'].items[0].short_id,
+                            a.payload.insight.short_id ===
+                                (dashboards['5'].tiles[0] as DashboardTile).insight!.short_id,
                         // no longer reloading
-                        logic.actionCreators.setRefreshStatus(dashboards['5'].items[0].short_id, false),
-                        logic.actionCreators.setRefreshStatus(dashboards['5'].items[1].short_id, false),
+                        logic.actionCreators.setRefreshStatus(
+                            (dashboards['5'].tiles[0] as DashboardTile).insight!.short_id,
+                            false
+                        ),
+                        logic.actionCreators.setRefreshStatus(
+                            (dashboards['5'].tiles[1] as DashboardTile).insight!.short_id,
+                            false
+                        ),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].items[0].short_id]: { refreshed: true, timer: anything() },
-                            [dashboards['5'].items[1].short_id]: { refreshed: true, timer: anything() },
+                            [(dashboards['5'].tiles[0] as DashboardTile).insight!.short_id]: {
+                                refreshed: true,
+                                timer: anything(),
+                            },
+                            [(dashboards['5'].tiles[1] as DashboardTile).insight!.short_id]: {
+                                refreshed: true,
+                                timer: anything(),
+                            },
                         },
                         refreshMetrics: {
                             completed: 2,
@@ -325,16 +516,22 @@ describe('dashboardLogic', () => {
 
             it('reloads selected items', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.refreshAllDashboardItems([dashboards['5'].items[0] as any])
+                    logic.actions.refreshAllDashboardItems([dashboards['5'].tiles[0] as DashboardTile])
                 })
                     .toFinishAllListeners()
                     .toDispatchActions([
                         'refreshAllDashboardItems',
-                        logic.actionCreators.setRefreshStatuses([dashboards['5'].items[0].short_id], true),
+                        logic.actionCreators.setRefreshStatuses(
+                            [(dashboards['5'].tiles[0] as DashboardTile).insight!.short_id],
+                            true
+                        ),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].items[0].short_id]: { loading: true, timer: anything() },
+                            [(dashboards['5'].tiles[0] as DashboardTile).insight!.short_id]: {
+                                loading: true,
+                                timer: anything(),
+                            },
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -344,12 +541,19 @@ describe('dashboardLogic', () => {
                     .toDispatchActionsInAnyOrder([
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                            a.payload.item.short_id === dashboards['5'].items[0].short_id,
-                        logic.actionCreators.setRefreshStatus(dashboards['5'].items[0].short_id, false),
+                            a.payload.insight.short_id ===
+                                (dashboards['5'].tiles[0] as DashboardTile).insight!.short_id,
+                        logic.actionCreators.setRefreshStatus(
+                            (dashboards['5'].tiles[0] as DashboardTile).insight!.short_id,
+                            false
+                        ),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].items[0].short_id]: { refreshed: true, timer: anything() },
+                            [(dashboards['5'].tiles[0] as DashboardTile).insight!.short_id]: {
+                                refreshed: true,
+                                timer: anything(),
+                            },
                         },
                         refreshMetrics: {
                             completed: 1,
@@ -361,16 +565,18 @@ describe('dashboardLogic', () => {
     })
 
     describe('external updates', () => {
-        it('can respond to external filter update', async () => {
+        beforeEach(async () => {
             logic = dashboardLogic({ id: 9 })
             logic.mount()
-
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.allItems?.items).toHaveLength(1)
-            expect(logic.values.allItems?.items[0].short_id).toEqual('800')
-            expect(logic.values.allItems?.items[0].filters.date_from).toBeUndefined()
-            expect(logic.values.allItems?.items[0].filters.interval).toEqual('day')
+            expect(logic.values.allItems?.tiles).toHaveLength(1)
+            expect(logic.values.insightTiles[0].insight!.short_id).toEqual('800')
+            expect(logic.values.insightTiles[0].insight!.filters.date_from).toBeUndefined()
+            expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('day')
+            expect(logic.values.insightTiles[0].insight!.name).toEqual('donut')
+        })
 
+        it('can respond to external filter update', async () => {
             const copiedInsight = insight800()
             dashboardsModel.actions.updateDashboardInsight({
                 ...copiedInsight,
@@ -378,10 +584,37 @@ describe('dashboardLogic', () => {
             })
 
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.allItems?.items).toHaveLength(1)
-            expect(logic.values.allItems?.items[0].short_id).toEqual('800')
-            expect(logic.values.allItems?.items[0].filters.date_from).toEqual('-1d')
-            expect(logic.values.allItems?.items[0].filters.interval).toEqual('hour')
+            expect(logic.values.allItems?.tiles).toHaveLength(1)
+            expect(logic.values.insightTiles[0].insight!.filters.date_from).toEqual('-1d')
+            expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('hour')
+        })
+
+        it('can respond to external insight rename', async () => {
+            expect(logic.values.allItems?.tiles[0].color).toEqual(null)
+
+            const copiedInsight = insight800()
+            insightsModel.actions.renameInsightSuccess({
+                ...copiedInsight,
+                name: 'renamed',
+                last_modified_at: '2021-04-01 12:00:00',
+                description: 'should be ignored',
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.allItems?.tiles).toHaveLength(1)
+            expect(logic.values.insightTiles[0].insight!.name).toEqual('renamed')
+            expect(logic.values.insightTiles[0].insight!.last_modified_at).toEqual('2021-04-01 12:00:00')
+            expect(logic.values.insightTiles[0].insight!.description).toEqual(null)
+        })
+
+        it('can respond to external insight update for a tile that is new on this dashboard', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboardInsight({
+                    short_id: 'not_already_on_the_dashboard' as InsightShortId,
+                } as InsightModel)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['loadDashboardItems'])
         })
     })
 
@@ -396,8 +629,11 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboardItemsSuccess'])
                 .toMatchValues({
-                    allItems: truth(({ items }) => items.filter((i: InsightModel) => i.result === null).length === 2),
-                    items: truth((items) => items.length === 4),
+                    allItems: truth(
+                        ({ tiles }) => tiles.filter((i: DashboardTile) => i.insight?.result === null).length === 2
+                    ),
+                    tiles: truth((items) => items.length === 4),
+                    insightTiles: truth((tiles) => tiles.length === 4),
                 })
                 .toDispatchActions(['refreshAllDashboardItems', 'setRefreshStatuses'])
                 .toMatchValues({
@@ -414,8 +650,11 @@ describe('dashboardLogic', () => {
                     },
                 })
                 .toMatchValues({
-                    allItems: truth(({ items }) => items.filter((i: InsightModel) => i.result === null).length === 0),
-                    items: truth((items) => items.length === 4),
+                    allItems: truth(
+                        ({ tiles }) => tiles.filter((i: DashboardTile) => i.insight?.result === null).length === 0
+                    ),
+                    tiles: truth((items) => items.length === 4),
+                    insightTiles: truth((tiles) => tiles.length === 4),
                 })
         })
     })
@@ -462,26 +701,63 @@ describe('dashboardLogic', () => {
         await expectLogic(fiveLogic).toFinishAllListeners()
 
         expect(
-            fiveLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
+            fiveLogic.values.insightTiles.map((t) => ({
+                short_id: t.insight!.short_id,
+                dashboards: t.insight!.dashboards,
+            }))
         ).toEqual([
             { dashboards: [5, 6], short_id: '172' },
             { dashboards: [5, 6], short_id: '175' },
         ])
         expect(
-            nineLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
+            nineLogic.values.insightTiles.map((t) => ({
+                short_id: t.insight!.short_id,
+                dashboards: t.insight!.dashboards,
+            }))
         ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
 
-        dashboardsModel.actions.updateDashboardInsight({ ...insight800(), dashboards: [10, 5] }, [9])
+        const changedTile: DashboardTile = {
+            ...(nineLogic.values.allItems?.tiles[0] as DashboardTile), // we know it isn't undefined
+            insight: { ...insight800(), dashboards: [10, 5] },
+        }
+
+        dashboardsModel.actions.updateDashboardTile(changedTile, [9])
 
         expect(
-            fiveLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
+            fiveLogic.values.insightTiles.map((t) => ({
+                short_id: t.insight!.short_id,
+                dashboards: t.insight!.dashboards,
+            }))
         ).toEqual([
             { dashboards: [5, 6], short_id: '172' },
             { dashboards: [5, 6], short_id: '175' },
             { dashboards: [10, 5], short_id: '800' },
         ])
         expect(
-            nineLogic.values.allItems?.items.map((i) => ({ short_id: i.short_id, dashboards: i.dashboards }))
+            nineLogic.values.insightTiles.map((t) => ({
+                short_id: t.insight!.short_id,
+                dashboards: t.insight!.dashboards,
+            }))
         ).toEqual([])
     })
+
+    describe('text tiles', () => {
+        beforeEach(async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('can remove text tiles', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.removeTile(TEXT_TILE)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions([dashboardsModel.actionTypes.tileRemovedFromDashboard])
+                .toMatchValues({
+                    textTiles: [],
+                })
+        })
+    })
 })
+/* eslint-enable  @typescript-eslint/no-non-null-assertion */

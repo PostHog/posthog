@@ -1,96 +1,57 @@
-.player-meta-container-v2 {
+.PlayerMetaV3 {
+    position: relative;
+    border-bottom: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    background-color: var(--bg-light);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: var(--recording-spacing);
-    margin-top: var(--recording-spacing);
+    overflow-y: auto;
+    flex-shrink: 0;
 
-    .player-meta-person {
-        margin-bottom: 0.5rem;
-
-        .player-meta-person-title {
-            flex: 1;
-
-            .email {
-                font-weight: 600;
-                width: 100%;
-            }
-
-            .time {
-                font-weight: 600;
-            }
-        }
-    }
-    .player-meta-other {
-        flex-direction: column;
-
-        .player-meta-other-description,
-        .player-meta-other-resolution {
-            width: 100%;
-            height: 20px;
-        }
+    &--fullscreen {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
     }
 
-    .ant-skeleton-paragraph {
-        margin: 0;
+    .PlayerMetaV3__escape {
+        position: absolute;
+        left: 50%;
+        top: 0px;
+        z-index: 10;
+        width: 300px;
+        margin-left: -150px;
+        transition: all 500ms ease-out;
+        transform: translateY(-100px);
+        text-align: center;
+        animation: player-meta-escape 5s ease;
 
-        li {
-            height: 12px;
+        &--enter {
+            transform: translateY(-100px);
+        }
+
+        &--enter-active {
+            transform: translateY(0px);
+        }
+
+        &--enter-done {
+            transform: translateY(-100px);
         }
     }
 }
 
-.player-meta-container-v3 {
-    .player-meta-user-section {
-        padding: 0.75rem;
-
-        .player-meta-avatar {
-            margin-right: 0.75rem;
-
-            .profile-picture {
-                font-size: 11px !important;
-            }
-        }
-
-        .player-meta-details {
-            display: flex;
-            justify-content: center;
-            font-size: 14px;
-            flex-direction: column;
-            flex: 1;
-
-            .player-meta-details-top {
-                font-weight: 700;
-            }
-
-            .player-meta-details-bottom {
-                font-weight: 400;
-                font-size: 13px;
-            }
-        }
+@keyframes player-meta-escape {
+    0% {
+        transform: translateY(-100px);
     }
 
-    .player-meta-window-section {
-        font-size: 14px;
-        height: 48px;
-        padding: 0 0.75rem;
-
-        .window-number {
-            white-space: nowrap;
-        }
-        .window-url-copy-icon {
-            display: flex;
-        }
+    10% {
+        transform: translateY(0px);
     }
 
-    .ant-skeleton-paragraph {
-        margin: 0;
+    90% {
+        transform: translateY(0px);
+    }
 
-        li {
-            height: 20px;
-            margin: 2px 0;
-        }
+    100% {
+        transform: translateY(-100px);
     }
 }

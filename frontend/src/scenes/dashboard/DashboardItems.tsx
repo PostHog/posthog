@@ -4,19 +4,39 @@ import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 
-import { InsightModel, DashboardMode, DashboardType, DashboardPlacement } from '~/types'
+import { DashboardMode, DashboardType, DashboardPlacement, DashboardTile } from '~/types'
 import { insightsModel } from '~/models/insightsModel'
 import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
 import clsx from 'clsx'
-import { InsightCard } from 'lib/components/InsightCard'
+import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { LemonButton } from 'lib/components/LemonButton'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 
 export function DashboardItems(): JSX.Element {
-    const { dashboard, items, layouts, dashboardMode, placement, isRefreshing, highlightedInsightId, refreshStatus } =
-        useValues(dashboardLogic)
-    const { updateLayouts, updateContainerWidth, updateItemColor, removeItem, refreshAllDashboardItems } =
-        useActions(dashboardLogic)
-    const { duplicateInsight, renameInsight, moveToDashboard } = useActions(insightsModel)
+    const {
+        dashboard,
+        tiles,
+        layouts,
+        dashboardMode,
+        placement,
+        isRefreshing,
+        highlightedInsightId,
+        refreshStatus,
+        canEditDashboard,
+    } = useValues(dashboardLogic)
+    const {
+        updateLayouts,
+        updateContainerWidth,
+        updateTileColor,
+        removeTile,
+        duplicateTile,
+        refreshAllDashboardItems,
+        moveToDashboard,
+        setDashboardMode,
+    } = useActions(dashboardLogic)
+    const { duplicateInsight, renameInsight } = useActions(insightsModel)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 
@@ -77,34 +97,85 @@ export function DashboardItems(): JSX.Element {
                 }}
                 draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popup"
             >
-                {items?.map((item: InsightModel) => (
-                    <InsightCard
-                        key={item.short_id}
-                        insight={item}
-                        dashboardId={dashboard?.id}
-                        loading={isRefreshing(item.short_id)}
-                        apiErrored={refreshStatus[item.short_id]?.error || false}
-                        highlighted={highlightedInsightId && item.short_id === highlightedInsightId}
-                        showResizeHandles={dashboardMode === DashboardMode.Edit}
-                        canResizeWidth={canResizeWidth}
-                        updateColor={(color) => updateItemColor(item.id, color)}
-                        removeFromDashboard={() => removeItem(item)}
-                        refresh={() => refreshAllDashboardItems([item])}
-                        rename={() => renameInsight(item)}
-                        duplicate={() => duplicateInsight(item)}
-                        moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
-                            if (!dashboard) {
-                                throw new Error('must be on a dashboard to move an insight')
-                            }
-                            moveToDashboard(item, dashboard.id, id, name)
-                        }}
-                        showEditingControls={[
-                            DashboardPlacement.Dashboard,
-                            DashboardPlacement.ProjectHomepage,
-                        ].includes(placement)}
-                        showDetailsControls={placement != DashboardPlacement.Export}
-                    />
-                ))}
+                {tiles?.map((tile: DashboardTile) => {
+                    const { insight, text } = tile
+                    if (!!insight) {
+                        return (
+                            <InsightCard
+                                key={tile.id}
+                                insight={insight}
+                                dashboardId={dashboard?.id}
+                                loading={isRefreshing(insight.short_id)}
+                                apiErrored={refreshStatus[insight.short_id]?.error || false}
+                                highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
+                                showResizeHandles={dashboardMode === DashboardMode.Edit}
+                                canResizeWidth={canResizeWidth}
+                                updateColor={(color) => updateTileColor(tile.id, color)}
+                                ribbonColor={tile.color}
+                                removeFromDashboard={() => removeTile(tile)}
+                                refresh={() => refreshAllDashboardItems([tile])}
+                                rename={() => renameInsight(insight)}
+                                duplicate={() => duplicateInsight(insight)}
+                                moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                                    if (!dashboard) {
+                                        throw new Error('must be on a dashboard to move an insight')
+                                    }
+                                    moveToDashboard(tile, dashboard.id, id, name)
+                                }}
+                                showEditingControls={[
+                                    DashboardPlacement.Dashboard,
+                                    DashboardPlacement.ProjectHomepage,
+                                ].includes(placement)}
+                                showDetailsControls={placement != DashboardPlacement.Export}
+                                moreButtons={
+                                    canEditDashboard ? (
+                                        <LemonButton
+                                            onClick={() =>
+                                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
+                                            }
+                                            status="stealth"
+                                            fullWidth
+                                        >
+                                            Edit layout (E)
+                                        </LemonButton>
+                                    ) : null
+                                }
+                            />
+                        )
+                    }
+                    if (!!text) {
+                        return (
+                            <TextCard
+                                dashboardId={dashboard?.id}
+                                textTile={tile}
+                                key={tile.id}
+                                showResizeHandles={dashboardMode === DashboardMode.Edit}
+                                canResizeWidth={canResizeWidth}
+                                removeFromDashboard={() => removeTile(tile)}
+                                duplicate={() => duplicateTile(tile)}
+                                moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                                    if (!dashboard) {
+                                        throw new Error('must be on a dashboard to move a text tile')
+                                    }
+                                    moveToDashboard(tile, dashboard.id, id, name)
+                                }}
+                                moreButtons={
+                                    canEditDashboard ? (
+                                        <LemonButton
+                                            onClick={() =>
+                                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
+                                            }
+                                            status="stealth"
+                                            fullWidth
+                                        >
+                                            Edit layout (E)
+                                        </LemonButton>
+                                    ) : null
+                                }
+                            />
+                        )
+                    }
+                })}
             </ReactGridLayout>
         </div>
     )

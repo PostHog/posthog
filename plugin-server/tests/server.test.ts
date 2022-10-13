@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
 import * as nodeSchedule from 'node-schedule'
 
-import { startJobQueueConsumer } from '../src/main/job-queues/job-queue-consumer'
+import { startGraphileWorker } from '../src/main/jobs/worker-setup'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { startPluginSchedules } from '../src/main/services/schedule'
 import { LogLevel, PluginServerCapabilities, PluginsServerConfig } from '../src/types'
@@ -14,7 +14,7 @@ jest.mock('@sentry/node')
 jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/kill')
 jest.mock('../src/main/services/schedule')
-jest.mock('../src/main/job-queues/job-queue-consumer')
+jest.mock('../src/main/jobs/worker-setup')
 jest.setTimeout(60000) // 60 sec timeout
 
 function numberOfScheduledJobs() {
@@ -105,7 +105,7 @@ describe('server', () => {
             pluginsServer = await createPluginServer()
 
             expect(startPluginSchedules).toHaveBeenCalled()
-            expect(startJobQueueConsumer).toHaveBeenCalled()
+            expect(startGraphileWorker).toHaveBeenCalled()
         })
 
         test('disabling pluginScheduledTasks', async () => {
@@ -115,7 +115,7 @@ describe('server', () => {
             )
 
             expect(startPluginSchedules).not.toHaveBeenCalled()
-            expect(startJobQueueConsumer).toHaveBeenCalled()
+            expect(startGraphileWorker).toHaveBeenCalled()
         })
 
         test('disabling processPluginJobs', async () => {
@@ -125,7 +125,7 @@ describe('server', () => {
             )
 
             expect(startPluginSchedules).toHaveBeenCalled()
-            expect(startJobQueueConsumer).toHaveBeenCalled()
+            expect(startGraphileWorker).toHaveBeenCalled()
         })
 
         test('disabling processPluginJobs and ingestion', async () => {
@@ -134,7 +134,7 @@ describe('server', () => {
                 { ingestion: false, pluginScheduledTasks: true, processPluginJobs: false }
             )
 
-            expect(startJobQueueConsumer).not.toHaveBeenCalled()
+            expect(startGraphileWorker).not.toHaveBeenCalled()
         })
     })
 })

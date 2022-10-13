@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { sessionRecordingsTableLogic } from '../sessionRecordingsTableLogic'
+import { sessionRecordingsListLogic } from '../sessionRecordingsListLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -20,11 +20,11 @@ export function SessionRecordingsFilters({
     personUUID,
     isPersonPage = false,
 }: SessionRecordingsFiltersProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
-    const { entityFilters, propertyFilters, filtersEnabled } = useValues(sessionRecordingsTableLogicInstance)
+    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ personUUID })
+    const { entityFilters, propertyFilters, filtersEnabled } = useValues(sessionRecordingsListLogicInstance)
 
     const { setEntityFilters, setPropertyFilters, reportRecordingsListFilterAdded } = useActions(
-        sessionRecordingsTableLogicInstance
+        sessionRecordingsListLogicInstance
     )
 
     return (
@@ -57,6 +57,7 @@ export function SessionRecordingsFilters({
                                 TaxonomicFilterGroupType.EventFeatureFlags,
                                 TaxonomicFilterGroupType.Elements,
                             ]}
+                            propertyFiltersPopover
                         />
                     </div>
                     {!isPersonPage && (
@@ -89,9 +90,9 @@ export function SessionRecordingsFiltersToggle({
     personUUID,
     isPersonPage,
 }: SessionRecordingsFiltersProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
-    const { entityFilters, propertyFilters, filtersEnabled } = useValues(sessionRecordingsTableLogicInstance)
-    const { setFiltersEnabled } = useActions(sessionRecordingsTableLogicInstance)
+    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ personUUID })
+    const { entityFilters, propertyFilters, filtersEnabled } = useValues(sessionRecordingsListLogicInstance)
+    const { setFiltersEnabled } = useActions(sessionRecordingsListLogicInstance)
 
     const totalFiltersCount =
         (entityFilters.actions?.length || 0) + (entityFilters.events?.length || 0) + (propertyFilters?.length || 0)

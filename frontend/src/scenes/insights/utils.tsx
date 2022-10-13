@@ -97,7 +97,7 @@ export function findInsightFromMountedLogic(
     if (dashboardId) {
         const insightOnDashboard = dashboardLogic
             .findMounted({ id: dashboardId })
-            ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
+            ?.values.insightTiles?.find((tile) => tile.insight?.short_id === insightShortId)?.insight
         if (insightOnDashboard) {
             return insightOnDashboard
         } else {
@@ -106,7 +106,7 @@ export function findInsightFromMountedLogic(
             for (const dashModelId of Object.keys(dashboards || {})) {
                 foundOnModel = dashboardLogic
                     .findMounted({ id: parseInt(dashModelId) })
-                    ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
+                    ?.values.insightTiles?.find((tile) => tile.insight?.short_id === insightShortId)?.insight
             }
             return foundOnModel || null
         }

@@ -10,11 +10,11 @@ import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 import React from 'react'
-import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
-import '../../lib/components/InsightCard/InsightCard.scss'
+import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { pluralize } from 'lib/utils'
-import { INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED } from 'lib/components/InsightCard/InsightCard'
+import { INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED } from 'lib/components/Cards/InsightCard/InsightCard'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
@@ -22,12 +22,28 @@ const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | n
     return short_id ? <Link to={urls.insightView(short_id)}>{displayName}</Link> : displayName
 }
 
-interface DashboardLink {
+interface TileStyleDashboardLink {
+    insight: { id: number }
+    dashboard: BareDashboardLink
+}
+
+interface BareDashboardLink {
     id: number
     name: string
 }
 
-const linkToDashboard = (dashboard: DashboardLink): JSX.Element => (
+// insight activity logs changed the format that dashboard changes were reported in
+type DashboardLink = TileStyleDashboardLink | BareDashboardLink
+
+const unboxBareLink = (boxedLink: DashboardLink): BareDashboardLink => {
+    if ('dashboard' in boxedLink) {
+        return boxedLink.dashboard
+    } else {
+        return boxedLink
+    }
+}
+
+const linkToDashboard = (dashboard: BareDashboardLink): JSX.Element => (
     <div className="highlighted-activity">
         <Link to={urls.dashboard(dashboard.id)}>{dashboard.name}</Link>
     </div>
@@ -35,13 +51,13 @@ const linkToDashboard = (dashboard: DashboardLink): JSX.Element => (
 
 const insightActionsMapping: Record<
     keyof InsightModel,
-    (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
+    (change?: ActivityChange, logItem?: ActivityLogItem, asNotification?: boolean) => ChangeMapping | null
 > = {
-    name: function onName(change, logItem) {
+    name: function onName(change, logItem, asNotification) {
         return {
             description: [
                 <>
-                    renamed "{change?.before}" to{' '}
+                    renamed {asNotification && 'your insight '}"{change?.before}" to{' '}
                     <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
                 </>,
             ],
@@ -74,49 +90,56 @@ const insightActionsMapping: Record<
         console.error({ change }, 'could not describe this change')
         return null
     },
-    deleted: function onSoftDelete(change, logItem) {
+    deleted: function onSoftDelete(change, logItem, asNotification) {
         const isDeleted = detectBoolean(change?.after)
         const describeChange = isDeleted ? 'deleted' : 'un-deleted'
         return {
-            description: [<>{describeChange}</>],
+            description: [
+                <>
+                    {describeChange}
+                    {asNotification && ' your insight '}
+                </>,
+            ],
             suffix: <>{nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}</>,
         }
     },
-    short_id: function onShortId(change) {
+    short_id: function onShortId(change, _, asNotification) {
         return {
             description: [
                 <>
-                    changed the short id to <strong>"{change?.after}"</strong>
+                    changed the short id {asNotification && ' of your insight '}to <strong>"{change?.after}"</strong>
                 </>,
             ],
         }
     },
-    derived_name: function onDerivedName(change, logItem) {
+    derived_name: function onDerivedName(change, logItem, asNotification) {
         return {
             description: [
                 <>
-                    renamed "{change?.before}" to{' '}
+                    renamed {asNotification && ' your insight '}"{change?.before}" to{' '}
                     <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
                 </>,
             ],
             suffix: <></>,
         }
     },
-    description: function onDescription(change) {
+    description: function onDescription(change, _, asNotification) {
         return {
             description: [
                 <>
-                    changed the description to <strong>"{change?.after}"</strong>
+                    changed the description {asNotification && ' of your insight '}to <strong>"{change?.after}"</strong>
                 </>,
             ],
         }
     },
-    favorited: function onFavorited(change, logItem) {
+    favorited: function onFavorited(change, logItem, asNotification) {
         const isFavoriteAfter = detectBoolean(change?.after)
         return {
             description: [
                 <>
-                    <div className="highlighted-activity">{isFavoriteAfter ? '' : 'un-'}favorited</div>
+                    <div className="highlighted-activity">
+                        {isFavoriteAfter ? '' : 'un-'}favorited{asNotification && ' your insight '}
+                    </div>
                 </>,
             ],
             suffix: <>{nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}</>,
@@ -145,11 +168,12 @@ const insightActionsMapping: Record<
                 </>
             )
         }
+
         return { description: changes }
     },
-    dashboards: function onDashboardsChange(change, logItem) {
-        const dashboardsBefore = change?.before as DashboardLink[]
-        const dashboardsAfter = change?.after as DashboardLink[]
+    dashboards: function onDashboardsChange(change, logItem, asNotification) {
+        const dashboardsBefore = (change?.before as DashboardLink[]).map(unboxBareLink)
+        const dashboardsAfter = (change?.after as DashboardLink[]).map(unboxBareLink)
 
         const addedDashboards = dashboardsAfter.filter(
             (after) => !dashboardsBefore.some((before) => before.id === after.id)
@@ -160,7 +184,12 @@ const insightActionsMapping: Record<
 
         const addedSentence = addedDashboards.length ? (
             <SentenceList
-                prefix={<>added {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} to</>}
+                prefix={
+                    <>
+                        added {asNotification && ' your insight '}
+                        {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} to
+                    </>
+                }
                 listParts={addedDashboards.map((d) => (
                     <>{linkToDashboard(d)}</>
                 ))}
@@ -169,7 +198,12 @@ const insightActionsMapping: Record<
 
         const removedSentence = removedDashboards.length ? (
             <SentenceList
-                prefix={<>removed {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} from</>}
+                prefix={
+                    <>
+                        removed {asNotification && ' your insight '}
+                        {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} from
+                    </>
+                }
                 listParts={removedDashboards.map((d) => (
                     <>{linkToDashboard(d)}</>
                 ))}
@@ -183,8 +217,6 @@ const insightActionsMapping: Record<
     created_at: () => null,
     created_by: () => null,
     filters_hash: () => null,
-    layouts: () => null,
-    color: () => null,
     refreshing: () => null,
     updated_at: () => null,
     last_modified_at: () => null,
@@ -198,9 +230,10 @@ const insightActionsMapping: Record<
     timezone: () => null,
     effective_restriction_level: () => null, // read from dashboards
     effective_privilege_level: () => null, // read from dashboards
+    disable_baseline: () => null,
 }
 
-export function insightActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+export function insightActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'Insight') {
         console.error('insight describer received a non-insight activity')
         return { description: null }
@@ -220,7 +253,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem): HumanizedCha
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> deleted the insight: {logItem.detail.name}
+                    <strong>{logItem.user.first_name}</strong> deleted {asNotification ? 'your' : 'the'} insight:{' '}
+                    {logItem.detail.name}
                 </>
             ),
         }
@@ -228,7 +262,12 @@ export function insightActivityDescriber(logItem: ActivityLogItem): HumanizedCha
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
         let extendedDescription: JSX.Element | undefined
-        let changeSuffix: Description = <>on {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}</>
+        let changeSuffix: Description = (
+            <>
+                on {asNotification && ' your insight '}
+                {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
+            </>
+        )
 
         for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
@@ -239,7 +278,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem): HumanizedCha
                 description,
                 extendedDescription: _extendedDescription,
                 suffix,
-            } = insightActionsMapping[change.field](change, logItem)
+            } = insightActionsMapping[change.field](change, logItem, asNotification)
             if (description) {
                 changes = changes.concat(description)
             }

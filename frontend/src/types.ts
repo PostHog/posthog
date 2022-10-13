@@ -48,6 +48,7 @@ export enum AvailableFeature {
     BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
     WHITE_LABELLING = 'white_labelling',
     SUBSCRIPTIONS = 'subscriptions',
+    APP_METRICS = 'app_metrics',
 }
 
 export enum LicensePlan {
@@ -96,6 +97,7 @@ export interface UserBasicType extends UserBaseType {
 export interface UserType extends UserBaseType {
     date_joined: string
     email_opt_in: boolean
+    notification_settings: NotificationSettings
     events_column_config: ColumnConfig
     anonymize_data: boolean
     toolbar_mode: 'disabled' | 'toolbar'
@@ -107,6 +109,9 @@ export interface UserType extends UserBaseType {
     organizations: OrganizationBasicType[]
     realm?: Realm
     posthog_version?: string
+}
+export interface NotificationSettings {
+    plugin_disabled: boolean
 }
 
 export interface PluginAccess {
@@ -384,6 +389,12 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
+export enum ExperimentStatus {
+    Draft = 'draft',
+    Running = 'running',
+    Complete = 'complete',
+}
+
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
@@ -491,6 +502,7 @@ export enum SessionPlayerState {
     PAUSE = 'pause',
     SCRUB = 'scrub',
     SKIP = 'skip',
+    ERROR = 'error',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -814,16 +826,32 @@ export enum InsightColor {
     Purple = 'purple',
 }
 
-export interface DashboardTile {
-    result: any | null
-    layouts: Record<string, any>
-    color: InsightColor | null
+export interface Cacheable {
     last_refresh: string | null
-    filters: Partial<FilterType>
     filters_hash: string
+    refreshing: boolean
 }
 
-export interface InsightModel extends DashboardTile {
+export interface Tileable {
+    layouts: Record<string, any>
+    color: InsightColor | null
+}
+
+export interface DashboardTile extends Tileable, Cacheable {
+    id: number
+    insight?: InsightModel
+    text?: TextModel
+    deleted?: boolean
+}
+
+export interface TextModel {
+    body: string
+    created_by?: UserBasicType
+    last_modified_by?: UserBasicType
+    last_modified_at: string
+}
+
+export interface InsightModel extends Cacheable {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -833,11 +861,11 @@ export interface InsightModel extends DashboardTile {
     description?: string
     favorited?: boolean
     order: number | null
+    result: any | null
     deleted: boolean
     saved: boolean
     created_at: string
     created_by: UserBasicType | null
-    refreshing: boolean
     is_sample: boolean
     dashboards: number[] | null
     updated_at: string
@@ -849,6 +877,9 @@ export interface InsightModel extends DashboardTile {
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
+    /** Only used in the frontend to toggle showing Baseline in funnels or not */
+    disable_baseline?: boolean
+    filters: Partial<FilterType>
 }
 
 export interface DashboardType {
@@ -856,7 +887,7 @@ export interface DashboardType {
     name: string
     description: string
     pinned: boolean
-    items: InsightModel[]
+    tiles: DashboardTile[]
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
@@ -1145,7 +1176,9 @@ export interface FilterType {
     breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
     breakdown_attribution_value?: number // funnels breakdown attribution specific step value
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
-    aggregation_axis_format?: AggregationAxisFormat
+    aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
+    aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
+    aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
 }
 
 export interface RecordingEventsFilters {
@@ -1172,12 +1205,12 @@ export interface EditorFilterProps {
 
 export interface InsightEditorFilter {
     key: string
-    label?: string
+    label?: string | ((props: EditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
-    component?: (props: EditorFilterProps) => JSX.Element
+    component?: (props: EditorFilterProps) => JSX.Element | null
 }
 
 export interface SystemStatusSubrows {

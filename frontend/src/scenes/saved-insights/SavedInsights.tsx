@@ -31,7 +31,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import { InsightCard } from 'lib/components/InsightCard'
+import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -39,7 +39,6 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { CalendarOutlined } from '@ant-design/icons'
 import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
@@ -177,7 +176,7 @@ function SavedInsightsGrid(): JSX.Element {
                 {paginationState.dataSourcePage.map((insight: InsightModel) => (
                     <InsightCard
                         key={insight.short_id}
-                        insight={{ ...insight, color: null }}
+                        insight={{ ...insight }}
                         rename={() => renameInsight(insight)}
                         duplicate={() => duplicateInsight(insight)}
                         deleteWithUndo={() =>
@@ -317,7 +316,7 @@ export function SavedInsights(): JSX.Element {
                                 <LemonButton
                                     status="stealth"
                                     onClick={() => duplicateInsight(insight)}
-                                    data-attr={`insight-item-${insight.short_id}-dropdown-duplicate`}
+                                    data-attr={`duplicate-insight-from-list-view`}
                                     fullWidth
                                 >
                                     Duplicate
@@ -361,7 +360,7 @@ export function SavedInsights(): JSX.Element {
             </Tabs>
 
             {tab === SavedInsightsTabs.History ? (
-                <ActivityLog scope={ActivityScope.INSIGHT} describer={insightActivityDescriber} />
+                <ActivityLog scope={ActivityScope.INSIGHT} />
             ) : (
                 <>
                     <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">

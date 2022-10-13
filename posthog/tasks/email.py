@@ -98,6 +98,7 @@ def send_fatal_plugin_error(
         template_name="fatal_plugin_error",
         template_context={"plugin": plugin, "team": team, "error": error, "is_system_error": is_system_error},
     )
+
     memberships_to_email = [
         membership
         for membership in OrganizationMembership.objects.select_related("user", "organization").filter(
@@ -106,6 +107,7 @@ def send_fatal_plugin_error(
         # Only send the email to users who have access to the affected project
         # Those without access have `effective_membership_level` of `None`
         if team.get_effective_membership_level_for_parent_membership(membership) is not None
+        and membership.user.notification_settings["plugin_disabled"]
     ]
     if memberships_to_email:
         for membership in memberships_to_email:
@@ -123,6 +125,26 @@ def send_canary_email(user_email: str) -> None:
     )
     message.add_recipient(email=user_email)
     message.send()
+
+
+@app.task(max_retries=1)
+def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new_address: str) -> None:
+    message_old_address = EmailMessage(
+        campaign_key=f"email_change_old_address_{now_iso}",
+        subject="This is no longer your PostHog account email",
+        template_name="email_change_old_address",
+        template_context={"user_name": user_name, "old_address": old_address, "new_address": new_address},
+    )
+    message_new_address = EmailMessage(
+        campaign_key=f"email_change_new_address_{now_iso}",
+        subject="This is your new PostHog account email",
+        template_name="email_change_new_address",
+        template_context={"user_name": user_name, "old_address": old_address, "new_address": new_address},
+    )
+    message_old_address.add_recipient(email=old_address)
+    message_new_address.add_recipient(email=new_address)
+    message_old_address.send(send_async=False)
+    message_new_address.send(send_async=False)
 
 
 @app.task(max_retries=1)

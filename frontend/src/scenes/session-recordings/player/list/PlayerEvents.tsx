@@ -29,8 +29,6 @@ import { capitalizeFirstLetter, eventToDescription, isEllipsisActive } from 'lib
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RecordingEventType, SessionRecordingPlayerProps } from '~/types'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 function overscanIndicesGetter({
@@ -100,8 +98,6 @@ export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecording
     const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder, handleEventClick } = useActions(
         eventsListLogic({ sessionRecordingId, playerKey })
     )
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isSessionRecordingsPlayerV3 = !!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]
 
     useEffect(() => {
         if (listRef?.current) {
@@ -207,7 +203,7 @@ export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecording
     )
 
     return (
-        <Col className={isSessionRecordingsPlayerV3 ? 'player-events-container-v3' : 'player-events-container-v2'}>
+        <Col className="player-events-container">
             <Input
                 prefix={<SearchOutlined />}
                 placeholder="Search for events"
