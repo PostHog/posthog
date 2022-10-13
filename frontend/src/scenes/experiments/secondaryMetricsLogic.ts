@@ -59,6 +59,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         deleteMetric: (metricId: number) => ({ metricId }),
         updateMetric: (metric: SecondaryExperimentMetric, metricId: number) => ({ metric, metricId }),
         setMetricId: (metricId: number) => ({ metricId }),
+        saveSecondaryMetric: true,
     }),
     loaders(({ values }) => ({
         experiments: [
@@ -129,7 +130,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
             },
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ props, actions, values }) => ({
         openModalToEditSecondaryMetric: ({ metric: { name, filters }, metricId }) => {
             actions.setSecondaryMetricModalValues({
                 name,
@@ -183,6 +184,15 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                 trendsLogic.findMounted({ dashboardItemId: values.previewInsightId })?.actions.setFilters(filters)
             }
             actions.createPreviewInsight(filters)
+        },
+        saveSecondaryMetric: () => {
+            if (values.existingModalSecondaryMetric) {
+                actions.updateMetric(values.secondaryMetricModal, values.metricId)
+            } else {
+                actions.addNewMetric(values.secondaryMetricModal)
+            }
+            props.onMetricsChange(values.metrics)
+            actions.closeModal()
         },
     })),
     events(({ actions }) => ({
