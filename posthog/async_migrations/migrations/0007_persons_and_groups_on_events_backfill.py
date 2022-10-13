@@ -501,7 +501,7 @@ class Migration(AsyncMigrationDefinition):
             FROM clusterAllReplicas(%(cluster)s, system, 'mutations')
             WHERE not is_done AND command LIKE %(pattern)s
             """,
-            {"cluster": settings.CLICKHOUSE_CLUSTER, "pattern": "%person_properties = dictGetString%"},
+            {"cluster": settings.CLICKHOUSE_CLUSTER, "pattern": "%person_created_at = toDateTime(0)%"},
         )[0][0]
 
     def _clear_temporary_tables(self, query_id):

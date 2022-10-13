@@ -63,7 +63,7 @@ def query_events() -> List[Dict]:
 
 
 @pytest.mark.async_migrations
-class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, ClickhouseTestMixin):
+class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
         MIGRATION_DEFINITION.parameters["TEAM_ID"] = (None, "", int)
 
