@@ -13,10 +13,12 @@ import { ChartDisplayType, InsightType } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
-export interface InsightLegendProps {
+export interface InsightLegendProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
     readOnly?: boolean
     horizontal?: boolean
+    inCardView?: boolean
 }
 
 export function InsightLegendButton(): JSX.Element | null {
@@ -45,7 +47,12 @@ export function InsightLegendButton(): JSX.Element | null {
     )
 }
 
-export function InsightLegend({ horizontal, readOnly = false }: InsightLegendProps): JSX.Element {
+export function InsightLegend({
+    horizontal,
+    className,
+    inCardView,
+    readOnly = false,
+}: InsightLegendProps): JSX.Element {
     const { insightProps, filters } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
@@ -53,18 +60,19 @@ export function InsightLegend({ horizontal, readOnly = false }: InsightLegendPro
 
     return (
         <div
-            className={clsx('InsightLegendMenu', {
+            className={clsx('InsightLegendMenu', className, {
                 'InsightLegendMenu--horizontal': horizontal,
                 'InsightLegendMenu--readonly': readOnly,
+                'InsightLegendMenu--in-card-view': inCardView,
             })}
         >
             <div className="InsightLegendMenu-scroll">
                 {indexedResults &&
                     indexedResults.map((item) => {
                         return (
-                            <div key={item.id} className="InsightLegendMenu-item p-2">
+                            <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row">
                                 <LemonCheckbox
-                                    className="InsightLegendMenu-item-inner"
+                                    className="text-xs"
                                     color={getSeriesColor(item.id, !!filters.compare)}
                                     checked={!hiddenLegendKeys[item.id]}
                                     onChange={() => toggleVisibility(item.id)}
@@ -85,6 +93,11 @@ export function InsightLegend({ horizontal, readOnly = false }: InsightLegendPro
                                         />
                                     }
                                 />
+                                {filters.display === ChartDisplayType.ActionsPie && (
+                                    <div className={'text-muted'}>
+                                        {formatAggregationAxisValue(filters, item.aggregated_value)}
+                                    </div>
+                                )}
                             </div>
                         )
                     })}
