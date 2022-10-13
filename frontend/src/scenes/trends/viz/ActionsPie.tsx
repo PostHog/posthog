@@ -57,7 +57,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                         labelGroupType={labelGroupType}
                         inSharedMode={!!inSharedMode}
                         showPersonsModal={showPersonsModal}
-                        aggregationAxisFormat={insight.filters?.aggregation_axis_format}
+                        filters={insight.filters}
                         onClick={
                             !showPersonsModal || insight.filters?.formula
                                 ? undefined
@@ -80,9 +80,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                         }
                     />
                 </div>
-                <h1 className="text-7xl text-center">
-                    {formatAggregationAxisValue(insight.filters?.aggregation_axis_format, total)}
-                </h1>
+                <h1 className="text-7xl text-center">{formatAggregationAxisValue(insight.filters, total)}</h1>
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

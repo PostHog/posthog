@@ -184,15 +184,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     premium_feature = AvailableFeature.EXPERIMENTATION
 
     def get_queryset(self):
-        filters = self.request.GET.dict()
-        if "user" in filters:
-            return super().get_queryset().filter(created_by=self.request.user)
-        if "archived" in filters:
-            return super().get_queryset().filter(archived=True)
-        if "all" in filters:
-            return super().get_queryset().exclude(archived=True)
-
-        return super().get_queryset()
+        return super().get_queryset().prefetch_related("feature_flag", "created_by")
 
     # ******************************************
     # /projects/:id/experiments/:experiment_id/results
@@ -262,7 +254,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     @action(methods=["GET"], detail=False)
     def requires_flag_implementation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
-        filter = Filter(request=request, team=self.team).with_data({"date_from": "-7d"})
+        filter = Filter(request=request, team=self.team).with_data({"date_from": "-7d", "date_to": ""})
 
         warning = requires_flag_warning(filter, self.team)
 

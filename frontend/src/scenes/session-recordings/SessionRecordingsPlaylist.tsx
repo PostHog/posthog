@@ -2,11 +2,11 @@ import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration, range } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { getRecordingListLimit, PLAYLIST_LIMIT, sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
+import { getRecordingListLimit, PLAYLIST_LIMIT, sessionRecordingsListLogic } from './sessionRecordingsListLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import './SessionRecordingsPlaylist.scss'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
+import { SessionRecordingPlayer } from './player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconChevronRight, IconSchedule } from 'lib/components/icons'
@@ -38,7 +38,7 @@ const DurationDisplay = ({ duration }: { duration: number }): JSX.Element => {
 }
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID, isPlaylist: true })
+    const logic = sessionRecordingsListLogic({ personUUID, isPlaylist: true })
     const {
         sessionRecordings,
         sessionRecordingsResponseLoading,
@@ -47,8 +47,8 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
         activeSessionRecording,
         partialSessionRecording,
         offset,
-    } = useValues(sessionRecordingsTableLogicInstance)
-    const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
+    } = useValues(logic)
+    const { openSessionPlayer, loadNext, loadPrev } = useActions(logic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
     /* NOTE: We use the partialSessionRecording (the one selected in the url) for loading but fall back to the first in the list otherwise */
@@ -185,7 +185,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
             <div className="SessionRecordingsPlaylist__right-column">
                 {activeSessionRecordingId ? (
                     <div className="border rounded h-full">
-                        <SessionRecordingPlayerV3
+                        <SessionRecordingPlayer
                             playerKey="playlist"
                             sessionRecordingId={activeSessionRecordingId}
                             matching={activeSessionRecording?.matching_events}

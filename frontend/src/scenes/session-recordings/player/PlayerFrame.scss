@@ -1,0 +1,43 @@
+@import '../../../styles/mixins';
+
+.PlayerFrame {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background-color: var(--bg-depth);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    position: relative;
+
+    .PlayerFrame__content {
+        position: absolute;
+    }
+    iframe {
+        border: 0px;
+        background-color: white;
+    }
+
+    .PlayerFrame__overlay {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        bottom: 0;
+
+        display: flex;
+        justify-content: center;
+        align-items: center;
+
+        z-index: 10;
+        transition: background-color 200ms;
+        background-color: rgba(0, 0, 0, 0.08);
+
+        &:hover {
+            background-color: rgba(0, 0, 0, 0.15);
+        }
+    }
+}

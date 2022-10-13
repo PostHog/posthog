@@ -1,7 +1,7 @@
 import { Meta, Story } from '@storybook/react'
 import React, { useState } from 'react'
 import { ChartDisplayType, FunnelVizType, InsightColor, InsightModel, InsightShortId, InsightType } from '~/types'
-import { InsightCard as InsightCardComponent } from '.'
+import { InsightCard as InsightCardComponent } from './index'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { uuid } from 'lib/utils'
 
@@ -277,7 +277,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
 }
 
 export default {
-    title: 'Components/Insight Card',
+    title: 'Components/Cards/Insight Card',
     component: InsightCardComponent,
     argTypes: {
         insightName: {
