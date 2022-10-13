@@ -241,31 +241,27 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
     })
 
     describe(`session recording ingestion (${pluginServer.name})`, () => {
-        test.concurrent(
-            'snapshot captured, processed, ingested',
-            async () => {
-                const teamId = await createTeam(postgres, organizationId)
-                const distinctId = new UUIDT().toString()
-                const uuid = new UUIDT().toString()
+        test('snapshot captured, processed, ingested', async () => {
+            const teamId = await createTeam(postgres, organizationId)
+            const distinctId = new UUIDT().toString()
+            const uuid = new UUIDT().toString()
 
-                await capture(producer, teamId, distinctId, uuid, '$snapshot', {
-                    $session_id: '1234abc',
-                    $snapshot_data: 'yes way',
-                })
+            await capture(producer, teamId, distinctId, uuid, '$snapshot', {
+                $session_id: '1234abc',
+                $snapshot_data: 'yes way',
+            })
 
-                await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1)
-                const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
-                expect(events.length).toBe(1)
+            await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1)
+            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
 
-                // processEvent did not modify
-                expect(events[0].snapshot_data).toEqual('yes way')
-            },
-            5000
-        )
+            // processEvent did not modify
+            expect(events[0].snapshot_data).toEqual('yes way')
+        }, 5000)
     })
 
     describe(`event ingestion (${pluginServer.name})`, () => {
-        test.concurrent('anonymous event recieves same person_id if $identify happenes shortly after', async () => {
+        test('anonymous event recieves same person_id if $identify happenes shortly after', async () => {
             // NOTE: this test depends on there being a delay between the
             // anonymouse event ingestion and the processing of this event.
             const teamId = await createTeam(postgres, organizationId)
