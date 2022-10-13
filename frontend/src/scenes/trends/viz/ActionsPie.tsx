@@ -48,7 +48,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
 
     return data ? (
         data[0] && data[0].labels ? (
-            <div className={clsx('w-full', inCardView && 'flex flex-row h-full')}>
+            <div className={clsx('w-full', inCardView && 'flex flex-row h-full items-center')}>
                 <div className="actions-pie-component">
                     <div className="pie-chart">
                         <PieChart
