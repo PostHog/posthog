@@ -39,8 +39,11 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         actions.incrementErrorCount()
                         return []
                     } finally {
-                        const timeout = window.setTimeout(actions.loadImportantChanges, POLL_TIMEOUT)
-                        actions.setPollTimeout(values.errorCounter ? timeout * values.errorCounter : timeout)
+                        const pollTimeoutMilliseconds = values.errorCounter
+                            ? POLL_TIMEOUT * values.errorCounter
+                            : POLL_TIMEOUT
+                        const timeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
+                        actions.setPollTimeout(timeout)
                     }
                 },
             },
