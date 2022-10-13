@@ -15,14 +15,14 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { IconPlayCircle } from 'lib/components/icons'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { teamLogic } from 'scenes/teamLogic'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
 interface RecordingRowProps {
     recording: SessionRecordingType
 }
 
 function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
-    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ key: 'projectHomepage' })
-    const { openSessionPlayer } = useActions(sessionRecordingsListLogicInstance)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { reportRecordingOpenedFromRecentRecordingList } = useActions(eventUsageLogic)
 
     return (
@@ -30,6 +30,10 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
             fullWidth
             onClick={() => {
                 openSessionPlayer(recording)
+                openSessionPlayer({
+                    id: recording.id,
+                    matching_events: recording.matching_events,
+                })
                 reportRecordingOpenedFromRecentRecordingList()
             }}
         >
