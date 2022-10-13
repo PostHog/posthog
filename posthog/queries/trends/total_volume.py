@@ -99,7 +99,7 @@ class TrendsTotalVolume:
                 # identical to `math == 'total'`
                 content_sql = VOLUME_PER_ACTOR_SQL.format(
                     event_query=event_query,
-                    start_of_week_fix=start_of_week_fix(filter),
+                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                     aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
                 )
