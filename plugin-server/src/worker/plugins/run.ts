@@ -36,6 +36,7 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
                                 pluginConfigId: pluginConfig.id,
                                 category: 'onEvent',
                             },
+                            appMetricErrorContext: { event },
                         })
                 )
             )
@@ -114,12 +115,18 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
                     teamId: String(event.team_id),
                 })
                 pluginsFailed.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
-                await hub.appMetrics.queueMetric({
-                    teamId,
-                    pluginConfigId: pluginConfig.id,
-                    category: 'processEvent',
-                    failures: 1,
-                })
+                await hub.appMetrics.queueError(
+                    {
+                        teamId,
+                        pluginConfigId: pluginConfig.id,
+                        category: 'processEvent',
+                        failures: 1,
+                    },
+                    {
+                        error: error,
+                        context: { event },
+                    }
+                )
             }
             hub.statsd?.timing(`plugin.process_event`, timer, {
                 plugin: pluginConfig.plugin?.name ?? '?',

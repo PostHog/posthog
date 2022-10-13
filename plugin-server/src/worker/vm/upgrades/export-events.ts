@@ -128,20 +128,32 @@ export function upgradeExportEvents(
                         plugin: pluginConfig.plugin?.name ?? '?',
                         teamId: pluginConfig.team_id.toString(),
                     })
-                    await hub.appMetrics.queueMetric({
+                    await hub.appMetrics.queueError(
+                        {
+                            teamId: pluginConfig.team_id,
+                            pluginConfigId: pluginConfig.id,
+                            category: 'exportEvents',
+                            failures: payload.batch.length,
+                        },
+                        {
+                            error: err,
+                            context: { eventCount: payload.batch.length },
+                        }
+                    )
+                }
+            } else {
+                await hub.appMetrics.queueError(
+                    {
                         teamId: pluginConfig.team_id,
                         pluginConfigId: pluginConfig.id,
                         category: 'exportEvents',
                         failures: payload.batch.length,
-                    })
-                }
-            } else {
-                await hub.appMetrics.queueMetric({
-                    teamId: pluginConfig.team_id,
-                    pluginConfigId: pluginConfig.id,
-                    category: 'exportEvents',
-                    failures: payload.batch.length,
-                })
+                    },
+                    {
+                        error: err,
+                        context: { eventCount: payload.batch.length },
+                    }
+                )
                 throw err
             }
         }
