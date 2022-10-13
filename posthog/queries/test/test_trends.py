@@ -4906,6 +4906,27 @@ def trend_test_factory(trends):
             ]
             assert daily_response[0]["data"] == [1.5, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]
 
+        def test_trends_volume_per_user_average_weekly(self):
+            # Weekly aggregation uses "start_of_week_fix"
+            self._create_event_count_per_user_events()
+
+            weekly_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "events": [{"id": "viewed video", "math": "avg", "math_property": "__event_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                        "interval": "week",
+                    }
+                ),
+                self.team,
+            )
+
+            assert len(weekly_response) == 1
+            assert weekly_response[0]["days"] == ["2019-12-29", "2020-01-05"]
+            assert weekly_response[0]["data"] == [1.3333333333333333, 2.0]
+
         def test_trends_volume_per_user_average_aggregated(self):
             self._create_event_count_per_user_events()
 
