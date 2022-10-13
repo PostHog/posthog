@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.utils.timezone import now
 
 from posthog.client import sync_execute
-from posthog.models.app_metrics.sql import QUERY_APP_METRICS_TIME_SERIES
+from posthog.models.app_metrics.sql import QUERY_APP_METRICS_ERRORS, QUERY_APP_METRICS_TIME_SERIES
 from posthog.models.filters.mixins.base import IntervalType
 from posthog.models.team.team import Team
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
@@ -12,6 +12,8 @@ from posthog.utils import relative_date_parse
 
 
 class AppMetricsQuery:
+    QUERY = QUERY_APP_METRICS_TIME_SERIES
+
     def __init__(self, team: Team, plugin_config_id: int, filter: AppMetricsRequestSerializer):
         self.team = team
         self.plugin_config_id = plugin_config_id
@@ -37,7 +39,7 @@ class AppMetricsQuery:
 
     def metrics_query(self):
         job_id = self.filter.validated_data.get("job_id")
-        query = QUERY_APP_METRICS_TIME_SERIES.format(
+        query = self.QUERY.format(
             job_id_clause="AND job_id = %(job_id)s" if job_id is not None else "",
             interval_function=self.interval_function,
         )
@@ -75,3 +77,13 @@ class AppMetricsQuery:
             return "toIntervalDay"
         else:
             return "toIntervalHour"
+
+
+class AppMetricsErrorsQuery(AppMetricsQuery):
+    QUERY = QUERY_APP_METRICS_ERRORS
+
+    def run(self):
+        query, params = self.metrics_query()
+        results = sync_execute(query, params)
+
+        return [{"error_type": error_type, "count": count} for error_type, count in results]

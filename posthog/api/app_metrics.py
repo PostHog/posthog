@@ -4,7 +4,7 @@ from rest_framework import mixins, request, response, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.plugin import PluginConfig
-from posthog.queries.app_metrics.app_metrics import AppMetricsQuery
+from posthog.queries.app_metrics.app_metrics import AppMetricsErrorsQuery, AppMetricsQuery
 from posthog.queries.app_metrics.historical_exports import historical_export_metrics, historical_exports_activity
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
 
@@ -19,7 +19,8 @@ class AppMetricsViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, views
         filter.is_valid(raise_exception=True)
 
         metric_results = AppMetricsQuery(self.team, plugin_config.pk, filter).run()
-        return response.Response({"results": metric_results})
+        errors = AppMetricsErrorsQuery(self.team, plugin_config.pk, filter).run()
+        return response.Response({"results": metric_results, "errors": errors})
 
 
 class HistoricalExportsAppMetricsViewSet(

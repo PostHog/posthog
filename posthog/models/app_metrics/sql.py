@@ -135,3 +135,17 @@ FROM (
     ORDER BY date
 )
 """
+
+QUERY_APP_METRICS_ERRORS = """
+SELECT error_type, count() AS count
+FROM app_metrics
+WHERE team_id = %(team_id)s
+  AND plugin_config_id = %(plugin_config_id)s
+  AND category = %(category)s
+  {job_id_clause}
+  AND timestamp >= %(date_from)s
+  AND timestamp < %(date_to)s
+  AND error_type <> ''
+GROUP BY error_type
+ORDER BY count DESC
+"""
