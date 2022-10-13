@@ -12,7 +12,6 @@
       <env name="PRINT_SQL" value="1" />
       <env name="PYTHONUNBUFFERED" value="1" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
-      <env name="OBJECT_STORAGE_ENABLED" value="0" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
     <option name="WORKING_DIRECTORY" value="" />

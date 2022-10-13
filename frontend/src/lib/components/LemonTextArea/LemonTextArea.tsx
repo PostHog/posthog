@@ -12,6 +12,7 @@ import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import posthog from 'posthog-js'
 import { Link } from 'lib/components/Link'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export interface LemonTextAreaProps
     extends Pick<
@@ -159,17 +160,20 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                     {objectStorageAvailable ? (
                         <div className="text-muted inline-flex items-center space-x-1">
                             <IconUploadFile className={'text-2xl mr-1'} />
-                            <span>Drop images on the text area to upload them and add them to the card</span>
+                            <span>Attach images by dragging and dropping them</span>
                         </div>
                     ) : (
                         <div className="text-muted inline-flex items-center space-x-1">
-                            <IconTools className={'text-3xl mx-1'} />
+                            <Tooltip title={'Enable object storage to add images by dragging and dropping.'}>
+                                <IconTools className={'text-xl mr-1'} />
+                            </Tooltip>
                             <span>
-                                Cannot upload images because object storage is not available. Add external images using{' '}
+                                Add external images using{' '}
                                 <Link to={'https://www.markdownguide.org/basic-syntax/#images-1'}>
                                     {' '}
-                                    markdown image links
+                                    Markdown image links
                                 </Link>
+                                .
                             </span>
                         </div>
                     )}
