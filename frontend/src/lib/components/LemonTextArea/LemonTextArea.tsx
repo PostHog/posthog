@@ -69,11 +69,14 @@ interface LemonTextMarkdownProps {
 export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
     const { objectStorageAvailable } = useValues(preflightLogic)
 
+    // dragCounter and drag are used to track whether the user is dragging a file over the textarea
+    // without drag counter the textarea highlight would flicker when the user drags a file over it
+    let dragCounter = 0
     const [drag, setDrag] = useState(false)
+
     const [isUploading, setIsUploading] = useState(false)
 
     const dropRef = createRef<HTMLDivElement>()
-    let dragCounter = 0
 
     const handleDrag = (e: DragEvent): void => {
         e.preventDefault()
