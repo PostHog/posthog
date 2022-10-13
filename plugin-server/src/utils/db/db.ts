@@ -744,6 +744,9 @@ export class DB {
     }
 
     public async fetchGroupColumnsValues(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
+        if (!groups) {
+            return {}
+        }
         const cachedResults = await Promise.all(
             groups.map((groupIdentifier) => this.getGroupDataCache(teamId, groupIdentifier))
         )

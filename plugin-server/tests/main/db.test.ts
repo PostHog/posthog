@@ -820,14 +820,6 @@ describe('DB', () => {
                 jest.spyOn(db, 'fetchGroupDataAndUpdateCache')
             })
 
-            it('returns no columns if not enabled', async () => {
-                const columns = await db.fetchGroupColumnsValues(3, identifiers)
-                expect(columns).toEqual({})
-
-                expect(db.getGroupDataCache).toHaveBeenCalledTimes(0)
-                expect(db.fetchGroupDataAndUpdateCache).toHaveBeenCalledTimes(0)
-            })
-
             it('returns no columns if no groups passed', async () => {
                 const columns = await db.fetchGroupColumnsValues(2, [])
                 expect(columns).toEqual({})
