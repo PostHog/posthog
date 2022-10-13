@@ -10,6 +10,7 @@ import {
     PluginLogEntry,
     PluginsServerConfig,
     RawClickHouseEvent,
+    RawPerson,
     RawSessionRecordingEvent,
 } from '../src/types'
 import { Plugin, PluginConfig } from '../src/types'
@@ -29,7 +30,13 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
     // Conversion buffer is now default enabled, so we should enable it for
     // tests.
     CONVERSION_BUFFER_ENABLED: true,
-    BUFFER_CONVERSION_SECONDS: 0,
+    // Enable buffer topic for all teams. We are already testing the legacy
+    // functionality in `e2e.buffer.test.ts`, which we can remove once we've
+    // completely switched over.
+    CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '*',
+    // To enable the tests for person on events to work as expected, we need to
+    // add a slight delay.
+    BUFFER_CONVERSION_SECONDS: 2,
     // Make sure producer flushes for each message immediately. Note that this
     // does mean that we are not testing the async nature of the producer by
     // doing this.
@@ -38,47 +45,9 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
     KAFKA_MAX_MESSAGE_BATCH_SIZE: 0,
 }
 
-const indexJs = `
-    import { console as testConsole } from 'test-utils/write-to-file'
-
-    export async function processEvent (event) {
-        testConsole.log('processEvent')
-        console.info('amogus')
-        event.properties.processed = 'hell yes'
-        event.properties.upperUuid = event.properties.uuid?.toUpperCase()
-        event.properties['$snapshot_data'] = 'no way'
-        return event
-    }
-
-    export function onEvent (event, { global }) {
-        // we use this to mock setupPlugin being
-        // run after some events were already ingested
-        global.timestampBoundariesForTeam = {
-            max: new Date(),
-            min: new Date(Date.now()-${ONE_HOUR})
-        }
-        testConsole.log('onEvent', JSON.stringify(event))
-    }
-
-    export function onSnapshot (event) {
-        testConsole.log('onSnapshot', event.event)
-    }
-
-
-    export async function exportEvents(events) {
-        for (const event of events) {
-            if (event.properties && event.properties['$$is_historical_export_event']) {
-                testConsole.log('exported historical event', event)
-            }
-        }
-    }
-
-    export async function runEveryMinute() {}
-`
-
 const startMultiServer = async () => {
-    const ingestionServer = startPluginsServer({ extraServerConfig, PLUGIN_SERVER_MODE: 'ingestion' })
-    const asyncServer = startPluginsServer({ extraServerConfig, PLUGIN_SERVER_MODE: 'async' })
+    const ingestionServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'ingestion' })
+    const asyncServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'async' })
     return await Promise.all([ingestionServer, asyncServer])
 }
 
@@ -86,63 +55,107 @@ const startSingleServer = async () => {
     return [await startPluginsServer(extraServerConfig)]
 }
 
+let producer: Producer
+let clickHouseClient: ClickHouse
+let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
+let kafka: Kafka
+let organizationId: string
+
+beforeAll(async () => {
+    // Setup connections to kafka, clickhouse, and postgres
+    postgres = new Pool({
+        connectionString: defaultConfig.DATABASE_URL!,
+        // We use a pool only for typings sake, but we don't actually need to,
+        // so set max connections to 1.
+        max: 1,
+    })
+    await postgres.query(POSTGRES_TRUNCATE_TABLES_QUERY)
+    clickHouseClient = new ClickHouse({
+        host: defaultConfig.CLICKHOUSE_HOST,
+        port: 8123,
+        dataObjects: true,
+        queryOptions: {
+            database: defaultConfig.CLICKHOUSE_DATABASE,
+            output_format_json_quote_64bit_integers: false,
+        },
+    })
+    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
+    producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
+    await producer.connect()
+
+    organizationId = await createOrganization(postgres)
+})
+
+afterAll(async () => {
+    await Promise.all([producer.disconnect(), postgres.end()])
+})
+
 describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) => {
     let pluginsServers: ServerInstance[]
-    let producer: Producer
-    let clickHouseClient: ClickHouse
-    let postgres: Pool
-    let kafka: Kafka
-    let organizationId: string
-    let teamId: number
-    let plugin: Plugin
-    let pluginConfig: PluginConfig
 
     beforeAll(async () => {
-        postgres = new Pool({ connectionString: defaultConfig.DATABASE_URL! })
-        await postgres.query(POSTGRES_TRUNCATE_TABLES_QUERY)
-        clickHouseClient = new ClickHouse({
-            host: defaultConfig.CLICKHOUSE_HOST,
-            port: 8123,
-            dataObjects: true,
-            queryOptions: {
-                database: defaultConfig.CLICKHOUSE_DATABASE,
-                output_format_json_quote_64bit_integers: false,
-            },
-        })
-        kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
-        producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
-        await producer.connect()
-
-        organizationId = await createOrganization(postgres)
-        plugin = await createPlugin(postgres, {
-            organization_id: organizationId,
-            name: 'test plugin',
-            plugin_type: 'source',
-            is_global: false,
-            source__index_ts: indexJs,
-        })
-
         pluginsServers = await pluginServer()
     })
 
-    beforeEach(async () => {
+    beforeEach(() => {
         testConsole.reset()
-        teamId = await createTeam(postgres, organizationId)
-        pluginConfig = await createPluginConfig(postgres, { team_id: teamId, plugin_id: plugin.id })
-        // Make sure the plugin server reloads the newly created plugin config.
-        // TODO: avoid reaching into the pluginsServer internals and rather use
-        // the pubsub mechanism to trigger this.
-        await Promise.all(pluginsServers.map((instance) => instance.piscina.broadcastTask({ task: 'reloadPlugins' })))
     })
 
     afterAll(async () => {
         await Promise.all(pluginsServers.map((instance) => instance.stop()))
-        await producer.disconnect()
-        await postgres.end()
     })
 
-    describe(`ClickHouse ingestion (${pluginServer.name})`, () => {
+    describe(`plugin method tests (${pluginServer.name})`, () => {
+        let plugin: Plugin
+
+        const indexJs = `
+            import { console as testConsole } from 'test-utils/write-to-file'
+    
+            export async function processEvent (event) {
+                testConsole.log('processEvent')
+                console.info('amogus')
+                event.properties.processed = 'hell yes'
+                event.properties.upperUuid = event.properties.uuid?.toUpperCase()
+                event.properties['$snapshot_data'] = 'no way'
+                return event
+            }
+    
+            export function onEvent (event, { global }) {
+                // we use this to mock setupPlugin being
+                // run after some events were already ingested
+                global.timestampBoundariesForTeam = {
+                    max: new Date(),
+                    min: new Date(Date.now()-${ONE_HOUR})
+                }
+                testConsole.log('onEvent', JSON.stringify(event))
+            }
+    
+            export async function exportEvents(events) {
+                for (const event of events) {
+                    if (event.properties && event.properties['$$is_historical_export_event']) {
+                        testConsole.log('exported historical event', event)
+                    }
+                }
+            }
+
+            export async function runEveryMinute() {
+                testConsole.log('runEveryMinute')
+            }
+        `
+
+        beforeAll(async () => {
+            plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'test plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: indexJs,
+            })
+        })
+
         test('event captured, processed, ingested', async () => {
+            const teamId = await createTeam(postgres, organizationId)
+            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
 
@@ -168,13 +181,16 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             const onEventEvent = JSON.parse(consoleOutput[1][1])
             expect(onEventEvent.event).toEqual('custom event')
             expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
-        }, 5000)
+        }, 10000)
 
         test('correct $autocapture properties included in onEvent calls', async () => {
             // The plugin server does modifications to the `event.properties`
             // and as a results we remove the initial `$elements` from the
             // object. Thus we want to ensure that this information is passed
             // through to any plugins with `onEvent` handlers
+            const teamId = await createTeam(postgres, organizationId)
+            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
 
@@ -198,26 +214,12 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             expect(onEventEvent.elements).toEqual([
                 expect.objectContaining({ attributes: {}, nth_child: 1, nth_of_type: 2, tag_name: 'div', text: '💻' }),
             ])
-        }, 5000)
-
-        test('snapshot captured, processed, ingested', async () => {
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
-
-            await capture(producer, teamId, distinctId, uuid, '$snapshot', {
-                $session_id: '1234abc',
-                $snapshot_data: 'yes way',
-            })
-
-            await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1)
-            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
-            expect(events.length).toBe(1)
-
-            // processEvent did not modify
-            expect(events[0].snapshot_data).toEqual('yes way')
-        }, 5000)
+        }, 10000)
 
         test('console logging is persistent', async () => {
+            const teamId = await createTeam(postgres, organizationId)
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
 
@@ -240,7 +242,76 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                     message: 'amogus',
                 })
             )
-        }, 5000)
+        }, 10000)
+    })
+
+    describe(`session recording ingestion (${pluginServer.name})`, () => {
+        test('snapshot captured, processed, ingested', async () => {
+            const teamId = await createTeam(postgres, organizationId)
+            const distinctId = new UUIDT().toString()
+            const uuid = new UUIDT().toString()
+
+            await capture(producer, teamId, distinctId, uuid, '$snapshot', {
+                $session_id: '1234abc',
+                $snapshot_data: 'yes way',
+            })
+
+            await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1)
+            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
+
+            // processEvent did not modify
+            expect(events[0].snapshot_data).toEqual('yes way')
+        }, 10000)
+    })
+
+    describe(`event ingestion (${pluginServer.name})`, () => {
+        test('anonymous event recieves same person_id if $identify happenes shortly after', async () => {
+            // NOTE: this test depends on there being a delay between the
+            // anonymouse event ingestion and the processing of this event.
+            const teamId = await createTeam(postgres, organizationId)
+            const initialDistinctId = 'initialDistinctId'
+            const returningDistinctId = 'returningDistinctId'
+            const personIdentifier = 'test@posthog.com'
+
+            // First we identify the user using an initial distinct id. After
+            // which we capture an event with a different distinct id, then
+            // identify this user again with the same person identifier.
+            //
+            // This is to simulate the case where:
+            //
+            //  1. user signs up initially, creating a person
+            //  2. user returns but as an anonymous user, capturing events
+            //  3. user identifies themselves, for instance by logging in
+            //
+            // In this case we want to end up with on Person to which all the
+            // events are associated.
+
+            await capture(producer, teamId, personIdentifier, new UUIDT().toString(), '$identify', {
+                distinct_id: personIdentifier,
+                $anon_distinct_id: initialDistinctId,
+            })
+
+            await capture(producer, teamId, returningDistinctId, new UUIDT().toString(), 'custom event', {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+            })
+
+            await new Promise((resolve) => setTimeout(resolve, 100))
+
+            await capture(producer, teamId, personIdentifier, new UUIDT().toString(), '$identify', {
+                distinct_id: personIdentifier,
+                $anon_distinct_id: returningDistinctId,
+            })
+
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 3)
+            const events = await fetchEvents(clickHouseClient, teamId)
+            expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
+
+            await delayUntilEventIngested(() => fetchPersons(clickHouseClient, teamId), 1)
+            const persons = await fetchPersons(clickHouseClient, teamId)
+            expect(persons.length).toBe(1)
+        })
     })
 })
 
@@ -256,6 +327,7 @@ const capture = async (
         topic: 'events_plugin_ingestion_test',
         messages: [
             {
+                key: teamId.toString(),
                 value: JSON.stringify({
                     distinct_id: distinctId,
                     ip: '',
@@ -304,11 +376,32 @@ const createPluginConfig = async (
     })
 }
 
+const createAndReloadPluginConfig = async (
+    pgClient: Pool,
+    teamId: number,
+    pluginId: number,
+    pluginsServers: ServerInstance[]
+) => {
+    const pluginConfig = await createPluginConfig(postgres, { team_id: teamId, plugin_id: pluginId })
+    // Make sure the plugin server reloads the newly created plugin config.
+    // TODO: avoid reaching into the pluginsServer internals and rather use
+    // the pubsub mechanism to trigger this.
+    await Promise.all(pluginsServers.map((instance) => instance.piscina.broadcastTask({ task: 'reloadPlugins' })))
+    return pluginConfig
+}
+
 const fetchEvents = async (clickHouseClient: ClickHouse, teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM events WHERE team_id = ${teamId} ORDER BY timestamp ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<RawClickHouseEvent>
     return queryResult.data.map(parseRawClickHouseEvent)
+}
+
+const fetchPersons = async (clickHouseClient: ClickHouse, teamId: number) => {
+    const queryResult = (await clickHouseClient.querying(
+        `SELECT * FROM person WHERE team_id = ${teamId} ORDER BY created_at ASC`
+    )) as unknown as ClickHouse.ObjectQueryResult<RawPerson>
+    return queryResult.data
 }
 
 const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse, teamId: number) => {

@@ -15,6 +15,7 @@ import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -39,7 +40,7 @@ export function SessionRecordingPlayer({
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
     matching,
 }: SessionRecordingPlayerProps): JSX.Element {
-    const { handleKeyDown, setIsFullScreen } = useActions(
+    const { handleKeyDown, setIsFullScreen, setPause } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
     )
     const { isNotFound } = useValues(sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }))
@@ -55,6 +56,12 @@ export function SessionRecordingPlayer({
         },
         [isFullScreen]
     )
+
+    usePageVisibility((pageIsVisible) => {
+        if (!pageIsVisible) {
+            setPause()
+        }
+    })
 
     if (isNotFound) {
         return (
