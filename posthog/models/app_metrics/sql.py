@@ -137,7 +137,7 @@ FROM (
 """
 
 QUERY_APP_METRICS_ERRORS = """
-SELECT error_type, count() AS count
+SELECT error_type, count() AS count, max(timestamp) AS last_seen
 FROM app_metrics
 WHERE team_id = %(team_id)s
   AND plugin_config_id = %(plugin_config_id)s

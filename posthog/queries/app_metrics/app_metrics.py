@@ -81,9 +81,10 @@ class AppMetricsQuery:
 
 class AppMetricsErrorsQuery(AppMetricsQuery):
     QUERY = QUERY_APP_METRICS_ERRORS
+    KEYS = ("error_type", "count", "last_seen")
 
     def run(self):
         query, params = self.metrics_query()
         results = sync_execute(query, params)
 
-        return [{"error_type": error_type, "count": count} for error_type, count in results]
+        return [dict(zip(self.KEYS, row)) for row in results]
