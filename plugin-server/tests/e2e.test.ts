@@ -176,7 +176,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             const onEventEvent = JSON.parse(consoleOutput[1][1])
             expect(onEventEvent.event).toEqual('custom event')
             expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
-        }, 5000)
+        }, 10000)
 
         test('correct $autocapture properties included in onEvent calls', async () => {
             // The plugin server does modifications to the `event.properties`
@@ -209,7 +209,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             expect(onEventEvent.elements).toEqual([
                 expect.objectContaining({ attributes: {}, nth_child: 1, nth_of_type: 2, tag_name: 'div', text: '💻' }),
             ])
-        }, 5000)
+        }, 10000)
 
         test('console logging is persistent', async () => {
             const teamId = await createTeam(postgres, organizationId)
@@ -237,7 +237,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                     message: 'amogus',
                 })
             )
-        }, 5000)
+        }, 10000)
     })
 
     describe(`session recording ingestion (${pluginServer.name})`, () => {
@@ -257,7 +257,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
             // processEvent did not modify
             expect(events[0].snapshot_data).toEqual('yes way')
-        }, 5000)
+        }, 10000)
     })
 
     describe(`event ingestion (${pluginServer.name})`, () => {
