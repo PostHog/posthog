@@ -25,14 +25,18 @@ class Retention:
         else:
             return self.process_table_result(retention_by_breakdown, filter)
 
+    def get_query(self, filter: RetentionFilter, team: Team):
+        actor_query = build_actor_activity_query(filter=filter, team=team, retention_events_query=self.event_query)
+        return RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query)
+
     def _get_retention_by_breakdown_values(
         self, filter: RetentionFilter, team: Team
     ) -> Dict[CohortKey, Dict[str, Any]]:
 
-        actor_query = build_actor_activity_query(filter=filter, team=team, retention_events_query=self.event_query)
+        final_query = self.get_query(filter, team)
 
         result = sync_execute(
-            RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query),
+            final_query,
             settings={"timeout_before_checking_execution_speed": 60},
             client_query_id=filter.client_query_id,
             client_query_team_id=team.pk,

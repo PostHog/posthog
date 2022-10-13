@@ -682,7 +682,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         base_uri = request.build_absolute_uri("/")
         query_class = self.retention_query_class(base_uri=base_uri)
         result = query_class.run(filter, team)
-        return {"result": result, "timezone": team.timezone, "source_query": query_class.query}
+        return {"result": result, "timezone": team.timezone, "source_query": query_class.get_query()}
 
     @action(methods=["GET"], detail=False)
     def user_sql(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
