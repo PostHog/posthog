@@ -509,14 +509,15 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
             )
             create_person_distinct_id(self.team.pk, str(i), str(_uuid))
 
-        # missing person_properties + backfill will not fix, since it has no associated person record
+        # missing person_id + backfill will not fix, since it has no associated person record
         create_event(
             event_uuid=UUIDT(),
             team=self.team,
             distinct_id="no_data_1",
             event="$pageview",
-            person_id=uuid4(),
+            person_id=ZERO_UUID,
             person_created_at="2022-01-02T00:00:00Z",
+            person_properties={},
         )
 
         self.assertTrue(run_migration())
