@@ -18,11 +18,12 @@ import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
 import { delayUntilEventIngested } from './helpers/clickhouse'
-import { insertRow } from './helpers/sql'
+import { insertRow, POSTGRES_TRUNCATE_TABLES_QUERY } from './helpers/sql'
 
 const { console: testConsole } = writeToFile
 
 jest.setTimeout(60000) // 60 sec timeout
+jest.useFakeTimers('modern')
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 1,
@@ -69,6 +70,7 @@ beforeAll(async () => {
         // so set max connections to 1.
         max: 1,
     })
+    await postgres.query(POSTGRES_TRUNCATE_TABLES_QUERY)
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
         port: 8123,
@@ -135,6 +137,10 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                         testConsole.log('exported historical event', event)
                     }
                 }
+            }
+
+            export async function runEveryMinute() {
+                testConsole.log('runEveryMinute')
             }
         `
 
