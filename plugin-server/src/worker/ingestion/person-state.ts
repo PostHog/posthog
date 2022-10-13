@@ -163,7 +163,6 @@ export class PersonState {
         uuid: string,
         distinctIds?: string[]
     ): Promise<Person> {
-        status.debug('👤', 'Creating new person', { uuid, distinctIds, properties, propertiesOnce })
         const props = { ...propertiesOnce, ...properties }
         const propertiesLastOperation: Record<string, any> = {}
         const propertiesLastUpdatedAt: Record<string, any> = {}
@@ -207,7 +206,6 @@ export class PersonState {
     private async tryUpdatePerson(): Promise<Person | null> {
         // Note: In majority of cases person has been found already here!
         const personFound = await this.personContainer.get()
-        status.debug('🔑', 'Updating person', { personId: personFound?.id, distinctId: this.distinctId })
         if (!personFound) {
             this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
             throw new Error(
@@ -274,12 +272,6 @@ export class PersonState {
          *       - if person property was defined for both we'll use `distinct_id` person's property going forward
          */
         const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
-        status.debug('🔑', 'Handling identify or alias', {
-            distinctId: this.distinctId,
-            event: this.event.event,
-            $anon_distinct_id: this.event.properties?.$anon_distinct_id,
-            alias: this.event.properties?.alias,
-        })
         try {
             if (this.event.event === '$create_alias' && this.eventProperties['alias']) {
                 await this.merge(
