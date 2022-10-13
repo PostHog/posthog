@@ -9,10 +9,10 @@ import { UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../tests//helpers/clickhouse'
 import { resetKafka } from '../tests//helpers/kafka'
 import { pluginConfig39 } from '../tests//helpers/plugins'
 import { resetTestDatabase } from '../tests//helpers/sql'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
 const { console: testConsole } = writeToFile
 
 jest.setTimeout(60000) // 60 sec timeout
