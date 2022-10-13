@@ -11,20 +11,20 @@
                day_start
         from
           (SELECT toUInt16(0) AS total,
-                  toStartOfDay(toDateTime('2020-01-04 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-           FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+                  toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+           FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
            UNION ALL SELECT toUInt16(0) AS total,
-                            toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
-           UNION ALL SELECT count(DISTINCT "$session_id") AS data,
-                            toStartOfDay(toDateTime(timestamp), 'UTC') AS date
+                            toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+           UNION ALL SELECT count(DISTINCT "$session_id") as data,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
            FROM
              (SELECT e.timestamp as timestamp,
                      e."$session_id" as "$session_id"
               FROM events e
               WHERE team_id = 2
                 AND event = 'session start'
-                AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
-                AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+                AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
            GROUP BY date)
         group by day_start
         order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60) as sub_A
@@ -36,12 +36,12 @@
                day_start
         from
           (SELECT toUInt16(0) AS total,
-                  toStartOfDay(toDateTime('2020-01-04 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-           FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+                  toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+           FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
            UNION ALL SELECT toUInt16(0) AS total,
-                            toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
-           UNION ALL SELECT count(DISTINCT person_id) AS data,
-                            toStartOfDay(toDateTime(timestamp), 'UTC') AS date
+                            toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+           UNION ALL SELECT count(DISTINCT person_id) as data,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
            FROM
              (SELECT e.timestamp as timestamp,
                      e."$session_id" as "$session_id",
@@ -56,8 +56,8 @@
                  HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
               WHERE team_id = 2
                 AND event = 'session start'
-                AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
-                AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+                AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
            GROUP BY date)
         group by day_start
         order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60) as sub_B

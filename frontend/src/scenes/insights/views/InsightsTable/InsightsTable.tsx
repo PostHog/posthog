@@ -282,7 +282,7 @@ export function InsightsTable({
                     ? formatAggregationValue(
                           item.action?.math_property,
                           value,
-                          (value) => formatAggregationAxisValue(filters.aggregation_axis_format || 'numeric', value),
+                          (value) => formatAggregationAxisValue(filters, value),
                           formatPropertyValueForDisplay
                       )
                     : 'Unknown'
@@ -313,7 +313,7 @@ export function InsightsTable({
                     return formatAggregationValue(
                         item.action?.math_property,
                         item.data[index],
-                        (value) => formatAggregationAxisValue(filters.aggregation_axis_format || 'numeric', value),
+                        (value) => formatAggregationAxisValue(filters, value),
                         formatPropertyValueForDisplay
                     )
                 },

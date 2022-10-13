@@ -53,7 +53,7 @@ export function PieChart({
     type,
     onClick,
     ['data-attr']: dataAttr,
-    aggregationAxisFormat = 'numeric',
+    filters,
     tooltip: tooltipConfig,
     showPersonsModal = true,
     labelGroupType,
@@ -181,7 +181,7 @@ export function PieChart({
                                                     ((value / total) * 100).toFixed(1)
                                                 )
                                                 return `${formatAggregationAxisValue(
-                                                    aggregationAxisFormat,
+                                                    filters,
                                                     value
                                                 )} (${percentageLabel}%)`
                                             })

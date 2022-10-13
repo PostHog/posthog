@@ -2,12 +2,12 @@ import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { getRecordingListLimit, PLAYLIST_LIMIT, sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
+import { getRecordingListLimit, PLAYLIST_LIMIT, sessionRecordingsListLogic } from './sessionRecordingsListLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import './SessionRecordingsPlaylist.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
+import { SessionRecordingPlayer } from './player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
@@ -19,10 +19,10 @@ interface SessionRecordingsTableProps {
 }
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID, isPlaylist: true })
+    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ personUUID, isPlaylist: true })
     const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecording, offset } =
-        useValues(sessionRecordingsTableLogicInstance)
-    const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
+        useValues(sessionRecordingsListLogicInstance)
+    const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsListLogicInstance)
     const playlistRef = useRef<HTMLDivElement>(null)
 
     const columns: LemonTableColumns<SessionRecordingType> = [
@@ -104,7 +104,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
             <div className="SessionRecordingsPlaylist__right-column">
                 {activeSessionRecording?.id ? (
                     <div className="border rounded h-full">
-                        <SessionRecordingPlayerV3
+                        <SessionRecordingPlayer
                             playerKey="playlist"
                             sessionRecordingId={activeSessionRecording.id}
                             matching={activeSessionRecording?.matching_events}

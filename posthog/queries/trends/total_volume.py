@@ -2,8 +2,6 @@ import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
 
-import pytz
-
 from posthog.constants import (
     EVENT_COUNT_PER_ACTOR,
     MONTHLY_ACTIVE,
@@ -90,7 +88,9 @@ class TrendsTotalVolume:
                 # TODO: for groups aggregation as well
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
                 content_sql = VOLUME_SQL.format(
-                    event_query=cumulative_sql, start_of_week_fix=start_of_week_fix(filter), **content_sql_params
+                    event_query=cumulative_sql,
+                    start_of_week_fix=start_of_week_fix(filter.interval),
+                    **content_sql_params,
                 )
             elif entity.math_property == EVENT_COUNT_PER_ACTOR:
                 # Calculate average number of events per actor
@@ -107,15 +107,17 @@ class TrendsTotalVolume:
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_SQL.format(
-                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params
+                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter.interval), **content_sql_params
                 )
             else:
                 content_sql = VOLUME_SQL.format(
-                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params
+                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter.interval), **content_sql_params
                 )
 
             null_sql = NULL_SQL.format(
-                trunc_func=trunc_func, interval_func=interval_func, start_of_week_fix=start_of_week_fix(filter)
+                trunc_func=trunc_func,
+                interval_func=interval_func,
+                start_of_week_fix=start_of_week_fix(filter.interval),
             )
             params["interval"] = filter.interval
 
@@ -186,22 +188,13 @@ class TrendsTotalVolume:
     ) -> List[Dict[str, Any]]:
         persons_url = []
         for date in dates:
-            date_in_utc = datetime(
-                date.year,
-                date.month,
-                date.day,
-                getattr(date, "hour", 0),
-                getattr(date, "minute", 0),
-                getattr(date, "second", 0),
-                tzinfo=getattr(date, "tzinfo", pytz.UTC),
-            ).astimezone(pytz.UTC)
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
-                "date_to": date_in_utc,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
+                "date_to": date,
                 "entity_order": entity.order,
             }
 
