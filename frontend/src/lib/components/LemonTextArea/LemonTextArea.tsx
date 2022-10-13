@@ -3,7 +3,7 @@ import React, { createRef, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import TextareaAutosize from 'react-textarea-autosize'
 import { Tabs } from 'antd'
-import { IconMarkdown } from 'lib/components/icons'
+import { IconMarkdown, IconTools, IconUploadFile } from 'lib/components/icons'
 import { TextCardBody } from 'lib/components/Cards/TextCard/TextCard'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import api from 'lib/api'
@@ -11,6 +11,7 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import posthog from 'posthog-js'
+import { Link } from 'lib/components/Link'
 
 export interface LemonTextAreaProps
     extends Pick<
@@ -153,9 +154,25 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                     <LemonTextArea {...editAreaProps} autoFocus value={value} onChange={onChange} />
                     <div className="text-muted inline-flex items-center space-x-1">
                         <IconMarkdown className={'text-2xl'} />
-                        <span>Markdown formatting support (learn more)</span>
-                        {/*TODO add a page and a link*/}
+                        <span>Markdown formatting support</span>
                     </div>
+                    {objectStorageAvailable ? (
+                        <div className="text-muted inline-flex items-center space-x-1">
+                            <IconUploadFile className={'text-2xl mr-1'} />
+                            <span>Drop images on the text area to upload them and add them to the card</span>
+                        </div>
+                    ) : (
+                        <div className="text-muted inline-flex items-center space-x-1">
+                            <IconTools className={'text-3xl mx-1'} />
+                            <span>
+                                Cannot upload images because object storage is not available. Add external images using{' '}
+                                <Link to={'https://www.markdownguide.org/basic-syntax/#images-1'}>
+                                    {' '}
+                                    markdown image links
+                                </Link>
+                            </span>
+                        </div>
+                    )}
 
                     {isUploading && (
                         <div className="text-muted inline-flex items-center space-x-1">
