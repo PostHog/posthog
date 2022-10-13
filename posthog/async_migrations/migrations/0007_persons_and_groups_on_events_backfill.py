@@ -423,7 +423,7 @@ class Migration(AsyncMigrationDefinition):
                     ),
                     group4_created_at = if(
                         group4_created_at = toDateTime(0),
-                        dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4))
+                        dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4)),
                         group4_created_at
                     )
                 {where_clause}
