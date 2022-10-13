@@ -59,12 +59,7 @@ const indexJs = `
         }
         testConsole.log('onEvent', JSON.stringify(event))
     }
-
-    export function onSnapshot (event) {
-        testConsole.log('onSnapshot', event.event)
-    }
-
-
+    
     export async function exportEvents(events) {
         for (const event of events) {
             if (event.properties && event.properties['$$is_historical_export_event']) {
