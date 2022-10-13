@@ -3,7 +3,7 @@ import { Kafka, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
-import { ONE_HOUR } from '../src/config/constants'
+import { ONE_HOUR, ONE_MINUTE } from '../src/config/constants'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import {
     LogLevel,
@@ -85,6 +85,8 @@ beforeAll(async () => {
 
     organizationId = await createOrganization(postgres)
 })
+
+beforeEach(() => jest.useRealTimers())
 
 afterAll(async () => {
     await Promise.all([producer.disconnect(), postgres.end()])
@@ -243,6 +245,26 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 })
             )
         }, 10000)
+
+        test('runEveryMinute is executed', async () => {
+            // NOTE: we do not check Hour and Day, merely because if we advance
+            // too much it seems we end up performing alot of reloads of
+            // actions, which prevents the test from completing.
+            //
+            // Note this also somewhat plays havoc with the Kafka consumer
+            // sessions.
+            jest.useFakeTimers({ advanceTimers: 30 })
+
+            const teamId = await createTeam(postgres, organizationId)
+            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId))
+
+            jest.advanceTimersByTime(ONE_MINUTE)
+            await delayUntilEventIngested(() => testConsole.read())
+            const consoleOutput = testConsole.read()
+            expect(consoleOutput.flatMap((x) => x)).toContain('runEveryMinute')
+        })
     })
 
     describe(`session recording ingestion (${pluginServer.name})`, () => {
