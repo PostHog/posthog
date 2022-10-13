@@ -28,10 +28,7 @@ interface HashParams {
     sessionRecordingId?: SessionRecordingId
 }
 
-const TABLE_LIMIT = 50
 export const PLAYLIST_LIMIT = 20
-
-export const getRecordingListLimit = (isPlaylist?: boolean): number => (isPlaylist ? PLAYLIST_LIMIT : TABLE_LIMIT)
 
 export const DEFAULT_DURATION_FILTER: RecordingDurationFilter = {
     type: 'recording',
@@ -56,7 +53,6 @@ export const DEFAULT_ENTITY_FILTERS = {
 }
 
 export interface SessionRecordingTableLogicProps {
-    isPlaylist?: boolean
     personUUID?: PersonUUID
     key?: string
 }
@@ -64,17 +60,16 @@ export interface SessionRecordingTableLogicProps {
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
     path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsListLogic', key],
     props: {} as SessionRecordingTableLogicProps,
-    key: (props) => `${props.key || props.personUUID || 'global'}-${props.isPlaylist ? 'playlist' : 'table'}`,
+    key: (props) => `${props.key || props.personUUID || 'global'}`,
     connect: {
         values: [teamLogic, ['currentTeamId']],
         actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
     },
     actions: {
         getSessionRecordings: true,
-        openSessionPlayer: (sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'> | null) => ({
-            sessionRecording,
+        setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
+            id,
         }),
-        closeSessionPlayer: true,
         setEntityFilters: (filters: Partial<FilterType>) => ({ filters }),
         setPropertyFilters: (filters: AnyPropertyFilter[]) => {
             return { filters }
@@ -100,7 +95,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                     const paramsDict = {
                         ...values.filterQueryParams,
                         person_uuid: props.personUUID ?? '',
-                        limit: getRecordingListLimit(props.isPlaylist),
+                        limit: PLAYLIST_LIMIT,
                     }
                     const params = toParams(paramsDict)
                     await breakpoint(100) // Debounce for lots of quick filter changes
@@ -122,7 +117,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             actions.getSessionRecordings()
         },
     }),
-    reducers: ({ props }) => ({
+    reducers: ({}) => ({
         filtersEnabled: [
             false,
             {
@@ -135,10 +130,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                 getSessionRecordingsSuccess: (_, { sessionRecordingsResponse }) => {
                     return [...sessionRecordingsResponse.results]
                 },
-                openSessionPlayer: (prevSessionRecordings, { sessionRecording }) => {
+                setSelectedRecordingId: (prevSessionRecordings, { id }) => {
                     return [
                         ...prevSessionRecordings.map((s) => {
-                            if (s.id === sessionRecording?.id) {
+                            if (s.id === id) {
                                 return {
                                     ...s,
                                     viewed: true,
@@ -151,11 +146,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                 },
             },
         ],
-        partialSessionRecording: [
-            null as Pick<SessionRecordingType, 'id' | 'matching_events'> | null,
+        selectedRecordingId: [
+            null as SessionRecordingType['id'] | null,
             {
-                openSessionPlayer: (_, { sessionRecording }) => sessionRecording ?? null,
-                closeSessionPlayer: () => null,
+                setSelectedRecordingId: (_, { id }) => id ?? null,
             },
         ],
         entityFilters: [
@@ -179,8 +173,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
         offset: [
             0,
             {
-                loadNext: (previousOffset) => previousOffset + getRecordingListLimit(props.isPlaylist),
-                loadPrev: (previousOffset) => Math.max(previousOffset - getRecordingListLimit(props.isPlaylist), 0),
+                loadNext: (previousOffset) => previousOffset + PLAYLIST_LIMIT,
+                loadPrev: (previousOffset) => Math.max(previousOffset - PLAYLIST_LIMIT, 0),
                 setOffset: (_, { offset }) => offset,
             },
         ],
@@ -219,12 +213,13 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
     }),
     selectors: {
         activeSessionRecording: [
-            (s) => [s.partialSessionRecording, s.sessionRecordings],
-            (partialSessionRecording, sessionRecordings) => {
-                return (
-                    sessionRecordings.find((sessionRecording) => sessionRecording.id === partialSessionRecording?.id) ??
-                    sessionRecordings[0]
-                )
+            (s) => [s.selectedRecordingId, s.sessionRecordings],
+            (selectedRecordingId, sessionRecordings): Partial<SessionRecordingType> | undefined => {
+                return selectedRecordingId
+                    ? sessionRecordings.find((sessionRecording) => sessionRecording.id === selectedRecordingId) || {
+                          id: selectedRecordingId,
+                      }
+                    : sessionRecordings[0]
             },
         ],
         hasPrev: [(s) => [s.offset], (offset) => offset > 0],
@@ -264,10 +259,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             const hashParams: HashParams = {
                 ...router.values.hashParams,
             }
-            if (!values.partialSessionRecording?.id) {
+            if (!values.selectedRecordingId) {
                 delete hashParams.sessionRecordingId
             } else {
-                hashParams.sessionRecordingId = values.partialSessionRecording.id
+                hashParams.sessionRecordingId = values.selectedRecordingId
             }
 
             return [router.values.location.pathname, params, hashParams, { replace }]
@@ -275,8 +270,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
 
         return {
             loadSessionRecordings: () => buildURL(true),
-            openSessionPlayer: () => buildURL(false),
-            closeSessionPlayer: () => buildURL(false),
+            setSelectedRecordingId: () => buildURL(false),
             setEntityFilters: () => buildURL(true),
             setPropertyFilters: () => buildURL(true),
             setDateRange: () => buildURL(true),
@@ -289,8 +283,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
     urlToAction: ({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
             const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
-            if (nulledSessionRecordingId !== values.partialSessionRecording?.id) {
-                actions.openSessionPlayer(nulledSessionRecordingId ? { id: nulledSessionRecordingId } : null)
+            if (nulledSessionRecordingId !== values.selectedRecordingId) {
+                actions.setSelectedRecordingId(nulledSessionRecordingId)
             }
 
             const filters = params.filters

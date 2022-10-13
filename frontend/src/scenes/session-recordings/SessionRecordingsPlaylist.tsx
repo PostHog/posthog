@@ -2,7 +2,7 @@ import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration, range } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { getRecordingListLimit, PLAYLIST_LIMIT, sessionRecordingsListLogic } from './sessionRecordingsListLogic'
+import { PLAYLIST_LIMIT, sessionRecordingsListLogic } from './sessionRecordingsListLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import './SessionRecordingsPlaylist.scss'
 import { TZLabel } from 'lib/components/TimezoneAware'
@@ -38,24 +38,14 @@ const DurationDisplay = ({ duration }: { duration: number }): JSX.Element => {
 }
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
-    const logic = sessionRecordingsListLogic({ personUUID, isPlaylist: true })
-    const {
-        sessionRecordings,
-        sessionRecordingsResponseLoading,
-        hasNext,
-        hasPrev,
-        activeSessionRecording,
-        partialSessionRecording,
-        offset,
-    } = useValues(logic)
-    const { openSessionPlayer, loadNext, loadPrev } = useActions(logic)
+    const logic = sessionRecordingsListLogic({ personUUID })
+    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecording, offset } =
+        useValues(logic)
+    const { setSelectedRecordingId, loadNext, loadPrev } = useActions(logic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
-    /* NOTE: We use the partialSessionRecording (the one selected in the url) for loading but fall back to the first in the list otherwise */
-    const activeSessionRecordingId = partialSessionRecording?.id || sessionRecordings?.[0]?.id
-
     const onRecordingClick = (recording: SessionRecordingType): void => {
-        openSessionPlayer({ id: recording.id })
+        setSelectedRecordingId(recording.id)
         window.scrollTo({
             left: 0,
             top: playlistRef?.current?.offsetTop ? playlistRef.current.offsetTop - 8 : 0,
@@ -63,8 +53,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
         })
     }
 
-    const nextLength =
-        offset + (sessionRecordingsResponseLoading ? getRecordingListLimit(true) : sessionRecordings.length)
+    const nextLength = offset + (sessionRecordingsResponseLoading ? PLAYLIST_LIMIT : sessionRecordings.length)
 
     const paginationControls = nextLength ? (
         <div className="flex items-center gap-1">
@@ -125,7 +114,9 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                     key={rec.id}
                                     className={clsx(
                                         'p-2 px-4 cursor-pointer',
-                                        activeSessionRecordingId === rec.id ? 'bg-primary-highlight font-semibold' : '',
+                                        activeSessionRecording?.id === rec.id
+                                            ? 'bg-primary-highlight font-semibold'
+                                            : '',
                                         i !== 0 && 'border-t'
                                     )}
                                     onClick={() => onRecordingClick(rec)}
@@ -183,11 +174,11 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                 </div>
             </div>
             <div className="SessionRecordingsPlaylist__right-column">
-                {activeSessionRecordingId ? (
+                {activeSessionRecording?.id ? (
                     <div className="border rounded h-full">
                         <SessionRecordingPlayer
                             playerKey="playlist"
-                            sessionRecordingId={activeSessionRecordingId}
+                            sessionRecordingId={activeSessionRecording?.id}
                             matching={activeSessionRecording?.matching_events}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                         />
