@@ -2,6 +2,7 @@ from typing import Dict
 
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
+from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, UnsupportedMediaType, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -9,6 +10,7 @@ from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.internal_metrics import incr
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -18,13 +20,15 @@ from posthog.storage import object_storage
 @csrf_exempt
 def download(request, *args, **kwargs) -> HttpResponse:
     """
-    Why is this on a top level route with no auth?
-    img request wasn't sending cookies for some reason so we can't use auth
-    and these images are immutable so we can cache them forever
+    Images are immutable, so we can cache them forever
+    They are served unauthenticated as they might be presented on shared dashboards
     """
     instance: UploadedMedia = UploadedMedia.objects.get(pk=kwargs["image_uuid"])
 
     file_bytes = object_storage.read_bytes(instance.media_location)
+
+    incr("uploaded_media.served", tags={"team_id": instance.team_id, "uuid": kwargs["image_uuid"]})
+
     return HttpResponse(
         file_bytes,
         content_type=instance.content_type,
@@ -41,6 +45,13 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         TeamMemberAccessPermission,
     ]
 
+    @extend_schema(
+        description="""
+    When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
+
+    Uploaded media must have a content type beginning with 'image/' and be less than 4MB.
+    """
+    )
     def create(self, request, *args, **kwargs) -> Response:
         try:
             file = request.data["image"]
