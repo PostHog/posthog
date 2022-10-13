@@ -554,7 +554,7 @@ export function Experiment(): JSX.Element {
                                 </Field>
                                 <Card className="experiment-preview">
                                     <ExperimentPreview
-                                        experiment={experiment}
+                                        experimentId={experiment.id}
                                         trendCount={trendCount}
                                         trendExposure={exposure}
                                         funnelSampleSize={sampleSize}
@@ -747,7 +747,7 @@ export function Experiment(): JSX.Element {
                                 <Row>
                                     <Col span={experimentData?.start_date ? 12 : 24}>
                                         <ExperimentPreview
-                                            experiment={experimentData}
+                                            experimentId={experimentData.id}
                                             trendCount={trendCount}
                                             trendExposure={experimentData?.parameters.recommended_running_time}
                                             funnelSampleSize={experimentData?.parameters.recommended_sample_size}
