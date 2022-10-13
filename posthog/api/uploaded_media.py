@@ -88,7 +88,7 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise UnsupportedMediaType(file.content_type)
         except KeyError:
-            raise ValidationError("An image file must be provided")
+            raise ValidationError(code="no-image-provided", detail="An image file must be provided")
         except ObjectStorageUnavailable:
             raise ValidationError(
                 code="object_storage_required", detail="Object storage must be available to allow media uploads."
