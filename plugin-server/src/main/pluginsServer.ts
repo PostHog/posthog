@@ -1,34 +1,29 @@
 import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
+import { CronItem, TaskList } from 'graphile-worker'
 import { Server } from 'http'
 import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
-import {
-    Hub,
-    JobsConsumerControl,
-    PluginScheduleControl,
-    PluginServerCapabilities,
-    PluginsServerConfig,
-} from '../types'
+import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub } from '../utils/db/hub'
 import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { delay, getPiscinaStats, logOrThrowJobQueueError,stalenessCheck } from '../utils/utils'
 import { makePiscina as defaultMakePiscina } from '../worker/piscina'
-import { startGraphileWorker } from './graphile-worker/worker-setup'
+import { getIngestionJobHandlers, getPluginJobHandlers, getScheduledTaskHandlers } from './graphile-worker/job-handlers'
+import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
-import { startPluginSchedules } from './services/schedule'
 
 const { version } = require('../../package.json')
 
@@ -61,10 +56,8 @@ export async function startPluginsServer(
     let hub: Hub | undefined
     let piscina: Piscina | undefined
     let queue: KafkaQueue | undefined | null // ingestion queue
-    let jobQueueConsumer: JobsConsumerControl | undefined
     let bufferConsumer: Consumer | undefined
     let closeHub: () => Promise<void> | undefined
-    let pluginScheduleControl: PluginScheduleControl | undefined
     let mmdbServer: net.Server | undefined
     let lastActivityCheck: NodeJS.Timeout | undefined
     let httpServer: Server | undefined
@@ -77,9 +70,8 @@ export async function startPluginsServer(
         stopEventLoopMetrics?.()
         await queue?.stop()
         await pubSub?.stop()
-        await jobQueueConsumer?.stop()
+        await hub?.graphileWorker.stop()
         await bufferConsumer?.disconnect()
-        await pluginScheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
                 ? resolve()
@@ -158,11 +150,66 @@ export async function startPluginsServer(
 
         piscina = makePiscina(serverConfig)
 
-        if (hub.capabilities.pluginScheduledTasks) {
-            pluginScheduleControl = await startPluginSchedules(hub, piscina)
-        }
-        if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs) {
-            jobQueueConsumer = await startGraphileWorker(hub, piscina)
+        if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
+            status.info('🔄', 'Starting Graphile Worker...')
+
+            let jobHandlers: TaskList = {}
+
+            const crontab: CronItem[] = []
+
+            if (hub.capabilities.ingestion) {
+                jobHandlers = { ...jobHandlers, ...getIngestionJobHandlers(hub, piscina) }
+                status.info('🔄', 'Graphile Worker: set up ingestion job handlers ...')
+            }
+
+            if (hub.capabilities.processPluginJobs) {
+                jobHandlers = { ...jobHandlers, ...getPluginJobHandlers(hub, piscina) }
+                status.info('🔄', 'Graphile Worker: set up plugin job handlers ...')
+            }
+
+            if (hub.capabilities.pluginScheduledTasks) {
+                hub.pluginSchedule = await loadPluginSchedule(piscina)
+
+                // TODO: In the future we might benefit from scheduling tasks more granularly i.e. <taskType, pluginConfigId>
+                // KLUDGE: Given we're currently not doing the above, if we throw after executing n tasks for given type, those n tasks will be re-run
+                // Note: backfillPeriod must be explicitly defined here, but we'd currently not like to use it as it has a lot of limitations
+                // (see: https://github.com/graphile/worker#limiting-backfill). We might benefit from changing this setting in the future
+                crontab.push({
+                    task: 'runEveryMinute',
+                    identifier: 'runEveryMinute',
+                    pattern: '* * * * *',
+                    options: { maxAttempts: 1, backfillPeriod: 0 },
+                })
+                crontab.push({
+                    task: 'runEveryHour',
+                    identifier: 'runEveryHour',
+                    pattern: '1 * * * *',
+                    options: { maxAttempts: 5, backfillPeriod: 0 },
+                })
+                crontab.push({
+                    task: 'runEveryDay',
+                    identifier: 'runEveryDay',
+                    pattern: '1 1 * * *',
+                    options: { maxAttempts: 10, backfillPeriod: 0 },
+                })
+
+                jobHandlers = {
+                    ...jobHandlers,
+                    ...getScheduledTaskHandlers(hub, piscina),
+                }
+
+                status.info('🔄', 'Graphile Worker: set up scheduled task handlers ...')
+            }
+
+            try {
+                await hub.graphileWorker.start(jobHandlers, crontab)
+            } catch (error) {
+                try {
+                    logOrThrowJobQueueError(hub, error, `Cannot start job queue consumer!`)
+                } catch {
+                    killProcess()
+                }
+            }
         }
         if (hub.capabilities.ingestion) {
             bufferConsumer = await startAnonymousEventBufferConsumer({
@@ -174,11 +221,11 @@ export async function startPluginsServer(
         }
 
         const queues = await startQueues(hub, piscina)
-
         // `queue` refers to the ingestion queue.
         queue = queues.ingestion
+
         piscina.on('drain', () => {
-            void jobQueueConsumer?.resume()
+            void hub?.graphileWorker.resumeConsumer()
         })
 
         // use one extra Redis connection for pub-sub
@@ -186,7 +233,11 @@ export async function startPluginsServer(
             [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
                 status.info('⚡', 'Reloading plugins!')
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
-                await pluginScheduleControl?.reloadSchedule()
+
+                if (hub?.capabilities.pluginScheduledTasks && piscina) {
+                    await piscina.broadcastTask({ task: 'reloadSchedule' })
+                    hub.pluginSchedule = await loadPluginSchedule(piscina)
+                }
             },
             ...(hub.capabilities.processAsyncHandlers
                 ? {

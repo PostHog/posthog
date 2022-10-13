@@ -1,5 +1,14 @@
 import * as Sentry from '@sentry/node'
-import { makeWorkerUtils, run, Runner, TaskList, WorkerUtils } from 'graphile-worker'
+import {
+    CronItem,
+    makeWorkerUtils,
+    parseCronItems,
+    ParsedCronItem,
+    run,
+    Runner,
+    TaskList,
+    WorkerUtils,
+} from 'graphile-worker'
 import { Pool } from 'pg'
 
 import { EnqueuedJob, Hub } from '../../types'
@@ -24,6 +33,7 @@ export class GraphileWorker {
     jobHandlers: TaskList
     timeout: NodeJS.Timeout | null
     intervalSeconds: number
+    crontab: ParsedCronItem[]
 
     constructor(hub: Hub) {
         this.hub = hub
@@ -36,6 +46,7 @@ export class GraphileWorker {
         this.consumerPool = null
         this.producerPool = null
         this.workerUtilsPromise = null
+        this.crontab = []
     }
 
     // producer
@@ -55,7 +66,14 @@ export class GraphileWorker {
         retryOnFailure = false
     ): Promise<void> {
         const jobType = 'type' in job ? job.type : 'buffer'
-        const jobPayload = 'payload' in job ? job.payload : job.eventPayload
+
+        let jobPayload: Record<string, any> = {}
+        if ('payload' in job) {
+            jobPayload = job.payload
+        } else if ('eventPayload' in job) {
+            jobPayload = job.eventPayload
+        }
+
         let enqueueFn = () => this._enqueue(jobName, job)
 
         // This branch will be removed once we implement a Kafka queue for all jobs
@@ -92,18 +110,22 @@ export class GraphileWorker {
 
     async _enqueue(jobName: string, job: EnqueuedJob): Promise<void> {
         try {
-            const workerUtils = await this.getWorkerUtils()
-            await workerUtils.addJob(jobName, job, {
-                runAt: new Date(job.timestamp),
-                maxAttempts: 1,
-                priority: 1,
-                jobKey: job.jobKey,
-            })
+            await this.addJob(jobName, job)
             this.hub.statsd?.increment('enqueue_job.success', { jobName })
         } catch (error) {
             this.hub.statsd?.increment('enqueue_job.fail', { jobName })
             throw error
         }
+    }
+
+    async addJob(jobName: string, job: EnqueuedJob): Promise<void> {
+        const workerUtils = await this.getWorkerUtils()
+        await workerUtils.addJob(jobName, job, {
+            runAt: job.timestamp ? new Date(job.timestamp) : undefined,
+            maxAttempts: 1,
+            priority: 1,
+            jobKey: job.jobKey,
+        })
     }
 
     private async getWorkerUtils(): Promise<WorkerUtils> {
@@ -147,6 +169,7 @@ export class GraphileWorker {
                 pollInterval: 2000,
                 // you can set the taskList or taskDirectory but not both
                 taskList: this.jobHandlers,
+                parsedCronItems: this.crontab,
             })
             return
         }
@@ -189,8 +212,9 @@ export class GraphileWorker {
         })
     }
 
-    async start(jobHandlers: TaskList): Promise<void> {
+    async start(jobHandlers: TaskList, crontab: CronItem[] = []): Promise<void> {
         this.jobHandlers = jobHandlers
+        this.crontab = parseCronItems(crontab)
         if (!this.started) {
             this.started = true
             await this.syncState()
@@ -198,11 +222,13 @@ export class GraphileWorker {
     }
 
     async stop(): Promise<void> {
+        status.info('🔄', 'Stopping Graphile worker...')
         this.started = false
         await this.syncState()
     }
 
     async pause(): Promise<void> {
+        status.info('🔄', 'Pausing Graphile worker...')
         this.paused = true
         await this.syncState()
     }
@@ -213,6 +239,7 @@ export class GraphileWorker {
 
     async resumeConsumer(): Promise<void> {
         if (this.paused) {
+            status.info('🔄', 'Resuming Graphile worker...')
             this.paused = false
             await this.syncState()
         }
