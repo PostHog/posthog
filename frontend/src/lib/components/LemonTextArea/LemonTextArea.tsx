@@ -5,8 +5,9 @@ import TextareaAutosize from 'react-textarea-autosize'
 import { Tabs } from 'antd'
 import { IconMarkdown } from 'lib/components/icons'
 import { TextCardBody } from 'lib/components/Cards/TextCard/TextCard'
-import { lemonTextMarkdownLogic } from 'lib/components/LemonTextArea/lemonTextMarkdown.logic'
-import { useActions, useValues } from 'kea'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import api from 'lib/api'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export interface LemonTextAreaProps
     extends Pick<
@@ -51,6 +52,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                 onKeyDown?.(e)
             }}
             onChange={(event) => {
+                console.log('onChange', event.target.value)
                 onChange?.(event.currentTarget.value ?? '')
             }}
             {...textProps}
@@ -65,12 +67,9 @@ interface LemonTextMarkdownProps {
 }
 
 export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
-    const logic = lemonTextMarkdownLogic
-    const { markdownURL } = useValues(logic)
-    const { uploadImage } = useActions(logic)
-
     const [drag, setDrag] = React.useState(false)
-    const [filename, setFilename] = React.useState('')
+    const [isUploading, setIsUploading] = React.useState(false)
+
     const dropRef = React.createRef<HTMLDivElement>()
     let dragCounter = 0
 
@@ -97,15 +96,22 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
         }
     }
 
-    const handleDrop = (e: DragEvent): void => {
+    const handleDrop = async (e: DragEvent): Promise<void> => {
         e.preventDefault()
         e.stopPropagation()
         setDrag(false)
         if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-            // onDrop(e.dataTransfer.files[0])
-            setFilename(e.dataTransfer.files[0].name)
-            console.log(e.dataTransfer.files[0].name)
-            uploadImage(e.dataTransfer.files[0])
+            try {
+                setIsUploading(true)
+                const formData = new FormData()
+                formData.append('image', e.dataTransfer.files[0])
+                const media = await api.media.upload(formData)
+                onChange(value + `\n\n![${media.name}](${media.image_location})`)
+            } catch (error) {
+                lemonToast.error(`Error uploading image: ${(error as any).detail || 'unknown error'}`)
+            } finally {
+                setIsUploading(false)
+            }
             e.dataTransfer.clearData()
             dragCounter = 0
         }
@@ -127,29 +133,26 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                 div?.removeEventListener('drop', handleDrop)
             }
         }
-    }, [])
+    }, [value])
 
     return (
         <Tabs>
             <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
                 <div
                     ref={dropRef}
-                    className={clsx(
-                        'LemonTextMarkdown',
-                        drag ? 'filedrop drag' : filename ? 'filedrop ready' : 'filedrop'
-                    )}
+                    className={clsx('LemonTextMarkdown flex flex-col p-2 rounded', drag && 'FileDropTarget')}
                 >
-                    <LemonTextArea
-                        {...editAreaProps}
-                        autoFocus
-                        value={value}
-                        onChange={(newValue) => onChange(newValue)}
-                    />
+                    <LemonTextArea {...editAreaProps} autoFocus value={value} onChange={onChange} />
                     <div className="text-muted inline-flex items-center space-x-1">
                         <IconMarkdown className={'text-2xl'} />
                         <span>Markdown formatting support</span>
                     </div>
-                    {markdownURL && <div>uploaded file add it using {markdownURL}</div>}
+                    {isUploading && (
+                        <div className="text-muted inline-flex items-center space-x-1">
+                            <Spinner />
+                            uploading image...
+                        </div>
+                    )}
                 </div>
             </Tabs.TabPane>
             <Tabs.TabPane tab="Preview" key={'preview-card'}>

@@ -38,7 +38,7 @@
 }
 
 .LemonTextMarkdown {
-    &.filedrop.drag {
-        border: 3px dashed #1e90ff;
+    &.FileDropTarget {
+        border: 3px dashed var(--primary);
     }
 }
