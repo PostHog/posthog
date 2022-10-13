@@ -21,7 +21,7 @@ export function PlayerFilter({ sessionRecordingId, playerKey, matching }: Sessio
 
     return (
         <div className="PlayerFilter flex justify-between gap-2 bg-side p-2 flex-wrap">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
                 {tab === SessionRecordingTab.EVENTS && (
                     <>
                         <LemonInput
@@ -52,7 +52,7 @@ export function PlayerFilter({ sessionRecordingId, playerKey, matching }: Sessio
                 )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
                 <LemonSelect
                     data-attr="player-window-select"
                     value={windowIdFilter ?? undefined}
