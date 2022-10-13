@@ -1,5 +1,5 @@
 import './LemonTextArea.scss'
-import React, { useEffect, useRef } from 'react'
+import React, { createRef, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import TextareaAutosize from 'react-textarea-autosize'
 import { Tabs } from 'antd'
@@ -71,10 +71,10 @@ interface LemonTextMarkdownProps {
 export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
     const { objectStorageAvailable } = useValues(preflightLogic)
 
-    const [drag, setDrag] = React.useState(false)
-    const [isUploading, setIsUploading] = React.useState(false)
+    const [drag, setDrag] = useState(false)
+    const [isUploading, setIsUploading] = useState(false)
 
-    const dropRef = React.createRef<HTMLDivElement>()
+    const dropRef = createRef<HTMLDivElement>()
     let dragCounter = 0
 
     const handleDrag = (e: DragEvent): void => {
