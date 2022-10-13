@@ -117,7 +117,7 @@ export function Login(): JSX.Element {
                         <Field
                             name="password"
                             label={
-                                <div className="flex flex-1 items-center justify-between">
+                                <div className="flex flex-1 items-center justify-between gap-2">
                                     <span>Password</span>
                                     <Link to="/reset" data-attr="forgot-password">
                                         Forgot your password?
