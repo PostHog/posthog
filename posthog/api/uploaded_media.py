@@ -16,6 +16,8 @@ from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.storage import object_storage
 
+FOUR_MEGABYTES = 4 * 1024 * 1024
+
 
 @csrf_exempt
 def download(request, *args, **kwargs) -> HttpResponse:
@@ -59,7 +61,7 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         try:
             file = request.data["image"]
 
-            if file.size > 4 * 1024 * 1024:
+            if file.size > FOUR_MEGABYTES:
                 raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 4MB")
 
             if file.content_type.startswith("image/"):
