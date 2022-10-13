@@ -24,6 +24,9 @@ export async function emitToBufferStep(
     }
 
     const person = await personContainer.get()
+    if (person) {
+        status.debug('🙋‍♀️', 'Got person', { personId: person.id })
+    }
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
         status.debug('🔁', 'Emitting event to buffer', {
@@ -36,7 +39,10 @@ export async function emitToBufferStep(
         // use the old logic.
         // TODO: If we want to enable this for all teams, we can remove this
         // check.
-        if (runner.hub.conversionBufferTopicEnabledTeams.has(event.team_id)) {
+        if (
+            runner.hub.CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS === '*' ||
+            runner.hub.conversionBufferTopicEnabledTeams.has(event.team_id)
+        ) {
             // TODO: handle delaying offset commit for this message, according to
             // producer acknowledgement. It's a little tricky as it stands as we do
             // not have the a reference to resolveOffset here. Rather than do a
