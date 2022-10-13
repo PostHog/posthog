@@ -1,8 +1,8 @@
 import {
-    sessionRecordingsTableLogic,
+    sessionRecordingsListLogic,
     DEFAULT_ENTITY_FILTERS,
     DEFAULT_DURATION_FILTER,
-} from './sessionRecordingsTableLogic'
+} from './sessionRecordingsListLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
@@ -10,8 +10,8 @@ import { PropertyOperator } from '~/types'
 import { useMocks } from '~/mocks/jest'
 import { sessionRecordingDataLogic } from './player/sessionRecordingDataLogic'
 
-describe('sessionRecordingsTableLogic', () => {
-    let logic: ReturnType<typeof sessionRecordingsTableLogic.build>
+describe('sessionRecordingsListLogic', () => {
+    let logic: ReturnType<typeof sessionRecordingsListLogic.build>
     const listOfSessionRecordings = [{ id: 'abc', viewed: false, recording_duration: 10 }]
 
     beforeEach(() => {
@@ -75,7 +75,7 @@ describe('sessionRecordingsTableLogic', () => {
 
     describe('global logic', () => {
         beforeEach(() => {
-            logic = sessionRecordingsTableLogic({})
+            logic = sessionRecordingsListLogic({})
             logic.mount()
         })
 
@@ -300,7 +300,7 @@ describe('sessionRecordingsTableLogic', () => {
     })
     describe('playlist mode', () => {
         beforeEach(() => {
-            logic = sessionRecordingsTableLogic({ isPlaylist: true })
+            logic = sessionRecordingsListLogic({ isPlaylist: true })
             logic.mount()
         })
         it('mounts and loads the recording when a recording is opened', () => {
@@ -311,7 +311,7 @@ describe('sessionRecordingsTableLogic', () => {
     })
     describe('person specific logic', () => {
         beforeEach(() => {
-            logic = sessionRecordingsTableLogic({ personUUID: 'cool_user_99' })
+            logic = sessionRecordingsListLogic({ personUUID: 'cool_user_99' })
             logic.mount()
         })
 

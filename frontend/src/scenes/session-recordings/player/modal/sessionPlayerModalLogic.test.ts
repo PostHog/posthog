@@ -1,11 +1,11 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { sessionPlayerDrawerLogic } from './sessionPlayerDrawerLogic'
+import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 import { useMocks } from '~/mocks/jest'
 
-describe('sessionPlayerDrawerLogic', () => {
-    let logic: ReturnType<typeof sessionPlayerDrawerLogic.build>
+describe('sessionPlayerModalLogic', () => {
+    let logic: ReturnType<typeof sessionPlayerModalLogic.build>
     const listOfSessionRecordings = [{ id: 'abc', viewed: false, recording_duration: 10 }]
 
     beforeEach(() => {
@@ -20,7 +20,7 @@ describe('sessionPlayerDrawerLogic', () => {
             },
         })
         initKeaTests()
-        logic = sessionPlayerDrawerLogic()
+        logic = sessionPlayerModalLogic()
         logic.mount()
     })
     describe('activeSessionRecording', () => {
