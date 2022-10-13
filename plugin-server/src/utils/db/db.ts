@@ -163,9 +163,6 @@ export class DB {
     /** How many seconds to keep person info in Redis cache */
     PERSONS_AND_GROUPS_CACHE_TTL: number
 
-    /** Which teams is person info caching enabled on */
-    personAndGroupsCachingEnabledTeams: Set<number>
-
     /** PromiseManager instance to keep track of voided promises */
     promiseManager: PromiseManager
 
@@ -176,8 +173,7 @@ export class DB {
         clickhouse: ClickHouse,
         statsd: StatsD | undefined,
         promiseManager: PromiseManager,
-        personAndGroupsCacheTtl = 1,
-        personAndGroupsCachingEnabledTeams: Set<number> = new Set<number>()
+        personAndGroupsCacheTtl = 1
     ) {
         this.postgres = postgres
         this.redisPool = redisPool
@@ -185,7 +181,6 @@ export class DB {
         this.clickhouse = clickhouse
         this.statsd = statsd
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
-        this.personAndGroupsCachingEnabledTeams = personAndGroupsCachingEnabledTeams
         this.promiseManager = promiseManager
     }
 
