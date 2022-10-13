@@ -35,7 +35,7 @@ export function ExperimentPreview({
         expectedRunningTime,
         aggregationLabel,
     } = useValues(experimentLogic({ experimentId }))
-    // const { setNewExperimentData } = useActions(experimentLogic({ experimentId }))
+    const { setExperiment } = useActions(experimentLogic({ experimentId }))
     const sliderMaxValue =
         experimentInsightType === InsightType.FUNNELS
             ? 100 - funnelConversionRate < 50
@@ -97,7 +97,7 @@ export function ExperimentPreview({
                                         trackStyle={{ background: 'var(--primary)' }}
                                         handleStyle={{ background: 'var(--primary)' }}
                                         onChange={(value) => {
-                                            setNewExperimentData({
+                                            setExperiment({
                                                 parameters: { minimum_detectable_effect: value },
                                             })
                                         }}
@@ -112,7 +112,7 @@ export function ExperimentPreview({
                                     style={{ margin: '0 16px' }}
                                     value={minimumDetectableChange}
                                     onChange={(value) => {
-                                        setNewExperimentData({
+                                        setExperiment({
                                             parameters: { minimum_detectable_effect: value },
                                         })
                                     }}
@@ -135,7 +135,7 @@ export function ExperimentPreview({
                                         <div className="l4">
                                             {humanFriendlyNumber(
                                                 trendCount + Math.ceil(trendCount * (minimumDetectableChange / 100)) ||
-                                                0
+                                                    0
                                             )}
                                         </div>
                                     </Col>
@@ -211,9 +211,9 @@ export function ExperimentPreview({
                                         100% of{' '}
                                         {experiment?.filters?.aggregation_group_type_index != undefined
                                             ? capitalizeFirstLetter(
-                                                aggregationLabel(experiment.filters.aggregation_group_type_index)
-                                                    .plural
-                                            )
+                                                  aggregationLabel(experiment.filters.aggregation_group_type_index)
+                                                      .plural
+                                              )
                                             : 'users'}
                                     </>
                                 )}
