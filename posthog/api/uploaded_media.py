@@ -1,5 +1,6 @@
 from typing import Dict
 
+from django.core.exceptions import BadRequest
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.utils import extend_schema
@@ -88,7 +89,7 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise UnsupportedMediaType(file.content_type)
         except KeyError:
-            return Response("file missing.", status=status.HTTP_400_BAD_REQUEST)
+            raise BadRequest("An image file must be provided")
         except ObjectStorageUnavailable:
             raise ValidationError(
                 code="object_storage_required", detail="Object storage must be available to allow media uploads."
