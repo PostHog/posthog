@@ -31,7 +31,7 @@ class UploadedMedia(UUIDModel):
     file_name: models.TextField = models.TextField(null=True, blank=True, max_length=1000)
 
     def get_absolute_url(self) -> str:
-        return absolute_uri(f"/uploaded_media/{self.id}")
+        return absolute_uri(f"/uploaded_media/{self.id}/{self.file_name}")
 
     @classmethod
     def save_content(

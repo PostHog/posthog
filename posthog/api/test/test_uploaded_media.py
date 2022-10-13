@@ -57,7 +57,7 @@ class TestMediaAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
             assert response.json()["name"] == "test_image.jpg"
             media_location = response.json()["image_location"]
-            assert re.match(r"^http://localhost:8000/uploaded_media/.*", media_location) is not None
+            assert re.match(r"^http://localhost:8000/uploaded_media/.*/test_image.jpg", media_location) is not None
 
             upload = UploadedMedia.objects.get(id=response.json()["id"])
 
