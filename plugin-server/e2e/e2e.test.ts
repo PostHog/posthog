@@ -17,8 +17,8 @@ import { Plugin, PluginConfig } from '../src/types'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
-import { delayUntilEventIngested } from './helpers/clickhouse'
-import { insertRow, POSTGRES_TRUNCATE_TABLES_QUERY } from './helpers/sql'
+import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
+import { insertRow, POSTGRES_TRUNCATE_TABLES_QUERY } from '../tests/helpers/sql'
 
 const { console: testConsole } = writeToFile
 
