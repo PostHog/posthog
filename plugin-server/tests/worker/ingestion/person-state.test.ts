@@ -684,7 +684,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 1, 200)
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 2, 200)
             const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
@@ -744,7 +744,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 1, 200)
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 2, 200)
             const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
@@ -904,7 +904,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 1, 200)
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 2, 200)
             const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
@@ -995,7 +995,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 1, 200)
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 2, 200)
             const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
@@ -1297,7 +1297,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 1, 200)
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 2, 200)
             const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
@@ -1357,7 +1357,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 1, 200)
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 2, 200)
             const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
@@ -1423,7 +1423,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 1, 200)
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(), 2, 200)
             const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
