@@ -260,7 +260,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId))
 
             jest.advanceTimersByTime(ONE_MINUTE)
-            await delayUntilEventIngested(() => testConsole.read())
+            await delayUntilEventIngested(() => testConsole.read().filter((line) => line[0] === 'runEveryMinute'))
             const consoleOutput = testConsole.read()
             expect(consoleOutput.flatMap((x) => x)).toContain('runEveryMinute')
         })
