@@ -723,26 +723,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     })),
                 },
             }),
-            // submit: async (data, breakpoint) => {
-            //     // const filler = false
-            //     debugger
-            //     const conversionMetrics = funnelLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.values.conversionMetrics
-            //     const trendResults = trendsLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.values.results
-            //     await breakpoint(200)
-            //     if (data) {
-            //         // ?.totalRate * 100
-            //         const conversionRate = conversionMetrics.totalRate * 100
-            //         const sampleSizePerVariant = values.minimumSampleSizePerVariant(conversionRate)
-            //         const sampleSize = sampleSizePerVariant * data.parameters.feature_flag_variants.length
-            //         // const sampleSize = values.minimumSampleSizePerVariant()
-            //         // actions.createExperiment(true, 1, 2)
-            //         const trendCount = trendResults[0]?.count
-            //         const entrants = results?.[0]?.count
-            //         const exposure = recommendedExposureForCountData(trendCount)
-            //         actions.createExperiment(true, exposure, sampleSize)
-
-            //     }
-            // },
         },
     })),
     urlToAction(({ actions, values }) => ({
