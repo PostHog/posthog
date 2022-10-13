@@ -21,17 +21,16 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 
-export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setIsFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
-    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, tab, isFullScreen } = useValues(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
+    const { currentPlayerState, speed, isSmallScreen, isSmallPlayer, skipInactivitySetting, tab, isFullScreen } =
+        useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
-        <div className="PlayerControllerV3 p-3 bg-light flex flex-col select-none">
+        <div className="p-3 bg-light flex flex-col select-none">
             <div className="flex items-center h-8 mb-2" data-attr="rrweb-controller">
                 {!isSmallScreen && <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
                 <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
@@ -47,7 +46,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                                 active={tab === SessionRecordingTab.EVENTS}
                                 onClick={() => setTab(SessionRecordingTab.EVENTS)}
                             >
-                                Events
+                                {isSmallScreen || isSmallPlayer ? '' : 'Events'}
                             </LemonButton>
                             {featureFlags[FEATURE_FLAGS.SESSION_CONSOLE] && (
                                 <LemonButton
@@ -59,7 +58,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                                         setTab(SessionRecordingTab.CONSOLE)
                                     }}
                                 >
-                                    Console
+                                    {isSmallScreen || isSmallPlayer ? '' : 'Console'}
                                 </LemonButton>
                             )}
                         </>
