@@ -68,39 +68,43 @@ export function InsightLegend({
         >
             <div className="InsightLegendMenu-scroll">
                 {indexedResults &&
-                    indexedResults.map((item) => {
-                        return (
-                            <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row">
-                                <LemonCheckbox
-                                    className="text-xs"
-                                    color={getSeriesColor(item.id, !!filters.compare)}
-                                    checked={!hiddenLegendKeys[item.id]}
-                                    onChange={() => toggleVisibility(item.id)}
-                                    fullWidth
-                                    label={
-                                        <InsightLabel
-                                            key={item.id}
-                                            seriesColor={getSeriesColor(item.id, !!filters.compare)}
-                                            action={item.action}
-                                            fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                                            hasMultipleSeries={indexedResults.length > 1}
-                                            breakdownValue={
-                                                item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()
-                                            }
-                                            compareValue={filters.compare ? formatCompareLabel(item) : undefined}
-                                            pillMidEllipsis={item?.filter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
-                                            hideIcon
-                                        />
-                                    }
-                                />
-                                {filters.display === ChartDisplayType.ActionsPie && (
-                                    <div className={'text-muted'}>
-                                        {formatAggregationAxisValue(filters, item.aggregated_value)}
-                                    </div>
-                                )}
-                            </div>
-                        )
-                    })}
+                    indexedResults
+                        .sort((a, b) => b.aggregated_value - a.aggregated_value)
+                        .map((item) => {
+                            return (
+                                <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row">
+                                    <LemonCheckbox
+                                        className="text-xs mr-4"
+                                        color={getSeriesColor(item.id, !!filters.compare)}
+                                        checked={!hiddenLegendKeys[item.id]}
+                                        onChange={() => toggleVisibility(item.id)}
+                                        fullWidth
+                                        label={
+                                            <InsightLabel
+                                                key={item.id}
+                                                seriesColor={getSeriesColor(item.id, !!filters.compare)}
+                                                action={item.action}
+                                                fallbackName={item.breakdown_value === '' ? 'None' : item.label}
+                                                hasMultipleSeries={indexedResults.length > 1}
+                                                breakdownValue={
+                                                    item.breakdown_value === ''
+                                                        ? 'None'
+                                                        : item.breakdown_value?.toString()
+                                                }
+                                                compareValue={filters.compare ? formatCompareLabel(item) : undefined}
+                                                pillMidEllipsis={item?.filter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
+                                                hideIcon
+                                            />
+                                        }
+                                    />
+                                    {filters.display === ChartDisplayType.ActionsPie && (
+                                        <div className={'text-muted'}>
+                                            {formatAggregationAxisValue(filters, item.aggregated_value)}
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        })}
             </div>
         </div>
     )
