@@ -242,7 +242,6 @@ export async function createHub(
         pluginConfigSecretLookup: new Map(),
 
         pluginSchedule: null,
-        pluginSchedulePromises: { runEveryMinute: {}, runEveryHour: {}, runEveryDay: {} },
 
         teamManager,
         organizationManager,

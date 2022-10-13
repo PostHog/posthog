@@ -16,7 +16,7 @@ export async function emitToBufferStep(
         teamId: TeamId
     ) => boolean = shouldSendEventToBuffer
 ): Promise<StepResult> {
-    status.debug('🔁', 'Running emitToBufferStep', { event })
+    // status.debug('🔁', 'Running emitToBufferStep', { event })
     const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
 
     if (event.event === '$snapshot') {

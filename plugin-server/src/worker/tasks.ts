@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { Action, EnqueuedPluginJob, Hub, PluginTaskType, PostIngestionEvent, Team } from '../types'
 import { convertToProcessedPluginEvent } from '../utils/event'
+import { delay } from '../utils/utils'
 import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
 import { runPluginTask, runProcessEvent } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
@@ -13,7 +14,8 @@ export const workerTasks: Record<string, TaskRunner> = {
     runPluginJob: (hub, { job }: { job: EnqueuedPluginJob }) => {
         return runPluginTask(hub, job.type, PluginTaskType.Job, job.pluginConfigId, job.payload)
     },
-    runEveryMinute: (hub, args: { pluginConfigId: number }) => {
+    runEveryMinute: async (hub, args: { pluginConfigId: number }) => {
+        await delay(120 * 1000)
         return runPluginTask(hub, 'runEveryMinute', PluginTaskType.Schedule, args.pluginConfigId)
     },
     runEveryHour: (hub, args: { pluginConfigId: number }) => {
