@@ -565,6 +565,32 @@ export function Experiment(): JSX.Element {
                                 <Row />
                             </>
                         </BindLogic>
+                        <div className="flex items-center gap-2 justify-end">
+                            <LemonButton
+                                data-attr="cancel-experiment"
+                                type="secondary"
+                                onClick={() => {
+                                    if (editingExistingExperiment) {
+                                        setEditExperiment(false)
+                                        loadExperiment()
+                                    } else {
+                                        router.actions.push(urls.experiments())
+                                    }
+                                }}
+                                disabled={experimentLoading}
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                data-attr="save-experiment"
+                                htmlType="submit"
+                                loading={experimentLoading}
+                                disabled={experimentLoading}
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
                     </Form>
                 </>
             ) : experimentData ? (
