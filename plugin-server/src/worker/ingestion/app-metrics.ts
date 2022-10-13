@@ -2,10 +2,10 @@ import * as Sentry from '@sentry/node'
 import { Message } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { configure } from 'safe-stable-stringify'
-import { serializeError } from 'serialize-error'
 
 import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
 import { Hub, TeamId, TimestampFormat } from '../../types'
+import { cleanErrorStackTrace } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 
@@ -22,38 +22,42 @@ export interface AppMetric extends AppMetricIdentifier {
     successesOnRetry?: number
     failures?: number
 
-    error_uuid?: string
-    error_type?: string
+    errorUuid?: string
+    errorType?: string
     // Should be json-encoded!
-    error_details?: string
+    errorDetails?: string
 }
 
 export interface ErrorWithContext {
-    error: Error
-    context: {
-        // Passed from processEvent/onEvent
-        event?: any
-        // Passed from exportEvents
-        eventCount?: any
-    }
+    error: Error | string
+    // Passed from processEvent/onEvent
+    event?: any
+    // Passed from exportEvents
+    eventCount?: any
 }
 
 interface QueuedMetric {
+    lastTimestamp: number
+    queuedAt: number
+
     successes: number
     successesOnRetry: number
     failures: number
-    lastTimestamp: number
-    queuedAt: number
+
+    errorUuid?: string
+    errorType?: string
+    // Should be json-encoded!
+    errorDetails?: string
+
     metric: AppMetricIdentifier
 }
 
 const MAX_STRING_LENGTH = 1000
 
 const safeJSONStringify = configure({
-    bigint: true,
     deterministic: false,
-    maximumDepth: 3,
-    maximumBreadth: 10,
+    maximumDepth: 4,
+    maximumBreadth: 40,
 })
 
 export class AppMetrics {
@@ -96,13 +100,17 @@ export class AppMetrics {
             return
         }
 
-        const { successes, successesOnRetry, failures, ...metricInfo } = metric
+        const { successes, successesOnRetry, failures, errorUuid, errorType, errorDetails, ...metricInfo } = metric
 
         if (!this.queuedData[key]) {
             this.queuedData[key] = {
                 successes: 0,
                 successesOnRetry: 0,
                 failures: 0,
+                errorUuid,
+                errorType,
+                errorDetails,
+
                 lastTimestamp: timestamp,
                 queuedAt: timestamp,
                 metric: metricInfo,
@@ -159,6 +167,10 @@ export class AppMetrics {
                 successes: value.successes,
                 successes_on_retry: value.successesOnRetry,
                 failures: value.failures,
+
+                error_uuid: value.errorUuid,
+                error_type: value.errorType,
+                error_details: value.errorDetails,
             }),
         }))
 
@@ -170,15 +182,26 @@ export class AppMetrics {
 
     _metricErrorParameters(errorWithContext: ErrorWithContext): Partial<AppMetric> {
         try {
-            const serializedError = serializeError(errorWithContext.error, { maxDepth: 2 })
+            const { error, ...context } = errorWithContext
+
+            let serializedError: Record<string, string | undefined>
+            if (typeof error === 'string') {
+                serializedError = { name: error }
+            } else {
+                serializedError = {
+                    name: error.name,
+                    message: error.message,
+                    stack: cleanErrorStackTrace(error.stack),
+                }
+            }
 
             return {
-                error_uuid: new UUIDT().toString(),
-                error_type: serializedError.name,
-                error_details: safeJSONStringify(
+                errorUuid: new UUIDT().toString(),
+                errorType: serializedError.name,
+                errorDetails: safeJSONStringify(
                     {
                         error: serializedError,
-                        context: errorWithContext.context,
+                        ...context,
                     },
                     this._serializeJSONValue
                 ),
@@ -191,12 +214,12 @@ export class AppMetrics {
     }
 
     _key(metric: AppMetric): string {
-        return `${metric.teamId}.${metric.pluginConfigId}.${metric.category}.${metric.jobId}`
+        return `${metric.teamId}.${metric.pluginConfigId}.${metric.category}.${metric.jobId}.${metric.errorUuid}`
     }
 
     _serializeJSONValue(key: string, value: any): string {
         if (typeof value === 'string' && value.length > MAX_STRING_LENGTH) {
-            return value.slice(MAX_STRING_LENGTH)
+            return value.slice(0, MAX_STRING_LENGTH)
         }
         return value
     }

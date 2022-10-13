@@ -137,7 +137,7 @@ export function upgradeExportEvents(
                         },
                         {
                             error: err,
-                            context: { eventCount: payload.batch.length },
+                            eventCount: payload.batch.length,
                         }
                     )
                 }
@@ -151,7 +151,7 @@ export function upgradeExportEvents(
                     },
                     {
                         error: err,
-                        context: { eventCount: payload.batch.length },
+                        eventCount: payload.batch.length,
                     }
                 )
                 throw err

@@ -123,8 +123,8 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
                         failures: 1,
                     },
                     {
-                        error: error,
-                        context: { event },
+                        error,
+                        event,
                     }
                 )
             }

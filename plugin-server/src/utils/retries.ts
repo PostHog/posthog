@@ -28,7 +28,7 @@ export interface MetricsDefinition {
     metricName: string
     metricTags?: Record<string, string>
     appMetric?: AppMetricIdentifier
-    appMetricErrorContext?: ErrorWithContext['context']
+    appMetricErrorContext?: Omit<ErrorWithContext, 'error'>
 }
 
 export type RetriableFunctionPayload = RetriableFunctionDefinition &
@@ -101,7 +101,7 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
                             },
                             {
                                 error,
-                                context: appMetricErrorContext || {},
+                                ...appMetricErrorContext,
                             }
                         )
                     }

@@ -522,8 +522,8 @@ export function addHistoricalEventsExportCapabilityV2(
                     failures: eventCount,
                 },
                 {
-                    error: error,
-                    context: { eventCount },
+                    error,
+                    eventCount,
                 }
             )
         }
