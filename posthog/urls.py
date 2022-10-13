@@ -15,7 +15,6 @@ from posthog.api import (
     authentication,
     capture,
     decide,
-    media,
     organizations_router,
     project_dashboards_router,
     projects_router,
@@ -24,6 +23,7 @@ from posthog.api import (
     signup,
     site_app,
     unsubscribe,
+    uploaded_media,
     user,
 )
 from posthog.api.decide import hostname_in_allowed_url_list
@@ -154,7 +154,7 @@ urlpatterns = [
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
-    path("media/<str:image_uuid>", media.download),
+    path("uploaded_media/<str:image_uuid>", uploaded_media.download),
 ]
 
 if settings.DEBUG:

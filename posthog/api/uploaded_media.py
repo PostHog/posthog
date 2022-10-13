@@ -3,13 +3,14 @@ from typing import Dict
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status, viewsets
-from rest_framework.exceptions import APIException, UnsupportedMediaType
+from rest_framework.exceptions import APIException, UnsupportedMediaType, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import UploadedMedia
+from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.storage import object_storage
 
@@ -43,6 +44,10 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def create(self, request, *args, **kwargs) -> Response:
         try:
             file = request.data["image"]
+
+            if file.size > 4 * 1024 * 1024:
+                raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 4MB")
+
             if file.content_type.startswith("image/"):
                 uploaded_media = UploadedMedia.save_content(
                     team=self.team,
@@ -67,6 +72,10 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 raise UnsupportedMediaType(file.content_type)
         except KeyError:
             return Response("file missing.", status=status.HTTP_400_BAD_REQUEST)
+        except ObjectStorageUnavailable:
+            raise ValidationError(
+                code="object_storage_required", detail="Object storage must be available to allow media uploads."
+            )
 
     def get_success_headers(self, location: str) -> Dict:
         try:

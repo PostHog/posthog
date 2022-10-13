@@ -330,7 +330,7 @@ class ApiRequest {
     }
 
     public media(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('media')
+        return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
 
     // Request finalization

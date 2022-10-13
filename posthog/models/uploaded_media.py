@@ -15,6 +15,10 @@ from posthog.utils import absolute_uri
 logger = structlog.get_logger(__name__)
 
 
+class ObjectStorageUnavailable(Exception):
+    pass
+
+
 class UploadedMedia(UUIDModel):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
@@ -27,7 +31,7 @@ class UploadedMedia(UUIDModel):
     file_name: models.TextField = models.TextField(null=True, blank=True, max_length=1000)
 
     def get_absolute_url(self) -> str:
-        return absolute_uri(f"/media/{self.id}")
+        return absolute_uri(f"/uploaded_media/{self.id}")
 
     @classmethod
     def save_content(
@@ -40,12 +44,18 @@ class UploadedMedia(UUIDModel):
             if settings.OBJECT_STORAGE_ENABLED:
                 save_content_to_object_storage(media, content)
             else:
-                # do we allow storing in database?
-                pass
+                logger.error(
+                    "uploaded_media.upload_attempted_without_object_storage_configured",
+                    file_name=file_name,
+                    team=team.pk,
+                )
+                raise ObjectStorageUnavailable()
             return media
         except ObjectStorageError as ose:
             capture_exception(ose)
-            logger.error("uploaded_media.object-storage-error", file_name=file_name, exception=ose, exc_info=True)
+            logger.error(
+                "uploaded_media.object-storage-error", file_name=file_name, team=team.pk, exception=ose, exc_info=True
+            )
             return None
 
 
