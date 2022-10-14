@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { Divider, Card } from 'antd'
+import { Divider } from 'antd'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { UpdateEmailPreferences } from './UpdateEmailPreferences'
@@ -21,9 +21,9 @@ export function MySettings(): JSX.Element {
     useAnchor(location.hash)
 
     return (
-        <div style={{ marginBottom: 128 }}>
-            <PageHeader title="My Settings" />
-            <Card>
+        <>
+            <PageHeader title="My settings" />
+            <div className="border rounded p-6 mt-4">
                 <UserDetails />
                 <Divider />
 
@@ -46,7 +46,7 @@ export function MySettings(): JSX.Element {
                     Anonymize Data Collection
                 </h2>
                 <OptOutCapture />
-            </Card>
-        </div>
+            </div>
+        </>
     )
 }

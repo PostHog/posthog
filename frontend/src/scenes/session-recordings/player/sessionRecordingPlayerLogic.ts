@@ -54,7 +54,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             sharedListLogic({ sessionRecordingId, playerKey }),
             ['tab'],
             playerSettingsLogic,
-            ['speed', 'skipInactivitySetting'],
+            ['speed', 'skipInactivitySetting', 'isFullScreen'],
         ],
         actions: [
             sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
@@ -62,7 +62,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             sharedListLogic({ sessionRecordingId, playerKey }),
             ['setTab'],
             playerSettingsLogic,
-            ['setSpeed', 'setSkipInactivitySetting'],
+            ['setSpeed', 'setSkipInactivitySetting', 'setIsFullScreen'],
         ],
     })),
     propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
@@ -82,7 +82,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endScrub: true,
         setErrorPlayerState: (show: boolean) => ({ show }),
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
-        setFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         syncPlayerSpeed: true,
         setCurrentPlayerPosition: (playerPosition: PlayerPosition | null) => ({ playerPosition }),
         setScale: (scale: number) => ({ scale }),
@@ -128,7 +127,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isSkippingInactivity: [false, { setSkippingInactivity: (_, { isSkippingInactivity }) => isSkippingInactivity }],
-        isFullScreen: [false, { setFullScreen: (_, { isFullScreen }) => isFullScreen }],
         scale: [
             1,
             {
@@ -193,6 +191,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         matchingEvents: [
             (s) => [s.matching],
             (matching) => (matching ?? []).map((filterMatches) => filterMatches.events).flat(),
+        ],
+        isSmallPlayer: [
+            (s) => [s.rootFrame, () => window.innerWidth],
+            (rootFrame) => {
+                return !!rootFrame?.parentElement && rootFrame.parentElement.clientWidth < getBreakpoint('sm')
+            },
         ],
     }),
     listeners(({ values, actions, cache }) => ({

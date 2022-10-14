@@ -25,8 +25,8 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2020-01-12 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC'))
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
   LIMIT 100
@@ -77,8 +77,8 @@
         HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2020-01-12 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC'))
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND ((replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%ben%'
              OR replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '') ILIKE '%ben%'
              OR replaceRegexpAll(JSONExtractRaw(e.properties, 'distinct_id'), '^"|"$', '') ILIKE '%ben%')
@@ -125,8 +125,8 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2020-01-12 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC'))
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
   LIMIT 100

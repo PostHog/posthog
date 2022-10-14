@@ -6,6 +6,7 @@ from posthog.settings import EE_AVAILABLE
 from . import (
     activity_log,
     annotation,
+    app_metrics,
     async_migration,
     authentication,
     dashboard,
@@ -30,6 +31,7 @@ from . import (
     sharing,
     site_app,
     team,
+    uploaded_media,
     user,
 )
 
@@ -71,6 +73,13 @@ projects_router.register(r"integrations", integration.IntegrationViewSet, "integ
 projects_router.register(
     r"ingestion_warnings", ingestion_warnings.IngestionWarningsViewSet, "ingestion_warnings", ["team_id"]
 )
+app_metrics_router = projects_router.register(r"app_metrics", app_metrics.AppMetricsViewSet, "app_metrics", ["team_id"])
+app_metrics_router.register(
+    r"historical_exports",
+    app_metrics.HistoricalExportsAppMetricsViewSet,
+    "historical_exports",
+    ["team_id", "plugin_config_id"],
+)
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
@@ -97,6 +106,7 @@ projects_router.register(
     r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"]
 )
 
+projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["team_id"])
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet)
