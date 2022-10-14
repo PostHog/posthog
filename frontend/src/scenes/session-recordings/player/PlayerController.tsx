@@ -6,7 +6,7 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
-import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
+import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import {
     IconFullScreen,
@@ -65,7 +65,7 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                     )}
                 </div>
                 <div className="flex items-center gap-1">
-                    <SeekBack sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                    <SeekSkip sessionRecordingId={sessionRecordingId} playerKey={playerKey} direction="backward" />
                     <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>
                         {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
                             <IconPause className="text-2xl" />
@@ -73,7 +73,7 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                             <IconPlay className="text-2xl" />
                         )}
                     </LemonButton>
-                    <SeekForward sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                    <SeekSkip sessionRecordingId={sessionRecordingId} playerKey={playerKey} direction="forward" />
                 </div>
                 <div className="flex items-center gap-1 flex-1 justify-end">
                     <Tooltip title={'Playback speed'}>
