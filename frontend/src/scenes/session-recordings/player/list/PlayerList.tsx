@@ -19,6 +19,11 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { ExpandableConfig } from 'lib/components/LemonTable'
 import { ListRowOptions, PlayerListRow } from 'scenes/session-recordings/player/list/PlayerListRow'
 import { getRowExpandedState } from 'scenes/session-recordings/player/playerUtils'
+import { teamLogic } from 'scenes/teamLogic'
+import { LemonButton } from 'lib/components/LemonButton'
+import { urls } from 'scenes/urls'
+import { IconOpenInNew } from 'lib/components/icons'
+import { Link } from 'lib/components/Link'
 
 interface RowConfig<T extends Record<string, any>> {
     /** Class to append to each row. */
@@ -57,6 +62,8 @@ export function PlayerList<T extends Record<string, any>>({
     const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick, expandRow, collapseRow } =
         useActions(logic)
     const { sessionEventsDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
 
     useEffect(() => {
         if (listRef?.current) {
@@ -96,18 +103,45 @@ export function PlayerList<T extends Record<string, any>>({
                             return (
                                 <List
                                     ref={listRef}
-                                    className="event-list-virtual"
+                                    className="player-list-virtual"
                                     height={height}
                                     width={width}
                                     onRowsRendered={setRenderedRows}
-                                    noRowsRenderer={() => (
-                                        <div className="event-list-empty-container">
-                                            <Empty
-                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                                description="No events fired in this recording."
-                                            />
-                                        </div>
-                                    )}
+                                    noRowsRenderer={() =>
+                                        !!currentTeam?.capture_console_log_opt_in ? (
+                                            <div className="flex justify-center h-full pt-20">
+                                                <Empty
+                                                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                                    description={`No ${
+                                                        tab === SessionRecordingTab.EVENTS ? 'events' : 'console logs'
+                                                    } captured in this recording.`}
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col items-center h-full w-full pt-16 px-4 bg-white">
+                                                <div className="flex flex-col items-center gap-2 max-w-100 mx-auto text-center">
+                                                    <h4 className="text-xl font-medium my-0">
+                                                        Introducing Console Logs
+                                                    </h4>
+                                                    <p className="text-muted my-0">
+                                                        Capture all console logs that are fired as part of a recording.
+                                                    </p>
+                                                    <LemonButton
+                                                        className="mt-2"
+                                                        onClick={() => {
+                                                            updateCurrentTeam({ capture_console_log_opt_in: true })
+                                                        }}
+                                                        type="primary"
+                                                    >
+                                                        Turn on console log capture
+                                                    </LemonButton>
+                                                    <Link to={urls.projectSettings() + '#recordings'} target="__blank">
+                                                        Configure in settings <IconOpenInNew />
+                                                    </Link>
+                                                </div>
+                                            </div>
+                                        )
+                                    }
                                     overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
                                     overscanIndicesGetter={({
                                         cellCount,
