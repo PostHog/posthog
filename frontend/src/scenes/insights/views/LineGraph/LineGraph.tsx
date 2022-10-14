@@ -296,7 +296,6 @@ export function LineGraph_({
 
         const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))
         const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0
-        console.log('precision', precision)
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
         }
