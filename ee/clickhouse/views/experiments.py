@@ -149,15 +149,22 @@ class ExperimentSerializer(serializers.ModelSerializer):
                     raise ValidationError("Can't update feature_flag_variants on Experiment")
 
         feature_flag_properties = validated_data.get("filters", {}).get("properties")
+        serialized_data_filters = {**feature_flag.filters}
         if feature_flag_properties is not None:
-            feature_flag.filters["groups"][0]["properties"] = feature_flag_properties
-            feature_flag.save()
+            serialized_data_filters = {**serialized_data_filters, "groups": [{"properties": feature_flag_properties}]}
 
         feature_flag_group_type_index = validated_data.get("filters", {}).get("aggregation_group_type_index")
         # Only update the group type index when filters are sent
         if validated_data.get("filters"):
-            feature_flag.filters["aggregation_group_type_index"] = feature_flag_group_type_index
-            feature_flag.save()
+            serialized_data_filters = {
+                **serialized_data_filters,
+                "aggregation_group_type_index": feature_flag_group_type_index,
+            }
+            serializer = FeatureFlagSerializer(
+                feature_flag, data={"filters": serialized_data_filters}, context=self.context, partial=True
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True
