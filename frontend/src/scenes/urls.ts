@@ -62,6 +62,9 @@ export const urls = {
     annotations: (): string => '/annotations',
     projectApps: (): string => '/project/apps',
     frontendApp: (id: string | number): string => `/app/${id}`,
+    appMetrics: (pluginConfigId: string | number, tab?: string): string =>
+        combineUrl(`/app/${pluginConfigId}/metrics`, { tab }).url,
+    appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
     projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,

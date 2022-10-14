@@ -15,7 +15,7 @@ import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { Link } from '@posthog/lemon-ui'
 import { playerSettingsLogic } from './playerSettingsLogic'
 
-export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const {
         sessionPerson,
         description,
@@ -25,17 +25,18 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
         currentWindowIndex,
         recordingStartTime,
         loading,
+        isSmallPlayer,
     } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
 
     const { isFullScreen } = useValues(playerSettingsLogic)
     return (
         <div
-            className={clsx('PlayerMetaV3', {
-                'PlayerMetaV3--fullscreen': isFullScreen,
+            className={clsx('PlayerMeta', {
+                'PlayerMeta--fullscreen': isFullScreen,
             })}
         >
             {isFullScreen && (
-                <div className="PlayerMetaV3__escape">
+                <div className="PlayerMeta__escape">
                     <div className="bg-muted-dark text-white px-2 py-1 rounded shadow my-1 mx-auto">
                         Press <kbd className="font-bold">Esc</kbd> to exit full screen
                     </div>
@@ -83,8 +84,8 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
             </div>
             <div
                 className={clsx('flex items-center justify-between gap-2 whitespace-nowrap', {
-                    'p-3 h-12': !isFullScreen,
-                    'p-1 px-3 text-xs': isFullScreen,
+                    'p-3 flex-wrap': !isFullScreen,
+                    'p-1 px-3 text-xs h-12': isFullScreen,
                 })}
             >
                 {loading || currentWindowIndex === -1 ? (
@@ -92,7 +93,7 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                 ) : (
                     <>
                         <IconWindow value={currentWindowIndex + 1} className="text-muted" />
-                        <div className="window-number">Window {currentWindowIndex + 1}</div>
+                        {!isSmallPlayer && <div className="window-number">Window {currentWindowIndex + 1}</div>}
                         {currentUrl && (
                             <>
                                 {'· '}
@@ -113,7 +114,8 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                     <span>
                         {resolution && (
                             <>
-                                Resolution: {resolution.width} x {resolution.height} ({percentage(scale, 1, true)})
+                                Resolution: {resolution.width} x {resolution.height}{' '}
+                                {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
                             </>
                         )}
                     </span>

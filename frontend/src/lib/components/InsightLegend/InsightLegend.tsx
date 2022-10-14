@@ -10,8 +10,6 @@ import { getSeriesColor } from 'lib/colors'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { ChartDisplayType, InsightType } from '~/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
@@ -24,16 +22,14 @@ export interface InsightLegendProps {
 export function InsightLegendButton(): JSX.Element | null {
     const { filters, activeView } = useValues(insightLogic)
     const { toggleInsightLegend } = useActions(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (
         !(
-            ((activeView === InsightType.TRENDS &&
+            (activeView === InsightType.TRENDS &&
                 filters.display !== ChartDisplayType.WorldMap &&
                 filters.display !== ChartDisplayType.ActionsTable &&
                 filters.display !== ChartDisplayType.BoldNumber) ||
-                activeView === InsightType.STICKINESS) &&
-            featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS]
+            activeView === InsightType.STICKINESS
         )
     ) {
         return null
