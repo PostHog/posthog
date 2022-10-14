@@ -219,7 +219,6 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
             const fetchLogs = async () => {
                 const logs = await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                console.log(logs)
                 return logs.filter(({ type, source }) => type === 'INFO' && source !== 'SYSTEM')
             }
 
