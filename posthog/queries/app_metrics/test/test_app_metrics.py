@@ -1,4 +1,6 @@
-from typing import Optional
+import json
+from datetime import datetime
+from typing import Dict, Optional
 
 from freezegun.api import freeze_time
 
@@ -6,7 +8,8 @@ from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS
 from posthog.models.app_metrics.sql import INSERT_APP_METRICS_SQL
 from posthog.models.event.util import format_clickhouse_timestamp
-from posthog.queries.app_metrics.app_metrics import AppMetricsQuery
+from posthog.models.utils import UUIDT
+from posthog.queries.app_metrics.app_metrics import AppMetricsErrorsQuery, AppMetricsQuery
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.utils import cast_timestamp_or_now
@@ -21,6 +24,9 @@ def create_app_metric(
     successes=0,
     successes_on_retry=0,
     failures=0,
+    error_uuid: Optional[str] = None,
+    error_type: Optional[str] = None,
+    error_details: Optional[Dict] = None,
 ):
     timestamp = cast_timestamp_or_now(timestamp)
     data = {
@@ -32,9 +38,18 @@ def create_app_metric(
         "successes": successes,
         "successes_on_retry": successes_on_retry,
         "failures": failures,
+        "error_uuid": error_uuid or "00000000-0000-0000-0000-000000000000",
+        "error_type": error_type or "",
+        "error_details": json.dumps(error_details) if error_details else "",
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_APP_METRICS, sql=INSERT_APP_METRICS_SQL, data=data)
+
+
+def make_filter(serializer_klass=AppMetricsRequestSerializer, **kwargs) -> AppMetricsRequestSerializer:
+    filter = serializer_klass(data=kwargs)
+    filter.is_valid(raise_exception=True)
+    return filter
 
 
 class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
@@ -70,7 +85,7 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
             successes=10,
             successes_on_retry=5,
         )
-        filter = self.make_filter(category="processEvent", date_from="-7d")
+        filter = make_filter(category="processEvent", date_from="-7d")
 
         results = AppMetricsQuery(self.team, 3, filter).run()
 
@@ -118,7 +133,7 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
             timestamp="2021-12-05T00:10:00Z",
             successes=3,
         )
-        filter = self.make_filter(category="exportEvents", date_from="-7d", job_id="12345")
+        filter = make_filter(category="exportEvents", date_from="-7d", job_id="12345")
 
         results = AppMetricsQuery(self.team, 3, filter).run()
 
@@ -150,7 +165,7 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
             timestamp="2021-12-05T02:10:00Z",
             successes=3,
         )
-        filter = self.make_filter(category="processEvent", date_from="-13h", date_to="-5h")
+        filter = make_filter(category="processEvent", date_from="-13h", date_to="-5h")
 
         results = AppMetricsQuery(self.team, 3, filter).run()
 
@@ -227,13 +242,214 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
             failures=5,
         )
 
-        filter = self.make_filter(category="processEvent", date_from="-7d")
+        filter = make_filter(category="processEvent", date_from="-7d")
 
         results = AppMetricsQuery(self.team, 3, filter).run()
 
         self.assertEqual(results["totals"], {"successes": 3, "successes_on_retry": 0, "failures": 0})
 
-    def make_filter(self, **kwargs) -> AppMetricsRequestSerializer:
-        filter = AppMetricsRequestSerializer(data=kwargs)
-        filter.is_valid(raise_exception=True)
-        return filter
+
+class TestAppMetricsErrorsQuery(ClickhouseTestMixin, BaseTest):
+    @freeze_time("2021-12-05T13:23:00Z")
+    @snapshot_clickhouse_queries
+    def test_errors_query(self):
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:10:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="SomeError",
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-03T00:00:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="AnotherError",
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-03T00:00:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="AnotherError",
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-05T00:20:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="AnotherError",
+        )
+
+        filter = make_filter(category="processEvent", date_from="-7d")
+        results = AppMetricsErrorsQuery(self.team, 3, filter).run()
+
+        self.assertEqual(
+            results,
+            [
+                {
+                    "error_type": "AnotherError",
+                    "count": 3,
+                    "last_seen": datetime.fromisoformat("2021-12-05T00:20:00+00:00"),
+                },
+                {
+                    "error_type": "SomeError",
+                    "count": 1,
+                    "last_seen": datetime.fromisoformat("2021-11-28T00:10:00+00:00"),
+                },
+            ],
+        )
+
+    @freeze_time("2021-12-05T13:23:00Z")
+    @snapshot_clickhouse_queries
+    def test_errors_query_filter_by_job_id(self):
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:10:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="SomeError",
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            job_id="1234",
+            timestamp="2021-12-03T00:00:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="AnotherError",
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            job_id="1234",
+            timestamp="2021-12-03T00:00:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="AnotherError",
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            job_id="5678",
+            timestamp="2021-12-05T00:20:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="AnotherError",
+        )
+
+        filter = make_filter(category="processEvent", date_from="-7d", job_id="1234")
+        results = AppMetricsErrorsQuery(self.team, 3, filter).run()
+
+        self.assertEqual(
+            results,
+            [
+                {
+                    "error_type": "AnotherError",
+                    "count": 2,
+                    "last_seen": datetime.fromisoformat("2021-12-03T00:00:00+00:00"),
+                },
+            ],
+        )
+
+    @freeze_time("2021-12-05T13:23:00Z")
+    @snapshot_clickhouse_queries
+    def test_ignores_unrelated_data(self):
+        # Positive examples: testing time bounds
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:10:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="RelevantError",
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-05T13:10:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="RelevantError",
+        )
+
+        # Negative examples
+        # Different team
+        create_app_metric(
+            team_id=-1,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-05T13:10:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="AnotherError",
+        )
+        # Different pluginConfigId
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=-1,
+            timestamp="2021-12-05T13:10:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="AnotherError",
+        )
+        # Different category
+        create_app_metric(
+            team_id=self.team.pk,
+            category="exportEvents",
+            plugin_config_id=3,
+            timestamp="2021-12-05T13:10:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="AnotherError",
+        )
+        # Timestamp out of range
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-11-27T23:59:59Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="AnotherError",
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-06T00:00:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="AnotherError",
+        )
+
+        filter = make_filter(category="processEvent", date_from="-7d")
+        results = AppMetricsErrorsQuery(self.team, 3, filter).run()
+
+        self.assertEqual(
+            results,
+            [
+                {
+                    "error_type": "RelevantError",
+                    "count": 2,
+                    "last_seen": datetime.fromisoformat("2021-12-05T13:10:00+00:00"),
+                },
+            ],
+        )
