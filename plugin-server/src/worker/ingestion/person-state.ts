@@ -403,12 +403,14 @@ export class PersonState {
                 oldPersonIdentified: String(oldPerson.is_identified),
                 newPersonIdentified: String(newPerson.is_identified),
             })
-            if (isIdentifyCallToMergeAnIdentifiedUser) {
-                status.warn('🤔', 'refused to merge an already identified user via an $identify call')
+            if (oldPerson.is_identified) {
                 captureIngestionWarning(this.db, teamId, 'cannot_merge_already_identified', {
                     sourcePersonDistinctId: previousDistinctId,
                     targetPersonDistinctId: distinctId,
                 })
+            }
+            if (isIdentifyCallToMergeAnIdentifiedUser) {
+                status.warn('🤔', 'refused to merge an already identified user via an $identify call')
             } else {
                 await this.mergePeople({
                     totalMergeAttempts,
