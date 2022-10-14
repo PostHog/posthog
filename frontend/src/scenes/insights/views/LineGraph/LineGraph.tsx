@@ -165,6 +165,27 @@ export function onChartHover(
     }
 }
 
+export const filterNestedDataset = (
+    hiddenLegendKeys: Record<string | number, boolean | undefined> | undefined,
+    datasets: GraphDataset[]
+): GraphDataset[] => {
+    if (!hiddenLegendKeys) {
+        return datasets
+    }
+    // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
+    const filterFn = (_: any, i: number): boolean => !hiddenLegendKeys?.[i]
+    return datasets.map((_data) => {
+        // Performs a filter transformation on properties that contain arrayed data
+        return Object.fromEntries(
+            Object.entries(_data).map(([key, val]) =>
+                Array.isArray(val) && val.length === datasets?.[0]?.actions?.length
+                    ? [key, val?.filter(filterFn)]
+                    : [key, val]
+            )
+        ) as GraphDataset
+    })
+}
+
 export function LineGraph_({
     datasets: _datasets,
     hiddenLegendKeys,
@@ -242,18 +263,7 @@ export function LineGraph_({
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
             if (isHorizontal) {
-                // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-                const filterFn = (_: any, i: number): boolean => !hiddenLegendKeys?.[i]
-                datasets = datasets.map((_data) => {
-                    // Performs a filter transformation on properties that contain arrayed data
-                    return Object.fromEntries(
-                        Object.entries(_data).map(([key, val]) =>
-                            Array.isArray(val) && val.length === datasets?.[0]?.actions?.length
-                                ? [key, val?.filter(filterFn)]
-                                : [key, val]
-                        )
-                    ) as GraphDataset
-                })
+                datasets = filterNestedDataset(hiddenLegendKeys, datasets)
             } else {
                 datasets = datasets.filter((data) => !hiddenLegendKeys?.[data.id])
             }

@@ -22,17 +22,8 @@
     display: flex;
     flex-direction: column;
 
-    .InsightLegendMenu-scroll {
-        .InsightLegendMenu-item {
-            width: 100%;
-
-            .InsightLegendMenu-item-inner {
-                .insights-label {
-                    width: 100%;
-                    font-size: 0.75rem;
-                }
-            }
-        }
+    &.InsightLegendMenu--in-card-view {
+        max-width: 40%;
     }
 
     &.InsightLegendMenu--horizontal {

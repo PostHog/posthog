@@ -9,27 +9,31 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { getSeriesColor } from 'lib/colors'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/InsightsTable'
-import { ChartDisplayType, InsightType } from '~/types'
+import { ChartDisplayType, FilterType, InsightType } from '~/types'
 import clsx from 'clsx'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
 export interface InsightLegendProps {
     readOnly?: boolean
     horizontal?: boolean
+    inCardView?: boolean
 }
+
+const legendToggleDenyList = [
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.BoldNumber,
+    ChartDisplayType.ActionsBarValue,
+]
+
+const shouldHideLegend = (filters: Partial<FilterType>, activeView: InsightType): boolean =>
+    (filters.display && legendToggleDenyList.includes(filters.display)) || activeView === InsightType.STICKINESS
 
 export function InsightLegendButton(): JSX.Element | null {
     const { filters, activeView } = useValues(insightLogic)
     const { toggleInsightLegend } = useActions(insightLogic)
 
-    if (
-        !(
-            (activeView === InsightType.TRENDS &&
-                filters.display !== ChartDisplayType.WorldMap &&
-                filters.display !== ChartDisplayType.ActionsTable &&
-                filters.display !== ChartDisplayType.BoldNumber) ||
-            activeView === InsightType.STICKINESS
-        )
-    ) {
+    if (shouldHideLegend(filters, activeView)) {
         return null
     }
 
@@ -41,29 +45,34 @@ export function InsightLegendButton(): JSX.Element | null {
     )
 }
 
-export function InsightLegend({ horizontal, readOnly = false }: InsightLegendProps): JSX.Element {
-    const { insightProps, filters } = useValues(insightLogic)
+export function InsightLegend({ horizontal, inCardView, readOnly = false }: InsightLegendProps): JSX.Element | null {
+    const { insightProps, filters, activeView } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
+
+    if (shouldHideLegend(filters, activeView)) {
+        return null
+    }
 
     return (
         <div
             className={clsx('InsightLegendMenu', {
                 'InsightLegendMenu--horizontal': horizontal,
                 'InsightLegendMenu--readonly': readOnly,
+                'InsightLegendMenu--in-card-view': inCardView,
             })}
         >
             <div className="InsightLegendMenu-scroll">
                 {indexedResults &&
-                    indexedResults.map((item) => {
+                    indexedResults.map((item, index) => {
                         return (
-                            <div key={item.id} className="InsightLegendMenu-item p-2">
+                            <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row">
                                 <LemonCheckbox
-                                    className="InsightLegendMenu-item-inner"
+                                    className="text-xs mr-4"
                                     color={getSeriesColor(item.id, !!filters.compare)}
-                                    checked={!hiddenLegendKeys[item.id]}
-                                    onChange={() => toggleVisibility(item.id)}
+                                    checked={!hiddenLegendKeys[index]}
+                                    onChange={() => toggleVisibility(index)}
                                     fullWidth
                                     label={
                                         <InsightLabel
@@ -81,6 +90,11 @@ export function InsightLegend({ horizontal, readOnly = false }: InsightLegendPro
                                         />
                                     }
                                 />
+                                {filters.display === ChartDisplayType.ActionsPie && (
+                                    <div className={'text-muted'}>
+                                        {formatAggregationAxisValue(filters, item.aggregated_value)}
+                                    </div>
+                                )}
                             </div>
                         )
                     })}
