@@ -147,8 +147,14 @@ export function BillingV2(): JSX.Element {
                         )}
 
                         {!preflight?.cloud && billing?.license?.plan ? (
-                            <div className="text-center p-2">
-                                <b>{capitalizeFirstLetter(billing.license.plan)}</b> license
+                            <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
+                                <div className="text-center font-bold">
+                                    {capitalizeFirstLetter(billing.license.plan)} license
+                                </div>
+                                <span>
+                                    Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> if you would
+                                    like to make any changes to your license.
+                                </span>
                             </div>
                         ) : null}
 
