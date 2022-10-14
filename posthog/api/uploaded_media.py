@@ -25,6 +25,15 @@ logger = structlog.getLogger(__name__)
 
 
 def validate_image_file(file: Optional[bytes], user: int) -> bool:
+    """
+    Django validates file content type by reading "magic bytes" from the start of the file.
+    It doesn't then check that file really is the type it claims to be.
+
+    This could allow an attacker to attempt to upload HTML with magic bytes that pretend to be an image file.
+    We would store that and then serve it back to a dashboard. ☠️
+
+    Here we check that the file is actually a valid image file by opening and transposing it.
+    """
     if file is None:
         return False
 
