@@ -9,8 +9,8 @@ from posthog.kafka_client.topics import KAFKA_APP_METRICS
 from posthog.models.app_metrics.sql import INSERT_APP_METRICS_SQL
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.utils import UUIDT
-from posthog.queries.app_metrics.app_metrics import AppMetricsErrorsQuery, AppMetricsQuery
-from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
+from posthog.queries.app_metrics.app_metrics import AppMetricsErrorDetailsQuery, AppMetricsErrorsQuery, AppMetricsQuery
+from posthog.queries.app_metrics.serializers import AppMetricsErrorsRequestSerializer, AppMetricsRequestSerializer
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.utils import cast_timestamp_or_now
 
@@ -451,5 +451,185 @@ class TestAppMetricsErrorsQuery(ClickhouseTestMixin, BaseTest):
                     "count": 2,
                     "last_seen": datetime.fromisoformat("2021-12-05T13:10:00+00:00"),
                 },
+            ],
+        )
+
+
+class TestAppMetricsErrorDetailsQuery(ClickhouseTestMixin, BaseTest):
+    UUIDS = [UUIDT() for _ in range(2)]
+
+    @freeze_time("2021-12-05T13:23:00Z")
+    @snapshot_clickhouse_queries
+    def test_error_details_query(self):
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:10:00Z",
+            failures=1,
+            error_uuid=str(self.UUIDS[0]),
+            error_type="SomeError",
+            error_details={"event": {}},
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-05T00:10:00Z",
+            failures=1,
+            error_uuid=str(self.UUIDS[1]),
+            error_type="SomeError",
+            error_details={"event": {}},
+        )
+
+        filter = make_filter(
+            serializer_klass=AppMetricsErrorsRequestSerializer, category="processEvent", error_type="SomeError"
+        )
+        results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()
+
+        self.assertEqual(
+            results,
+            [
+                {
+                    "timestamp": datetime.fromisoformat("2021-12-05T00:10:00+00:00"),
+                    "error_uuid": self.UUIDS[1],
+                    "error_type": "SomeError",
+                    "error_details": {"event": {}},
+                },
+                {
+                    "timestamp": datetime.fromisoformat("2021-11-28T00:10:00+00:00"),
+                    "error_uuid": self.UUIDS[0],
+                    "error_type": "SomeError",
+                    "error_details": {"event": {}},
+                },
+            ],
+        )
+
+    @freeze_time("2021-12-05T13:23:00Z")
+    @snapshot_clickhouse_queries
+    def test_error_details_query_filter_by_job_id(self):
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:10:00Z",
+            job_id="1234",
+            failures=1,
+            error_uuid=str(self.UUIDS[0]),
+            error_type="SomeError",
+            error_details={"event": {}},
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:20:00Z",
+            job_id="5678",
+            failures=1,
+            error_uuid=str(self.UUIDS[0]),
+            error_type="SomeError",
+            error_details={"event": {}},
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:30:00Z",
+            failures=1,
+            error_uuid=str(self.UUIDS[0]),
+            error_type="SomeError",
+            error_details={"event": {}},
+        )
+
+        filter = make_filter(
+            serializer_klass=AppMetricsErrorsRequestSerializer,
+            category="processEvent",
+            error_type="SomeError",
+            job_id="1234",
+        )
+        results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()
+
+        self.assertEqual(
+            results,
+            [
+                {
+                    "timestamp": datetime.fromisoformat("2021-11-28T00:10:00+00:00"),
+                    "error_uuid": self.UUIDS[0],
+                    "error_type": "SomeError",
+                    "error_details": {"event": {}},
+                }
+            ],
+        )
+
+    @freeze_time("2021-12-05T13:23:00Z")
+    @snapshot_clickhouse_queries
+    def test_ignores_unrelated_data(self):
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:10:00Z",
+            failures=1,
+            error_uuid=str(self.UUIDS[0]),
+            error_type="SomeError",
+            error_details={"event": {}},
+        )
+
+        # Different team
+        create_app_metric(
+            team_id=-1,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-05T13:10:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="SomeError",
+        )
+        # Different pluginConfigId
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=-1,
+            timestamp="2021-12-05T13:10:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="SomeError",
+        )
+        # Different category
+        create_app_metric(
+            team_id=self.team.pk,
+            category="exportEvents",
+            plugin_config_id=3,
+            timestamp="2021-12-05T13:10:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="SomeError",
+        )
+        # Different error_type
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:10:00Z",
+            failures=1,
+            error_uuid=str(self.UUIDS[0]),
+            error_type="AnotherError",
+            error_details={"event": {}},
+        )
+
+        filter = make_filter(
+            serializer_klass=AppMetricsErrorsRequestSerializer, category="processEvent", error_type="SomeError"
+        )
+        results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()
+
+        self.assertEqual(
+            results,
+            [
+                {
+                    "timestamp": datetime.fromisoformat("2021-11-28T00:10:00+00:00"),
+                    "error_uuid": self.UUIDS[0],
+                    "error_type": "SomeError",
+                    "error_details": {"event": {}},
+                }
             ],
         )

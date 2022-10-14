@@ -1,3 +1,52 @@
+# name: TestAppMetricsErrorDetailsQuery.test_error_details_query
+  '
+  
+  SELECT timestamp,
+         error_uuid,
+         error_type,
+         error_details
+  FROM app_metrics
+  WHERE team_id = 2
+    AND plugin_config_id = 3
+    AND category = 'processEvent'
+    AND error_type = 'SomeError'
+  ORDER BY timestamp DESC
+  LIMIT 20
+  '
+---
+# name: TestAppMetricsErrorDetailsQuery.test_error_details_query_filter_by_job_id
+  '
+  
+  SELECT timestamp,
+         error_uuid,
+         error_type,
+         error_details
+  FROM app_metrics
+  WHERE team_id = 2
+    AND plugin_config_id = 3
+    AND category = 'processEvent'
+    AND error_type = 'SomeError'
+    AND job_id = '1234'
+  ORDER BY timestamp DESC
+  LIMIT 20
+  '
+---
+# name: TestAppMetricsErrorDetailsQuery.test_ignores_unrelated_data
+  '
+  
+  SELECT timestamp,
+         error_uuid,
+         error_type,
+         error_details
+  FROM app_metrics
+  WHERE team_id = 2
+    AND plugin_config_id = 3
+    AND category = 'processEvent'
+    AND error_type = 'SomeError'
+  ORDER BY timestamp DESC
+  LIMIT 20
+  '
+---
 # name: TestAppMetricsErrorsQuery.test_errors_query
   '
   

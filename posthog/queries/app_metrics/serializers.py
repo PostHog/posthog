@@ -27,3 +27,4 @@ class AppMetricsErrorsRequestSerializer(serializers.Serializer):
         required=True,
     )
     error_type = serializers.CharField(required=True, help_text="What error type to filter for.")
+    job_id = serializers.CharField(help_text="Set this to filter results to a particular job", required=False)
