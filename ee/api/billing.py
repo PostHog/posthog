@@ -123,6 +123,7 @@ class BillingViewset(viewsets.GenericViewSet):
         response: Dict[str, Any] = {}
 
         if license:
+            response["license"] = {"plan": license.plan}
             billing_service_token = build_billing_token(license, str(org.id))
 
             res = requests.get(

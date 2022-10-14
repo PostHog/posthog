@@ -828,6 +828,9 @@ export interface BillingV2Type {
         current_period_start: Dayjs
         current_period_end: Dayjs
     }
+    license?: {
+        plan: LicensePlan
+    }
 }
 
 export interface BillingTierType {

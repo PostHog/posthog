@@ -15,6 +15,7 @@ import clsx from 'clsx'
 import { BillingGuage, BillingGuageProps } from './BillingGuage'
 import { convertAmountToUsage, convertUsageToAmount, projectUsage, summarizeUsage } from './billing-utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export function BillingV2(): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
@@ -144,6 +145,12 @@ export function BillingV2(): JSX.Element {
                                 </LemonButton>
                             </>
                         )}
+
+                        {!preflight?.cloud && billing?.license?.plan ? (
+                            <div className="text-center p-2">
+                                <b>{capitalizeFirstLetter(billing.license.plan)}</b> license
+                            </div>
+                        ) : null}
 
                         {!preflight?.cloud && !billing?.stripe_portal_url ? (
                             <LemonButton
