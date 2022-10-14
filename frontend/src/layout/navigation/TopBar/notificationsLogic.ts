@@ -56,7 +56,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
         errorCounter: [
             0,
             {
-                incrementErrorCount: (state) => state + 1,
+                incrementErrorCount: (state) => (state >= 5 ? 5 : state + 1),
                 clearErrorCount: () => 0,
             },
         ],
