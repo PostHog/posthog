@@ -29,7 +29,7 @@ const aggregationDisplayMap = aggregationAxisFormatSelectOptions.reduce((acc, op
 
 export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { axisUnitsChanged } = useActions(eventUsageLogic)
+    const { reportAxisUnitsChanged } = useActions(eventUsageLogic)
     const [isVisible, setIsVisible] = useState(false)
     const [localAxisFormat, setLocalAxisFormat] = useState(filters.aggregation_axis_format || undefined)
     const [localAxisPrefix, setLocalAxisPrefix] = useState(filters.aggregation_axis_prefix || '')
@@ -78,7 +78,7 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
         if (close) {
             debouncedVisibilityChange()
         }
-        axisUnitsChanged({
+        reportAxisUnitsChanged({
             format,
             prefix,
             postfix,

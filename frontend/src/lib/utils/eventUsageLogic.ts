@@ -470,10 +470,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             dashboardId,
         }),
         reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
-        axisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
+        reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
     },
     listeners: ({ values }) => ({
-        axisUnitsChanged: (properties) => {
+        reportAxisUnitsChanged: (properties) => {
             posthog.capture('axis units changed', properties)
         },
         reportInstanceSettingChange: ({ name, value }) => {
