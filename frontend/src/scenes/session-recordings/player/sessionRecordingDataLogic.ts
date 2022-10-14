@@ -198,6 +198,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
+        sessionPlayerDataLoading: [
+            false,
+            {
+                loadRecordingMetaSuccess: (_, { sessionPlayerData }) => {
+                    // Keep `sessionPlayerDataLoading` for when meta is loaded before snapshots finish loading
+                    return Object.keys(sessionPlayerData?.snapshotsByWindowId ?? {}).length === 0
+                },
+            },
+        ],
     })),
     listeners(({ values, actions, cache }) => ({
         loadEntireRecording: () => {
