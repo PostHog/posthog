@@ -9,12 +9,13 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import React, { useMemo, useState } from 'react'
 import { FilterType, ItemMode } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { PureField } from 'lib/forms/Field'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { useDebouncedCallback } from 'use-debounce'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface UnitPickerProps {
     filters: FilterType
@@ -28,7 +29,7 @@ const aggregationDisplayMap = aggregationAxisFormatSelectOptions.reduce((acc, op
 
 export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-
+    const { axisUnitsChanged } = useActions(eventUsageLogic)
     const [isVisible, setIsVisible] = useState(false)
     const [localAxisFormat, setLocalAxisFormat] = useState(filters.aggregation_axis_format || undefined)
     const [localAxisPrefix, setLocalAxisPrefix] = useState(filters.aggregation_axis_prefix || '')
@@ -77,6 +78,13 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
         if (close) {
             debouncedVisibilityChange()
         }
+        axisUnitsChanged({
+            format,
+            prefix,
+            postfix,
+            display: filters.display,
+            unitIsSet: !!prefix || !!postfix || (format && format !== 'numeric'),
+        })
     }
 
     const display = useMemo(() => {
