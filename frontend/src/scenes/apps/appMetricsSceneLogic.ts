@@ -55,16 +55,16 @@ export interface AppMetricsResponse {
 }
 
 export interface AppMetricErrorDetail {
-    timestamp: string,
-    error_uuid: string,
-    error_type: string,
+    timestamp: string
+    error_uuid: string
+    error_type: string
     error_details: {
         error: {
-            name: string,
-            message?: string,
+            name: string
+            message?: string
             stack?: string
-        },
-        event?: any,
+        }
+        event?: any
         eventCount?: number
     }
 }
@@ -83,7 +83,11 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
     actions({
         setActiveTab: (tab: AppMetricsTab) => ({ tab }),
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
-        openErrorDetailsDrawer: (errorType: string, category: string, jobId?: string) => ({ errorType, category, jobId }),
+        openErrorDetailsDrawer: (errorType: string, category: string, jobId?: string) => ({
+            errorType,
+            category,
+            jobId,
+        }),
         closeErrorDetailsDrawer: true,
     }),
 
@@ -104,8 +108,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             null as string | null,
             {
                 openErrorDetailsDrawer: (_, { errorType }) => errorType,
-                closeErrorDetailsDrawer: () => null
-            }
+                closeErrorDetailsDrawer: () => null,
+            },
         ],
     }),
 
@@ -151,8 +155,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                         `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}/error_details?${params}`
                     )
                     return result
-                }
-            }
+                },
+            },
         ],
     })),
 
