@@ -25,7 +25,7 @@ import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedLis
 import equal from 'fast-deep-equal'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
-const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
+export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 
 export interface Player {
     replayer: Replayer
@@ -88,10 +88,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setScale: (scale: number) => ({ scale }),
         togglePlayPause: true,
         seek: (playerPosition: PlayerPosition | null, forcePlay: boolean = false) => ({ playerPosition, forcePlay }),
-        seekForward: true,
-        seekBackward: true,
-        seekForwardOneFrame: true,
-        seekBackwardOneFrame: true,
+        seekForward: (amount?: number) => ({ amount }),
+        seekBackward: (amount?: number) => ({ amount }),
         resolvePlayerState: true,
         updateAnimation: true,
         stopAnimation: true,
@@ -436,7 +434,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             breakpoint()
         },
-        seekForward: () => {
+        seekForward: ({ amount = values.jumpTimeMs }) => {
             if (!values.currentPlayerPosition) {
                 return
             }
@@ -445,7 +443,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.sessionPlayerData.metadata.segments
             )
             if (currentPlayerTime !== null) {
-                const nextPlayerTime = currentPlayerTime + values.jumpTimeMs
+                const nextPlayerTime = currentPlayerTime + amount
                 let nextPlayerPosition = getPlayerPositionFromPlayerTime(
                     nextPlayerTime,
                     values.sessionPlayerData.metadata.segments
@@ -458,7 +456,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.seek(nextPlayerPosition)
             }
         },
-        seekBackward: () => {
+        seekBackward: ({ amount = values.jumpTimeMs }) => {
             if (!values.currentPlayerPosition) {
                 return
             }
@@ -468,7 +466,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.sessionPlayerData.metadata.segments
             )
             if (currentPlayerTime !== null) {
-                const nextPlayerTime = Math.max(currentPlayerTime - values.jumpTimeMs, 0)
+                const nextPlayerTime = Math.max(currentPlayerTime - amount, 0)
                 const nextPlayerPosition = getPlayerPositionFromPlayerTime(
                     nextPlayerTime,
                     values.sessionPlayerData.metadata.segments
@@ -476,38 +474,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 actions.seek(nextPlayerPosition)
             }
-        },
-
-        seekBackwardOneFrame: () => {
-            if (!values.currentPlayerPosition || !values.currentPlayerTime) {
-                return
-            }
-            actions.setPause()
-
-            const nextPlayerTime = Math.max(values.currentPlayerTime - ONE_FRAME_MS)
-            const nextPlayerPosition = getPlayerPositionFromPlayerTime(
-                nextPlayerTime,
-                values.sessionPlayerData.metadata.segments
-            )
-            actions.seek(nextPlayerPosition)
-        },
-
-        seekForwardOneFrame: () => {
-            if (!values.currentPlayerPosition || !values.currentPlayerTime) {
-                return
-            }
-            actions.setPause()
-
-            const nextPlayerTime = values.currentPlayerTime + ONE_FRAME_MS
-            let nextPlayerPosition = getPlayerPositionFromPlayerTime(
-                nextPlayerTime,
-                values.sessionPlayerData.metadata.segments
-            )
-            if (!nextPlayerPosition) {
-                // At the end of the recording. Pause the player and set to the end of the recording
-                nextPlayerPosition = values.sessionPlayerData.metadata.segments.slice(-1)[0].endPlayerPosition
-            }
-            actions.seek(nextPlayerPosition)
         },
 
         togglePlayPause: () => {
@@ -610,10 +576,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.togglePlayPause()
                 event.preventDefault()
             } else if (event.key === 'ArrowLeft') {
-                !event.altKey ? actions.seekBackward() : actions.seekBackwardOneFrame()
+                // If alt key is pressed we pause the video as otherwise moving by one frame makes no sense
+                event.altKey && actions.setPause()
+                actions.seekBackward(event.altKey ? ONE_FRAME_MS : undefined)
                 event.preventDefault()
             } else if (event.key === 'ArrowRight') {
-                !event.altKey ? actions.seekForward() : actions.seekForwardOneFrame()
+                event.altKey && actions.setPause()
+                actions.seekForward(event.altKey ? ONE_FRAME_MS : undefined)
                 event.preventDefault()
             } else {
                 // Playback speeds shortcuts
