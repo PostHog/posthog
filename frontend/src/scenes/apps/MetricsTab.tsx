@@ -9,6 +9,7 @@ import { LemonSelect } from 'lib/components/LemonSelect'
 import { useActions, useValues } from 'kea'
 import { LemonTable } from '../../lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { Link } from '../../lib/components/Link'
 
 export interface MetricsTabProps {
     tab: AppMetricsTab
@@ -58,7 +59,11 @@ export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
             </Card>
 
             <Card title="Errors" className="mt-4">
-                <ErrorsOverview errors={appMetricsResponse?.errors || []} loading={appMetricsResponseLoading} />
+                <ErrorsOverview
+                    category={tab}
+                    errors={appMetricsResponse?.errors || []}
+                    loading={appMetricsResponseLoading}
+                />
             </Card>
         </div>
     )
@@ -92,10 +97,16 @@ export function MetricsOverview({ tab, metrics, metricsLoading }: MetricsOvervie
 export function ErrorsOverview({
     errors,
     loading,
+    category,
+    jobId,
 }: {
     errors: Array<AppErrorSummary>
     loading?: boolean
+    category: string
+    jobId?: string
 }): JSX.Element {
+    const { openErrorDetailsDrawer } = useActions(appMetricsSceneLogic)
+
     return (
         <LemonTable
             dataSource={errors}
@@ -104,6 +115,20 @@ export function ErrorsOverview({
                 {
                     title: 'Error type',
                     dataIndex: 'error_type',
+                    render: function RenderErrorType(_, errorSummary) {
+                        return (
+                            <Link
+                                title="View details"
+                                className="font-semibold"
+                                onClick={(event) => {
+                                    event.preventDefault()
+                                    openErrorDetailsDrawer(errorSummary.error_type, category, jobId)
+                                }}
+                            >
+                                {errorSummary.error_type}
+                            </Link>
+                        )
+                    },
                     sorter: (a, b) => a.error_type.localeCompare(b.error_type),
                 },
                 {

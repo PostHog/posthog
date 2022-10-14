@@ -35,7 +35,12 @@ export function HistoricalExport(props: HistoricalExportLogicProps): JSX.Element
             </Card>
 
             <Card title="Errors" className="mt-4">
-                <ErrorsOverview errors={data?.errors || []} loading={dataLoading} />
+                <ErrorsOverview
+                    errors={data?.errors || []}
+                    loading={dataLoading}
+                    category="exportEvents"
+                    jobId={data?.summary?.job_id}
+                />
             </Card>
         </div>
     )

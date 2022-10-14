@@ -54,6 +54,21 @@ export interface AppMetricsResponse {
     errors: Array<AppErrorSummary>
 }
 
+export interface AppMetricErrorDetail {
+    timestamp: string,
+    error_uuid: string,
+    error_type: string,
+    error_details: {
+        error: {
+            name: string,
+            message?: string,
+            stack?: string
+        },
+        event?: any,
+        eventCount?: number
+    }
+}
+
 const INITIAL_TABS: Array<AppMetricsTab> = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
@@ -68,6 +83,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
     actions({
         setActiveTab: (tab: AppMetricsTab) => ({ tab }),
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
+        openErrorDetailsDrawer: (errorType: string, category: string, jobId?: string) => ({ errorType, category, jobId }),
+        closeErrorDetailsDrawer: true,
     }),
 
     reducers({
@@ -82,6 +99,13 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             {
                 setDateFrom: (_, { dateFrom }) => dateFrom,
             },
+        ],
+        errorDetailsDrawerError: [
+            null as string | null,
+            {
+                openErrorDetailsDrawer: (_, { errorType }) => errorType,
+                closeErrorDetailsDrawer: () => null
+            }
         ],
     }),
 
@@ -117,6 +141,18 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                     return results as Array<HistoricalExportInfo>
                 },
             },
+        ],
+        errorDetails: [
+            [] as Array<AppMetricErrorDetail>,
+            {
+                openErrorDetailsDrawer: async ({ category, jobId, errorType }) => {
+                    const params = toParams({ category, job_id: jobId, error_type: errorType })
+                    const { result } = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}/error_details?${params}`
+                    )
+                    return result
+                }
+            }
         ],
     })),
 
