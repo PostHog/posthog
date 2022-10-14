@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import type { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
-import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
+import { AvailableFeature, PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
 import {
     PluginInstallationType,
     PluginRepositoryEntry,
@@ -20,6 +20,8 @@ import { teamLogic } from '../teamLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type PluginForm = FormInstance
 
@@ -670,6 +672,11 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 }
                 return allPossiblePlugins
             },
+        ],
+        shouldShowAppMetrics: [
+            () => [userLogic.selectors.hasAvailableFeature, featureFlagLogic.selectors.featureFlags],
+            (hasAvailableFeature, featureFlags) =>
+                hasAvailableFeature(AvailableFeature.APP_METRICS) && featureFlags[FEATURE_FLAGS.APP_METRICS],
         ],
     }),
 

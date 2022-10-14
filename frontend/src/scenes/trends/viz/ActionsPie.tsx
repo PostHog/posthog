@@ -48,7 +48,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
 
     return data ? (
         data[0] && data[0].labels ? (
-            <div className={clsx('w-full', inCardView && 'flex flex-row h-full items-center')}>
+            <div className={clsx('w-full', inCardView && 'flex flex-row pr-4 h-full items-center')}>
                 <div className="actions-pie-component">
                     <div className="pie-chart">
                         <PieChart
@@ -83,9 +83,9 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                             }
                         />
                     </div>
-                    <h1 className="text-7xl text-center">{formatAggregationAxisValue(insight.filters, total)}</h1>
+                    <h1 className="text-7xl text-center mb-0">{formatAggregationAxisValue(insight.filters, total)}</h1>
                 </div>
-                {inCardView && filters.show_legend && <InsightLegend inCardView className={'mr-4'} />}
+                {inCardView && filters.show_legend && <InsightLegend inCardView />}
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

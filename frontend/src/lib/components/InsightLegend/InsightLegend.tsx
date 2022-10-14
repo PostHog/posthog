@@ -9,33 +9,31 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { getSeriesColor } from 'lib/colors'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/InsightsTable'
-import { ChartDisplayType, InsightType } from '~/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ChartDisplayType, FilterType, InsightType } from '~/types'
 import clsx from 'clsx'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
-export interface InsightLegendProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
+export interface InsightLegendProps {
     readOnly?: boolean
     horizontal?: boolean
     inCardView?: boolean
 }
 
+const legendToggleDenyList = [
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.BoldNumber,
+    ChartDisplayType.ActionsBarValue,
+]
+
+const shouldHideLegend = (filters: Partial<FilterType>, activeView: InsightType): boolean =>
+    (filters.display && legendToggleDenyList.includes(filters.display)) || activeView === InsightType.STICKINESS
+
 export function InsightLegendButton(): JSX.Element | null {
     const { filters, activeView } = useValues(insightLogic)
     const { toggleInsightLegend } = useActions(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    if (
-        !(
-            ((activeView === InsightType.TRENDS &&
-                filters.display !== ChartDisplayType.WorldMap &&
-                filters.display !== ChartDisplayType.ActionsTable &&
-                filters.display !== ChartDisplayType.BoldNumber) ||
-                activeView === InsightType.STICKINESS) &&
-            featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS]
-        )
-    ) {
+    if (shouldHideLegend(filters, activeView)) {
         return null
     }
 
@@ -47,20 +45,19 @@ export function InsightLegendButton(): JSX.Element | null {
     )
 }
 
-export function InsightLegend({
-    horizontal,
-    className,
-    inCardView,
-    readOnly = false,
-}: InsightLegendProps): JSX.Element {
-    const { insightProps, filters, highlightedSeries } = useValues(insightLogic)
+export function InsightLegend({ horizontal, inCardView, readOnly = false }: InsightLegendProps): JSX.Element | null {
+    const { insightProps, filters, highlightedSeries, activeView } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
 
+    if (shouldHideLegend(filters, activeView)) {
+        return null
+    }
+
     return (
         <div
-            className={clsx('InsightLegendMenu', className, {
+            className={clsx('InsightLegendMenu', {
                 'InsightLegendMenu--horizontal': horizontal,
                 'InsightLegendMenu--readonly': readOnly,
                 'InsightLegendMenu--in-card-view': inCardView,
@@ -68,17 +65,16 @@ export function InsightLegend({
         >
             <div className="InsightLegendMenu-scroll">
                 {indexedResults &&
-                    indexedResults
-                        .sort((a, b) => b.aggregated_value - a.aggregated_value)
-                        .map((item, index) => {
-                            const highlightStyle: Record<string, any> =
-                                highlightedSeries === index
-                                    ? {
-                                          style: { backgroundColor: getSeriesColor(item.id, false, true) },
-                                      }
-                                    : {}
+                    indexedResults.map((item, index) => {
+                        const highlightStyle: Record<string, any> =
+                            highlightedSeries === index
+                                ? {
+                                      style: { backgroundColor: getSeriesColor(item.id, false, true) },
+                                  }
+                                : {}
 
-                            return (
+                        return (
+                            <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row">
                                 <div
                                     key={item.id}
                                     className={clsx('InsightLegendMenu-item p-2 w-full flex flex-row')}
@@ -114,8 +110,9 @@ export function InsightLegend({
                                         </div>
                                     )}
                                 </div>
-                            )
-                        })}
+                            </div>
+                        )
+                    })}
             </div>
         </div>
     )

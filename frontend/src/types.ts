@@ -989,6 +989,11 @@ export interface PluginConfigType {
     error?: PluginErrorType
 }
 
+export interface PluginConfigWithPluginInfo extends PluginConfigType {
+    id: number
+    plugin_info: PluginType
+}
+
 export interface PluginErrorType {
     message: string
     time: string
@@ -2095,4 +2100,10 @@ export interface SessionRecordingPlayerProps {
 export enum FeatureFlagReleaseType {
     ReleaseToggle = 'Release toggle',
     Variants = 'Multiple variants',
+}
+
+export interface MediaUploadResponse {
+    id: string
+    image_location: string
+    name: string
 }
