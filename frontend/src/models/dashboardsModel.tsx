@@ -22,9 +22,15 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // can provide extra dashboard ids if not all listeners will choose to respond to this action
         // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
         // specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
-        updateDashboardInsight: (insight: InsightModel, extraDashboardIds?: number[]) => ({
+        // if an update is made against an insight it will hold last_refresh, color, and filters_hash in dashboard context
+        updateDashboardInsight: (
+            insight: InsightModel,
+            extraDashboardIds?: number[],
+            updateTileOnDashboards?: [number]
+        ) => ({
             insight,
             extraDashboardIds,
+            updateTileOnDashboards,
         }),
         updateDashboardTile: (tile: DashboardTile, extraDashboardIds?: number[]) => ({
             tile,
