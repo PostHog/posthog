@@ -5,7 +5,7 @@ import React from 'react'
 import { EventType, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import { PlayerList } from 'scenes/session-recordings/player/list/PlayerList'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { autoCaptureEventToDescription, interleave } from 'lib/utils'
+import { autoCaptureEventToDescription, capitalizeFirstLetter, interleave } from 'lib/utils'
 import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import { EventDetails } from 'scenes/events'
@@ -66,6 +66,7 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                             </div>
                         )
                     }
+
                     return (
                         <div className="flex flex-row justify-start">
                             <PropertyKeyInfo
@@ -73,8 +74,9 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                                 disableIcon
                                 disablePopover
                                 ellipsis={true}
-                                value={autoCaptureEventToDescription(record as any)}
+                                value={capitalizeFirstLetter(autoCaptureEventToDescription(record as any))}
                             />
+                            {record.event === '$autocapture' ? <i className="ml-2">(Autocapture) </i> : null}
                         </div>
                     )
                 },
