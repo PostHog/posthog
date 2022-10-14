@@ -66,8 +66,14 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
             <div className="InsightLegendMenu-scroll">
                 {indexedResults &&
                     indexedResults.map((item, index) => {
+                        const numberOfSeriesToSkip = Object.entries(hiddenLegendKeys).filter(
+                            ([key, isHidden]) => isHidden && Number(key) < index
+                        ).length
+                        const isSkipped = hiddenLegendKeys[index]
                         const highlightStyle: Record<string, any> =
-                            highlightedSeries === index
+                            highlightedSeries !== null &&
+                            !isSkipped &&
+                            highlightedSeries + numberOfSeriesToSkip === index
                                 ? {
                                       style: { backgroundColor: getSeriesColor(item.id, false, true) },
                                   }
