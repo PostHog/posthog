@@ -810,10 +810,9 @@ export interface BillingProductV2Type {
         current_amount_usd?: string | null
         up_to: number | null
     }[]
-    // These are only returned if the user has a subscription
-    current_usage?: number // 12000
-    current_amount_usd?: string // $5000
-    usage_limit?: number // 10000
+    current_usage?: number
+    current_amount_usd?: string
+    usage_limit?: number
 }
 
 export interface BillingV2Type {
