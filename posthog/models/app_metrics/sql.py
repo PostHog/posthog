@@ -149,3 +149,15 @@ WHERE team_id = %(team_id)s
 GROUP BY error_type
 ORDER BY count DESC
 """
+
+QUERY_APP_METRICS_ERROR_DETAILS = """
+SELECT timestamp, error_uuid, error_type, error_details
+FROM app_metrics
+WHERE team_id = %(team_id)s
+  AND plugin_config_id = %(plugin_config_id)s
+  AND category = %(category)s
+  AND error_type = %(error_type)s
+  {job_id_clause}
+ORDER BY timestamp DESC
+LIMIT 20
+"""

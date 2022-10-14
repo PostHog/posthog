@@ -16,4 +16,14 @@ class AppMetricsRequestSerializer(serializers.Serializer):
         required=False,
         help_text="What date to filter the results to. Can either be a date `2021-01-01`, or a relative date, like `-7d` for last seven days, `-1m` for last month, `mStart` for start of the month or `yStart` for the start of the year.",
     )
+
+
+class AppMetricsErrorsRequestSerializer(serializers.Serializer):
+    category = serializers.ChoiceField(
+        # Keep in sync with plugin-server/src/worker/ingestion/app-metrics.ts
+        choices=["processEvent", "onEvent", "exportEvents"],
+        help_text="What app method to gather metrics for",
+        required=True,
+    )
+    error_type = serializers.CharField(required=True, help_text="What error type to filter for.")
     job_id = serializers.CharField(help_text="Set this to filter results to a particular job", required=False)
