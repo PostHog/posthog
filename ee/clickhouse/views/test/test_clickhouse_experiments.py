@@ -119,49 +119,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment.description, "Bazinga")
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
-    def test_creating_updating_basic_experiment_gets_the_right_timestamps(self):
-
-        self.team.timezone = "Asia/Samarkand"  # GMT+5
-        self.team.save()
-
-        ff_key = "a-b-tests"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
-                    "properties": [
-                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
-                    ],
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        response_json = response.json()
-        id = response_json["id"]
-        start_date = response_json["start_date"]
-        self.assertEqual(start_date, "2021-12-01T05:23:00Z")
-
-        end_date = "2021-12-10T00:00"
-
-        # Now update
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}", {"description": "Bazinga", "end_date": end_date}
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        experiment = Experiment.objects.get(pk=id)
-        self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), "2021-12-09T19:00")
-
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
 
         cohort = Cohort.objects.create(
@@ -797,7 +754,7 @@ class TestExperimentCRUD(APILicensedTest):
             )
 
 
-# @flaky(max_runs=10, min_passes=1)
+@flaky(max_runs=10, min_passes=1)
 class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
@@ -982,8 +939,8 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}/",
             {
-                "start_date": "2020-01-01T14:20:21.710000Z",  # date is after first event, BUT timezone is GMT+1, so should be included
-                "end_date": "2020-01-06 10:00",
+                "start_date": "2020-01-01T13:20:21.710000Z",  # date is after first event, BUT timezone is GMT+1, so should be included
+                "end_date": "2020-01-06 09:00",
             },
         )
 
@@ -1393,8 +1350,8 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
             {
                 "name": "Test Experiment",
                 "description": "",
-                "start_date": "2020-01-01T02:10",
-                "end_date": "2020-01-06T07:00",
+                "start_date": "2020-01-01T10:10",  # 2 PM in GMT-8 is 10 PM in GMT
+                "end_date": "2020-01-06T15:00",
                 "feature_flag_key": ff_key,
                 "parameters": None,
                 "filters": {

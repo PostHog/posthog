@@ -4,6 +4,7 @@ from functools import lru_cache
 from math import exp, lgamma, log
 from typing import List, Optional, Tuple, Type
 
+import pytz
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
@@ -59,11 +60,20 @@ class ClickhouseTrendExperimentResult:
         breakdown_key = f"$feature/{feature_flag.key}"
         variants = [variant["key"] for variant in feature_flag.variants]
 
+        # our filters assume that the given time ranges are in the project timezone.
+        # while start and end date are in UTC.
+        # so we need to convert them to the project timezone
+        if team.timezone:
+            start_date_in_project_timezone = experiment_start_date.astimezone(pytz.timezone(team.timezone))
+            end_date_in_project_timezone = (
+                experiment_end_date.astimezone(pytz.timezone(team.timezone)) if experiment_end_date else None
+            )
+
         query_filter = filter.with_data(
             {
                 "display": TRENDS_CUMULATIVE,
-                "date_from": experiment_start_date,
-                "date_to": experiment_end_date,
+                "date_from": start_date_in_project_timezone,
+                "date_to": end_date_in_project_timezone,
                 "explicit_date": True,
                 "breakdown": breakdown_key,
                 "breakdown_type": "event",

@@ -1,7 +1,5 @@
 from typing import Any, Type, Union
 
-import pytz
-from dateutil import parser
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -52,24 +50,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at", "feature_flag"]
-
-    def validate_start_date(self, value):
-        if not value:
-            return value
-
-        try:
-            return parser.parse(str(value), ignoretz=True)
-        except Exception:
-            raise ValidationError("Start date must be a valid date")
-
-    def validate_end_date(self, value):
-        if not value:
-            return value
-
-        try:
-            return parser.parse(str(value), ignoretz=True)
-        except Exception:
-            raise ValidationError("End date must be a valid date")
 
     def validate_parameters(self, value):
         if not value:
@@ -130,13 +110,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
 
-        if team.timezone:
-            if validated_data.get("start_date"):
-                validated_data["start_date"] = pytz.timezone(team.timezone).localize(validated_data["start_date"])
-
-            if validated_data.get("end_date"):
-                validated_data["end_date"] = pytz.timezone(team.timezone).localize(validated_data["end_date"])
-
         experiment = Experiment.objects.create(team=team, feature_flag=feature_flag, **validated_data)
         return experiment
 
@@ -192,15 +165,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             )
             serializer.is_valid(raise_exception=True)
             serializer.save()
-
-        if instance.team.timezone:
-            if validated_data.get("start_date"):
-                validated_data["start_date"] = pytz.timezone(instance.team.timezone).localize(
-                    validated_data["start_date"]
-                )
-
-            if validated_data.get("end_date"):
-                validated_data["end_date"] = pytz.timezone(instance.team.timezone).localize(validated_data["end_date"])
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True
