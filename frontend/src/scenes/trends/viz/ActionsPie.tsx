@@ -83,7 +83,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                             }
                         />
                     </div>
-                    <h1 className="text-7xl text-center">{formatAggregationAxisValue(insight.filters, total)}</h1>
+                    <h1 className="text-7xl text-center mb-0">{formatAggregationAxisValue(insight.filters, total)}</h1>
                 </div>
                 {inCardView && filters.show_legend && <InsightLegend inCardView className={'mr-4'} />}
             </div>
