@@ -989,6 +989,11 @@ export interface PluginConfigType {
     error?: PluginErrorType
 }
 
+export interface PluginConfigWithPluginInfo extends PluginConfigType {
+    id: number
+    plugin_info: PluginType
+}
+
 export interface PluginErrorType {
     message: string
     time: string
