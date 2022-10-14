@@ -202,7 +202,7 @@ class TestPreflight(APIBaseTest):
             pass
         else:
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
-                key="key_123", plan="free_clickhouse", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+                key="key_123", plan="free_clickhouse", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
             )
 
             OrganizationInvite.objects.create(organization=self.organization, target_email="invite@posthog.com")
