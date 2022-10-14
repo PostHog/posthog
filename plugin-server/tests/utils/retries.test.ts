@@ -3,6 +3,7 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { Hub } from '../../src/types'
 import { getNextRetryMs, runRetriableFunction } from '../../src/utils/retries'
 import { UUID } from '../../src/utils/utils'
+import { AppMetricIdentifier } from '../../src/worker/ingestion/app-metrics'
 import { PromiseManager } from '../../src/worker/vm/promise-manager'
 
 jest.useFakeTimers()
@@ -12,7 +13,10 @@ jest.mock('../../src/utils/db/error') // Mocking setError which we don't need in
 const mockHub: Hub = {
     instanceId: new UUID('F8B2F832-6639-4596-ABFC-F9664BC88E84'),
     promiseManager: new PromiseManager({ MAX_PENDING_PROMISES_PER_WORKER: 1 } as any),
-} as Hub
+    appMetrics: {
+        queueMetric: jest.fn(),
+    },
+} as unknown as Hub
 
 const testEvent: ProcessedPluginEvent = {
     uuid: '4CCCB5FD-BD27-4D6C-8737-88EB7294C437',
@@ -22,6 +26,12 @@ const testEvent: ProcessedPluginEvent = {
     timestamp: '2023-04-01T00:00:00.000Z',
     event: 'default event',
     properties: {},
+}
+
+const appMetric: AppMetricIdentifier = {
+    teamId: 2,
+    pluginConfigId: 3,
+    category: 'processEvent',
 }
 
 describe('getNextRetryMs', () => {
@@ -62,6 +72,7 @@ describe('runRetriableFunction', () => {
                 tryFn,
                 catchFn,
                 finallyFn,
+                appMetric,
             })
         })
         jest.runAllTimers()
@@ -71,6 +82,11 @@ describe('runRetriableFunction', () => {
         expect(catchFn).toHaveBeenCalledTimes(0)
         expect(finallyFn).toHaveBeenCalledTimes(1)
         expect(setTimeout).not.toHaveBeenCalled()
+        expect(mockHub.appMetrics.queueMetric).toHaveBeenCalledWith({
+            ...appMetric,
+            successes: 1,
+            successesOnRetry: 0,
+        })
     })
 
     it('catches non-RetryError error', async () => {
@@ -91,6 +107,7 @@ describe('runRetriableFunction', () => {
                 tryFn,
                 catchFn,
                 finallyFn,
+                appMetric,
             })
         })
         jest.runAllTimers()
@@ -101,6 +118,10 @@ describe('runRetriableFunction', () => {
         expect(catchFn).toHaveBeenCalledWith(expect.any(TypeError))
         expect(finallyFn).toHaveBeenCalledTimes(1)
         expect(setTimeout).not.toHaveBeenCalled()
+        expect(mockHub.appMetrics.queueMetric).toHaveBeenCalledWith({
+            ...appMetric,
+            failures: 1,
+        })
     })
 
     it('catches RetryError error and retries up to 5 times', async () => {
@@ -119,6 +140,7 @@ describe('runRetriableFunction', () => {
                 tryFn,
                 catchFn,
                 finallyFn,
+                appMetric,
             })
         })
 
@@ -138,6 +160,10 @@ describe('runRetriableFunction', () => {
         expect(setTimeout).toHaveBeenNthCalledWith(2, expect.any(Function), 10_000)
         expect(setTimeout).toHaveBeenNthCalledWith(3, expect.any(Function), 20_000)
         expect(setTimeout).toHaveBeenNthCalledWith(4, expect.any(Function), 40_000)
+        expect(mockHub.appMetrics.queueMetric).toHaveBeenCalledWith({
+            ...appMetric,
+            failures: 1,
+        })
     })
 
     it('catches RetryError error and allow the function to succeed on 3rd attempt', async () => {
@@ -162,6 +188,7 @@ describe('runRetriableFunction', () => {
                 tryFn,
                 catchFn,
                 finallyFn,
+                appMetric,
             })
         })
 
@@ -178,5 +205,10 @@ describe('runRetriableFunction', () => {
         expect(setTimeout).toHaveBeenCalledTimes(2)
         expect(setTimeout).toHaveBeenNthCalledWith(1, expect.any(Function), 5_000)
         expect(setTimeout).toHaveBeenNthCalledWith(2, expect.any(Function), 10_000)
+        expect(mockHub.appMetrics.queueMetric).toHaveBeenCalledWith({
+            ...appMetric,
+            successes: 0,
+            successesOnRetry: 1,
+        })
     })
 })

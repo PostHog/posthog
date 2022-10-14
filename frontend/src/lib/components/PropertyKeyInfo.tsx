@@ -5,6 +5,7 @@ import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import clsx from 'clsx'
+import { EVENT_COUNT_PER_ACTOR } from 'lib/constants'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -603,6 +604,9 @@ export const keyMapping: KeyMappingInterface = {
         $exception: {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
+        },
+        [EVENT_COUNT_PER_ACTOR]: {
+            label: 'Event count per user',
         },
     },
     element: {
