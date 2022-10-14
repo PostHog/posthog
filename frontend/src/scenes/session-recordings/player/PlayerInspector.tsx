@@ -1,6 +1,4 @@
 import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import React from 'react'
 import { EventType, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import { PlayerList } from 'scenes/session-recordings/player/list/PlayerList'
@@ -11,22 +9,19 @@ import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedLis
 import { EventDetails } from 'scenes/events'
 
 export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { tab } = useValues(sharedListLogic({ sessionRecordingId, playerKey }))
-    const sessionConsoleEnabled = !!featureFlags[FEATURE_FLAGS.SESSION_CONSOLE]
-    const currentTab = sessionConsoleEnabled ? tab : SessionRecordingTab.EVENTS
 
     return (
         <PlayerList
             sessionRecordingId={sessionRecordingId}
             playerKey={playerKey}
-            tab={currentTab}
+            tab={tab}
             row={{
                 status: (record) => {
                     if (record.level === 'match') {
                         return RowStatus.Match
                     }
-                    if (currentTab === SessionRecordingTab.EVENTS) {
+                    if (tab === SessionRecordingTab.EVENTS) {
                         return null
                     }
                     // Below statuses only apply to console logs
@@ -45,7 +40,7 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                     return RowStatus.Information
                 },
                 content: function renderContent(record, _, expanded) {
-                    if (currentTab === SessionRecordingTab.CONSOLE) {
+                    if (tab === SessionRecordingTab.CONSOLE) {
                         return (
                             <div
                                 className="font-mono text-xs w-full text-ellipsis leading-6"
@@ -79,7 +74,7 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                     )
                 },
                 sideContent: function renderSideContent(record) {
-                    if (currentTab === SessionRecordingTab.CONSOLE) {
+                    if (tab === SessionRecordingTab.CONSOLE) {
                         return <div className="font-mono text-xs">{record.traceContent?.[0]}</div>
                     }
                     return null
@@ -90,7 +85,7 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                     if (!record) {
                         return null
                     }
-                    if (currentTab === SessionRecordingTab.CONSOLE) {
+                    if (tab === SessionRecordingTab.CONSOLE) {
                         return (
                             <div className="py-2 pr-2 pl-18 font-mono text-xs leading-6">
                                 {record.fullContent?.map((content: JSX.Element, i: number) => (

@@ -16,8 +16,6 @@ import {
     IconTerminal,
     UnverifiedEvent,
 } from 'lib/components/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 
@@ -27,7 +25,6 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
     )
     const { currentPlayerState, speed, isSmallScreen, isSmallPlayer, skipInactivitySetting, tab, isFullScreen } =
         useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="p-3 bg-light flex flex-col select-none">
@@ -48,19 +45,17 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                             >
                                 {isSmallScreen || isSmallPlayer ? '' : 'Events'}
                             </LemonButton>
-                            {featureFlags[FEATURE_FLAGS.SESSION_CONSOLE] && (
-                                <LemonButton
-                                    size="small"
-                                    icon={<IconTerminal />}
-                                    status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
-                                    active={tab === SessionRecordingTab.CONSOLE}
-                                    onClick={() => {
-                                        setTab(SessionRecordingTab.CONSOLE)
-                                    }}
-                                >
-                                    {isSmallScreen || isSmallPlayer ? '' : 'Console'}
-                                </LemonButton>
-                            )}
+                            <LemonButton
+                                size="small"
+                                icon={<IconTerminal />}
+                                status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
+                                active={tab === SessionRecordingTab.CONSOLE}
+                                onClick={() => {
+                                    setTab(SessionRecordingTab.CONSOLE)
+                                }}
+                            >
+                                {isSmallScreen || isSmallPlayer ? '' : 'Console'}
+                            </LemonButton>
                         </>
                     )}
                 </div>
