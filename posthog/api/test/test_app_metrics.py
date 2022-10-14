@@ -174,6 +174,39 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    def test_error_details(self):
+        error_uuid = str(UUIDT())
+        create_app_metric(
+            team_id=self.team.pk,
+            category="exportEvents",
+            plugin_config_id=self.plugin_config.id,
+            job_id="1234",
+            timestamp="2021-08-25T02:55:00Z",
+            failures=1,
+            error_uuid=error_uuid,
+            error_type="SomeError",
+            error_details={"event": {}},
+        )
+
+        response = self.client.get(
+            f"/api/projects/@current/app_metrics/{self.plugin_config.id}/error_details?category=exportEvents&error_type=SomeError"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "result": [
+                    {
+                        "error_uuid": error_uuid,
+                        "error_type": "SomeError",
+                        "error_details": {"event": {}},
+                        "timestamp": "2021-08-25T02:55:00Z",
+                    }
+                ]
+            },
+        )
+
     def _create_activity_log(self, **kwargs):
         log_activity(
             **{
