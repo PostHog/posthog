@@ -76,7 +76,14 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                                 ellipsis={true}
                                 value={capitalizeFirstLetter(autoCaptureEventToDescription(record as any))}
                             />
-                            {record.event === '$autocapture' ? <i className="ml-2">(Autocapture) </i> : null}
+                            {record.event === '$autocapture' ? (
+                                <span className="text-muted-alt ml-2">(Autocapture)</span>
+                            ) : null}
+                            {record.event === '$pageview' ? (
+                                <span className="text-muted-alt ml-2">
+                                    {record.properties.$pathname || record.properties.$current_url}
+                                </span>
+                            ) : null}
                         </div>
                     )
                 },
