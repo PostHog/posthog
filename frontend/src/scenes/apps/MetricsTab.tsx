@@ -152,6 +152,8 @@ export function ErrorsOverview({
                 },
             ]}
             defaultSorting={{ columnKey: 'last_seen', order: -1 }}
+            useURLForSorting={false}
+            noSortingCancellation
         />
     )
 }
