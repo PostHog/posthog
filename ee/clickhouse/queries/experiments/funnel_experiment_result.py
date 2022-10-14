@@ -64,6 +64,7 @@ class ClickhouseFunnelExperimentResult:
             {
                 "date_from": experiment_start_date,
                 "date_to": experiment_end_date,
+                "explicit_date": True,
                 "breakdown": breakdown_key,
                 "breakdown_type": "event",
                 "properties": [],

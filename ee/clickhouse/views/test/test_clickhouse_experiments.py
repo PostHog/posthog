@@ -119,6 +119,49 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment.description, "Bazinga")
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
+    def test_creating_updating_basic_experiment_gets_the_right_timestamps(self):
+
+        self.team.timezone = "Asia/Samarkand"  # GMT+5
+        self.team.save()
+
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response_json = response.json()
+        id = response_json["id"]
+        start_date = response_json["start_date"]
+        self.assertEqual(start_date, "2021-12-01T05:23:00Z")
+
+        end_date = "2021-12-10T00:00"
+
+        # Now update
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}", {"description": "Bazinga", "end_date": end_date}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(pk=id)
+        self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), "2021-12-09T19:00")
+
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
 
         cohort = Cohort.objects.create(
@@ -754,7 +797,7 @@ class TestExperimentCRUD(APILicensedTest):
             )
 
 
-@flaky(max_runs=10, min_passes=1)
+# @flaky(max_runs=10, min_passes=1)
 class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
@@ -845,9 +888,6 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         self.assertEqual(response_data["significance_code"], ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
         self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
 
-    @pytest.mark.skip(
-        reason="This test needs proper timezone support, coming in https://github.com/PostHog/posthog/pull/11935"
-    )
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones(self):
 
@@ -856,19 +896,19 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 "person1": [
                     {
                         "event": "$pageview",
-                        "timestamp": "2020-01-01 13:40:00",
+                        "timestamp": "2020-01-01T13:40:00",
                         "properties": {"$feature/a-b-test": "test"},
                     },
                     {
                         "event": "$pageleave",
-                        "timestamp": "2020-01-04 13:00:00",
+                        "timestamp": "2020-01-04T13:00:00",
                         "properties": {"$feature/a-b-test": "test"},
                     },
                 ],
                 "person2": [
                     {
                         "event": "$pageview",
-                        "timestamp": "2020-01-03 13:00:00",
+                        "timestamp": "2020-01-03T13:00:00",
                         "properties": {"$feature/a-b-test": "control"},
                     },
                     {
@@ -896,6 +936,20 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 "person5": [
                     {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}}
                 ],
+                # converted on the same day as end date, but offset by a few minutes.
+                # experiment ended at 10 AM, UTC+1, so this person should not be included.
+                "person6": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-06T09:10:00",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-06T09:25:00",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
             },
             self.team,
         )
@@ -910,8 +964,6 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
             {
                 "name": "Test Experiment",
                 "description": "",
-                "start_date": "2020-01-01T14:20",  # date is after first event, BUT timezone is GMT+1, so should be included
-                "end_date": "2020-01-06T10:00",
                 "feature_flag_key": ff_key,
                 "parameters": None,
                 "filters": {
@@ -926,6 +978,14 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         )
 
         id = response.json()["id"]
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}/",
+            {
+                "start_date": "2020-01-01T14:20:21.710000Z",  # date is after first event, BUT timezone is GMT+1, so should be included
+                "end_date": "2020-01-06 10:00",
+            },
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
         self.assertEqual(200, response.status_code)
@@ -1172,6 +1232,169 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                 "description": "",
                 "start_date": "2020-01-01T00:00",
                 "end_date": "2020-01-06T00:00",
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "insight": "TRENDS",
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "display": "ActionsLineGraphCumulative",
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                        # properties superceded by FF breakdown
+                    ],
+                },
+            },
+        )
+
+        id = creation_response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()
+        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
+
+        self.assertEqual(result[0]["count"], 4)
+        self.assertEqual("control", result[0]["breakdown_value"])
+
+        self.assertEqual(result[1]["count"], 5)
+        self.assertEqual("test", result[1]["breakdown_value"])
+
+        # Variant with test: Gamma(5, 0.5) and control: Gamma(5, 1) distribution
+        # The variant has high probability of being better. (effectively Gamma(10,1))
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.923, places=2)
+        self.assertFalse(response_data["significant"])
+
+    @snapshot_clickhouse_queries
+    def test_experiment_flow_with_event_results_out_of_timerange_timezone(self):
+        journeys_for(
+            {
+                "person1": [
+                    # 5 counts, single person
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    # exposure measured via $feature_flag_called events
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                    # 1 exposure, but more absolute counts
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                ],
+                "person3": [
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                ],
+                # doesn't have feature set
+                "person_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-03"},
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "random"},
+                    },
+                ],
+                "person_out_of_end_date": [
+                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                ],
+                # slightly out of time range
+                "person_t1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-01 09:00:00",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-01 08:00:00",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-01 07:00:00",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-01 06:00:00",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-01 06:00:00",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-01 08:00:00",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                    },
+                ],
+                "person_t2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-06 15:02:00",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-06 15:02:00",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-06 16:00:00",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        self.team.timezone = "US/Pacific"  # GMT -8
+        self.team.save()
+
+        ff_key = "a-b-test"
+        # generates the FF which should result in the above events^
+        creation_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2020-01-01T02:10",
+                "end_date": "2020-01-06T07:00",
                 "feature_flag_key": ff_key,
                 "parameters": None,
                 "filters": {
