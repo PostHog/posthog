@@ -70,6 +70,27 @@ class TestMediaAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK
             assert response.headers["Content-Type"] == "image/jpeg"
 
+    def test_url_encodes_filename_before_use(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            maybe_dangerous_filename = "the|user provided#file%name+.jpg?redirect-hackers.io"
+            fake_file = SimpleUploadedFile(
+                name=maybe_dangerous_filename, content=b"a fake image", content_type="image/jpeg"
+            )
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media", {"image": fake_file}, format="multipart"
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+            assert response.json()["name"] == maybe_dangerous_filename
+            media_location = response.json()["image_location"]
+            assert media_location.endswith("the%7Cuser%20provided%23file%25name%2B.jpg%3Fredirect-hackers.io")
+
+            # url encoded filenames can still be loaded
+            self.client.logout()
+            response = self.client.get(media_location)
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.headers["Content-Type"] == "image/jpeg"
+
     def test_rejects_non_image_file_type(self) -> None:
         fake_file = SimpleUploadedFile(name="test_image.jpg", content=b"a fake image", content_type="text/csv")
         response = self.client.post(

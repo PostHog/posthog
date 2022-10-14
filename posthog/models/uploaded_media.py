@@ -1,4 +1,5 @@
 from typing import List, Optional
+from urllib.parse import quote
 
 import structlog
 from django.conf import settings
@@ -31,7 +32,7 @@ class UploadedMedia(UUIDModel):
     file_name: models.TextField = models.TextField(null=True, blank=True, max_length=1000)
 
     def get_absolute_url(self) -> str:
-        return absolute_uri(f"/uploaded_media/{self.id}/{self.file_name}")
+        return absolute_uri(f"/uploaded_media/{self.id}/{quote(self.file_name, safe=[])}")
 
     @classmethod
     def save_content(

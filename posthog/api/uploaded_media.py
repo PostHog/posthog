@@ -26,7 +26,6 @@ def download(request, *args, **kwargs) -> HttpResponse:
     They are served unauthenticated as they might be presented on shared dashboards
     """
     instance: UploadedMedia = UploadedMedia.objects.get(pk=kwargs["image_uuid"])
-
     if not instance or not instance.file_name == kwargs["file_name"]:
         raise NotFound("Image not found")
 
