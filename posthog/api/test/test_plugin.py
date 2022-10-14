@@ -755,6 +755,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": "moop"},
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -785,6 +786,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": "soup"},
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
         self.client.delete(f"/api/plugin_config/{plugin_config_id}")
@@ -994,6 +996,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": "**************** POSTHOG SECRET FIELD ****************"},
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
 
@@ -1016,6 +1019,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": ""},  # empty secret configs are returned normally
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
 
@@ -1036,6 +1040,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": "**************** POSTHOG SECRET FIELD ****************"},
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)

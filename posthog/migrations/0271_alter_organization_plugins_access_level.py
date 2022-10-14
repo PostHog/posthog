@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0269_soft_delete_tiles"),
+        ("posthog", "0270_add_uploaded_media"),
     ]
 
     operations = [

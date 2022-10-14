@@ -470,8 +470,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             dashboardId,
         }),
         reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
+        reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
     },
     listeners: ({ values }) => ({
+        reportAxisUnitsChanged: (properties) => {
+            posthog.capture('axis units changed', properties)
+        },
         reportInstanceSettingChange: ({ name, value }) => {
             posthog.capture('instance setting change', { name, value })
         },
@@ -618,7 +622,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
             properties.compare = filters.compare // "Compare previous" option
             properties.mode = insightMode // View or edit
-
+            properties.show_legend = filters.show_legend
             properties.viewer_is_creator = insightModel.created_by?.uuid === values.user?.uuid ?? null // `null` means we couldn't determine this
             properties.is_saved = insightModel.saved
             properties.description_length = insightModel.description?.length ?? 0

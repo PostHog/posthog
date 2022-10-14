@@ -113,7 +113,6 @@ export const FEATURE_FLAGS = {
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
-    INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
@@ -133,9 +132,11 @@ export const FEATURE_FLAGS = {
     REGION_SELECT: 'region-select', //owner: @kappa90
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
     HOG_BOOK: 'hog-book', // owner: @pauldambra
+    EVENT_COUNT_PER_ACTOR: 'event-count-per-actor', // owner: @Twixes
     TEXT_CARDS: 'text-cards', // owner: @pauldambra
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     CURRENCY_UNITS: 'currency-units', // owner: @pauldambra
+    APP_METRICS: 'app-metrics', // owner: @macobo
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -170,7 +171,9 @@ export enum FunnelLayout {
     vertical = 'vertical',
 }
 
-export const BIN_COUNT_AUTO = 'auto'
+export const BIN_COUNT_AUTO = 'auto' as const
+
+export const EVENT_COUNT_PER_ACTOR = '__event_count_per_actor' as const
 
 // Cohort types
 export enum CohortTypeEnum {
