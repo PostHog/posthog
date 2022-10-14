@@ -1,8 +1,11 @@
-from typing import Dict
+from io import BytesIO
+from typing import Dict, Optional
 
+import structlog
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.utils import extend_schema
+from PIL import Image
 from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, NotFound, UnsupportedMediaType, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -17,6 +20,22 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.storage import object_storage
 
 FOUR_MEGABYTES = 4 * 1024 * 1024
+
+logger = structlog.getLogger(__name__)
+
+
+def validate_image_file(file: Optional[bytes], user: int) -> bool:
+    if file is None:
+        return False
+
+    try:
+        im = Image.open(BytesIO(file))
+        im.transpose(Image.FLIP_LEFT_RIGHT)
+        im.close()
+        return True
+    except Exception as e:
+        logger.error("uploaded_media.image_verification_error", user=user, exception=e, exc_info=True)
+        return False
 
 
 @csrf_exempt
@@ -74,6 +93,16 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 )
                 if uploaded_media is None:
                     raise APIException("Could not save media")
+
+                # to save having to copy the stream so that we can read it to verify the image,
+                # save it to minio anyway and then delete the record if it's not valid
+                bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
+                if not validate_image_file(bytes_to_verify, user=request.user.id):
+                    incr("uploaded_media.image_failed_validation", tags={"file_name": file.name, "team": self.team_id})
+                    # TODO a batch process can delete media with no records in the DB or for deleted teams
+                    uploaded_media.delete()
+                    raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
+
                 headers = self.get_success_headers(uploaded_media.get_absolute_url())
                 incr("uploaded_media.uploaded", tags={"team_id": self.team.pk, "content_type": file.content_type})
                 return Response(
