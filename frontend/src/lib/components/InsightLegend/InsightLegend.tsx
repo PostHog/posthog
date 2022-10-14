@@ -15,7 +15,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
-export interface InsightLegendProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
+export interface InsightLegendProps {
     readOnly?: boolean
     horizontal?: boolean
     inCardView?: boolean
@@ -47,12 +47,7 @@ export function InsightLegendButton(): JSX.Element | null {
     )
 }
 
-export function InsightLegend({
-    horizontal,
-    className,
-    inCardView,
-    readOnly = false,
-}: InsightLegendProps): JSX.Element {
+export function InsightLegend({ horizontal, inCardView, readOnly = false }: InsightLegendProps): JSX.Element {
     const { insightProps, filters } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
@@ -60,7 +55,7 @@ export function InsightLegend({
 
     return (
         <div
-            className={clsx('InsightLegendMenu', className, {
+            className={clsx('InsightLegendMenu', {
                 'InsightLegendMenu--horizontal': horizontal,
                 'InsightLegendMenu--readonly': readOnly,
                 'InsightLegendMenu--in-card-view': inCardView,
