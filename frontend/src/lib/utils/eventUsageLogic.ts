@@ -471,7 +471,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         }),
         reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
         reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
-        reportTeamSettingChange: (name: string, value: string | boolean | number | null) => ({ name, value }),
+        reportTeamSettingChange: (name: string, value: any) => ({ name, value }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
