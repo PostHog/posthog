@@ -20,7 +20,7 @@ import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { NotificationBell } from '~/layout/navigation/TopBar/NotificationBell'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from '@posthog/lemon-ui'
+import { FeedbackButton } from './FeedbackButton'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -69,11 +69,7 @@ export function TopBar(): JSX.Element {
                     </div>
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
-                    {!!featureFlags[FEATURE_FLAGS.FEEDBACK_BUTTON] && (
-                        <LemonButton data-attr={`posthog-feedback-button`}>
-                            <span className="text-default grow">Feedback</span>
-                        </LemonButton>
-                    )}
+                    {!!featureFlags[FEATURE_FLAGS.FEEDBACK_BUTTON] && <FeedbackButton />}
                     {!!featureFlags[FEATURE_FLAGS.HOG_BOOK] && <NotificationBell />}
                     <HelpButton />
                     <SitePopover />
