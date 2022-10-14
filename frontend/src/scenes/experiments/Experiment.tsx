@@ -4,7 +4,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -86,7 +86,7 @@ export function Experiment(): JSX.Element {
         setExperimentInsightType,
         archiveExperiment,
         loadExperiment,
-        createExperiment,
+        setExposureAndSampleSize,
     } = useActions(experimentLogic)
 
     const [showWarning, setShowWarning] = useState(true)
@@ -113,6 +113,10 @@ export function Experiment(): JSX.Element {
     const entrants = results?.[0]?.count
     const exposure = recommendedExposureForCountData(trendCount)
     const secondaryColumnSpan = Math.floor(24 / (variants.length + 2)) // +2 for the names column
+
+    useEffect(() => {
+        setExposureAndSampleSize(exposure, sampleSize)
+    }, [exposure, sampleSize])
 
     // Parameters for experiment results
     // don't use creation variables in results
@@ -165,9 +169,7 @@ export function Experiment(): JSX.Element {
                         formKey="experiment"
                         props={props}
                         id="experiment-form"
-                        onSubmit={() => {
-                            createExperiment(true, exposure, sampleSize)
-                        }}
+                        enableFormOnSubmit
                         className="space-y-4 experiment-form"
                     >
                         <PageHeader
@@ -248,9 +250,8 @@ export function Experiment(): JSX.Element {
                                                     >
                                                         <Row
                                                             key={`${variant}-${index}`}
-                                                            className={`feature-flag-variant ${
-                                                                index === 0 ? 'border-t' : index >= 3 ? 'border-b' : ''
-                                                            }`}
+                                                            className={`feature-flag-variant ${index === 0 ? 'border-t' : index >= 3 ? 'border-b' : ''
+                                                                }`}
                                                         >
                                                             <div
                                                                 className="variant-label"
@@ -366,11 +367,11 @@ export function Experiment(): JSX.Element {
                                                             propertyFilters={
                                                                 experimentInsightType === InsightType.FUNNELS
                                                                     ? convertPropertyGroupToProperties(
-                                                                          funnelsFilters.properties
-                                                                      )
+                                                                        funnelsFilters.properties
+                                                                    )
                                                                     : convertPropertyGroupToProperties(
-                                                                          trendsFilters.properties
-                                                                      )
+                                                                        trendsFilters.properties
+                                                                    )
                                                             }
                                                             onChange={(anyProperties) => {
                                                                 onChange({
@@ -820,11 +821,11 @@ export function Experiment(): JSX.Element {
                                                                                         variant.key
                                                                                     ] ? (
                                                                                         metric.filters.insight ===
-                                                                                        InsightType.FUNNELS ? (
+                                                                                            InsightType.FUNNELS ? (
                                                                                             <>
                                                                                                 {(
                                                                                                     secondaryMetricResults?.[
-                                                                                                        idx
+                                                                                                    idx
                                                                                                     ][variant.key] * 100
                                                                                                 ).toFixed(1)}
                                                                                                 %
@@ -833,7 +834,7 @@ export function Experiment(): JSX.Element {
                                                                                             <>
                                                                                                 {humanFriendlyNumber(
                                                                                                     secondaryMetricResults?.[
-                                                                                                        idx
+                                                                                                    idx
                                                                                                     ][variant.key]
                                                                                                 )}
                                                                                             </>

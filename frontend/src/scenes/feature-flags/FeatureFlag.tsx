@@ -187,33 +187,30 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             ) : undefined
                                         }
                                     >
-                                        {({ value, onChange }) => {
-                                            console.log('ff form val', value)
-                                            return (
-                                                <>
-                                                    <LemonInput
-                                                        value={value}
-                                                        onChange={(v) => {
-                                                            if (v !== value) {
-                                                                setHasKeyChanged(true)
-                                                            }
-                                                            onChange(v)
-                                                        }}
-                                                        data-attr="feature-flag-key"
-                                                        className="ph-ignore-input"
-                                                        autoFocus
-                                                        placeholder="examples: new-landing-page, betaFeature, ab_test_1"
-                                                        autoComplete="off"
-                                                        autoCapitalize="off"
-                                                        autoCorrect="off"
-                                                        spellCheck={false}
-                                                    />
-                                                    <span style={{ fontSize: 13 }} className="text-muted">
-                                                        Feature flag keys must be unique
-                                                    </span>
-                                                </>
-                                            )
-                                        }}
+                                        {({ value, onChange }) => (
+                                            <>
+                                                <LemonInput
+                                                    value={value}
+                                                    onChange={(v) => {
+                                                        if (v !== value) {
+                                                            setHasKeyChanged(true)
+                                                        }
+                                                        onChange(v)
+                                                    }}
+                                                    data-attr="feature-flag-key"
+                                                    className="ph-ignore-input"
+                                                    autoFocus
+                                                    placeholder="examples: new-landing-page, betaFeature, ab_test_1"
+                                                    autoComplete="off"
+                                                    autoCapitalize="off"
+                                                    autoCorrect="off"
+                                                    spellCheck={false}
+                                                />
+                                                <span style={{ fontSize: 13 }} className="text-muted">
+                                                    Feature flag keys must be unique
+                                                </span>
+                                            </>
+                                        )}
                                     </Field>
 
                                     <Field name="name" label="Description">
@@ -802,9 +799,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     <LemonDivider className="my-4" />
                                     <div className="ml-4">
                                         <PropertyFilters
-                                            pageKey={`feature-flag-${featureFlag.id}-${index}-${
-                                                featureFlag.filters.groups.length
-                                            }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                            pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length
+                                                }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                             propertyFilters={group?.properties}
                                             onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
@@ -1303,9 +1299,8 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 <div>
                                     <PropertyFilters
                                         orFiltering={true}
-                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${
-                                            featureFlag.filters.groups.length
-                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length
+                                            }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                         propertyFilters={group?.properties}
                                         logicalRowDivider
                                         addButton={

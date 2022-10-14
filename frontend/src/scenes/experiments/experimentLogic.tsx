@@ -98,7 +98,6 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentInsightId: (shortId: InsightShortId) => ({ shortId }),
         createNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
-        updateExperimentGroup: (variant: Partial<MultivariateFlagVariant>, idx: number) => ({ variant, idx }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -106,6 +105,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentResultCalculationError: (error: string) => ({ error }),
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setFlagAvailabilityWarning: (warning: boolean) => ({ warning }),
+        setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
@@ -127,14 +127,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         return { ...state, ...experiment, parameters: newParameters }
                     }
                     return { ...state, ...experiment }
-                },
-                updateExperimentGroup: (state, { variant, idx }) => {
-                    const featureFlagVariants = [...(state?.parameters?.feature_flag_variants || [])]
-                    featureFlagVariants[idx] = { ...featureFlagVariants[idx], ...variant }
-                    return {
-                        ...state,
-                        parameters: { ...state?.parameters, feature_flag_variants: featureFlagVariants },
-                    }
                 },
                 addExperimentGroup: (state) => {
                     if (state?.parameters?.feature_flag_variants) {
@@ -221,6 +213,12 @@ export const experimentLogic = kea<experimentLogicType>([
             false as boolean,
             {
                 setFlagAvailabilityWarning: (_, { warning }) => warning,
+            },
+        ],
+        exposureAndSampleSize: [
+            null,
+            {
+                setExposureAndSampleSize: (_, { exposure, sampleSize }) => ({ exposure, sampleSize }),
             },
         ],
     }),
@@ -313,7 +311,6 @@ export const experimentLogic = kea<experimentLogicType>([
             )
             actions.setExperimentInsightId(createdInsight.short_id)
             actions.setExperiment({ filters: { ...newInsight.filters } })
-            // actions.setNewExperimentData({ filters: { ...newInsight.filters } })
         },
         setFilters: ({ filters }) => {
             if (values.experimentInsightType === InsightType.FUNNELS) {
@@ -716,7 +713,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    forms(() => ({
+    forms(({ actions, values }) => ({
         experiment: {
             defaults: { ...NEW_EXPERIMENT } as Experiment,
             errors: ({ name, feature_flag_key, parameters }) => ({
@@ -734,6 +731,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     })),
                 },
             }),
+            submit: () => {
+                const { exposure, sampleSize } = values.exposureAndSampleSize
+                actions.createExperiment(true, exposure, sampleSize)
+            },
         },
     })),
     urlToAction(({ actions, values }) => ({
