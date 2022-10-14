@@ -1,4 +1,4 @@
-process.env.TZ = 'UTC'
+process.env.TZ = process.env.TZ || 'UTC'
 
 /*
  * For a detailed explanation regarding each configuration property and type check, visit:
