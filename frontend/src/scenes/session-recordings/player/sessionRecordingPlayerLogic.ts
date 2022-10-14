@@ -47,7 +47,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             [
                 'sessionRecordingId',
                 'sessionPlayerData',
-                'sessionPlayerDataLoading',
+                'sessionPlayerSnapshotDataLoading',
                 'loadMetaTimeMs',
                 'loadFirstSnapshotTimeMs',
                 'loadAllSnapshotsTimeMs',
@@ -387,8 +387,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // If not currently loading anything and part of the recording hasn't loaded, set error state
             if (
-                (!values.sessionPlayerDataLoading && !values.sessionPlayerData.bufferedTo) ||
-                (!values.sessionPlayerDataLoading &&
+                (!values.sessionPlayerSnapshotDataLoading && !values.sessionPlayerData.bufferedTo) ||
+                (!values.sessionPlayerSnapshotDataLoading &&
                     !!values.sessionPlayerData?.bufferedTo &&
                     !!playerPosition &&
                     !!values.currentSegment &&
@@ -533,7 +533,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.sessionPlayerData.bufferedTo,
                     values.sessionPlayerData.metadata.segments
                 ) > 0 &&
-                !values.sessionPlayerDataLoading
+                !values.sessionPlayerSnapshotDataLoading
             ) {
                 values.player?.replayer?.pause()
                 actions.endBuffer()

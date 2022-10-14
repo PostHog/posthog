@@ -13,7 +13,7 @@ import {
     InsightModel,
     InsightType,
     HelpType,
-    SessionPlayerData,
+    SessionPlayerSnapshotData,
     AvailableFeature,
     SessionRecordingUsageType,
     FunnelCorrelation,
@@ -346,7 +346,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportPersonMerged: (merge_count: number) => ({ merge_count }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportRecording: (
-            recordingData: SessionPlayerData,
+            recordingData: SessionPlayerSnapshotData,
             loadTime: number,
             type: SessionRecordingUsageType,
             delay?: number

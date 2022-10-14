@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { sum, toParams } from 'lib/utils'
@@ -10,6 +10,8 @@ import {
     RecordingSegment,
     RecordingStartAndEndTime,
     SessionPlayerData,
+    SessionPlayerMetaData,
+    SessionPlayerSnapshotData,
     SessionRecordingEvents,
     SessionRecordingId,
     SessionRecordingMeta,
@@ -125,9 +127,24 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         logic: [eventUsageLogic],
         values: [teamLogic, ['currentTeamId']],
     }),
+    defaults({
+        sessionPlayerMetaData: {
+            person: null,
+            metadata: {
+                segments: [],
+                startAndEndTimesByWindowId: {},
+                recordingDurationMs: 0,
+            },
+            bufferedTo: null,
+        } as SessionPlayerMetaData,
+        sessionPlayerSnapshotData: {
+            snapshotsByWindowId: {},
+            next: undefined,
+        } as SessionPlayerSnapshotData,
+    }),
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
-        reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({
+        reportUsage: (recordingData: SessionPlayerSnapshotData, loadTime: number) => ({
             recordingData,
             loadTime,
         }),
@@ -198,15 +215,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
-        sessionPlayerDataLoading: [
-            false,
-            {
-                loadRecordingMetaSuccess: (_, { sessionPlayerData }) => {
-                    // Keep `sessionPlayerDataLoading` for when meta is loaded before snapshots finish loading
-                    return Object.keys(sessionPlayerData?.snapshotsByWindowId ?? {}).length === 0
-                },
+        sessionPlayerMetaData: {
+            loadRecordingSnapshotsSuccess: (prevSessionPlayerMetaData, { sessionPlayerSnapshotData }) => {
+                const bufferedTo = calculateBufferedTo(
+                    prevSessionPlayerMetaData.metadata?.segments,
+                    sessionPlayerSnapshotData.snapshotsByWindowId,
+                    prevSessionPlayerMetaData.metadata?.startAndEndTimesByWindowId
+                )
+                return {
+                    ...prevSessionPlayerMetaData,
+                    bufferedTo,
+                }
             },
-        ],
+        },
     })),
     listeners(({ values, actions, cache }) => ({
         loadEntireRecording: () => {
@@ -260,82 +281,64 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
     })),
     loaders(({ values, props }) => ({
-        sessionPlayerData: [
-            {
-                snapshotsByWindowId: {},
-                person: null,
-                metadata: {
-                    segments: [],
-                    startAndEndTimesByWindowId: {},
-                    recordingDurationMs: 0,
-                },
-                bufferedTo: null,
-                next: undefined,
-            } as SessionPlayerData,
-            {
-                loadRecordingMeta: async (_, breakpoint): Promise<SessionPlayerData> => {
-                    if (!props.sessionRecordingId) {
-                        return values.sessionPlayerData
-                    }
-                    const params = toParams({
-                        save_view: true,
-                        recording_start_time: props.recordingStartTime,
-                    })
-                    const response = await api.get(
-                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}?${params}`
-                    )
-                    const unparsedMetadata: UnparsedMetadata | undefined = response.result?.session_recording
-                    const metadata = parseMetadataResponse(unparsedMetadata)
-                    const bufferedTo = calculateBufferedTo(
-                        metadata.segments,
-                        values.sessionPlayerData.snapshotsByWindowId,
-                        metadata.startAndEndTimesByWindowId
-                    )
-                    breakpoint()
-                    return {
-                        ...values.sessionPlayerData,
-                        person: response.result?.person,
-                        metadata,
-                        bufferedTo,
-                        snapshotsByWindowId: { ...values.sessionPlayerData.snapshotsByWindowId } ?? {},
-                    }
-                },
-                loadRecordingSnapshots: async ({ nextUrl }, breakpoint): Promise<SessionPlayerData> => {
-                    if (!props.sessionRecordingId) {
-                        return values.sessionPlayerData
-                    }
-                    const params = toParams({
-                        recording_start_time: props.recordingStartTime,
-                    })
-                    const apiUrl =
-                        nextUrl ||
-                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
-                    const response = await api.get(apiUrl)
-                    breakpoint()
-                    // If we have a next url, we need to append the new snapshots to the existing ones
-                    const snapshotsByWindowId = {
-                        ...(nextUrl ? values.sessionPlayerData.snapshotsByWindowId ?? {} : {}),
-                    }
-                    const incomingSnapshotByWindowId: {
-                        [key: string]: eventWithTime[]
-                    } = response.result?.snapshot_data_by_window_id
-                    Object.entries(incomingSnapshotByWindowId).forEach(([windowId, snapshots]) => {
-                        snapshotsByWindowId[windowId] = [...(snapshotsByWindowId[windowId] ?? []), ...snapshots]
-                    })
-                    const bufferedTo = calculateBufferedTo(
-                        values.sessionPlayerData.metadata?.segments,
-                        snapshotsByWindowId,
-                        values.sessionPlayerData.metadata?.startAndEndTimesByWindowId
-                    )
-                    return {
-                        ...values.sessionPlayerData,
-                        bufferedTo,
-                        snapshotsByWindowId,
-                        next: response.result?.next,
-                    }
-                },
+        sessionPlayerMetaData: {
+            loadRecordingMeta: async (_, breakpoint): Promise<SessionPlayerMetaData> => {
+                if (!props.sessionRecordingId) {
+                    return values.sessionPlayerMetaData
+                }
+                const params = toParams({
+                    save_view: true,
+                    recording_start_time: props.recordingStartTime,
+                })
+                const response = await api.get(
+                    `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}?${params}`
+                )
+                const unparsedMetadata: UnparsedMetadata | undefined = response.result?.session_recording
+                const metadata = parseMetadataResponse(unparsedMetadata)
+                const bufferedTo = calculateBufferedTo(
+                    metadata.segments,
+                    values.sessionPlayerSnapshotData.snapshotsByWindowId,
+                    metadata.startAndEndTimesByWindowId
+                )
+                breakpoint()
+                return {
+                    ...values.sessionPlayerMetaData,
+                    person: response.result?.person,
+                    metadata,
+                    bufferedTo,
+                }
             },
-        ],
+        },
+        sessionPlayerSnapshotData: {
+            loadRecordingSnapshots: async ({ nextUrl }, breakpoint): Promise<SessionPlayerSnapshotData> => {
+                if (!props.sessionRecordingId) {
+                    return values.sessionPlayerSnapshotData
+                }
+                const params = toParams({
+                    recording_start_time: props.recordingStartTime,
+                })
+                const apiUrl =
+                    nextUrl ||
+                    `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
+                const response = await api.get(apiUrl)
+                breakpoint()
+                // If we have a next url, we need to append the new snapshots to the existing ones
+                const snapshotsByWindowId = {
+                    ...(nextUrl ? values.sessionPlayerSnapshotData.snapshotsByWindowId ?? {} : {}),
+                }
+                const incomingSnapshotByWindowId: {
+                    [key: string]: eventWithTime[]
+                } = response.result?.snapshot_data_by_window_id
+                Object.entries(incomingSnapshotByWindowId).forEach(([windowId, snapshots]) => {
+                    snapshotsByWindowId[windowId] = [...(snapshotsByWindowId[windowId] ?? []), ...snapshots]
+                })
+                return {
+                    ...values.sessionPlayerSnapshotData,
+                    snapshotsByWindowId,
+                    next: response.result?.next,
+                }
+            },
+        },
         sessionEventsData: [
             null as null | SessionRecordingEvents,
             {
@@ -424,6 +427,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     selectors({
+        sessionPlayerData: [
+            (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData],
+            (meta, snapshots): SessionPlayerData => ({
+                ...meta,
+                ...snapshots,
+            }),
+        ],
         eventsApiParams: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {

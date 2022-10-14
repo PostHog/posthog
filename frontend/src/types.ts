@@ -477,13 +477,19 @@ export interface SessionRecordingMeta {
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
 }
-export interface SessionPlayerData {
+
+export interface SessionPlayerSnapshotData {
     snapshotsByWindowId: Record<string, eventWithTime[]>
+    next?: string
+}
+
+export interface SessionPlayerMetaData {
     person: PersonType | null
     metadata: SessionRecordingMeta
     bufferedTo: PlayerPosition | null
-    next?: string
 }
+
+export interface SessionPlayerData extends SessionPlayerSnapshotData, SessionPlayerMetaData {}
 
 export enum SessionRecordingUsageType {
     VIEWED = 'viewed',
