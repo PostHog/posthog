@@ -576,17 +576,23 @@ describe('dashboardLogic', () => {
             expect(logic.values.insightTiles[0].insight!.name).toEqual('donut')
         })
 
-        it('can respond to external filter update', async () => {
+        it('can respond to external update of tile on the dashboard', async () => {
             const copiedInsight = insight800()
-            dashboardsModel.actions.updateDashboardInsight({
-                ...copiedInsight,
-                filters: { ...copiedInsight.filters, date_from: '-1d', interval: 'hour' },
-            })
+            dashboardsModel.actions.updateDashboardInsight(
+                {
+                    ...copiedInsight,
+                    filters: { ...copiedInsight.filters, date_from: '-1d', interval: 'hour' },
+                    last_refresh: '2012-04-01T00:00:00Z',
+                },
+                [],
+                [9]
+            )
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.allItems?.tiles).toHaveLength(1)
             expect(logic.values.insightTiles[0].insight!.filters.date_from).toEqual('-1d')
             expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('hour')
+            expect(logic.values.insightTiles[0]!.last_refresh).toEqual('2012-04-01T00:00:00Z')
         })
 
         it('can respond to external insight rename', async () => {
