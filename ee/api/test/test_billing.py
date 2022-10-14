@@ -131,7 +131,7 @@ class TestBillingAPI(APILicensedTest):
         response = self.client.get("/api/billing-v2")
         assert response.status_code == status.HTTP_200_OK
 
-        assert response.json() == create_billing_customer()
+        assert response.json() == {"license": {"plan": "enterprise"}, **create_billing_customer()}
 
     @patch("ee.api.billing.requests.get")
     def test_billing_v2_returns_if_doesnt_exist_but_enabled_for_instance(self, mock_request):
@@ -170,6 +170,7 @@ class TestBillingAPI(APILicensedTest):
                         "current_usage": 0,
                     }
                 ],
+                "license": {"plan": "enterprise"},
             }
 
     @patch("ee.api.billing.requests.get")
