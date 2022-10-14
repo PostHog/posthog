@@ -5,6 +5,7 @@ from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import Detail, Trigger, log_activity
 from posthog.models.plugin import Plugin, PluginConfig
+from posthog.models.utils import UUIDT
 from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -28,6 +29,15 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
             timestamp="2021-12-03T00:00:00Z",
             successes=3,
         )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=self.plugin_config.id,
+            timestamp="2021-12-04T00:00:00Z",
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="SomeError",
+        )
 
         response = self.client.get(
             f"/api/projects/@current/app_metrics/{self.plugin_config.id}?category=processEvent&date_from=-7d"
@@ -36,7 +46,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response.json(),
             {
-                "results": {
+                "metrics": {
                     "dates": [
                         "2021-11-28",
                         "2021-11-29",
@@ -49,9 +59,10 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "successes": [0, 0, 0, 0, 0, 3, 0, 0],
                     "successes_on_retry": [0, 0, 0, 0, 0, 0, 0, 0],
-                    "failures": [0, 0, 0, 0, 0, 0, 0, 0],
-                    "totals": {"successes": 3, "successes_on_retry": 0, "failures": 0},
-                }
+                    "failures": [0, 0, 0, 0, 0, 0, 1, 0],
+                    "totals": {"successes": 3, "successes_on_retry": 0, "failures": 1},
+                },
+                "errors": [{"error_type": "SomeError", "count": 1, "last_seen": "2021-12-04T00:00:00Z"}],
             },
         )
 
@@ -114,7 +125,9 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
             plugin_config_id=self.plugin_config.id,
             job_id="1234",
             timestamp="2021-08-25T02:55:00Z",
-            failures=2,
+            failures=1,
+            error_uuid=str(UUIDT()),
+            error_type="SomeError",
         )
         create_app_metric(
             team_id=self.team.pk,
@@ -145,8 +158,8 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "successes": [0, 102, 0, 10, 0, 0, 0],
                     "successes_on_retry": [0, 0, 0, 0, 0, 0, 0],
-                    "failures": [0, 0, 2, 0, 0, 0, 0],
-                    "totals": {"successes": 112, "successes_on_retry": 0, "failures": 2},
+                    "failures": [0, 0, 1, 0, 0, 0, 0],
+                    "totals": {"successes": 112, "successes_on_retry": 0, "failures": 1},
                 },
                 "summary": {
                     "duration": 4 * 60 * 60,
@@ -157,6 +170,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                     "created_at": "2021-08-25T01:00:00Z",
                     "created_by": mock.ANY,
                 },
+                "errors": [{"error_type": "SomeError", "count": 1, "last_seen": "2021-08-25T02:55:00Z"}],
             },
         )
 
