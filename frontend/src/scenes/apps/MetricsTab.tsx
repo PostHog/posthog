@@ -126,7 +126,7 @@ export function ErrorsOverview({
                     sorter: (a, b) => (new Date(a.last_seen || 0) > new Date(b.last_seen || 0) ? 1 : -1),
                 },
             ]}
-            defaultSorting={{ columnKey: 'last_seen', order: 1 }}
+            defaultSorting={{ columnKey: 'last_seen', order: -1 }}
         />
     )
 }
