@@ -3,7 +3,6 @@ from typing import Dict, Optional
 
 import pytz
 
-from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.queries.app_metrics.app_metrics import AppMetricsErrorsQuery, AppMetricsQuery
@@ -11,6 +10,8 @@ from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
 
 
 def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Optional[str] = None):
+    from posthog.api.shared import UserBasicSerializer
+
     entries = ActivityLog.objects.filter(
         team_id=team_id,
         scope="PluginConfig",

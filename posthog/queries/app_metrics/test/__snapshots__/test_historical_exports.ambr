@@ -33,6 +33,24 @@
 ---
 # name: TestHistoricalExports.test_historical_export_metrics.1
   '
+  
+  SELECT error_type,
+         count() AS count,
+         max(timestamp) AS last_seen
+  FROM app_metrics
+  WHERE team_id = 2
+    AND plugin_config_id = 3
+    AND category = 'exportEvents'
+    AND job_id = '1234'
+    AND timestamp >= '2021-08-25 00:00:00'
+    AND timestamp < '2021-08-25 06:00:00'
+    AND error_type <> ''
+  GROUP BY error_type
+  ORDER BY count DESC
+  '
+---
+# name: TestHistoricalExports.test_historical_export_metrics.2
+  '
   SELECT "posthog_activitylog"."id",
          "posthog_activitylog"."team_id",
          "posthog_activitylog"."organization_id",
@@ -56,7 +74,7 @@
          AND "posthog_activitylog"."team_id" = 2)
   '
 ---
-# name: TestHistoricalExports.test_historical_export_metrics.2
+# name: TestHistoricalExports.test_historical_export_metrics.3
   '
   SELECT "posthog_user"."id",
          "posthog_user"."password",
