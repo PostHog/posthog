@@ -53,7 +53,7 @@ export function InsightLegend({
     inCardView,
     readOnly = false,
 }: InsightLegendProps): JSX.Element {
-    const { insightProps, filters } = useValues(insightLogic)
+    const { insightProps, filters, highlightedSeries } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
@@ -71,8 +71,19 @@ export function InsightLegend({
                     indexedResults
                         .sort((a, b) => b.aggregated_value - a.aggregated_value)
                         .map((item, index) => {
+                            const highlightStyle: Record<string, any> =
+                                highlightedSeries === index
+                                    ? {
+                                          style: { backgroundColor: getSeriesColor(item.id, false, true) },
+                                      }
+                                    : {}
+
                             return (
-                                <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row">
+                                <div
+                                    key={item.id}
+                                    className={clsx('InsightLegendMenu-item p-2 w-full flex flex-row')}
+                                    {...highlightStyle}
+                                >
                                     <LemonCheckbox
                                         className="text-xs mr-4"
                                         color={getSeriesColor(item.id, !!filters.compare)}
