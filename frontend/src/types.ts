@@ -2101,3 +2101,9 @@ export enum FeatureFlagReleaseType {
     ReleaseToggle = 'Release toggle',
     Variants = 'Multiple variants',
 }
+
+export interface MediaUploadResponse {
+    id: string
+    image_location: string
+    name: string
+}

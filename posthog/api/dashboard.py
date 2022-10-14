@@ -6,11 +6,12 @@ from django.db.models import Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from drf_spectacular.utils import extend_schema
-from rest_framework import exceptions, response, serializers, viewsets
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
@@ -360,17 +361,17 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
 
         return queryset
 
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         pk = kwargs["pk"]
         queryset = self.get_queryset()
         dashboard = get_object_or_404(queryset, pk=pk)
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
-        return response.Response(serializer.data)
+        return Response(serializer.data)
 
     @action(methods=["PATCH"], detail=True)
-    def move_tile(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+    def move_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # TODO could things be rearranged so this is  PATCH call on a resource and not a custom endpoint?
         tile = request.data["tile"]
         from_dashboard = kwargs["pk"]
@@ -383,7 +384,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         serializer = DashboardSerializer(
             Dashboard.objects.get(id=from_dashboard), context={"view": self, "request": request}
         )
-        return response.Response(serializer.data)
+        return Response(serializer.data)
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
