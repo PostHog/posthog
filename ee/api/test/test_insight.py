@@ -39,7 +39,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
         )
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard")
         insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user)

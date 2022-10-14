@@ -44,6 +44,7 @@ class License(models.Model):
     plan: models.CharField = models.CharField(max_length=200)
     valid_until: models.DateTimeField = models.DateTimeField()
     key: models.CharField = models.CharField(max_length=200)
+    # DEPRECATED: This is no longer used
     max_users: models.IntegerField = models.IntegerField(default=None, null=True)  # None = no restriction
 
     SCALE_PLAN = "scale"

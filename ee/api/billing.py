@@ -253,7 +253,6 @@ class BillingViewset(viewsets.GenericViewSet):
         """
         license.valid_until = data["valid_until"]
         license.plan = data["type"]
-        license.max_users = 0
         license.save()
 
         return license

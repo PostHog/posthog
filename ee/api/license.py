@@ -47,7 +47,6 @@ class LicenseSerializer(serializers.ModelSerializer):
         )
         data["valid_until"] = resp["valid_until"]
         data["plan"] = resp["plan"]
-        data["max_users"] = resp.get("max_users", 0)
         return data
 
 
