@@ -164,11 +164,7 @@ function Pages(): JSX.Element {
                             to={urls.webPerformance()}
                         />
                     )}
-                    {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
-                        <div className="SideBar__heading">Data</div>
-                    ) : (
-                        <LemonDivider />
-                    )}
+                    <div className="SideBar__heading">Data</div>
 
                     <PageButton icon={<IconLive />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
@@ -184,32 +180,21 @@ function Pages(): JSX.Element {
                     />
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
-                    {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
+                    {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
                         <>
-                            {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
-                                <>
-                                    <div className="SideBar__heading">Apps</div>
-                                    {canViewPlugins(currentOrganization) && (
-                                        <PageButton
-                                            title="Browse Apps"
-                                            icon={<IconApps />}
-                                            identifier={Scene.Plugins}
-                                            to={urls.projectApps()}
-                                        />
-                                    )}
-                                    {Object.keys(frontendApps).length > 0 && <SideBarApps />}
-                                </>
-                            ) : null}
-                            <div className="SideBar__heading">Configuration</div>
-                        </>
-                    ) : (
-                        <>
-                            <LemonDivider />
+                            <div className="SideBar__heading">Apps</div>
                             {canViewPlugins(currentOrganization) && (
-                                <PageButton icon={<IconApps />} identifier={Scene.Plugins} to={urls.projectApps()} />
+                                <PageButton
+                                    title="Browse Apps"
+                                    icon={<IconApps />}
+                                    identifier={Scene.Plugins}
+                                    to={urls.projectApps()}
+                                />
                             )}
+                            {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
-                    )}
+                    ) : null}
+                    <div className="SideBar__heading">Configuration</div>
 
                     <PageButton
                         icon={<IconTools />}
