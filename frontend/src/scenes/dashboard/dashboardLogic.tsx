@@ -795,7 +795,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                 lemonToast.success(
                     <>
-                        Insight moved to{' '}
+                        {!!updatedTile.insight ? 'Insight' : 'Text'} moved to{' '}
                         <b>
                             <Link to={urls.dashboard(payload?.toDashboard)}>{payload?.toDashboardName}</Link>
                         </b>
