@@ -9,10 +9,19 @@ function createDashboardFromTemplate(dashboardName) {
     cy.contains(dashboardName).should('exist')
 }
 
+function visitDashboardsPage() {
+    cy.clickNavMenu('dashboards')
+    cy.location('pathname').should('include', '/dashboard')
+}
+
+function randomString(prefix = '') {
+    const uuid = () => Cypress._.random(0, 1e6)
+    return `${prefix}${uuid()}`
+}
+
 describe('Dashboard', () => {
     beforeEach(() => {
-        cy.clickNavMenu('dashboards')
-        cy.location('pathname').should('include', '/dashboard')
+        visitDashboardsPage()
     })
 
     it('Dashboards loaded', () => {
@@ -135,12 +144,36 @@ describe('Dashboard', () => {
         cy.get('[data-attr=success-toast]').contains('Insight duplicated').should('exist')
     })
 
-    it('Move dashboard item', () => {
+    it.only('Move dashboard item', () => {
+        // load the dashboardLogic for the target so we're testing turbo mode
+        cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
+        visitDashboardsPage()
         cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
-        cy.get('.InsightCard [data-attr=more-button]').first().click()
-        cy.get('button').contains('Move to').click()
-        cy.get('button').contains('App Analytics').click()
-        cy.get('[data-attr=success-toast]').contains('Insight moved').should('exist')
+
+        // create an insight to move
+        cy.get('[data-attr="dashboard-add-graph-header"]').click()
+        const insightName = randomString('insight')
+        cy.get('[data-attr="insight-name"]').should('have.text', 'Pageview count')
+        cy.get('[data-attr="edit-prop-name"]').click()
+        cy.get('[data-attr="insight-name"] input').type(insightName)
+        cy.get('[data-attr="insight-save-button"]').click()
+
+        cy.contains('.InsightCard--highlighted', insightName).within(($insightCard) => {
+            cy.get('[data-attr="more-button"]').click()
+        })
+
+        cy.intercept(/api\/projects\/\d+\/dashboards\/\d+\/move_tile/).as('moveTile')
+
+        cy.get('[data-attr="insight-move-to-dashboard"]').click()
+        cy.contains('button', 'App Analytics').click()
+
+        cy.wait('@moveTile').then(({ request }) => {
+            cy.get('[data-attr=success-toast]').contains('Insight moved').should('exist')
+
+            visitDashboardsPage()
+            cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
+            cy.get('.InsightCard h4').contains(insightName).should('exist')
+        })
     })
 
     it('Opens dashboard item in insights', () => {

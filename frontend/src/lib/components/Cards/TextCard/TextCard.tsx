@@ -109,6 +109,7 @@ export function TextCardInternal(
                                             closeParentPopupOnClickInside: true,
                                         }}
                                         fullWidth
+                                        data-attr={'text-move-to-dashboard'}
                                     >
                                         Move to
                                     </LemonButtonWithPopup>

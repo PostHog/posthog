@@ -369,6 +369,7 @@ function InsightMeta({
                                                                 closeParentPopupOnClickInside: true,
                                                             }}
                                                             fullWidth
+                                                            data-attr={'insight-move-to-dashboard'}
                                                         >
                                                             Move to
                                                         </LemonButtonWithPopup>

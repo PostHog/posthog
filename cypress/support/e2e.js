@@ -33,6 +33,7 @@ beforeEach(() => {
         })
         cy.visit('/?no-preloaded-app-context=true')
     } else {
+        cy.visit('/')
         cy.request('POST', '/api/login/', {
             email: 'test@posthog.com',
             password: '12345678',
