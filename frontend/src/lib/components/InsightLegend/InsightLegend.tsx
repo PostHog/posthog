@@ -26,8 +26,9 @@ const legendToggleDenyList = [
     ChartDisplayType.ActionsBarValue,
 ]
 
+// legend shows for a subset of trends or for Stickiness insights
 const shouldHideLegend = (filters: Partial<FilterType>, activeView: InsightType): boolean =>
-    (filters.display && legendToggleDenyList.includes(filters.display)) || activeView === InsightType.STICKINESS
+    (filters.display && legendToggleDenyList.includes(filters.display)) || activeView !== InsightType.STICKINESS
 
 export function InsightLegendButton(): JSX.Element | null {
     const { filters, activeView } = useValues(insightLogic)
