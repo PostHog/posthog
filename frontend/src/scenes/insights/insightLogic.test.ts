@@ -1149,6 +1149,26 @@ describe('insightLogic', () => {
                 })
         })
 
+        it('reacts to move between dashboards', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.tileMovedToDashboard({ insight: { id: 42 } } as DashboardTile, 2, 4)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 3, 4] }),
+                })
+        })
+
+        it('does not reacts to move of a different tile between dashboards', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.tileMovedToDashboard({ insight: { id: 12 } } as DashboardTile, 3, 4)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                })
+        })
+
         it('reacts to deletion of dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType)

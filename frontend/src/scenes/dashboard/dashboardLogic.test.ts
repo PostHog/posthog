@@ -332,8 +332,9 @@ describe('dashboardLogic', () => {
                     }),
                 })
 
+            // doesn't care which dashboard it moved from
             await expectLogic(dashboardEightlogic, () => {
-                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 8)
+                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 6, 8)
             }).toMatchValues({
                 allItems: truth(({ tiles }) => {
                     return tiles.length === 2
@@ -353,8 +354,9 @@ describe('dashboardLogic', () => {
                     }),
                 })
 
+            // doesn't care which dashboard it moved from
             await expectLogic(dashboardEightlogic, () => {
-                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 10)
+                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 8, 10)
             }).toMatchValues({
                 allItems: truth(({ tiles }) => {
                     return tiles.length === 1
