@@ -44,7 +44,7 @@ export function Dashboard({ id, dashboard, placement }: Props = {}): JSX.Element
 function DashboardScene(): JSX.Element {
     const {
         placement,
-        dashboard,
+        allItems: dashboard, // dashboard directly on the logic not via dashboardsModel
         canEditDashboard,
         tiles,
         itemsLoading,

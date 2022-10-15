@@ -168,11 +168,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [{ id: tile.id, deleted: true }],
                         })
+
+                        const filteredTiles = values.tiles.filter((t) => t.id !== tile.id)
+
                         dashboardsModel.actions.tileRemovedFromDashboard({
                             tile: tile,
                             dashboardId: props.id,
                         })
-                        const filteredTiles = values.tiles.filter((t) => t.id !== tile.id)
+
                         return {
                             ...values.allItems,
                             tiles: filteredTiles,
@@ -300,7 +303,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                         return {
                             ...state,
-                            tiles: newTiles.filter((t) => !!t.insight && !t.insight.deleted),
+                            tiles: newTiles.filter((t) => !!t.text || (!!t.insight && !t.insight.deleted)),
                         } as DashboardType
                     }
 

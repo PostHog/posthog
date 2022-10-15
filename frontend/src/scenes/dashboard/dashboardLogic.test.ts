@@ -155,7 +155,7 @@ describe('dashboardLogic', () => {
                 ...dashboardResult(8, [tileFromInsight(insights['1001'])]),
             },
             9: {
-                ...dashboardResult(9, [tileFromInsight(insights['800'])]),
+                ...dashboardResult(9, [tileFromInsight(insights['800']), TEXT_TILE]),
             },
             10: {
                 ...dashboardResult(10, [tileFromInsight(insights['800'])]),
@@ -280,8 +280,8 @@ describe('dashboardLogic', () => {
             dashboardEightlogic.mount()
 
             // insight 800 starts on dashboard 9 and 10
-            // dashboard 9 has only that 1 insight
-            // so moving insight 800 to dashboard 8 means dashboard 9 has no insights
+            // dashboard 9 has only that 1 insight and a text tile
+            // so moving insight 800 to dashboard 8 means dashboard 9 has no insights and 1 text tile
             // and that insight800 is on dashboard 8 and 10
             const startingDashboard = dashboards['9']
 
@@ -292,7 +292,7 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     allItems: truth(({ tiles }) => {
-                        return tiles.length === 1 && tiles[0].insight.id === 800
+                        return tiles.length === 2 && tiles[0].insight.id === 800
                     }),
                 })
 
@@ -308,7 +308,7 @@ describe('dashboardLogic', () => {
                 .toDispatchActions(['moveToDashboardSuccess'])
                 .toMatchValues({
                     allItems: truth(({ tiles }) => {
-                        return tiles.length === 0
+                        return tiles.length === 1 && !!tiles[0].text
                     }),
                 })
 
@@ -569,11 +569,12 @@ describe('dashboardLogic', () => {
             logic = dashboardLogic({ id: 9 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.allItems?.tiles).toHaveLength(1)
+            expect(logic.values.allItems?.tiles).toHaveLength(2)
             expect(logic.values.insightTiles[0].insight!.short_id).toEqual('800')
             expect(logic.values.insightTiles[0].insight!.filters.date_from).toBeUndefined()
             expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('day')
             expect(logic.values.insightTiles[0].insight!.name).toEqual('donut')
+            expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
         })
 
         it('can respond to external filter update', async () => {
@@ -584,9 +585,10 @@ describe('dashboardLogic', () => {
             })
 
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.allItems?.tiles).toHaveLength(1)
+            expect(logic.values.allItems?.tiles).toHaveLength(2)
             expect(logic.values.insightTiles[0].insight!.filters.date_from).toEqual('-1d')
             expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('hour')
+            expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT') // unchanged and still present
         })
 
         it('can respond to external insight rename', async () => {
@@ -601,10 +603,11 @@ describe('dashboardLogic', () => {
             })
 
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.allItems?.tiles).toHaveLength(1)
+            expect(logic.values.allItems?.tiles).toHaveLength(2)
             expect(logic.values.insightTiles[0].insight!.name).toEqual('renamed')
             expect(logic.values.insightTiles[0].insight!.last_modified_at).toEqual('2021-04-01 12:00:00')
             expect(logic.values.insightTiles[0].insight!.description).toEqual(null)
+            expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT') // unchanged and still present
         })
 
         it('can respond to external insight update for a tile that is new on this dashboard', async () => {
@@ -749,14 +752,17 @@ describe('dashboardLogic', () => {
         })
 
         it('can remove text tiles', async () => {
+            expect(logic.values.insightTiles).toHaveLength(2)
+            expect(logic.values.textTiles).toHaveLength(1)
+
             await expectLogic(logic, () => {
                 logic.actions.removeTile(TEXT_TILE)
             })
-                .toFinishAllListeners()
                 .toDispatchActions([dashboardsModel.actionTypes.tileRemovedFromDashboard])
-                .toMatchValues({
-                    textTiles: [],
-                })
+                .toFinishAllListeners()
+
+            expect(logic.values.insightTiles).toHaveLength(2)
+            expect(logic.values.textTiles).toHaveLength(0)
         })
     })
 })

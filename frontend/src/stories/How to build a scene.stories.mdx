@@ -72,7 +72,9 @@ export const scene: SceneExport = {
 
 export function Dashboard ({ id }: { id?: string } = {}): JSX.Element {
     // dashboardLogic is automatically bound to the props above with BindLogic
-    const { dashboard } = useValues(dashboardLogic)
+    const { 
+        allItems: dashboard // dashboard but directly on dashboardLogic not via dashboardsModel
+    } = useValues(dashboardLogic)
     const { reloadDashboard } = useActions(dashboardLogic)
     return (
         // TODO: consolidate on a recommended naming convention
