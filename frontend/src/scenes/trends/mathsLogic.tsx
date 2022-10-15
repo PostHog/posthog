@@ -35,7 +35,7 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
         title: 'Event Aggregation',
         options: [
             {
-                value: BaseMathType.Total,
+                value: BaseMathType.TotalCount,
                 label: (
                     <Label
                         tooltip={
@@ -47,7 +47,7 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                 ),
             },
             {
-                value: BaseMathType.DailyActive,
+                value: BaseMathType.UniqueUsers,
                 label: (
                     <Label
                         tooltip={
@@ -59,26 +59,26 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                 ),
             },
             {
-                value: BaseMathType.WeeklyActive,
+                value: BaseMathType.WeeklyActiveUsers,
                 label: (
                     <Label
                         tooltip={
-                            'Users active in the past week (7 days). This is a trailing count that aggregates distinct users in the past 7 days for each day in the timeseries'
+                            'Users active in the past 7 days. This is a trailing count that aggregates distinct users in the past 7 days for each day in the timeseries'
                         }
                     >
-                        Weekly active
+                        Weekly active users
                     </Label>
                 ),
             },
             {
-                value: BaseMathType.MonthlyActive,
+                value: BaseMathType.MonthlyActiveUsers,
                 label: (
                     <Label
                         tooltip={
-                            'Users active in the past week (30 days). This is a trailing count that aggregates distinct users in the past 7 days for each day in the timeseries'
+                            'Users active in the past 30 days. This is a trailing count that aggregates distinct users in the past 30 days for each day in the timeseries'
                         }
                     >
-                        Monthly active
+                        Monthly active users
                     </Label>
                 ),
             },
@@ -90,7 +90,7 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                             'Number of unique sessions where the event was performed in the specified period. Example: If a single user performs an event 3 times in two separate sessions, it counts as two sessions.'
                         }
                     >
-                        Unique Sessions
+                        Unique sessions
                     </Label>
                 ),
             },
@@ -173,7 +173,7 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                             NUMERICAL_REQUIREMENT_NOTICE
                         }
                     >
-                        90th Percentile
+                        90th percentile
                     </Label>
                 ),
             },
@@ -186,7 +186,7 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                             NUMERICAL_REQUIREMENT_NOTICE
                         }
                     >
-                        95th Percentile
+                        95th percentile
                     </Label>
                 ),
             },
@@ -199,7 +199,7 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
                             NUMERICAL_REQUIREMENT_NOTICE
                         }
                     >
-                        99th Percentile
+                        99th percentile
                     </Label>
                 ),
             },
@@ -208,7 +208,7 @@ export const SELECT_FORMATTED_OPTIONS: LemonSelectOptions<BaseMathType | Propert
 ]
 
 export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
-    [BaseMathType.Total]: {
+    [BaseMathType.TotalCount]: {
         name: 'Total count',
         shortName: 'count',
         description: (
@@ -223,7 +223,7 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         actor: false,
         type: EVENT_MATH_TYPE,
     },
-    [BaseMathType.DailyActive]: {
+    [BaseMathType.UniqueUsers]: {
         name: 'Unique users',
         shortName: 'unique users',
         description: (
@@ -240,7 +240,7 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         actor: true,
         type: EVENT_MATH_TYPE,
     },
-    [BaseMathType.WeeklyActive]: {
+    [BaseMathType.WeeklyActiveUsers]: {
         name: 'Weekly active',
         shortName: 'WAUs',
         description: (
@@ -255,7 +255,7 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         actor: false,
         type: EVENT_MATH_TYPE,
     },
-    [BaseMathType.MonthlyActive]: {
+    [BaseMathType.MonthlyActiveUsers]: {
         name: 'Monthly active',
         shortName: 'MAUs',
         description: (
@@ -428,7 +428,7 @@ export function apiValueToMathType(math: string | undefined, groupTypeIndex: num
     if (math === 'unique_group') {
         return `unique_group::${groupTypeIndex}`
     }
-    return math || BaseMathType.Total
+    return math || BaseMathType.TotalCount
 }
 
 export const mathsLogic = kea<mathsLogicType>({

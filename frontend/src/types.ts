@@ -1934,10 +1934,10 @@ export interface InstanceSetting {
 }
 
 export enum BaseMathType {
-    Total = 'total',
-    DailyActive = 'dau',
-    WeeklyActive = 'weekly_active',
-    MonthlyActive = 'monthly_active',
+    TotalCount = 'total',
+    UniqueUsers = 'dau',
+    WeeklyActiveUsers = 'weekly_active',
+    MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
 }
 
