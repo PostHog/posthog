@@ -78,7 +78,7 @@ describe('Password Reset', () => {
 
     it('Can request password reset', () => {
         cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com').blur()
-        cy.get('[data-attr=password]', { timeout: 5000 }).should('be.visible') // Wait for login precheck (note blur above)
+        cy.get('[data-attr=forgot-password]', { timeout: 5000 }).should('be.visible') // Wait for login precheck (note blur above)
         cy.get('[data-attr="forgot-password"]').click()
         cy.location('pathname').should('eq', '/reset')
         cy.get('[data-attr="reset-email"]').type('test@posthog.com')
