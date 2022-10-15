@@ -1,37 +1,49 @@
+import crypto from 'crypto'
+
 import { DB } from '../../../../utils/db/db'
 import { timeoutGuard } from '../../../../utils/db/utils'
-import { generateRandomToken, getByAge, UUIDT } from '../../../../utils/utils'
-import { OrganizationMembershipLevel, RawOrganization } from './../../../../types'
-
-type PluginsApiKeyCache<T> = Map<RawOrganization['id'], [T, number]>
+import { generateRandomToken, UUIDT } from '../../../../utils/utils'
+import { createCache } from '../cache'
+import { OrganizationMembershipLevel, PluginConfig, RawOrganization } from './../../../../types'
 
 const POSTHOG_BOT_USER_EMAIL_DOMAIN = 'posthogbot.user'
+const PERSONAL_API_KEY_SALT = 'posthog_personal_api_key'
+
+const getSecureValue = () => {
+    const iterations = 480000
+    const hash = crypto
+        .pbkdf2Sync(`phx_${generateRandomToken(32)}`, PERSONAL_API_KEY_SALT, iterations, 24, 'sha256')
+        .toString('hex')
+    return `pbkdf2_sha256$${iterations}$${PERSONAL_API_KEY_SALT}$${hash}`
+}
 
 export class PluginsApiKeyManager {
     db: DB
-    pluginsApiKeyCache: PluginsApiKeyCache<string | null>
 
     constructor(db: DB) {
         this.db = db
-        this.pluginsApiKeyCache = new Map()
     }
 
-    public async fetchOrCreatePersonalApiKey(organizationId: RawOrganization['id']): Promise<string> {
+    public async fetchOrCreatePersonalApiKey(
+        organizationId: RawOrganization['id'],
+        pluginConfig: PluginConfig
+    ): Promise<string> {
         const createNewKey = async (userId: number): Promise<string> => {
             return (
                 await this.db.createPersonalApiKey({
                     id: generateRandomToken(32),
                     user_id: userId,
                     label: 'autogen',
-                    value: `phx_${generateRandomToken(32)}`,
+                    secure_value: getSecureValue(),
                     created_at: new Date(),
                 })
-            ).rows[0].value
+            ).rows[0].secure_value
         }
+        const cache = createCache({ db: this.db } as any, pluginConfig.plugin_id, pluginConfig.team_id)
 
-        const cachedKey = getByAge(this.pluginsApiKeyCache, organizationId)
+        const cachedKey = await cache.get('_bot_api_key', false)
         if (cachedKey) {
-            return cachedKey
+            return cachedKey as string
         }
 
         const timeout = timeoutGuard(`Still running "fetchOrCreatePersonalApiKey". Timeout warning after 30 sec!`)
@@ -65,27 +77,16 @@ export class PluginsApiKeyManager {
 
                 key = await createNewKey(newUserResult.rows[0].id)
             } else {
-                // User exists, check if the key does too
+                // User exists, we'll need to create a new key
                 const userId = userResult.rows[0].id
-                const personalApiKeyResult = await this.db.postgresQuery(
-                    'SELECT value FROM posthog_personalapikey WHERE user_id = $1',
-                    [userId],
-                    'fetchOrCreatePersonalApiKey'
-                )
-
-                // user remains but key was somehow deleted
-                if (!personalApiKeyResult.rows.length || !personalApiKeyResult.rows[0].value) {
-                    key = await createNewKey(userId)
-                } else {
-                    key = personalApiKeyResult.rows[0].value
-                }
+                key = await createNewKey(userId)
             }
 
             if (!key) {
                 throw new Error('Unable to find or create a Personal API Key')
             }
 
-            this.pluginsApiKeyCache.set(organizationId, [key, Date.now()])
+            await cache.set('_bot_api_key', key)
 
             return key
         } finally {

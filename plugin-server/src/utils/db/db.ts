@@ -121,7 +121,7 @@ export interface CreatePersonalApiKeyPayload {
     id: string
     user_id: number
     label: string
-    value: string
+    secure_value: string
     created_at: Date
 }
 
@@ -1644,14 +1644,14 @@ export class DB {
         id,
         user_id,
         label,
-        value,
+        secure_value,
         created_at,
     }: CreatePersonalApiKeyPayload): Promise<QueryResult> {
         return await this.postgresQuery(
-            `INSERT INTO posthog_personalapikey (id, user_id, label, value, created_at)
+            `INSERT INTO posthog_personalapikey (id, user_id, label, secure_value, created_at)
             VALUES ($1, $2, $3, $4, $5)
-            RETURNING value`,
-            [id, user_id, label, value, created_at.toISOString()],
+            RETURNING secure_value`,
+            [id, user_id, label, secure_value, created_at.toISOString()],
             'createPersonalApiKey'
         )
     }

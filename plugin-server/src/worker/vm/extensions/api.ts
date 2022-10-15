@@ -59,7 +59,7 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
             }
 
             tokenParam['token'] = team.api_token
-            apiKey = await server.pluginsApiKeyManager.fetchOrCreatePersonalApiKey(team.organization_id)
+            apiKey = await server.pluginsApiKeyManager.fetchOrCreatePersonalApiKey(team.organization_id, pluginConfig)
         }
 
         const urlParams = new URLSearchParams(

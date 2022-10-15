@@ -1,6 +1,7 @@
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { PluginsApiKeyManager } from '../../src/worker/vm/extensions/helpers/api-key-manager'
+import { pluginConfig39 } from '../helpers/plugins'
 import { createUserTeamAndOrganization } from '../helpers/sql'
 import { POSTGRES_TRUNCATE_TABLES_QUERY } from '../helpers/sql'
 
@@ -13,6 +14,8 @@ describe('PluginsApiKeyManager', () => {
             TASK_TIMEOUT: 1,
         })
         await hub.db.postgresQuery(POSTGRES_TRUNCATE_TABLES_QUERY, [], 'truncateTablesTest')
+        await hub.db.redisExpire(`@plugin/60/88/_bot_api_key`, 0)
+        await hub.db.redisExpire(`@plugin/60/99/_bot_api_key`, 0)
     })
 
     afterEach(async () => {
@@ -38,7 +41,7 @@ describe('PluginsApiKeyManager', () => {
             '017d107d-21a2-0001-4032-b47cdf5e09dc'
         )
 
-        const key1 = await pluginsApiKeyManager.fetchOrCreatePersonalApiKey(orgId1)
+        const key1 = await pluginsApiKeyManager.fetchOrCreatePersonalApiKey(orgId1, { ...pluginConfig39, team_id: 88 })
         expect(hub.db.createUser).toHaveBeenCalledTimes(1)
         expect(hub.db.createUser).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -47,7 +50,7 @@ describe('PluginsApiKeyManager', () => {
             })
         )
 
-        const key2 = await pluginsApiKeyManager.fetchOrCreatePersonalApiKey(orgId2)
+        const key2 = await pluginsApiKeyManager.fetchOrCreatePersonalApiKey(orgId2, { ...pluginConfig39, team_id: 99 })
         expect(hub.db.createUser).toHaveBeenCalledTimes(2)
         expect(hub.db.createUser).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -60,10 +63,19 @@ describe('PluginsApiKeyManager', () => {
         expect(key1).not.toEqual(key2)
 
         // check that we hit the cache
-        await pluginsApiKeyManager.fetchOrCreatePersonalApiKey(orgId1)
+        const key = await pluginsApiKeyManager.fetchOrCreatePersonalApiKey(orgId1, { ...pluginConfig39, team_id: 88 })
+        expect(key).toMatch(/^pbkdf2_sha256\$480000\$posthog_personal_api_key/)
 
         expect(hub.db.createUser).toHaveBeenCalledTimes(2)
-        expect(pluginsApiKeyManager.pluginsApiKeyCache.get(orgId1)?.[0]).toEqual(key1)
-        expect(pluginsApiKeyManager.pluginsApiKeyCache.get(orgId2)?.[0]).toEqual(key2)
+
+        // What happens when the key still exists, but it's not in the cache anymore
+        await hub.db.redisExpire(`@plugin/60/88/_bot_api_key`, 0)
+
+        const newkey = await pluginsApiKeyManager.fetchOrCreatePersonalApiKey(orgId1, {
+            ...pluginConfig39,
+            team_id: 88,
+        })
+        expect(newkey).toMatch(/^pbkdf2_sha256\$480000\$posthog_personal_api_key/)
+        expect(newkey).not.toEqual(key)
     })
 })
