@@ -174,6 +174,16 @@ describe('Dashboard', () => {
             cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
             cy.get('.InsightCard h4').contains(insightName).should('exist')
         })
+
+        // confirm that the insight's dashboard list was updated in turbo mode
+        cy.get('.InsightCard h4').contains(insightName).click()
+        cy.contains('button', 'Add to dashboard').click()
+        cy.contains('[data-attr="dashboard-list-item"]', 'App Analytics').within(() => {
+            cy.get('button').should('have.text', 'Added')
+        })
+        cy.contains('[data-attr="dashboard-list-item"]', 'Web Analytics').within(() => {
+            cy.get('button').should('have.text', 'Add to dashboard')
+        })
     })
 
     it('Opens dashboard item in insights', () => {
