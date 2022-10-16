@@ -8,6 +8,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { useMocks } from '~/mocks/jest'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { insightsModel } from '~/models/insightsModel'
 
 jest.spyOn(api, 'create')
 
@@ -184,6 +185,12 @@ describe('savedInsightsLogic', () => {
                 1,
                 4
             )
+        }).toDispatchActions(['loadInsights'])
+    })
+
+    it('updates insights when one is renamed', async () => {
+        await expectLogic(logic, () => {
+            insightsModel.actions.renameInsightSuccess({} as InsightModel)
         }).toDispatchActions(['loadInsights'])
     })
 })

@@ -114,10 +114,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 )
                 return { ...values.insights, results: updatedInsights }
             },
-            setInsight: (insight: InsightModel) => {
-                const results = values.insights.results.map((i) => (i.short_id === insight.short_id ? insight : i))
-                return { ...values.insights, results }
-            },
         },
     }),
     reducers: {
@@ -236,8 +232,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         setDates: () => {
             actions.loadInsights()
         },
-        [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
-            actions.setInsight(item)
+        [insightsModel.actionTypes.renameInsightSuccess]: () => {
+            actions.loadInsights()
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => actions.loadInsights(),
