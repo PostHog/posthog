@@ -1,3 +1,5 @@
+import { randomString } from '../support/random'
+
 function createDashboardFromTemplate(dashboardName) {
     cy.get('[data-attr="new-dashboard"]').click()
     cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
@@ -12,11 +14,6 @@ function createDashboardFromTemplate(dashboardName) {
 function visitDashboardsPage() {
     cy.clickNavMenu('dashboards')
     cy.location('pathname').should('include', '/dashboard')
-}
-
-function randomString(prefix = '') {
-    const uuid = () => Cypress._.random(0, 1e6)
-    return `${prefix}${uuid()}`
 }
 
 describe('Dashboard', () => {

@@ -1,4 +1,5 @@
 import { urls } from 'scenes/urls'
+import { randomString } from '../support/random'
 
 function applyFilter() {
     cy.get('[data-attr=insight-filters-add-filter-group]').click()
@@ -40,17 +41,6 @@ describe('Insights', () => {
         cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Insights')
         cy.get('[data-attr=breadcrumb-3]').should('not.have.text', '')
-    })
-
-    it('Create new insight and save copy', () => {
-        createANewInsight()
-
-        cy.get('[data-attr="insight-edit-button"]').click()
-
-        cy.get('[data-attr="insight-save-dropdown"]').click()
-        cy.get('[data-attr="insight-save-as-new-insight"]').click()
-        cy.get('.ant-modal-content .ant-btn-primary').click()
-        cy.get('[data-attr="insight-name"]').should('contain', 'Pageview count (copy)')
     })
 
     it('Can change insight name', () => {
@@ -208,6 +198,64 @@ describe('Insights', () => {
 
             // Test that the button shows the correct formatted range
             cy.get('[data-attr=date-filter]').get('span').contains('Last 5 days').should('exist')
+        })
+    })
+
+    describe('duplicating insights', () => {
+        it('can duplicate insights from the insights list view', () => {
+            cy.visit(urls.savedInsights())
+            const insightName = randomString('insight-name-')
+            createANewInsight(insightName)
+
+            cy.visit(urls.savedInsights())
+            cy.contains('.saved-insights table tr', insightName).within(() => {
+                cy.get('[data-attr="more-button"]').click()
+            })
+            cy.get('[data-attr="duplicate-insight-from-list-view"]').click()
+            cy.contains('.saved-insights table tr', `${insightName} (copy)`).should('exist')
+        })
+
+        it('can duplicate insights from the insights card view', () => {
+            cy.visit(urls.savedInsights())
+            const insightName = randomString('insight-name-')
+            createANewInsight(insightName)
+
+            cy.visit(urls.savedInsights())
+            cy.contains('.saved-insights .ant-radio-button-wrapper', 'Cards').click()
+            cy.contains('.InsightMeta', insightName).within(() => {
+                cy.get('[data-attr="more-button"]').click()
+            })
+            cy.get('[data-attr="duplicate-insight-from-card-list-view"]').click()
+            cy.contains('.InsightMeta', `${insightName} (copy)`).should('exist')
+        })
+
+        it('can duplicate from insight view', () => {
+            const insightName = randomString('insight-name-')
+            createANewInsight(insightName)
+
+            cy.get('.page-buttons [data-attr="more-button"]').click()
+            cy.get('[data-attr="duplicate-insight-from-insight-view"]').click()
+            cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
+
+            // turbo mode updated the insights list
+            cy.visit(urls.savedInsights())
+            cy.contains('.saved-insights table tr', `${insightName} (copy)`).should('exist')
+        })
+
+        it('can save insight as a copy', () => {
+            const insightName = randomString('insight-name-')
+            createANewInsight(insightName)
+
+            cy.get('[data-attr="insight-edit-button"]').click()
+
+            cy.get('[data-attr="insight-save-dropdown"]').click()
+            cy.get('[data-attr="insight-save-as-new-insight"]').click()
+            cy.get('.ant-modal-content .ant-btn-primary').click()
+            cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
+
+            // turbo mode updated the insights list
+            cy.visit(urls.savedInsights())
+            cy.contains('.saved-insights table tr', `${insightName} (copy)`).should('exist')
         })
     })
 })
