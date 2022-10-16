@@ -29,21 +29,67 @@ describe('Dashboard', () => {
         cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
     })
 
-    it('Adding new insight to dashboard works', () => {
-        cy.intercept(/api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+    describe.only('adding and removing insights', () => {
+        it('Adding new insight to dashboard works', () => {
+            cy.intercept(/api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
 
-        cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
-        cy.get('[data-attr="insight-save-button"]').click() // Save the insight
-        cy.url().should('not.include', '/new') // wait for insight to complete and update URL
-        cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
-        cy.get('[data-attr="insight-name"] input').type('Test Insight Zeus')
-        cy.get('[data-attr="insight-name"] [title="Save"]').click()
-        cy.get('[data-attr="save-to-dashboard-button"]').click() // Open the Save to dashboard modal
-        cy.get('[data-attr="dashboard-list-item"] button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
-        cy.wait('@patchInsight').then(() => {
-            cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
-            cy.get('[data-attr="dashboard-list-item"] a').first().click({ force: true }) // Go to the dashboard
-            cy.get('[data-attr="insight-name"]').should('contain', 'Test Insight Zeus') // Check if the insight is there
+            const insightName = randomString('insight-')
+
+            cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
+            cy.get('[data-attr="insight-save-button"]').click() // Save the insight
+            cy.url().should('not.include', '/new') // wait for insight to complete and update URL
+            cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
+            cy.get('[data-attr="insight-name"] input').type(insightName)
+            cy.get('[data-attr="insight-name"] [title="Save"]').click()
+            cy.get('[data-attr="save-to-dashboard-button"]').click() // Open the Save to dashboard modal
+            cy.get('[data-attr="dashboard-list-item"] button')
+                .contains('Add to dashboard')
+                .first()
+                .click({ force: true }) // Add the insight to a dashboard
+            cy.wait('@patchInsight').then(() => {
+                cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
+                cy.get('[data-attr="dashboard-list-item"] a').first().click({ force: true }) // Go to the dashboard
+                cy.get('[data-attr="insight-name"]').should('contain', insightName) // Check if the insight is there
+            })
+        })
+
+        it('Add insight to a dashboard and then remove it from the insight view', () => {
+            cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+            cy.intercept('POST', /api\/projects\/\d+\/insights\//).as('postInsight')
+            cy.intercept('GET', /api\/projects\/\d+\/insights\/\?short_id=.*/).as('loadInsightView')
+
+            const insightName = randomString('insight-')
+            const dashboardName = randomString('Watermelon-')
+
+            cy.get('[data-attr="new-dashboard"]').click()
+            cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
+            cy.get('button').contains('Create').click()
+
+            cy.get('[data-attr=dashboard-add-graph-header]').contains('Add insight').click()
+            cy.get('[data-attr=toast-close-button]').click()
+            cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
+            cy.get('[data-attr="insight-name"] input').type(insightName)
+
+            cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
+            cy.wait('@postInsight').then(() => {
+                cy.url().should('include', 'dashboard')
+                cy.get('.page-title').contains(dashboardName).should('exist')
+                cy.contains('.InsightMeta h4', insightName).should('exist').click()
+                cy.wait('@loadInsightView').then(() => {
+                    cy.url().should('include', 'insights')
+                    cy.contains('button', 'Add to dashboard').should('exist').click()
+                    cy.contains('[data-attr="dashboard-list-item"]', dashboardName).within(() => {
+                        // turbo mode has updated the insight if the button says "Added"
+                        cy.get('button').should('have.text', 'Added').click({ force: true })
+                    })
+                })
+            })
+
+            cy.wait('@patchInsight').then(() => {
+                // having removed it, check it isn't on the dashboard
+                cy.contains('[data-attr="dashboard-list-item"] a', dashboardName).click({ force: true })
+                cy.contains('Dashboard empty').should('exist')
+            })
         })
     })
 
@@ -188,18 +234,5 @@ describe('Dashboard', () => {
         cy.get('.InsightCard [data-attr=insight-card-title]').first().click()
         cy.location('pathname').should('include', '/insights')
         cy.get('[data-attr=funnel-bar-graph]', { timeout: 30000 }).should('exist')
-    })
-
-    it('Add insight from empty dashboard', () => {
-        cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type('Watermelon')
-        cy.get('button').contains('Create').click()
-
-        cy.get('[data-attr=dashboard-add-graph-header]').contains('Add insight').click()
-        cy.get('[data-attr=toast-close-button]').click()
-        cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
-
-        cy.wait(200)
-        cy.get('.page-title').contains('Watermelon').should('exist')
     })
 })
