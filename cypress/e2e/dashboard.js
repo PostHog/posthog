@@ -1,4 +1,5 @@
 import { randomString } from '../support/random'
+import { urls } from 'scenes/urls'
 
 function createDashboardFromTemplate(dashboardName) {
     cy.get('[data-attr="new-dashboard"]').click()
@@ -72,11 +73,11 @@ describe('Dashboard', () => {
 
             cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
             cy.wait('@postInsight').then(() => {
-                cy.url().should('include', 'dashboard')
+                cy.url().should('include', '/dashboard/')
                 cy.get('.page-title').contains(dashboardName).should('exist')
                 cy.contains('.InsightMeta h4', insightName).should('exist').click()
                 cy.wait('@loadInsightView').then(() => {
-                    cy.url().should('include', 'insights')
+                    cy.url().should('include', '/insights/')
                     cy.contains('button', 'Add to dashboard').should('exist').click()
                     cy.contains('[data-attr="dashboard-list-item"]', dashboardName).within(() => {
                         // turbo mode has updated the insight if the button says "Added"
@@ -89,6 +90,55 @@ describe('Dashboard', () => {
                 // having removed it, check it isn't on the dashboard
                 cy.contains('[data-attr="dashboard-list-item"] a', dashboardName).click({ force: true })
                 cy.contains('Dashboard empty').should('exist')
+            })
+        })
+
+        it('Add insight to a dashboard and then remove it from the dashboard view', () => {
+            cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+            cy.intercept('POST', /api\/projects\/\d+\/insights\//).as('postInsight')
+            cy.intercept('GET', /api\/projects\/\d+\/insights\/\?short_id=.*/).as('loadInsightView')
+
+            const insightName = randomString('insight-')
+            const dashboardName = randomString('Watermelon-')
+
+            cy.get('[data-attr="new-dashboard"]').click()
+            cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
+            cy.get('button').contains('Create').click()
+
+            cy.get('[data-attr=dashboard-add-graph-header]').contains('Add insight').click()
+            cy.get('[data-attr=toast-close-button]').click()
+            cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
+            cy.get('[data-attr="insight-name"] input').type(insightName)
+
+            cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
+            cy.wait('@postInsight').then(() => {
+                cy.url().should('include', '/dashboard/')
+                cy.get('.page-title').contains(dashboardName).should('exist')
+                cy.contains('.InsightMeta h4', insightName).should('exist').click()
+                cy.wait('@loadInsightView').then(() => {
+                    cy.url().should('include', 'insights')
+                    cy.contains('button', 'Add to dashboard').should('exist').click()
+                    cy.contains('[data-attr="dashboard-list-item"]', dashboardName).within(() => {
+                        // turbo mode has updated the insight if the button says "Added"
+                        cy.get('button').should('have.text', 'Added')
+                        cy.get('a').click({ force: true })
+                    })
+                })
+            })
+
+            cy.contains('.InsightMeta', insightName).within(() => {
+                cy.get('[data-attr="more-button"]').click()
+            })
+            cy.contains('button', 'Remove from dashboard').click()
+            cy.contains('Dashboard empty').should('exist')
+
+            // confirm the insight no longer has the dashboard listed in its "Add to dashboard" button
+            cy.visit(urls.savedInsights())
+            cy.contains('.saved-insights a', insightName).should('exist').click()
+            cy.url().should('include', 'insights')
+            cy.contains('button', 'Add to dashboard').should('exist').click()
+            cy.contains('[data-attr="dashboard-list-item"]', dashboardName).within(() => {
+                cy.get('button').should('have.text', 'Add to dashboard')
             })
         })
     })
