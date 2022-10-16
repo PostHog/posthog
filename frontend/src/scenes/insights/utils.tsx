@@ -12,9 +12,15 @@ import {
     PathType,
     StepOrderValue,
 } from '~/types'
-import { alphabet, capitalizeFirstLetter, ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
+import {
+    alphabet,
+    areObjectValuesEmpty,
+    capitalizeFirstLetter,
+    ensureStringIsNotBlank,
+    humanFriendlyNumber,
+    objectsEqual,
+} from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -115,11 +121,11 @@ export function findInsightFromMountedLogic(
             return foundOnModel || null
         }
     } else {
-        return (
-            savedInsightsLogic
-                .findMounted()
-                ?.values.insights?.results?.find((item) => item.short_id === insightShortId) || null
-        )
+        const foundInsight = insightLogic.findMounted({ dashboardItemId: insightShortId })?.values.insight || null
+        if (foundInsight && !areObjectValuesEmpty(foundInsight.filters)) {
+            return foundInsight
+        }
+        return null
     }
 }
 
