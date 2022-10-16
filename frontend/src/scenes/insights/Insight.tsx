@@ -39,6 +39,7 @@ import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { Link } from '@posthog/lemon-ui'
+import { insightsModel } from '~/models/insightsModel'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -49,21 +50,21 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
-        insightProps,
-        insightLoading,
-        filtersKnown,
-        filters,
         canEditInsight,
+        exporterResourceParams,
+        filters,
+        filtersKnown,
         insight,
         insightChanged,
-        tagLoading,
+        insightLoading,
+        insightProps,
         insightSaving,
-        exporterResourceParams,
+        tagLoading,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
     const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
-    const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
-
+    const { loadInsights } = useActions(savedInsightsLogic)
+    const { duplicateInsight } = useActions(insightsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
@@ -132,7 +133,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                         <>
                                             <LemonButton
                                                 status="stealth"
-                                                onClick={() => duplicateInsight(insight as InsightModel, true)}
+                                                onClick={() =>
+                                                    duplicateInsight(insight as InsightModel, undefined, true)
+                                                }
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
                                             >

@@ -440,7 +440,7 @@ export const insightLogic = kea<insightLogicType>([
                 return state
             },
             [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, fromDashboard, toDashboard }) => {
-                if (tile.insight?.id === state.id) {
+                if (tile.insight?.id === props.dashboardItemId) {
                     const filteredDashboards =
                         state.dashboards?.filter((d) => d !== fromDashboard && d !== toDashboard) || []
                     filteredDashboards.push(toDashboard)
@@ -945,6 +945,12 @@ export const insightLogic = kea<insightLogicType>([
             })
 
             dashboardsModel.actions.updateDashboardInsight(savedInsight)
+            // created an insight, reset the insight scene to invalidate the cache of the "new" scene
+            insightSceneLogic.actions.setSceneState(
+                savedInsight.short_id,
+                redirectToViewMode ? ItemMode.View : ItemMode.Edit,
+                undefined
+            )
 
             if (redirectToViewMode) {
                 const mountedInsightSceneLogic = insightSceneLogic.findMounted()

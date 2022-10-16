@@ -144,7 +144,7 @@ describe('Dashboard', () => {
         cy.get('[data-attr=success-toast]').contains('Insight duplicated').should('exist')
     })
 
-    it.only('Move dashboard item', () => {
+    it('Move dashboard item', () => {
         // load the dashboardLogic for the target so we're testing turbo mode
         cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
         visitDashboardsPage()

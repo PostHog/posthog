@@ -42,6 +42,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CalendarOutlined } from '@ant-design/icons'
 import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { insightsModel } from '~/models/insightsModel'
 
 const { TabPane } = Tabs
 
@@ -164,7 +165,8 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
 }
 
 function SavedInsightsGrid(): JSX.Element {
-    const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
+    const { loadInsights } = useActions(savedInsightsLogic)
+    const { renameInsight, duplicateInsight } = useActions(insightsModel)
     const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
     const { currentTeamId } = useValues(teamLogic)
 
@@ -201,8 +203,8 @@ function SavedInsightsGrid(): JSX.Element {
 }
 
 export function SavedInsights(): JSX.Element {
-    const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
-        useActions(savedInsightsLogic)
+    const { loadInsights, updateFavoritedInsight, setSavedInsightsFilters } = useActions(savedInsightsLogic)
+    const { renameInsight, duplicateInsight } = useActions(insightsModel)
     const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)

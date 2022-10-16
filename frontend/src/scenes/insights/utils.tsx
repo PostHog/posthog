@@ -94,6 +94,10 @@ export function findInsightFromMountedLogic(
     insightShortId: InsightShortId | string,
     dashboardId: number | undefined
 ): Partial<InsightModel> | null {
+    if (insightShortId === 'new') {
+        throw new Error('must not look up insight from savedInsightsLogic with short_id: "new"')
+    }
+
     if (dashboardId) {
         const insightOnDashboard = dashboardLogic
             .findMounted({ id: dashboardId })

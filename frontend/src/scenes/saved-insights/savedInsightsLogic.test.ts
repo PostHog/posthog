@@ -1,13 +1,12 @@
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
-import { DashboardType, InsightModel, InsightType } from '~/types'
+import { DashboardTile, DashboardType, InsightModel, InsightType } from '~/types'
 import { combineUrl, router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { useMocks } from '~/mocks/jest'
 import api from 'lib/api'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 jest.spyOn(api, 'create')
@@ -172,30 +171,19 @@ describe('savedInsightsLogic', () => {
         })
     })
 
-    it('can duplicate using derived name', async () => {
-        const sourceInsight = createInsight(123, 'hello')
-        sourceInsight.name = ''
-        sourceInsight.derived_name = 'should be copied'
-        await logic.actions.duplicateInsight(sourceInsight)
-        expect(api.create).toHaveBeenCalledWith(
-            `api/projects/${MOCK_TEAM_ID}/insights`,
-            expect.objectContaining({ name: 'should be copied (copy)' })
-        )
-    })
-    it('can duplicate using name', async () => {
-        const sourceInsight = createInsight(123, 'hello')
-        sourceInsight.name = 'should be copied'
-        sourceInsight.derived_name = ''
-        await logic.actions.duplicateInsight(sourceInsight)
-        expect(api.create).toHaveBeenCalledWith(
-            `api/projects/${MOCK_TEAM_ID}/insights`,
-            expect.objectContaining({ name: 'should be copied (copy)' })
-        )
-    })
-
     it('loads insights when a dashboard is duplicated', async () => {
         await expectLogic(logic, () => {
             dashboardsModel.actions.duplicateDashboardSuccess({} as DashboardType, {} as any)
+        }).toDispatchActions(['loadInsights'])
+    })
+
+    it('updates insights when one is moved between dashboards', async () => {
+        await expectLogic(logic, () => {
+            dashboardsModel.actions.tileMovedToDashboard(
+                { insight: { short_id: `ii1` } as InsightModel } as DashboardTile,
+                1,
+                4
+            )
         }).toDispatchActions(['loadInsights'])
     })
 })

@@ -60,11 +60,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
     actions: {
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
         updateFavoritedInsight: (insight: InsightModel, favorited: boolean) => ({ insight, favorited }),
-        renameInsight: (insight: InsightModel) => ({ insight }),
-        duplicateInsight: (insight: InsightModel, redirectToInsight = false) => ({
-            insight,
-            redirectToInsight,
-        }),
         loadInsights: true,
     },
     loaders: ({ values }) => ({
@@ -238,15 +233,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 }
             }
         },
-        renameInsight: async ({ insight }) => {
-            insightsModel.actions.renameInsight(insight)
-        },
-        duplicateInsight: async ({ insight, redirectToInsight }) => {
-            insight.name = (insight.name || insight.derived_name) + ' (copy)'
-            const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
-            actions.loadInsights()
-            redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
-        },
         setDates: () => {
             actions.loadInsights()
         },
@@ -255,6 +241,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => actions.loadInsights(),
+        [dashboardsModel.actionTypes.tileMovedToDashboard]: () => actions.loadInsights(),
+        [insightsModel.actionTypes.duplicateInsightSuccess]: () => actions.loadInsights(),
     }),
     actionToUrl: ({ values }) => {
         const changeUrl = ():

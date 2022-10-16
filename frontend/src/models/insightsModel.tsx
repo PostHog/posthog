@@ -6,6 +6,8 @@ import { InsightModel } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import type { insightsModelType } from './insightsModelType'
 import { lemonToast } from 'lib/components/lemonToast'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const insightsModel = kea<insightsModelType>({
     path: ['models', 'insightsModel'],
@@ -14,9 +16,10 @@ export const insightsModel = kea<insightsModelType>({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
         //TODO this duplicates the insight but not the dashboard tile (e.g. if duplicated from dashboard you lose tile color
-        duplicateInsight: (item: InsightModel, dashboardId?: number) => ({
+        duplicateInsight: (item: InsightModel, dashboardId?: number, redirectToInsight?: boolean) => ({
             item,
             dashboardId,
+            redirectToInsight,
         }),
         duplicateInsightSuccess: (item: InsightModel) => ({ item }),
     }),
@@ -43,7 +46,7 @@ export const insightsModel = kea<insightsModelType>({
                 },
             })
         },
-        duplicateInsight: async ({ item }) => {
+        duplicateInsight: async ({ item, redirectToInsight }) => {
             if (!item) {
                 return
             }
@@ -53,7 +56,11 @@ export const insightsModel = kea<insightsModelType>({
             const addedItem = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, newItem)
 
             actions.duplicateInsightSuccess(addedItem)
-            lemonToast.success('Insight duplicated')
+            if (redirectToInsight) {
+                router.actions.push(urls.insightEdit(addedItem.short_id))
+            } else {
+                lemonToast.success('Insight duplicated')
+            }
         },
     }),
 })
