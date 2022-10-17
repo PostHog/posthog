@@ -10,6 +10,7 @@ from django.test import override_settings
 from rest_framework import status
 
 from posthog.models import UploadedMedia
+from posthog.models.utils import UUIDT
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -57,7 +58,7 @@ class TestMediaAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
             assert response.json()["name"] == "test_image.jpg"
             media_location = response.json()["image_location"]
-            assert re.match(r"^http://localhost:8000/uploaded_media/.*/test_image.jpg", media_location) is not None
+            assert re.match(r"^http://localhost:8000/uploaded_media/.*", media_location) is not None
 
             upload = UploadedMedia.objects.get(id=response.json()["id"])
 
@@ -76,6 +77,10 @@ class TestMediaAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/uploaded_media", {"image": fake_file}, format="multipart"
         )
         self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, response.json())
+
+    def test_made_up_id_is_404(self) -> None:
+        response = self.client.get(f"/uploaded_media/{UUIDT()}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_rejects_too_large_file_type(self) -> None:
         four_megabytes_plus_a_little = b"1" * (4 * 1024 * 1024 + 1)

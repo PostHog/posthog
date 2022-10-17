@@ -1,10 +1,10 @@
-from typing import Dict
+from typing import Dict, Optional
 
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
-from rest_framework.exceptions import APIException, NotFound, UnsupportedMediaType, ValidationError
+from rest_framework.exceptions import APIException, UnsupportedMediaType, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
@@ -25,10 +25,11 @@ def download(request, *args, **kwargs) -> HttpResponse:
     Images are immutable, so we can cache them forever
     They are served unauthenticated as they might be presented on shared dashboards
     """
-    instance: UploadedMedia = UploadedMedia.objects.get(pk=kwargs["image_uuid"])
-
-    if not instance or not instance.file_name == kwargs["file_name"]:
-        raise NotFound("Image not found")
+    instance: Optional[UploadedMedia] = None
+    try:
+        instance = UploadedMedia.objects.get(pk=kwargs["image_uuid"])
+    except UploadedMedia.DoesNotExist:
+        return HttpResponse(status=404)
 
     file_bytes = object_storage.read_bytes(instance.media_location)
 
