@@ -59,7 +59,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
         actions: [
             sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
-            ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess'],
+            ['loadRecordingSnapshotsSuccess', 'loadRecordingSnapshotsFailure', 'loadRecordingMetaSuccess'],
             sharedListLogic({ sessionRecordingId, playerKey }),
             ['setTab'],
             playerSettingsLogic,
@@ -331,6 +331,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             actions.checkBufferingCompleted()
             breakpoint()
+        },
+
+        loadRecordingSnapshotsFailure: () => {
+            if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
+                actions.setErrorPlayerState(true)
+            }
         },
         setPlay: () => {
             actions.stopAnimation()
