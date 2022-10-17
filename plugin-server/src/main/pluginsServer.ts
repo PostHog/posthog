@@ -206,7 +206,7 @@ export async function startPluginsServer(
                 await hub.graphileWorker.start(jobHandlers, crontab)
             } catch (error) {
                 try {
-                    logOrThrowJobQueueError(hub, error, `Cannot start job queue consumer!`)
+                    logOrThrowJobQueueError(hub, error, `Cannot start Graphile Worker!`)
                 } catch {
                     killProcess()
                 }
