@@ -89,7 +89,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                 })}
             >
                 {loading || currentWindowIndex === -1 ? (
-                    <LemonSkeleton className="w-1/3" />
+                    <LemonSkeleton className="w-1/3 my-1" />
                 ) : (
                     <>
                         <IconWindow value={currentWindowIndex + 1} className="text-muted" />
