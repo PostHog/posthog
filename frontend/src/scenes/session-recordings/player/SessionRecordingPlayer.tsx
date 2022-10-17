@@ -5,7 +5,7 @@ import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { PlayerInspectorV3 } from 'scenes/session-recordings/player/PlayerInspector'
+import { PlayerInspector } from 'scenes/session-recordings/player/PlayerInspector'
 import { PlayerFilter } from 'scenes/session-recordings/player/list/PlayerFilter'
 import { SessionRecordingPlayerProps } from '~/types'
 import { PlayerMeta } from './PlayerMeta'
@@ -100,7 +100,7 @@ export function SessionRecordingPlayer({
                     <LemonDivider className="my-0" />
                     <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} matching={matching} />
                     <LemonDivider className="my-0" />
-                    <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                    <PlayerInspector sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                 </>
             )}
         </div>
