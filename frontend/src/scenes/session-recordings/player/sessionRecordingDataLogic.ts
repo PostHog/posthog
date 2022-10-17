@@ -172,14 +172,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadRecordingSnapshotsSuccess: (state) => state + 1,
             },
         ],
-        sessionEventsDataLoading: [
-            false,
-            {
-                loadEventsSuccess: (_, { sessionEventsData }) => {
-                    return !!sessionEventsData?.next
-                },
-            },
-        ],
         loadMetaTimeMs: [
             null as number | null,
             {
