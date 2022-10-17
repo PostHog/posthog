@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import { compareFilterLogic } from './compareFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'

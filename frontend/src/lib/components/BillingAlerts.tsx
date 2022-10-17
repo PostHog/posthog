@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { billingLogic, BillingAlertType } from 'scenes/billing/billingLogic'
 import { Link } from 'lib/components/Link'

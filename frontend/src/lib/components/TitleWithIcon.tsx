@@ -1,5 +1,3 @@
-import React from 'react'
-
 export interface TitleWithIconProps {
     icon: JSX.Element
     children: string | JSX.Element

@@ -1,6 +1,6 @@
 // Loads custom icons (some icons may come from a third-party library)
 import clsx from 'clsx'
-import React, { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
+import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
 import './icons.scss'
 import { LemonBadge, LemonBadgeProps } from './LemonBadge/LemonBadge'
 

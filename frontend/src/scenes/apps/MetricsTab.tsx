@@ -1,4 +1,3 @@
-import React from 'react'
 import { Card } from 'antd'
 import { AppMetrics, appMetricsSceneLogic, AppMetricsTab } from './appMetricsSceneLogic'
 import { DescriptionColumns } from './constants'

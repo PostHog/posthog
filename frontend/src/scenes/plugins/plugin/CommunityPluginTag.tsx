@@ -1,4 +1,3 @@
-import React from 'react'
 import { Tag } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 

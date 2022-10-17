@@ -1,4 +1,3 @@
-import React from 'react'
 import { kea, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'

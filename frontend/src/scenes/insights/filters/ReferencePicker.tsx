@@ -1,4 +1,3 @@
-import React from 'react'
 import { Select } from 'antd'
 import { PercentageOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'

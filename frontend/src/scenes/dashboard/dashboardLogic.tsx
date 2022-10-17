@@ -31,7 +31,6 @@ import { userLogic } from 'scenes/userLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { Link } from 'lib/components/Link'
-import React from 'react'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,

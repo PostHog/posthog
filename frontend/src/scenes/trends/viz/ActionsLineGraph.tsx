@@ -1,4 +1,3 @@
-import React from 'react'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'

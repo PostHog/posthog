@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import React from 'react'
 import { EventType, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import { PlayerList } from 'scenes/session-recordings/player/list/PlayerList'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -7,6 +6,7 @@ import { autoCaptureEventToDescription, capitalizeFirstLetter, interleave } from
 import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import { EventDetails } from 'scenes/events'
+import React from 'react'
 
 export function PlayerInspector({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { tab } = useValues(sharedListLogic({ sessionRecordingId, playerKey }))

@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import React from 'react'
 import './Splotch.scss'
 
 export enum SplotchColor {

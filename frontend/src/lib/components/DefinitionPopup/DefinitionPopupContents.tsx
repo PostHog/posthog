@@ -6,7 +6,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { useActions, useValues } from 'kea'
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { isPostHogProp, keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
 import { InfoCircleOutlined, LockOutlined } from '@ant-design/icons'

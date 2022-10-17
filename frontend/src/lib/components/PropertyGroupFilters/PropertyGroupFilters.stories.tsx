@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { FilterLogicalOperator, FilterType, PropertyFilter, PropertyGroupFilter, PropertyOperator } from '~/types'
 import { useMountedLogic } from 'kea'

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonModal, LemonSelect } from '@posthog/lemon-ui'

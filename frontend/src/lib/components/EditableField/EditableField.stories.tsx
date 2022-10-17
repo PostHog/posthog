@@ -1,8 +1,8 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
 import { EditableField as EditableFieldComponent } from './EditableField'
 import { PageHeader } from '../PageHeader'
+import { useState } from 'react'
 
 export default {
     title: 'Components/Editable Field',
@@ -10,8 +10,8 @@ export default {
 } as ComponentMeta<typeof EditableFieldComponent>
 
 export function EditableField_(): JSX.Element {
-    const [savedTitle, setSavedTitle] = React.useState('Foo')
-    const [savedDescription, setSavedDescription] = React.useState('Lorem ipsum dolor sit amet.')
+    const [savedTitle, setSavedTitle] = useState('Foo')
+    const [savedDescription, setSavedDescription] = useState('Lorem ipsum dolor sit amet.')
 
     return (
         <PageHeader

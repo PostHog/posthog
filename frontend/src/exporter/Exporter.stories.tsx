@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { Exporter } from './Exporter'
 import { insight, dashboard } from '~/exporter/__mocks__/Exporter.mocks'

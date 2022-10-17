@@ -15,7 +15,6 @@ import { PROPERTY_MATCH_TYPE, DashboardRestrictionLevel, DashboardPrivilegeLevel
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
-import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
