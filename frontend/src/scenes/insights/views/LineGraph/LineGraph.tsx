@@ -304,6 +304,8 @@ export function LineGraph_({
             datasets = datasets.map((dataset) => processDataset(dataset))
         }
 
+        const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))
+        const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
         }
@@ -445,7 +447,7 @@ export function LineGraph_({
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
-                        precision: 0,
+                        precision,
                         color: colors.axisLabel as string,
                     },
                 },
@@ -453,7 +455,7 @@ export function LineGraph_({
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
-                        precision: 0,
+                        precision,
                         color: colors.axisLabel as string,
                         callback: (value) => {
                             return formatAggregationAxisValue(filters, value)
@@ -478,7 +480,7 @@ export function LineGraph_({
                     beginAtZero: true,
                     display: true,
                     ticks: {
-                        precision: 0,
+                        precision,
                         ...tickOptions,
                         callback: (value) => {
                             return formatAggregationAxisValue(filters, value)
@@ -496,7 +498,7 @@ export function LineGraph_({
                     display: true,
                     ticks: {
                         ...tickOptions,
-                        precision: 0,
+                        precision,
                         callback: (value) => {
                             return formatAggregationAxisValue(filters, value)
                         },
@@ -505,7 +507,7 @@ export function LineGraph_({
                 y: {
                     beginAtZero: true,
                     ticks: {
-                        precision: 0,
+                        precision,
                         color: colors.axisLabel as string,
                         callback: function _renderYLabel(_, i) {
                             const labelDescriptors = [

@@ -17,7 +17,6 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
-from posthog.storage import object_storage
 from posthog.test.base import APIBaseTest
 
 MEDIA_ROOT = tempfile.mkdtemp()
@@ -51,25 +50,20 @@ class TestMediaAPI(APIBaseTest):
 
     def test_can_upload_and_retrieve_a_file(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
-            fake_file = SimpleUploadedFile(name="test_image.jpg", content=b"a fake image", content_type="image/jpeg")
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/uploaded_media", {"image": fake_file}, format="multipart"
-            )
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            assert response.json()["name"] == "test_image.jpg"
-            media_location = response.json()["image_location"]
-            assert re.match(r"^http://localhost:8000/uploaded_media/.*", media_location) is not None
-
-            upload = UploadedMedia.objects.get(id=response.json()["id"])
-
-            content = object_storage.read_bytes(upload.media_location)
-            assert content == b"a fake image"
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media", {"image": image}, format="multipart"
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+                assert response.json()["name"] == "a-small-but-valid.gif"
+                media_location = response.json()["image_location"]
+                assert re.match(r"^http://localhost:8000/uploaded_media/.*", media_location) is not None
 
             self.client.logout()
             response = self.client.get(media_location)
 
             assert response.status_code == status.HTTP_200_OK
-            assert response.headers["Content-Type"] == "image/jpeg"
+            assert response.headers["Content-Type"] == "image/gif"
 
     def test_rejects_non_image_file_type(self) -> None:
         fake_file = SimpleUploadedFile(name="test_image.jpg", content=b"a fake image", content_type="text/csv")
@@ -77,6 +71,15 @@ class TestMediaAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/uploaded_media", {"image": fake_file}, format="multipart"
         )
         self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, response.json())
+
+    def test_rejects_file_manually_crafted_to_start_with_image_magic_bytes(self) -> None:
+        with open(get_path_to("file-masquerading-as-a.gif"), "rb") as image:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media", {"image": image}, format="multipart"
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+            assert UploadedMedia.objects.count() == 0
 
     def test_made_up_id_is_404(self) -> None:
         response = self.client.get(f"/uploaded_media/{UUIDT()}")

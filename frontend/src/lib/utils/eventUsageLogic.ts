@@ -13,7 +13,6 @@ import {
     InsightModel,
     InsightType,
     HelpType,
-    SessionPlayerData,
     AvailableFeature,
     SessionRecordingUsageType,
     FunnelCorrelation,
@@ -25,6 +24,7 @@ import {
     PropertyFilterValue,
     InsightShortId,
     YesOrNoResponse,
+    SessionPlayerData,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -346,11 +346,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportPersonMerged: (merge_count: number) => ({ merge_count }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportRecording: (
-            recordingData: SessionPlayerData,
+            playerData: SessionPlayerData,
             loadTime: number,
             type: SessionRecordingUsageType,
             delay?: number
-        ) => ({ recordingData, loadTime, type, delay }),
+        ) => ({ playerData, loadTime, type, delay }),
         reportRecordingScrollTo: (rowIndex: number) => ({ rowIndex }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
@@ -875,14 +875,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ recordingData, loadTime, type }) => {
+        reportRecording: ({ playerData, loadTime, type }) => {
             // @ts-expect-error
-            const eventIndex = new EventIndex(recordingData?.snapshots || [])
+            const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
                 duration: eventIndex.getDuration(),
-                start_time: recordingData.metadata.segments[0]?.startTimeEpochMs,
-                end_time: recordingData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
+                start_time: playerData.metadata.segments[0]?.startTimeEpochMs,
+                end_time: playerData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
             }

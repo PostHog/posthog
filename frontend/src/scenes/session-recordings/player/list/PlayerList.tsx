@@ -107,16 +107,8 @@ export function PlayerList<T extends Record<string, any>>({
                                     width={width}
                                     onRowsRendered={setRenderedRows}
                                     noRowsRenderer={() =>
-                                        !!currentTeam?.capture_console_log_opt_in ? (
-                                            <div className="flex justify-center h-full pt-20">
-                                                <Empty
-                                                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                                    description={`No ${
-                                                        tab === SessionRecordingTab.EVENTS ? 'events' : 'console logs'
-                                                    } captured in this recording.`}
-                                                />
-                                            </div>
-                                        ) : (
+                                        tab === SessionRecordingTab.CONSOLE &&
+                                        !currentTeam?.capture_console_log_opt_in ? (
                                             <div className="flex flex-col items-center h-full w-full pt-16 px-4 bg-white">
                                                 <h4 className="text-xl font-medium">Introducing Console Logs</h4>
                                                 <p className="text-muted">
@@ -138,6 +130,15 @@ export function PlayerList<T extends Record<string, any>>({
                                                 >
                                                     Configure in settings
                                                 </LemonButton>
+                                            </div>
+                                        ) : (
+                                            <div className="flex justify-center h-full pt-20">
+                                                <Empty
+                                                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                                    description={`No ${
+                                                        tab === SessionRecordingTab.EVENTS ? 'events' : 'console logs'
+                                                    } captured in this recording.`}
+                                                />
                                             </div>
                                         )
                                     }
