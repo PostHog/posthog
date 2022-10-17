@@ -51,7 +51,7 @@ function ErrorDetails(): JSX.Element {
                     </div>
                     {activeErrorDetails.error_details.eventCount && (
                         <div>
-                            <LemonLabel>Error message:</LemonLabel> {activeErrorDetails.error_details.error.message}
+                            <LemonLabel>Event count:</LemonLabel> {activeErrorDetails.error_details.eventCount}
                         </div>
                     )}
                 </Tabs.TabPane>
