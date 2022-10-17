@@ -88,8 +88,10 @@ function promptForMode(mode: PluginsServerConfig['PLUGIN_SERVER_MODE']): string 
             return 'INGESTION'
         case 'async':
             return 'ASYNC'
-        case 'async-no-scheduler':
-            return 'ASYNC-NO-SCHEDULER'
+        case 'async-worker':
+            return 'ASYNC-WORKER'
+        case 'jobs':
+            return 'JOBS'
         case 'scheduler':
             return 'SCHEDULER'
     }
