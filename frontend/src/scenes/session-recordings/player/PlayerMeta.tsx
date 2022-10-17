@@ -92,7 +92,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     placement={isFullScreen ? 'bottom' : 'left'}
                 >
                     <LemonButton
-                        className={isFullScreen ? 'rotate-90' : ''}
+                        className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
                         status="stealth"
                         active={isMetadataExpanded}
                         onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}

@@ -72,6 +72,12 @@
         }
     }
 
+    .LemonModal & {
+        .PlayerMeta__expander {
+            margin-right: 3rem;
+        }
+    }
+
     .PlayerMeta__escape {
         position: absolute;
         left: 50%;
