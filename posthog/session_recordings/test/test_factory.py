@@ -26,7 +26,7 @@ def create_snapshot(
 
     snapshot_data = {
         "data": {**data},
-        "timestamp": timestamp.timestamp(),
+        "timestamp": round(timestamp.timestamp() * 1000),  # NOTE: rrweb timestamps are milliseconds
         "has_full_snapshot": has_full_snapshot,
         "type": type,
     }
@@ -89,7 +89,7 @@ def create_chunked_snapshots(
     chunked_snapshots = compress_and_chunk_snapshots(
         snapshot, chunk_size=15
     )  # Small chunk size makes sure the snapshots are chunked for the test
-    for snapshot_chunk in chunked_snapshots:
+    saved_events = [
         _create_session_recording_event(
             team_id=team_id,
             distinct_id=distinct_id,
@@ -97,4 +97,9 @@ def create_chunked_snapshots(
             session_id=session_id,
             window_id=window_id,
             snapshot_data=snapshot_chunk["properties"].get("$snapshot_data"),
+            snapshot_events_summary=snapshot_chunk["properties"].get("$snapshot_events_summary"),
         )
+        for snapshot_chunk in chunked_snapshots
+    ]
+
+    return saved_events

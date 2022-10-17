@@ -3,8 +3,17 @@ import dataclasses
 import gzip
 import json
 from collections import defaultdict
-from datetime import datetime, timedelta
-from typing import DefaultDict, Dict, Generator, List, Optional, TypedDict, Union
+from datetime import datetime, timedelta, timezone
+from typing import (
+    Any,
+    DefaultDict,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    TypedDict,
+    Union,
+)
 
 from sentry_sdk.api import capture_exception, capture_message
 
@@ -15,6 +24,56 @@ FULL_SNAPSHOT = 2
 Event = Dict
 SnapshotData = Dict
 WindowId = Optional[str]
+
+
+# NOTE: For reference here are some helpful enum mappings from rrweb
+# https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
+
+# event.type
+RRWEB_MAP_EVENT_TYPE = [
+    0,  # DomContentLoaded
+    1,  # Load
+    2,  # FullSnapshot
+    3,  # IncrementalSnapshot
+    4,  # Meta
+    5,  # Custom
+    6,  # Plugin
+]
+
+# event.data.source
+RRWEB_MAP_EVENT_DATA_SOURCE = [
+    0,  # Mutation
+    1,  # MouseMove
+    2,  # MouseInteraction
+    3,  # Scroll
+    4,  # ViewportResize
+    5,  # Input
+    6,  # TouchMove
+    7,  # MediaInteraction
+    8,  # StyleSheetRule
+    9,  # CanvasMutation
+    10,  # Font
+    11,  # Log
+    12,  # Drag
+    13,  # StyleDeclaration
+    14,  # Selection
+]
+
+# event.data.type
+RRWEB_MAP_EVENT_DATA_TYPE = [
+    0,  # MouseUp
+    1,  # MouseDown
+    2,  # Click
+    3,  # ContextMenu
+    4,  # DblClick
+    5,  # Focus
+    6,  # Blur
+    7,  # TouchStart
+    8,  # TouchMove_Departed
+    9,  # TouchEnd
+    10,  # TouchCancel
+]
+
 
 # List of properties from the event payload we care about for our uncompressed `events_summary`
 # NOTE: We should keep this as minimal as possible
@@ -59,9 +118,26 @@ class SnapshotDataTaggedWithWindowId:
 
 
 @dataclasses.dataclass
+class SessionRecordingEvent:
+    timestamp: datetime
+    distinct_id: str
+    session_id: str
+    window_id: str
+    snapshot_data: Dict[str, Any]
+    events_summary: List[SessionRecordingEventSummary]
+
+
+@dataclasses.dataclass
+class RecordingMetadata:
+    distinct_id: str
+    segments: List[RecordingSegment]
+    start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
+
+
+@dataclasses.dataclass
 class DecompressedRecordingData:
     has_next: bool
-    snapshot_data_by_window_id: Dict[WindowId, List[SnapshotData]]
+    snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, SessionRecordingEventSummary]]]
 
 
 def preprocess_session_recording_events_for_clickhouse(events: List[Event]) -> List[Event]:
@@ -168,7 +244,11 @@ def decompress_chunked_snapshot_data(
     if "chunk_id" not in all_recording_events[0].snapshot_data:
         paginated_list = paginate_list(all_recording_events, limit, offset)
         for event in paginated_list.paginated_list:
-            snapshot_data_by_window_id[event.window_id].append(event.snapshot_data)
+            snapshot_data_by_window_id[event.window_id].append(
+                get_events_summary_from_snapshot_data([event.snapshot_data][0])
+                if return_only_activity_data
+                else event.snapshot_data
+            )
         return DecompressedRecordingData(
             has_next=paginated_list.has_next, snapshot_data_by_window_id=snapshot_data_by_window_id
         )
@@ -206,10 +286,7 @@ def decompress_chunked_snapshot_data(
         # Decompressed data can be large, and in metadata calculations, we only care if the event is "active"
         # This pares down the data returned, so we're not passing around a massive object
         if return_only_activity_data:
-            events_with_only_activity_data = [
-                {"timestamp": recording_event.get("timestamp"), "is_active": is_active_event(recording_event)}
-                for recording_event in decompressed_data
-            ]
+            events_with_only_activity_data = get_events_summary_from_snapshot_data(decompressed_data)
             snapshot_data_by_window_id[chunks[0].window_id].extend(events_with_only_activity_data)
 
         else:
@@ -217,21 +294,25 @@ def decompress_chunked_snapshot_data(
     return DecompressedRecordingData(has_next=has_next, snapshot_data_by_window_id=snapshot_data_by_window_id)
 
 
-def is_active_event(event: SnapshotData) -> bool:
+def is_active_event(event: SessionRecordingEventSummary) -> bool:
     """
     Determines which rr-web events are "active" - meaning user generated
     """
     active_rr_web_sources = [
-        1,  # "MouseMove"
-        2,  # "MouseInteraction"
-        3,  # "Scroll"
-        4,  # "ViewportResize"
-        5,  # "Input"
-        6,  # "TouchMove"
-        7,  # "MediaInteraction"
-        12,  # "Drag"
+        1,  # MouseMove,
+        2,  # MouseInteraction,
+        3,  # Scroll,
+        4,  # ViewportResize,
+        5,  # Input,
+        6,  # TouchMove,
+        7,  # MediaInteraction,
+        12,  # Drag,
     ]
     return event.get("type") == 3 and event.get("data", {}).get("source") in active_rr_web_sources
+
+
+def parse_snapshot_timestamp(timestamp: int):
+    return datetime.fromtimestamp(timestamp / 1000, timezone.utc)
 
 
 ACTIVITY_THRESHOLD_SECONDS = 10
@@ -245,11 +326,12 @@ def get_active_segments_from_event_list(
     the segments of the recording where the user is "active". And active segment ends
     when there isn't another active event for activity_threshold_seconds seconds
     """
-    active_event_timestamps = [event.timestamp for event in event_list if event.is_active]
+    active_event_timestamps = [event["timestamp"] for event in event_list if is_active_event(event)]
 
     active_recording_segments: List[RecordingSegment] = []
     current_active_segment: Optional[RecordingSegment] = None
-    for current_timestamp in active_event_timestamps:
+    for current_timestamp_int in active_event_timestamps:
+        current_timestamp = parse_snapshot_timestamp(current_timestamp_int)
         # If the time since the last active event is less than the threshold, continue the existing segment
         if current_active_segment and (current_timestamp - current_active_segment.end_time) <= timedelta(
             seconds=activity_threshold_seconds
@@ -317,7 +399,7 @@ def generate_inactive_segments_for_range(
     range_start_time: datetime,
     range_end_time: datetime,
     last_active_window_id: WindowId,
-    start_and_end_times_by_window_id: Dict[WindowId, Dict],
+    start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment],
     is_first_segment: bool = False,
     is_last_segment: bool = False,
 ) -> List[RecordingSegment]:
