@@ -1,12 +1,14 @@
 import React from 'react'
 import { Tooltip } from 'antd'
-import { colonDelimitedDuration } from 'lib/utils'
+import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { seekbarLogic } from './seekbarLogic'
 import { SessionRecordingPlayerProps } from '~/types'
 import { LemonButton } from '@posthog/lemon-ui'
-import { RedoOutlined, UndoOutlined } from '@ant-design/icons'
+import { useKeyHeld } from 'lib/hooks/useKeyHeld'
+import { IconSkipBackward } from 'lib/components/icons'
+import clsx from 'clsx'
 
 export function Timestamp({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { currentPlayerTime, sessionPlayerData } = useValues(
@@ -22,38 +24,46 @@ export function Timestamp({ sessionRecordingId, playerKey }: SessionRecordingPla
     )
 }
 
-export function SeekBack({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { seekBackward } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+export function SeekSkip({
+    sessionRecordingId,
+    playerKey,
+    direction,
+}: SessionRecordingPlayerProps & { direction: 'forward' | 'backward' }): JSX.Element {
+    const { seekForward, seekBackward } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const { jumpTimeMs } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    return (
-        <Tooltip
-            placement="top"
-            overlayInnerStyle={{ minHeight: 'auto' }}
-            overlay={`Back ${jumpTimeMs / 1000}s (← left arrow)`}
-        >
-            <LemonButton status="primary-alt" size="small" onClick={seekBackward}>
-                <div className="PlayerControlSeekIcon">
-                    <span className="PlayerControlSeekIcon__seconds">{jumpTimeMs / 1000}</span>
-                    <UndoOutlined className="PlayerControlSeekIcon__icon" rotate={90} />
-                </div>
-            </LemonButton>
-        </Tooltip>
-    )
-}
 
-export function SeekForward({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { seekForward } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const { jumpTimeMs } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const keysHeld = useKeyHeld()
+    const altKeyHeld = keysHeld.has('Alt')
+    const jumpTimeSeconds = altKeyHeld ? 1 : jumpTimeMs / 1000
+    const altKeyName = navigator.platform.includes('Mac') ? '⌥' : 'Alt'
+
     return (
         <Tooltip
             placement="top"
             overlayInnerStyle={{ minHeight: 'auto' }}
-            overlay={`Forward ${jumpTimeMs / 1000}s (→ right arrow)`}
+            overlay={
+                <div className="text-center">
+                    {!altKeyHeld ? (
+                        <>
+                            {capitalizeFirstLetter(direction)} {jumpTimeSeconds}s (<kbd>→ right arrow</kbd>) <br />
+                        </>
+                    ) : null}
+                    {capitalizeFirstLetter(direction)} 1 frame ({ONE_FRAME_MS}ms) (<kbd>{altKeyName} + →</kbd>)
+                </div>
+            }
         >
-            <LemonButton status="primary-alt" size="small" onClick={seekForward}>
+            <LemonButton
+                status="primary-alt"
+                size="small"
+                onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}
+            >
                 <div className="PlayerControlSeekIcon">
-                    <span className="PlayerControlSeekIcon__seconds">{jumpTimeMs / 1000}</span>
-                    <RedoOutlined className="PlayerControlSeekIcon__icon" rotate={270} />
+                    <span className="PlayerControlSeekIcon__seconds">{jumpTimeSeconds}</span>
+                    <IconSkipBackward
+                        className={clsx('PlayerControlSeekIcon__icon', {
+                            'PlayerControlSeekIcon__icon--forward': direction === 'forward',
+                        })}
+                    />
                 </div>
             </LemonButton>
         </Tooltip>

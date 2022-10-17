@@ -95,7 +95,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
         updateAndRefreshDashboard: true,
-        setDates: (dateFrom: string, dateTo: string | null, reloadDashboard = true) => ({
+        setDates: (dateFrom: string | null, dateTo: string | null, reloadDashboard = true) => ({
             dateFrom,
             dateTo,
             reloadDashboard,
@@ -498,7 +498,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     })}`
             },
         ],
-        tiles: [(s) => [s.allItems], (allItems) => allItems?.tiles.filter((t) => !t.deleted) || []],
+        tiles: [(s) => [s.allItems], (allItems) => allItems?.tiles?.filter((t) => !t.deleted) || []],
         insightTiles: [
             (s) => [s.tiles],
             (tiles) => tiles.filter((t) => !!t.insight).filter((i) => !i.insight?.deleted),

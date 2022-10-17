@@ -129,15 +129,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 }
                 testConsole.log('onEvent', JSON.stringify(event))
             }
-    
-            export async function exportEvents(events) {
-                for (const event of events) {
-                    if (event.properties && event.properties['$$is_historical_export_event']) {
-                        testConsole.log('exported historical event', event)
-                    }
-                }
-            }
-
+            
             export async function runEveryMinute() {
                 testConsole.log('runEveryMinute')
             }
@@ -176,9 +168,11 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
             // onEvent ran
             const consoleOutput = testConsole.read()
-            expect(consoleOutput).toEqual([['processEvent'], ['onEvent', expect.any(String)]])
+            expect(consoleOutput).toContainEqual(['processEvent'])
+            expect(consoleOutput).toContainEqual(['onEvent', expect.any(String)])
 
-            const onEventEvent = JSON.parse(consoleOutput[1][1])
+            const onEventLog = consoleOutput.filter((line) => line[0] === 'onEvent')[0]
+            const onEventEvent = JSON.parse(onEventLog[1])
             expect(onEventEvent.event).toEqual('custom event')
             expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
         }, 10000)
@@ -233,8 +227,6 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 uuid: new UUIDT().toString(),
             })
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId))
-
             const pluginLogEntries = await delayUntilEventIngested(fetchLogs)
             expect(pluginLogEntries).toContainEqual(
                 expect.objectContaining({
@@ -242,7 +234,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                     message: 'amogus',
                 })
             )
-        }, 10000)
+        })
     })
 
     describe(`session recording ingestion (${pluginServer.name})`, () => {
@@ -311,6 +303,109 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             await delayUntilEventIngested(() => fetchPersons(clickHouseClient, teamId), 1)
             const persons = await fetchPersons(clickHouseClient, teamId)
             expect(persons.length).toBe(1)
+        })
+    })
+
+    describe(`exports (${pluginServer.name})`, () => {
+        const indexJs = `
+            import { console as testConsole } from 'test-utils/write-to-file'
+
+            export const exportEvents = async (events, { global, config }) => {
+                testConsole.log('exportEvents', JSON.stringify(events))
+            }
+        `
+
+        test('exporting events', async () => {
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'export plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: indexJs,
+            })
+            const teamId = await createTeam(postgres, organizationId)
+            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+            const distinctId = new UUIDT().toString()
+            const uuid = new UUIDT().toString()
+
+            // First let's ingest an event
+            await capture(producer, teamId, distinctId, uuid, 'custom event', {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+            })
+
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1)
+
+            const events = await fetchEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
+
+            // Then check that the exportEvents function was called
+            await delayUntilEventIngested(() => testConsole.read(), 1)
+            expect(testConsole.read().length).toBeGreaterThan(0)
+
+            const [[method, exportedEvents]] = testConsole.read()
+            expect(method).toBe('exportEvents')
+            expect(JSON.parse(exportedEvents)).toEqual([
+                expect.objectContaining({
+                    distinct_id: distinctId,
+                    team_id: teamId,
+                    event: 'custom event',
+                    properties: expect.objectContaining({
+                        name: 'hehe',
+                        uuid: uuid,
+                    }),
+                    timestamp: expect.any(String),
+                    uuid: uuid,
+                    elements: [],
+                }),
+            ])
+        })
+    })
+
+    describe(`plugin jobs (${pluginServer.name})`, () => {
+        const indexJs = `
+            import { console as testConsole } from 'test-utils/write-to-file'
+    
+            export function onEvent (event) {
+                testConsole.log('onEvent', JSON.stringify(event))
+                jobs.runMeAsync().runNow()
+            }
+
+            export const jobs = {
+                runMeAsync: async () => {
+                    testConsole.log('runMeAsync')
+                }
+            }
+        `
+
+        test('runNow', async () => {
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'jobs plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: indexJs,
+            })
+            const teamId = await createTeam(postgres, organizationId)
+            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+            const distinctId = new UUIDT().toString()
+            const uuid = new UUIDT().toString()
+
+            // First let's ingest an event
+            await capture(producer, teamId, distinctId, uuid, 'custom event', {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+            })
+
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1)
+
+            const events = await fetchEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
+
+            // Then check that the exportEvents function was called
+            await delayUntilEventIngested(() => testConsole.read(), 1)
+            const output = testConsole.read().flatMap((x) => x)
+            expect(output).toContain('runMeAsync')
         })
     })
 })

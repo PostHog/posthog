@@ -61,7 +61,7 @@ export function SessionRecordingsFilters({
                         />
                     </div>
                     {!isPersonPage && (
-                        <div className="mt-8 space-y-2">
+                        <div className="mt-4 space-y-2">
                             <LemonLabel info="Show recordings by persons who match the set criteria">
                                 Filter by persons and cohorts
                             </LemonLabel>

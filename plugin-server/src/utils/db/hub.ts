@@ -213,8 +213,7 @@ export async function createHub(
         clickhouse,
         statsd,
         promiseManager,
-        serverConfig.PERSON_INFO_CACHE_TTL,
-        new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
+        serverConfig.PERSON_INFO_CACHE_TTL
     )
     const teamManager = new TeamManager(db, serverConfig, statsd)
     const organizationManager = new OrganizationManager(db, teamManager)

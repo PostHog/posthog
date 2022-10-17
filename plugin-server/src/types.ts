@@ -146,7 +146,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     CONVERSION_BUFFER_ENABLED_TEAMS: string
     CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
     BUFFER_CONVERSION_SECONDS: number
-    PERSON_INFO_TO_REDIS_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     OBJECT_STORAGE_ENABLED: boolean

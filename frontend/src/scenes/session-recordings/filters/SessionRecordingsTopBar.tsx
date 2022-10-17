@@ -33,7 +33,7 @@ export function SessionRecordingsTopBar({
                     dateTo={toDate ?? undefined}
                     onChange={(changedDateFrom, changedDateTo) => {
                         reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
-                        setDateRange(changedDateFrom, changedDateTo ?? undefined)
+                        setDateRange(changedDateFrom ?? undefined, changedDateTo ?? undefined)
                     }}
                     dateOptions={[
                         { key: 'Custom', values: [] },

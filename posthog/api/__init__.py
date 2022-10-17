@@ -31,6 +31,7 @@ from . import (
     sharing,
     site_app,
     team,
+    uploaded_media,
     user,
 )
 
@@ -105,6 +106,7 @@ projects_router.register(
     r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"]
 )
 
+projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["team_id"])
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet)

@@ -30,7 +30,7 @@ export const tagColors = [
     'geekblue',
 ]
 
-function getColorVar(variable: string): string {
+export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
     if (!colorValue) {
         throw new Error(`Couldn't find color variable --${variable}`)

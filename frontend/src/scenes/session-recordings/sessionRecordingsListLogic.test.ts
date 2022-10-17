@@ -1,5 +1,6 @@
 import {
     sessionRecordingsListLogic,
+    PLAYLIST_LIMIT,
     DEFAULT_ENTITY_FILTERS,
     DEFAULT_DURATION_FILTER,
 } from './sessionRecordingsListLogic'
@@ -36,11 +37,11 @@ describe('sessionRecordingsListLogic', () => {
                                 results: ["List of specific user's recordings from server"],
                             },
                         ]
-                    } else if (searchParams.get('offset') === '50') {
+                    } else if (searchParams.get('offset') === `${PLAYLIST_LIMIT}`) {
                         return [
                             200,
                             {
-                                results: ['List of recordings offset by 50'],
+                                results: [`List of recordings offset by ${PLAYLIST_LIMIT}`],
                             },
                         ]
                     } else if (
@@ -89,32 +90,52 @@ describe('sessionRecordingsListLogic', () => {
 
         describe('activeSessionRecording', () => {
             it('starts as null', () => {
-                expectLogic(logic).toMatchValues({ activeSessionRecording: null })
+                expectLogic(logic).toMatchValues({ activeSessionRecording: undefined })
             })
-            it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
-                expectLogic(logic, () => logic.actions.openSessionPlayer({ id: 'abc' }))
+            it('is set by setSessionRecordingId', async () => {
+                expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
                     .toDispatchActions(['getSessionRecordingsSuccess'])
                     .toMatchValues({
-                        partialSessionRecording: { id: 'abc' },
+                        selectedRecordingId: 'abc',
                         activeSessionRecording: listOfSessionRecordings[0],
                     })
                 expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
-
-                expectLogic(logic, () => logic.actions.closeSessionPlayer()).toMatchValues({
-                    activeSessionRecording: null,
-                })
-                expect(router.values.hashParams).not.toHaveProperty('sessionRecordingId')
             })
+
+            it('is partial if sessionRecordingId not in list', async () => {
+                expectLogic(logic, () => logic.actions.setSelectedRecordingId('not-in-list'))
+                    .toDispatchActions(['getSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        selectedRecordingId: 'not-in-list',
+                        activeSessionRecording: { id: 'not-in-list' },
+                    })
+                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'not-in-list')
+            })
+
             it('is read from the URL on the session recording page', async () => {
                 router.actions.push('/recordings', {}, { sessionRecordingId: 'abc' })
                 expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
                 await expectLogic(logic)
-                    .toDispatchActionsInAnyOrder(['openSessionPlayer', 'getSessionRecordingsSuccess'])
+                    .toDispatchActionsInAnyOrder(['setSelectedRecordingId', 'getSessionRecordingsSuccess'])
                     .toMatchValues({
-                        partialSessionRecording: { id: 'abc' },
+                        selectedRecordingId: 'abc',
                         activeSessionRecording: listOfSessionRecordings[0],
                     })
+            })
+
+            it('mounts and loads the recording when a recording is opened', () => {
+                expectLogic(logic, async () => await logic.actions.setSelectedRecordingId('abcd'))
+                    .toMount(sessionRecordingDataLogic({ sessionRecordingId: 'abcd' }))
+                    .toDispatchActions(['loadEntireRecording'])
+            })
+
+            it('returns the first session recording if none selected', () => {
+                expectLogic(logic).toDispatchActions(['getSessionRecordingsSuccess']).toMatchValues({
+                    selectedRecordingId: undefined,
+                    activeSessionRecording: listOfSessionRecordings[0],
+                })
+                expect(router.values.hashParams).not.toHaveProperty('sessionRecordingId', 'not-in-list')
             })
         })
 
@@ -144,10 +165,10 @@ describe('sessionRecordingsListLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.loadNext()
                 })
-                    .toMatchValues({ offset: 50 })
+                    .toMatchValues({ offset: PLAYLIST_LIMIT })
                     .toDispatchActions(['loadNext', 'getSessionRecordingsSuccess'])
-                    .toMatchValues({ sessionRecordings: ['List of recordings offset by 50'] })
-                expect(router.values.searchParams.filters).toHaveProperty('offset', 50)
+                    .toMatchValues({ sessionRecordings: [`List of recordings offset by ${PLAYLIST_LIMIT}`] })
+                expect(router.values.searchParams.filters).toHaveProperty('offset', PLAYLIST_LIMIT)
 
                 await expectLogic(logic, () => {
                     logic.actions.loadPrev()
@@ -208,7 +229,7 @@ describe('sessionRecordingsListLogic', () => {
         })
 
         describe('sessionRecording.viewed', () => {
-            it('changes when openSessionRecording is called', () => {
+            it('changes when setSelectedRecordingId is called', () => {
                 expectLogic(logic, () => {
                     logic.actions.getSessionRecordingsSuccess({
                         results: [
@@ -235,7 +256,7 @@ describe('sessionRecordingsListLogic', () => {
                 })
 
                 expectLogic(logic, () => {
-                    logic.actions.openSessionPlayer({ id: 'abc' })
+                    logic.actions.setSelectedRecordingId('abc')
                 }).toMatchValues({
                     sessionRecordings: [
                         {
@@ -298,17 +319,6 @@ describe('sessionRecordingsListLogic', () => {
                 })
         })
     })
-    describe('playlist mode', () => {
-        beforeEach(() => {
-            logic = sessionRecordingsListLogic({ isPlaylist: true })
-            logic.mount()
-        })
-        it('mounts and loads the recording when a recording is opened', () => {
-            expectLogic(logic, async () => await logic.actions.openSessionPlayer({ id: 'abcd' }))
-                .toMount(sessionRecordingDataLogic({ sessionRecordingId: 'abcd' }))
-                .toDispatchActions(['loadEntireRecording'])
-        })
-    })
     describe('person specific logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsListLogic({ personUUID: 'cool_user_99' })
@@ -325,7 +335,7 @@ describe('sessionRecordingsListLogic', () => {
             router.actions.push('/person/123', {}, { sessionRecordingId: 'abc' })
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.openSessionPlayer({ id: 'abc' })])
+            await expectLogic(logic).toDispatchActions([logic.actionCreators.setSelectedRecordingId('abc')])
         })
     })
 })

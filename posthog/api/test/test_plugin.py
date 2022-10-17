@@ -755,6 +755,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": "moop"},
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -785,6 +786,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": "soup"},
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
         self.client.delete(f"/api/plugin_config/{plugin_config_id}")
@@ -959,6 +961,59 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(response.json()["config"], {"bar": "moop"})
         self.assertEqual(PluginAttachment.objects.count(), 0)
 
+        response = self.client.get("/api/organizations/@current/plugins/activity")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        changes = response.json()["results"]
+
+        self.assertEqual(len(changes), 5)
+
+        for i in (0, 1, 2, 3):
+            self.assertEqual(changes[i]["scope"], "PluginConfig")
+
+        self.assertEqual(changes[4]["scope"], "Plugin")
+
+        self.assertEqual(changes[0]["activity"], "attachment_deleted")
+        self.assertEqual(
+            changes[0]["detail"]["changes"],
+            [
+                {
+                    "type": "PluginConfig",
+                    "action": "deleted",
+                    "field": None,
+                    "before": "foo-database-2.db",
+                    "after": None,
+                }
+            ],
+        )
+
+        self.assertEqual(changes[1]["activity"], "attachment_updated")
+        self.assertEqual(
+            changes[1]["detail"]["changes"],
+            [
+                {
+                    "type": "PluginConfig",
+                    "action": "changed",
+                    "field": None,
+                    "before": "foo-database-1.db",
+                    "after": "foo-database-2.db",
+                }
+            ],
+        )
+
+        self.assertEqual(changes[2]["activity"], "attachment_created")
+        self.assertEqual(
+            changes[2]["detail"]["changes"],
+            [
+                {
+                    "type": "PluginConfig",
+                    "action": "created",
+                    "field": None,
+                    "before": None,
+                    "after": "foo-database-1.db",
+                }
+            ],
+        )
+
     def test_create_plugin_config_with_secrets(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)
 
@@ -994,6 +1049,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": "**************** POSTHOG SECRET FIELD ****************"},
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
 
@@ -1016,6 +1072,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": ""},  # empty secret configs are returned normally
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
 
@@ -1036,6 +1093,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": "**************** POSTHOG SECRET FIELD ****************"},
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)

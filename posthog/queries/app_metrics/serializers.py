@@ -5,7 +5,7 @@ class AppMetricsRequestSerializer(serializers.Serializer):
     category = serializers.ChoiceField(
         # Keep in sync with plugin-server/src/worker/ingestion/app-metrics.ts
         choices=["processEvent", "onEvent", "exportEvents"],
-        help_text="What date to filter the results from",
+        help_text="What app method to gather metrics for",
         required=True,
     )
     date_from = serializers.CharField(
