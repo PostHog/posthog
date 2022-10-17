@@ -23,7 +23,7 @@ export const objectTagsLogic = kea<objectTagsLogicType>([
         setAddingNewTag: (addingNewTag: boolean) => ({ addingNewTag }),
         setNewTag: (newTag: string) => ({ newTag }),
         handleDelete: (tag: string) => ({ tag }),
-        handleAdd: true,
+        handleAdd: (addedTag: string) => ({ addedTag }),
     }),
     reducers(({ props }) => ({
         tags: [
@@ -64,13 +64,14 @@ export const objectTagsLogic = kea<objectTagsLogicType>([
             // Update local state so that frontend is not blocked by server requests
             actions.setTags(newTags)
         },
-        handleAdd: async () => {
-            if (values.tags?.includes(values.cleanedNewTag)) {
-                lemonToast.error(`Tag "${values.cleanedNewTag}" already is in the list`)
+        handleAdd: async ({ addedTag }) => {
+            const cleanedAddedTag = cleanTag(addedTag)
+            if (values.tags?.includes(cleanedAddedTag)) {
+                lemonToast.error(`Tag "${cleanedAddedTag}" already is in the list`)
                 return
             }
-            const newTags = [...(values.tags || []), values.cleanedNewTag]
-            props.onChange?.(values.cleanedNewTag, newTags)
+            const newTags = [...(values.tags || []), cleanedAddedTag]
+            props.onChange?.(cleanedAddedTag, newTags)
 
             // Update local state so that frontend is not blocked by server requests
             actions.setTags(newTags)
