@@ -31,9 +31,8 @@ import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 
 export function DashboardHeader(): JSX.Element | null {
     const {
-        dashboard,
-        allItems, // dashboard but directly on dashboardLogic not via dashboardsModel
-        allItemsLoading,
+        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
+        allItemsLoading: dashboardLoading,
         dashboardMode,
         canEditDashboard,
         showSubscriptions,
@@ -46,7 +45,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { dashboardTags } = useValues(dashboardsLogic)
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
         useActions(dashboardsModel)
-    const { dashboardLoading } = useValues(dashboardsModel)
+
     const { hasAvailableFeature } = useValues(userLogic)
 
     const { push } = useActions(router)
@@ -54,12 +53,12 @@ export function DashboardHeader(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const showTextCards = featureFlags[FEATURE_FLAGS.TEXT_CARDS]
 
-    return dashboard || allItemsLoading ? (
+    return dashboard || dashboardLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
                 <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
             )}
-            {dashboard && allItems && (
+            {dashboard && (
                 <>
                     <SubscriptionsModal
                         isOpen={showSubscriptions}
@@ -76,7 +75,7 @@ export function DashboardHeader(): JSX.Element | null {
                         <TextCardModal
                             isOpen={showTextTileModal}
                             onClose={() => push(urls.dashboard(dashboard.id))}
-                            dashboard={allItems}
+                            dashboard={dashboard}
                             textTileId={textTileId}
                         />
                     )}
@@ -88,7 +87,7 @@ export function DashboardHeader(): JSX.Element | null {
                     <div className="flex items-center">
                         <EditableField
                             name="name"
-                            value={dashboard?.name || (allItemsLoading ? 'Loading…' : '')}
+                            value={dashboard?.name || (dashboardLoading ? 'Loading…' : '')}
                             placeholder="Name this dashboard"
                             onSave={
                                 dashboard
@@ -118,7 +117,7 @@ export function DashboardHeader(): JSX.Element | null {
                             type="primary"
                             onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
                             tabIndex={10}
-                            disabled={allItemsLoading}
+                            disabled={dashboardLoading}
                         >
                             Done editing
                         </LemonButton>
@@ -127,7 +126,7 @@ export function DashboardHeader(): JSX.Element | null {
                             type="secondary"
                             onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
                             data-attr="dashboard-exit-presentation-mode"
-                            disabled={allItemsLoading}
+                            disabled={dashboardLoading}
                         >
                             Exit full screen
                         </LemonButton>
