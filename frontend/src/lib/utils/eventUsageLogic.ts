@@ -282,7 +282,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             lastRefreshed,
         }),
         reportDashboardItemRefreshed: (dashboardItem: InsightModel) => ({ dashboardItem }),
-        reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs, dateTo?: string | Dayjs | null) => ({
+        reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs | null, dateTo?: string | Dayjs | null) => ({
             dateFrom,
             dateTo,
         }),
@@ -755,7 +755,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
             posthog.capture(`dashboard date range changed`, {
-                date_from: dateFrom?.toString(),
+                date_from: dateFrom?.toString() || 'Custom',
                 date_to: dateTo?.toString(),
             })
         },

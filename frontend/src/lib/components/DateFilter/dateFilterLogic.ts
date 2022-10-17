@@ -15,7 +15,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         openDateToNow: true,
         close: true,
         applyRange: true,
-        setDate: (dateFrom: string, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setDate: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setRangeDateFrom: (range: Dayjs | null) => ({ range }),
         setRangeDateTo: (range: Dayjs | null) => ({ range }),
     }),
@@ -103,9 +103,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             }
         },
         setDate: ({ dateFrom, dateTo }) => {
-            if (dateFrom) {
-                props.onChange?.(dateFrom, dateTo)
-            }
+            props.onChange?.(dateFrom, dateTo)
         },
     })),
 ])
