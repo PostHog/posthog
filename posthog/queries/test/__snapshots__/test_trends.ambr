@@ -596,8 +596,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific'))
-        UNION ALL SELECT counts as total,
-                         timestamp as day_start
+        UNION ALL SELECT counts AS total,
+                         timestamp AS date
         FROM
           (SELECT d.timestamp,
                   COUNT(DISTINCT person_id) counts
