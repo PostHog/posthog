@@ -3,7 +3,7 @@ import { SessionRecordingPlayer } from 'scenes/session-recordings/player/Session
 import { useActions, useValues } from 'kea'
 import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 import { LemonModal } from '@posthog/lemon-ui'
-import { PlayerMetaV3 } from '../PlayerMeta'
+import { PlayerMeta } from '../PlayerMeta'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 export function SessionPlayerModal(): JSX.Element | null {
@@ -24,7 +24,7 @@ export function SessionPlayerModal(): JSX.Element | null {
         >
             <header>
                 {activeSessionRecording ? (
-                    <PlayerMetaV3 playerKey="modal" sessionRecordingId={activeSessionRecording?.id} />
+                    <PlayerMeta playerKey="modal" sessionRecordingId={activeSessionRecording?.id} />
                 ) : null}
             </header>
             <LemonModal.Content embedded>

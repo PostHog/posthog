@@ -10,6 +10,7 @@ import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableCo
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { LemonSkeleton } from '../LemonSkeleton'
+import { LemonTableLoader } from './LemonTableLoader'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -304,8 +305,8 @@ export function LemonTable<T extends Record<string, any>>({
                                             </th>
                                         ))
                                     )}
+                                    <LemonTableLoader loading={loading} />
                                 </tr>
-                                <tr className="LemonTable__loader" />
                             </thead>
                         )}
                         <tbody>

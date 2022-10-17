@@ -61,7 +61,7 @@ export class Status implements StatusBlueprint {
 
     buildMethod(type: keyof StatusBlueprint): StatusMethod {
         return (icon: string, message: string, extra: object) => {
-            const logMessage = `(${this.mode}) ${icon} ${message}`
+            const logMessage = `${icon} ${message}`
             if (extra instanceof Object) {
                 this.logger[type]({ ...extra, msg: logMessage })
             } else {

@@ -31,7 +31,7 @@ describe('sessionPlayerModalLogic', () => {
             expectLogic(logic, () => logic.actions.openSessionPlayer({ id: 'abc' }))
                 .toDispatchActions(['getSessionRecordingsSuccess'])
                 .toMatchValues({
-                    partialSessionRecording: { id: 'abc' },
+                    selectedSessionRecording: { id: 'abc' },
                     activeSessionRecording: listOfSessionRecordings[0],
                 })
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')

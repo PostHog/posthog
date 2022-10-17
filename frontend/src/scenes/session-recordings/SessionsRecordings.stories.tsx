@@ -43,7 +43,7 @@ export function Recording(): JSX.Element {
 
 export function NewRecording(): JSX.Element {
     return (
-        <div className="session-player-wrapper-v3">
+        <div>
             <SessionRecordingPlayer sessionRecordingId={recordings[0].id} playerKey={'storybook'} />
         </div>
     )

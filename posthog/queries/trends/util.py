@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import WEEKLY_ACTIVE
+from posthog.constants import EVENT_COUNT_PER_ACTOR, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter, PathFilter
@@ -30,6 +30,7 @@ def process_math(
     aggregate_operation = "count(*)"
     join_condition = ""
     params: Dict[str, Any] = {}
+
     if entity.math == "dau":
         if team.aggregate_users_by_distinct_id:
             join_condition = ""
@@ -45,10 +46,14 @@ def process_math(
         aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}\"$session_id\")"
     elif entity.math in MATH_FUNCTIONS:
         if entity.math_property is None:
-            raise ValidationError({"math_property": "This field is required when `math` is set."}, code="required")
+            raise ValidationError(
+                {"math_property": "This field is required when `math` is set to a function."}, code="required"
+            )
 
         if entity.math_property == "$session_duration":
             aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(session_duration)"
+        elif entity.math_property == EVENT_COUNT_PER_ACTOR:
+            aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(intermediate_count)"
         else:
             key = f"e_{entity.index}_math_prop"
             value, _ = get_property_string_expr("events", entity.math_property, f"%({key})s", "properties")

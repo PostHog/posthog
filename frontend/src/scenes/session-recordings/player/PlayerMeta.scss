@@ -1,9 +1,8 @@
-.PlayerMetaV3 {
+.PlayerMeta {
     position: relative;
     border-bottom: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
     flex-shrink: 0;
 
     &--fullscreen {
@@ -12,7 +11,7 @@
         align-items: center;
     }
 
-    .PlayerMetaV3__escape {
+    .PlayerMeta__escape {
         position: absolute;
         left: 50%;
         top: 0px;

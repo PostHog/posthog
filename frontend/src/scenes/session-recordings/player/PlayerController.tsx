@@ -6,7 +6,7 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
-import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
+import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import {
     IconFullScreen,
@@ -21,17 +21,16 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 
-export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setIsFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
-    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, tab, isFullScreen } = useValues(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
+    const { currentPlayerState, speed, isSmallScreen, isSmallPlayer, skipInactivitySetting, tab, isFullScreen } =
+        useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
-        <div className="PlayerControllerV3 p-3 bg-light flex flex-col select-none">
+        <div className="p-3 bg-light flex flex-col select-none">
             <div className="flex items-center h-8 mb-2" data-attr="rrweb-controller">
                 {!isSmallScreen && <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
                 <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
@@ -47,7 +46,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                                 active={tab === SessionRecordingTab.EVENTS}
                                 onClick={() => setTab(SessionRecordingTab.EVENTS)}
                             >
-                                Events
+                                {isSmallScreen || isSmallPlayer ? '' : 'Events'}
                             </LemonButton>
                             {featureFlags[FEATURE_FLAGS.SESSION_CONSOLE] && (
                                 <LemonButton
@@ -59,14 +58,14 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                                         setTab(SessionRecordingTab.CONSOLE)
                                     }}
                                 >
-                                    Console
+                                    {isSmallScreen || isSmallPlayer ? '' : 'Console'}
                                 </LemonButton>
                             )}
                         </>
                     )}
                 </div>
                 <div className="flex items-center gap-1">
-                    <SeekBack sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                    <SeekSkip sessionRecordingId={sessionRecordingId} playerKey={playerKey} direction="backward" />
                     <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>
                         {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
                             <IconPause className="text-2xl" />
@@ -74,7 +73,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                             <IconPlay className="text-2xl" />
                         )}
                     </LemonButton>
-                    <SeekForward sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                    <SeekSkip sessionRecordingId={sessionRecordingId} playerKey={playerKey} direction="forward" />
                 </div>
                 <div className="flex items-center gap-1 flex-1 justify-end">
                     <Tooltip title={'Playback speed'}>

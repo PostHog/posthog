@@ -10,7 +10,6 @@
         position: relative;
         z-index: 0;
         background-color: var(--bg-light);
-        flex: 1;
         min-width: 1px;
         height: 500px;
         min-height: 500px;
@@ -51,22 +50,27 @@
 
 .PlayerControlSeekIcon {
     position: relative;
-    height: 18px;
-    width: 18px;
+    display: flex;
 
     .PlayerControlSeekIcon__seconds {
         position: absolute;
-        height: 18px;
-        width: 18px;
-        line-height: 18px;
         font-size: 6px;
+        font-weight: bold;
         text-align: center;
+        left: 0;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
     .PlayerControlSeekIcon__icon {
-        position: absolute;
-        top: 0;
-        left: 0;
-        font-size: 18px;
+        font-size: 1.3rem;
+
+        &--forward {
+            transform: rotateY(180deg);
+        }
     }
 }

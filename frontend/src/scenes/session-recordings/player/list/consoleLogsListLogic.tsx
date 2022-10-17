@@ -25,17 +25,6 @@ import { ConsoleDetails, ConsoleDetailsProps } from 'scenes/session-recordings/p
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
-export const FEEDBACK_OPTIONS = {
-    [YesOrNoResponse.Yes]: {
-        value: YesOrNoResponse.Yes,
-        label: '👍 Yes!',
-    },
-    [YesOrNoResponse.No]: {
-        value: YesOrNoResponse.No,
-        label: '👎 Not really',
-    },
-}
-
 function parseConsoleLogPayload(
     payload: RRWebRecordingConsoleLogPayload
 ): Omit<RecordingConsoleLog, keyof RecordingTimeMixinType> {

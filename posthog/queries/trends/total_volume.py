@@ -2,7 +2,14 @@ import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
 
-from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, WEEKLY_ACTIVE
+from posthog.constants import (
+    EVENT_COUNT_PER_ACTOR,
+    MONTHLY_ACTIVE,
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    TRENDS_CUMULATIVE,
+    UNIQUE_USERS,
+    WEEKLY_ACTIVE,
+)
 from posthog.models.entity import Entity
 from posthog.models.event.sql import NULL_SQL
 from posthog.models.filters import Filter
@@ -11,12 +18,14 @@ from posthog.queries.trends.sql import (
     ACTIVE_USER_SQL,
     AGGREGATE_SQL,
     CUMULATIVE_SQL,
-    SESSION_DURATION_VOLUME_SQL,
-    SESSION_VOLUME_TOTAL_AGGREGATE_SQL,
+    SESSION_DURATION_AGGREGATE_SQL,
+    SESSION_DURATION_SQL,
+    VOLUME_AGGREGATE_SQL,
+    VOLUME_PER_ACTOR_AGGREGATE_SQL,
+    VOLUME_PER_ACTOR_SQL,
     VOLUME_SQL,
-    VOLUME_TOTAL_AGGREGATE_SQL,
 )
-from posthog.queries.trends.trend_event_query import TrendsEventQuery
+from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import enumerate_time_range, parse_response, process_math
 from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch, start_of_week_fix
 from posthog.utils import encode_get_request_params
@@ -50,13 +59,18 @@ class TrendsTotalVolume:
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
-
             if entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
-                content_sql = SESSION_VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
+                content_sql = SESSION_DURATION_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
+            elif entity.math_property == EVENT_COUNT_PER_ACTOR:
+                content_sql = VOLUME_PER_ACTOR_AGGREGATE_SQL.format(
+                    event_query=event_query,
+                    **content_sql_params,
+                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                )
             else:
-                content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
+                content_sql = VOLUME_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
         else:
@@ -70,7 +84,7 @@ class TrendsTotalVolume:
                     aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
                     **trend_event_query.active_user_params,
                 )
-            elif filter.display == TRENDS_CUMULATIVE and entity.math == "dau":
+            elif filter.display == TRENDS_CUMULATIVE and entity.math == UNIQUE_USERS:
                 # TODO: for groups aggregation as well
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
                 content_sql = VOLUME_SQL.format(
@@ -78,10 +92,21 @@ class TrendsTotalVolume:
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
+            elif entity.math_property == EVENT_COUNT_PER_ACTOR:
+                # Calculate average number of events per actor
+                # (only including actors with at least one matching event in a period)
+                # Note: When `math_property == EVENT_COUNT_PER_ACTOR` is combined with `math == "sum"`, the results are
+                # identical to `math == 'total'`
+                content_sql = VOLUME_PER_ACTOR_SQL.format(
+                    event_query=event_query,
+                    start_of_week_fix=start_of_week_fix(filter.interval),
+                    **content_sql_params,
+                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                )
             elif entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
-                content_sql = SESSION_DURATION_VOLUME_SQL.format(
+                content_sql = SESSION_DURATION_SQL.format(
                     event_query=event_query, start_of_week_fix=start_of_week_fix(filter.interval), **content_sql_params
                 )
             else:
