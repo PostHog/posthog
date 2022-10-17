@@ -119,26 +119,26 @@ export function PlayerList<T extends Record<string, any>>({
                                             </div>
                                         ) : (
                                             <div className="flex flex-col items-center h-full w-full pt-16 px-4 bg-white">
-                                                <div className="flex flex-col items-center gap-2 max-w-100 mx-auto text-center">
-                                                    <h4 className="text-xl font-medium my-0">
-                                                        Introducing Console Logs
-                                                    </h4>
-                                                    <p className="text-muted my-0">
-                                                        Capture all console logs that are fired as part of a recording.
-                                                    </p>
-                                                    <LemonButton
-                                                        className="mt-2"
-                                                        onClick={() => {
-                                                            updateCurrentTeam({ capture_console_log_opt_in: true })
-                                                        }}
-                                                        type="primary"
-                                                    >
-                                                        Turn on console log capture
-                                                    </LemonButton>
-                                                    <Link to={urls.projectSettings() + '#recordings'} target="__blank">
-                                                        Configure in settings <IconOpenInNew />
-                                                    </Link>
-                                                </div>
+                                                <h4 className="text-xl font-medium">Introducing Console Logs</h4>
+                                                <p className="text-muted">
+                                                    Capture all console logs that are fired as part of a recording.
+                                                </p>
+                                                <LemonButton
+                                                    className="mb-2"
+                                                    onClick={() => {
+                                                        updateCurrentTeam({ capture_console_log_opt_in: true })
+                                                    }}
+                                                    type="primary"
+                                                >
+                                                    Turn on console log capture
+                                                </LemonButton>
+                                                <LemonButton
+                                                    to={urls.projectSettings() + '#recordings'}
+                                                    targetBlank
+                                                    sideIcon={<IconOpenInNew />}
+                                                >
+                                                    Configure in settings
+                                                </LemonButton>
                                             </div>
                                         )
                                     }
