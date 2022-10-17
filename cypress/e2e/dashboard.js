@@ -93,8 +93,8 @@ describe('Dashboard', () => {
             })
         })
 
-        it('Add insight to a dashboard and then remove it from the dashboard view', () => {
-            cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+        it.only('Add insight to a dashboard and then remove it from the dashboard view', () => {
+            cy.intercept('PATCH', /api\/projects\/\d+\/dashboards\/\d+\/.*/).as('patchDashboard')
             cy.intercept('POST', /api\/projects\/\d+\/insights\//).as('postInsight')
             cy.intercept('GET', /api\/projects\/\d+\/insights\/\?short_id=.*/).as('loadInsightView')
 
@@ -130,7 +130,9 @@ describe('Dashboard', () => {
                 cy.get('[data-attr="more-button"]').click()
             })
             cy.contains('button', 'Remove from dashboard').click()
-            cy.contains('Dashboard empty').should('exist')
+            cy.wait('@patchDashboard').then(() => {
+                cy.contains('Dashboard empty').should('be.visible')
+            })
 
             // confirm the insight no longer has the dashboard listed in its "Add to dashboard" button
             cy.visit(urls.savedInsights())

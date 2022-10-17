@@ -61,6 +61,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightSaving,
         tagLoading,
     } = useValues(logic)
+    console.log('rendering insight with dashboards: ', insight.dashboards, ' and key ', logic.key)
     useMountedLogic(insightCommandLogic(insightProps))
     const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
     const { loadInsights } = useActions(savedInsightsLogic)

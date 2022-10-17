@@ -398,7 +398,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
     })),
-    reducers(({ props }) => ({
+    reducers(({ props, key }) => ({
         insight: {
             loadInsight: (state, { shortId }) =>
                 shortId === state.short_id
@@ -434,8 +434,19 @@ export const insightLogic = kea<insightLogicType>([
                 return state
             },
             [dashboardsModel.actionTypes.tileRemovedFromDashboard]: (state, { tile, dashboardId }) => {
-                if (tile.insight?.id === state.id) {
-                    return { ...state, dashboards: state.dashboards?.filter((d) => d !== dashboardId) }
+                if (tile.insight?.short_id === props.dashboardItemId) {
+                    console.log(
+                        'removing tile ',
+                        tile.insight?.short_id,
+                        'from insight with key ',
+                        key,
+                        ' and props ',
+                        props
+                    )
+                    console.log('starting', state.dashboards)
+                    const filteredDashboards = state.dashboards?.filter((d) => d !== dashboardId)
+                    console.log('filtered', filteredDashboards)
+                    return { ...state, dashboards: filteredDashboards }
                 }
                 return state
             },
