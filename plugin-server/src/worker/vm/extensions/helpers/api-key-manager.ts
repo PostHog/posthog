@@ -3,8 +3,7 @@ import crypto from 'crypto'
 import { DB } from '../../../../utils/db/db'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { generateRandomToken, UUIDT } from '../../../../utils/utils'
-import { createCache } from '../cache'
-import { OrganizationMembershipLevel, PluginConfig, RawOrganization } from './../../../../types'
+import { OrganizationMembershipLevel, RawOrganization } from './../../../../types'
 
 const POSTHOG_BOT_USER_EMAIL_DOMAIN = 'posthogbot.user'
 const PERSONAL_API_KEY_SALT = 'posthog_personal_api_key'
@@ -24,10 +23,7 @@ export class PluginsApiKeyManager {
         this.db = db
     }
 
-    public async fetchOrCreatePersonalApiKey(
-        organizationId: RawOrganization['id'],
-        pluginConfig: PluginConfig
-    ): Promise<string> {
+    public async fetchOrCreatePersonalApiKey(organizationId: RawOrganization['id']): Promise<string> {
         const createNewKey = async (userId: number): Promise<string> => {
             const [value, secureValue] = generatePersonalApiKeyValue()
             await this.db.createPersonalApiKey({
@@ -39,9 +35,9 @@ export class PluginsApiKeyManager {
             })
             return value
         }
-        const cache = createCache({ db: this.db } as any, pluginConfig.plugin_id, pluginConfig.team_id)
 
-        const cachedKey = await cache.get('_bot_api_key', null)
+        const cachedKeyRedisKey = `plugins-api-key-manager/${organizationId}`
+        const cachedKey = await this.db.redisGet<string | null>(cachedKeyRedisKey, null)
         if (cachedKey) {
             return cachedKey as string
         }
@@ -86,7 +82,7 @@ export class PluginsApiKeyManager {
                 throw new Error('Unable to find or create a personal API key')
             }
 
-            await cache.set('_bot_api_key', key)
+            await this.db.redisSet(cachedKeyRedisKey, key)
 
             return key
         } finally {
