@@ -50,12 +50,12 @@ class TestMediaAPI(APIBaseTest):
 
     def test_can_upload_and_retrieve_a_file(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
-            with open(get_path_to("family-guy-struggle.gif"), "rb") as image:
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/uploaded_media", {"image": image}, format="multipart"
                 )
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-                assert response.json()["name"] == "family-guy-struggle.gif"
+                assert response.json()["name"] == "a-small-but-valid.gif"
                 media_location = response.json()["image_location"]
                 assert re.match(r"^http://localhost:8000/uploaded_media/.*", media_location) is not None
 
@@ -73,7 +73,7 @@ class TestMediaAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, response.json())
 
     def test_rejects_file_manually_crafted_to_start_with_image_magic_bytes(self) -> None:
-        with open(get_path_to("evil-hacker.gif"), "rb") as image:
+        with open(get_path_to("file-masquerading-as-a.gif"), "rb") as image:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/uploaded_media", {"image": image}, format="multipart"
             )
