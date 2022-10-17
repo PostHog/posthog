@@ -52,17 +52,23 @@ class TestInsightModel(BaseTest):
 
         assert filters_with_dashboard_with_same_date_from["date_from"] == "-30d"
 
-    def test_dashboard_does_not_affect_filters_hash_with_absent_or_null_date_from(self) -> None:
+    def test_dashboard_does_not_affect_filters_hash_with_absent_date_from(self) -> None:
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
-        dashboard_one = Dashboard.objects.create(team=self.team, filters={"date_from": None})
-        dashboard_two = Dashboard.objects.create(team=self.team, filters={})
+        dashboard = Dashboard.objects.create(team=self.team, filters={})
 
         filters_hash_no_dashboard = generate_insight_cache_key(insight, None)
-        filters_hash_with_null_date_from = generate_insight_cache_key(insight, dashboard_one)
-        filters_hash_with_absent_date_from = generate_insight_cache_key(insight, dashboard_two)
+        filters_hash_with_absent_date_from = generate_insight_cache_key(insight, dashboard)
+
+        assert filters_hash_no_dashboard == filters_hash_with_absent_date_from
+
+    def test_dashboard_does_not_affect_filters_hash_with_null_date_from(self) -> None:
+        insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
+        dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": None})
+
+        filters_hash_no_dashboard = generate_insight_cache_key(insight, None)
+        filters_hash_with_null_date_from = generate_insight_cache_key(insight, dashboard)
 
         assert filters_hash_no_dashboard == filters_hash_with_null_date_from
-        assert filters_hash_with_null_date_from == filters_hash_with_absent_date_from
 
     def test_dashboard_with_date_from_changes_filters_hash(self) -> None:
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
