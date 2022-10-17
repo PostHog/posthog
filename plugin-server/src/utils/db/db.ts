@@ -59,6 +59,7 @@ import {
 } from '../../types'
 import { parseRawClickHouseEvent } from '../event'
 import { instrumentQuery } from '../metrics'
+import { status } from '../status'
 import {
     castTimestampOrNow,
     escapeClickHouseString,
@@ -1359,7 +1360,23 @@ export class DB {
             instance_id: instanceId.toString(),
         }
 
+        if (parsedEntry.message.length > 50_000) {
+            const { message, ...rest } = parsedEntry
+            status.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
+            this.statsd?.increment('logs.entries_too_large', {
+                source,
+                team_id: pluginConfig.team_id.toString(),
+                plugin_id: pluginConfig.plugin_id.toString(),
+            })
+            return
+        }
+
         this.statsd?.increment(`logs.entries_created`, {
+            source,
+            team_id: pluginConfig.team_id.toString(),
+            plugin_id: pluginConfig.plugin_id.toString(),
+        })
+        this.statsd?.increment('logs.entries_size', {
             source,
             team_id: pluginConfig.team_id.toString(),
             plugin_id: pluginConfig.plugin_id.toString(),
@@ -1369,7 +1386,7 @@ export class DB {
             await this.kafkaProducer.queueSingleJsonMessage(KAFKA_PLUGIN_LOG_ENTRIES, parsedEntry.id, parsedEntry)
         } catch (e) {
             captureException(e)
-            console.error(e)
+            console.error('Failed to produce message', e, parsedEntry)
         }
     }
 
