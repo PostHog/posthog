@@ -95,7 +95,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
         updateAndRefreshDashboard: true,
-        setDates: (dateFrom: string, dateTo: string | null, reloadDashboard = true) => ({
+        setDates: (dateFrom: string | null, dateTo: string | null, reloadDashboard = true) => ({
             dateFrom,
             dateTo,
             reloadDashboard,
