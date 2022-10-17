@@ -5,10 +5,72 @@
     flex-direction: column;
     flex-shrink: 0;
 
+    .PlayerMetaPersonProperties {
+        background: var(--side);
+        overflow-y: auto;
+        border-bottom: 1px solid transparent;
+    }
+
+    &:not(.PlayerMeta--fullscreen) {
+        .PlayerMetaPersonProperties {
+            transition: 200ms height ease-out, 200ms border-bottom-color ease-out;
+
+            &--enter {
+                height: 0px;
+            }
+
+            &--enter-active,
+            &--enter-done {
+                height: 14rem;
+                border-bottom-color: var(--border);
+            }
+
+            &--exit {
+                height: 14rem;
+                border-bottom-color: var(--border);
+            }
+
+            &--exit-active {
+                height: 0px;
+            }
+        }
+    }
+
     &--fullscreen {
         flex-direction: row;
         justify-content: space-between;
         align-items: center;
+        height: 48px;
+
+        .PlayerMetaPersonProperties {
+            position: fixed;
+            top: 48px;
+            left: 0px;
+            bottom: 97px; // TODO: Make this less static
+            z-index: 1;
+            width: 40rem;
+            max-width: 100%;
+            border-right: 1px solid var(--border);
+
+            transition: 200ms transform ease-out;
+
+            &--enter {
+                transform: translateX(-100%);
+            }
+
+            &--enter-active,
+            &--enter-done {
+                transform: translateX(0);
+            }
+
+            &--exit {
+                transform: translateX(0);
+            }
+
+            &--exit-active {
+                transform: translateX(-100%);
+            }
+        }
     }
 
     .PlayerMeta__escape {

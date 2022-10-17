@@ -1,5 +1,5 @@
 import './PlayerMeta.scss'
-import React from 'react'
+import React, { useState } from 'react'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { useValues } from 'kea'
@@ -12,8 +12,12 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SessionRecordingPlayerProps } from '~/types'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { playerSettingsLogic } from './playerSettingsLogic'
+import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { CSSTransition } from 'react-transition-group'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const {
@@ -27,6 +31,8 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
         loading,
         isSmallPlayer,
     } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
+
+    const [expanded, setExpanded] = useState(false)
 
     const { isFullScreen } = useValues(playerSettingsLogic)
     return (
@@ -81,7 +87,36 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         {loading ? <LemonSkeleton className="w-1/4 my-1" /> : <span>{description}</span>}
                     </div>
                 </div>
+                <Tooltip
+                    title={expanded ? 'Hide person properties' : 'Show person properties'}
+                    placement={isFullScreen ? 'bottom' : 'left'}
+                >
+                    <LemonButton
+                        className={isFullScreen ? 'rotate-90' : ''}
+                        status="stealth"
+                        active={expanded}
+                        onClick={() => setExpanded(!expanded)}
+                        icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                    />
+                </Tooltip>
             </div>
+            {sessionPerson && (
+                <CSSTransition
+                    in={expanded}
+                    timeout={200}
+                    classNames="PlayerMetaPersonProperties-"
+                    mountOnEnter
+                    unmountOnExit
+                >
+                    <div className="PlayerMetaPersonProperties">
+                        {Object.keys(sessionPerson.properties).length ? (
+                            <PropertiesTable properties={sessionPerson.properties} />
+                        ) : (
+                            <p className="text-center m-4">There are no properties.</p>
+                        )}
+                    </div>
+                </CSSTransition>
+            )}
             <div
                 className={clsx('flex items-center justify-between gap-2 whitespace-nowrap', {
                     'p-3 flex-wrap': !isFullScreen,
