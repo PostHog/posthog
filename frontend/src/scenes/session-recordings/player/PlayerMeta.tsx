@@ -1,8 +1,8 @@
 import './PlayerMeta.scss'
-import React, { useState } from 'react'
+import React from 'react'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { TZLabel } from 'lib/components/TimezoneAware'
@@ -32,9 +32,9 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
         isSmallPlayer,
     } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
 
-    const [expanded, setExpanded] = useState(false)
+    const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
+    const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
 
-    const { isFullScreen } = useValues(playerSettingsLogic)
     return (
         <div
             className={clsx('PlayerMeta', {
@@ -88,21 +88,21 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     </div>
                 </div>
                 <Tooltip
-                    title={expanded ? 'Hide person properties' : 'Show person properties'}
+                    title={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
                     placement={isFullScreen ? 'bottom' : 'left'}
                 >
                     <LemonButton
                         className={isFullScreen ? 'rotate-90' : ''}
                         status="stealth"
-                        active={expanded}
-                        onClick={() => setExpanded(!expanded)}
-                        icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                        active={isMetadataExpanded}
+                        onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
+                        icon={isMetadataExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                     />
                 </Tooltip>
             </div>
             {sessionPerson && (
                 <CSSTransition
-                    in={expanded}
+                    in={isMetadataExpanded}
                     timeout={200}
                     classNames="PlayerMetaPersonProperties-"
                     mountOnEnter
