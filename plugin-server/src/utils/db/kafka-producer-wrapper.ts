@@ -7,6 +7,7 @@ import SnappyCodec from 'kafkajs-snappy'
 import { runInSpan } from '../../sentry'
 import { PluginsServerConfig } from '../../types'
 import { instrument } from '../metrics'
+import { status } from '../status'
 import { timeoutGuard } from './utils'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
@@ -122,7 +123,6 @@ export class KafkaProducerWrapper {
             } catch (err) {
                 Sentry.captureException(err, {
                     extra: {
-                        messages: messages,
                         batchCount: messages.length,
                         topics: messages.map((record) => record.topic),
                         messageCounts: messages.map((record) => record.messages.length),
@@ -130,7 +130,15 @@ export class KafkaProducerWrapper {
                     },
                 })
                 // :TODO: Implement some retrying, https://github.com/PostHog/plugin-server/issues/511
-                this.statsd?.increment('query.kafka_send.failure')
+                this.statsd?.increment('query.kafka_send.failure', {
+                    firstTopic: messages[0].topic,
+                })
+                status.warn('⚠️', 'Failed to flush kafka messages that were produced', {
+                    batchCount: messages.length,
+                    topics: messages.map((record) => record.topic),
+                    messageCounts: messages.map((record) => record.messages.length),
+                    estimatedSize: batchSize,
+                })
                 throw err
             } finally {
                 clearTimeout(timeout)

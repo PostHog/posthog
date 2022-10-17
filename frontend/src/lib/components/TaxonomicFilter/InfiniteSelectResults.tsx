@@ -1,4 +1,3 @@
-import React from 'react'
 import { Tag } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'

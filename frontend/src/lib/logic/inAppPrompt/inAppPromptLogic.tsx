@@ -1,4 +1,3 @@
-import React from 'react'
 import ReactDOM from 'react-dom'
 import { Placement } from '@floating-ui/react-dom-interactions'
 import { kea, path, actions, reducers, listeners, selectors, connect, afterMount, beforeUnmount } from 'kea'
@@ -9,7 +8,6 @@ import {
     LemonActionableTooltipProps,
 } from 'lib/components/LemonActionableTooltip/LemonActionableTooltip'
 import { inAppPromptEventCaptureLogic } from './inAppPromptEventCaptureLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import api from 'lib/api'
 import { now } from 'lib/dayjs'
 import wcmatch from 'wildcard-match'
@@ -28,9 +26,9 @@ import {
     IconRecording,
     IconTools,
     IconCoffee,
+    IconTrendUp,
 } from 'lib/components/icons'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
-import posthog from 'posthog-js'
 
 /** To be extended with other types of notifications e.g. modals, bars */
 export type PromptType = 'tooltip'
@@ -47,6 +45,7 @@ export type Prompt = {
     text: string
     placement: Placement
     reference: string
+    title?: string
     buttons?: PromptButton[]
     icon?: string
 }
@@ -81,18 +80,25 @@ export type PromptState = {
 
 export type ValidSequenceWithState = {
     sequence: PromptSequence
-    state: { step: number; completed?: boolean; dismissed?: boolean }
+    state: { step: number; completed?: boolean; canRun?: boolean }
 }
 
 export type PromptUserState = {
     [key: string]: PromptState
 }
 
+export enum DefaultAction {
+    NEXT = 'next',
+    PREVIOUS = 'previous',
+    START_PRODUCT_TOUR = 'start-product-tour',
+    SKIP = 'skip',
+}
+
 // we show a new sequence with 1 second delay, because users immediately dismiss prompts that are invasive
 const NEW_SEQUENCE_DELAY = 1000
 // make sure to change this prefix in case the schema of cached values is changed
 // otherwise the code will try to run with cached deprecated values
-const CACHE_PREFIX = 'v2'
+const CACHE_PREFIX = 'v3'
 
 const iconMap = {
     home: <Lettermark name="PostHog" />,
@@ -110,6 +116,7 @@ const iconMap = {
     annotations: <IconComment />,
     apps: <IconApps />,
     toolbar: <IconTools />,
+    'trend-up': <IconTrendUp />,
 }
 
 /** Display a <LemonActionableTooltip> with the ability to remove it from the DOM */
@@ -135,6 +142,7 @@ function cancellableTooltipWithRetries(
         const tryRender = function (retries: number): void {
             try {
                 let props: LemonActionableTooltipProps = {
+                    title: tooltip.title,
                     text: tooltip.text,
                     placement: tooltip.placement,
                     step: tooltip.step,
@@ -219,7 +227,8 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
         syncState: (options: { forceRun?: boolean }) => ({ options }),
         setSequences: (sequences: PromptSequence[]) => ({ sequences }),
         promptAction: (action: string) => ({ action }),
-        skipTutorial: true,
+        optInProductTour: true,
+        optOutProductTour: true,
     }),
     reducers(() => ({
         sequences: [
@@ -250,15 +259,16 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                 setUserState: (_, { state }) => state,
             },
         ],
-        hasSkippedTutorial: [
+        canShowProductTour: [
             false,
             { persist: true, prefix: CACHE_PREFIX },
             {
-                skipTutorial: () => true,
+                optIntProductTour: () => true,
+                optOutProductTour: () => false,
             },
         ],
         validSequences: [
-            [] as { sequence: PromptSequence; state: { step: number; completed?: boolean; dismissed?: boolean } }[],
+            [] as ValidSequenceWithState[],
             {
                 setValidSequences: (_, { validSequences }) => validSequences,
             },
@@ -306,8 +316,8 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                         const { close, show } = cancellableTooltipWithRetries(prompt, actions.promptAction, {
                             maxSteps: values.prompts.length,
                             onClose: actions.dismissSequence,
-                            previous: () => actions.promptAction('previous'),
-                            next: () => actions.promptAction('next'),
+                            previous: () => actions.promptAction(DefaultAction.PREVIOUS),
+                            next: () => actions.promptAction(DefaultAction.NEXT),
                         })
                         cache.runOnClose = close
 
@@ -388,14 +398,14 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                             continue
                         }
                     }
-                    const isTutorialDismissed = sequence.type === 'product-tour' && values.hasSkippedTutorial
+                    const isProductTourDismissed = sequence.type === 'product-tour' && !values.canShowProductTour
                     if (values.userState[sequence.key]) {
                         const sequenceState = values.userState[sequence.key]
                         const completed = !!sequenceState.completed || sequenceState.step === sequence.prompts.length
-                        const dismissed = !!sequenceState.dismissed || isTutorialDismissed
+                        const canRun = sequenceState.dismissed && !isProductTourDismissed
                         if (
                             sequence.type !== 'product-tour' &&
-                            (completed || dismissed || sequenceState.step === sequence.prompts.length)
+                            (completed || !canRun || sequenceState.step === sequence.prompts.length)
                         ) {
                             continue
                         }
@@ -404,11 +414,11 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                             state: {
                                 step: sequenceState.step + 1,
                                 completed,
-                                dismissed,
+                                canRun,
                             },
                         })
                     } else {
-                        valid.push({ sequence, state: { step: 0, dismissed: isTutorialDismissed } })
+                        valid.push({ sequence, state: { step: 0, canRun: !isProductTourDismissed } })
                     }
                 }
             }
@@ -427,7 +437,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                     firstValid = values.validSequences[0]
                 } else {
                     firstValid = values.validSequences.filter(
-                        (sequence) => !sequence.state.completed && !sequence.state.dismissed
+                        (sequence) => !sequence.state.completed && sequence.state.canRun
                     )?.[0]
                 }
                 if (firstValid) {
@@ -462,20 +472,26 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
         promptAction: ({ action }) => {
             actions.closePrompts()
             switch (action) {
-                case 'next':
+                case DefaultAction.NEXT:
                     actions.nextPrompt()
                     break
-                case 'previous':
+                case DefaultAction.PREVIOUS:
                     actions.previousPrompt()
                     break
-                case 'skip':
-                    actions.skipTutorial()
-                    inAppPromptEventCaptureLogic.actions.reportTutorialSkipped()
+                case DefaultAction.START_PRODUCT_TOUR:
+                    actions.optInProductTour()
+                    inAppPromptEventCaptureLogic.actions.reportProductTourStarted()
+                    actions.runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
                     break
-                case 'run-tutorial':
-                    actions.findValidSequences()
+                case DefaultAction.SKIP:
+                    actions.optOutProductTour()
+                    inAppPromptEventCaptureLogic.actions.reportProductTourSkipped()
                     break
                 default:
+                    const potentialSequence = values.sequences.find((s) => s.key === action)
+                    if (potentialSequence) {
+                        actions.runSequence(potentialSequence, 0)
+                    }
                     break
             }
         },
@@ -487,11 +503,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        posthog.onFeatureFlags((_, variants) => {
-            if (variants[FEATURE_FLAGS.IN_APP_PROMPTS_EXPERIMENT] === 'test') {
-                actions.syncState({ forceRun: true })
-            }
-        })
+        actions.syncState({ forceRun: true })
     }),
     beforeUnmount(({ cache }) => cache.runOnClose?.()),
 ])

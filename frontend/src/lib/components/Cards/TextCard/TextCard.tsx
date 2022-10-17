@@ -1,4 +1,3 @@
-import React from 'react'
 import { Resizeable } from 'lib/components/Cards/InsightCard/InsightCard'
 import './TextCard.scss'
 import { Textfit } from 'react-textfit'
@@ -13,6 +12,7 @@ import { urls } from 'scenes/urls'
 import ReactMarkdown from 'react-markdown'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import React from 'react'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     dashboardId?: string | number

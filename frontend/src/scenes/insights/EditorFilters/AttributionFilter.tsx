@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { BreakdownAttributionType, EditorFilterProps, StepOrderValue } from '~/types'

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Invites } from './Invites'
 import { Members } from './Members'

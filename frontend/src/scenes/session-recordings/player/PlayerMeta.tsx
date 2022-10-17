@@ -1,5 +1,4 @@
 import './PlayerMeta.scss'
-import React from 'react'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { useValues } from 'kea'
@@ -89,7 +88,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                 })}
             >
                 {loading || currentWindowIndex === -1 ? (
-                    <LemonSkeleton className="w-1/3" />
+                    <LemonSkeleton className="w-1/3 my-1" />
                 ) : (
                     <>
                         <IconWindow value={currentWindowIndex + 1} className="text-muted" />

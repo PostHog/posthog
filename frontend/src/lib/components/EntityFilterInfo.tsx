@@ -1,6 +1,5 @@
 import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
 import { Typography } from 'antd'
-import React from 'react'
 import { TextProps } from 'antd/lib/typography/Text'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'

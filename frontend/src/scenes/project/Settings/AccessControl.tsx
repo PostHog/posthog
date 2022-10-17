@@ -1,4 +1,3 @@
-import React from 'react'
 import { AvailableFeature } from '~/types'
 import { organizationLogic } from '../../organizationLogic'
 import { useActions, useValues } from 'kea'

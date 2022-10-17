@@ -28,7 +28,7 @@ import { apiValueToMathType, MathDefinition } from 'scenes/trends/mathsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightLogic } from './insightLogic'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
-import React, { ReactNode } from 'react'
+import { ReactNode } from 'react'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,

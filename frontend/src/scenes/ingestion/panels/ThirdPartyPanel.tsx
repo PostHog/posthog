@@ -1,6 +1,5 @@
 import { useValues, useActions } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
-import React from 'react'
 import { CardContainer } from '../CardContainer'
 import { ingestionLogic } from '../ingestionLogic'
 import './Panels.scss'

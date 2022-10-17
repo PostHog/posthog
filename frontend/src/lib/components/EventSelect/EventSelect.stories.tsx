@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import React from 'react'
+import { useState } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { EventSelect } from './EventSelect'
 
@@ -45,7 +45,7 @@ export default {
 } as Meta
 
 export function EventSelect_(): JSX.Element {
-    const [selectedEvents, setSelectedEvents] = React.useState<string[]>([])
+    const [selectedEvents, setSelectedEvents] = useState<string[]>([])
 
     return (
         <EventSelect

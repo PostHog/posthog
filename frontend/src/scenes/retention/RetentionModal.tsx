@@ -1,4 +1,3 @@
-import React from 'react'
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
 import {
     RetentionTablePayload,

@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'

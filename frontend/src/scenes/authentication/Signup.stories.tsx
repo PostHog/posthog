@@ -1,6 +1,6 @@
 // Signup.stories.tsx
 import { Meta } from '@storybook/react'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { Signup } from './Signup'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { userLogic } from 'scenes/userLogic'

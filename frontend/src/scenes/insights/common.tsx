@@ -1,4 +1,3 @@
-import React from 'react'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'

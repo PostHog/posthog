@@ -1,4 +1,3 @@
-import React from 'react'
 import { ActionEdit } from './ActionEdit'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'

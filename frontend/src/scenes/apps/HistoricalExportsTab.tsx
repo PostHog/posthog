@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { appMetricsSceneLogic, HistoricalExportInfo } from './appMetricsSceneLogic'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'

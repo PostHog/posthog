@@ -1,7 +1,7 @@
 import './TaxonomicPopup.scss'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from 'lib/components/LemonButton'
 import { IconArrowDropDown, IconClose } from 'lib/components/icons'
 

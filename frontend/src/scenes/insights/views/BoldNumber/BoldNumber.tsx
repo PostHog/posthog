@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 
 import { ChartParams, TrendResult } from '~/types'

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useSecondRender } from 'lib/hooks/useSecondRender'
 import root from 'react-shadow'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'

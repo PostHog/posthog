@@ -1,4 +1,3 @@
-import React from 'react'
 import './ProjectHomepage.scss'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'

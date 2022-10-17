@@ -1,7 +1,6 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, convertPropertiesToPropertyGroup, pluralize, toParams } from 'lib/utils'
-import React from 'react'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import {
     ActionFilter,

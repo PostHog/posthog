@@ -1,4 +1,3 @@
-import React from 'react'
 import { setupWorker } from 'msw'
 import { handlers } from '~/mocks/handlers'
 import { Mocks, mocksToHandlers } from '~/mocks/utils'

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import hhFall from 'public/hedgehog/sprites/fall.png'
 import hhJump from 'public/hedgehog/sprites/jump.png'

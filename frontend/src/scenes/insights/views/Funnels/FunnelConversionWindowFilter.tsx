@@ -1,6 +1,6 @@
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
