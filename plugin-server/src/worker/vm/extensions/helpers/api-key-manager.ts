@@ -82,7 +82,7 @@ export class PluginsApiKeyManager {
                 throw new Error('Unable to find or create a personal API key')
             }
 
-            await this.db.redisSet(cachedKeyRedisKey, key)
+            await this.db.redisSet(cachedKeyRedisKey, key, 86_400 * 14) // Don't cache keys longer than 14 days
 
             return key
         } finally {
