@@ -1,5 +1,3 @@
-import React from 'react'
-
 interface MagnifierProps extends React.PropsWithoutRef<JSX.IntrinsicElements['svg']> {
     engaged?: boolean
 }

@@ -1,4 +1,3 @@
-import React from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
 import { trendsLogic } from './trendsLogic'

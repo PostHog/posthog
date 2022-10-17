@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingsListLogic } from '../sessionRecordingsListLogic'
 import { DurationFilter } from './DurationFilter'

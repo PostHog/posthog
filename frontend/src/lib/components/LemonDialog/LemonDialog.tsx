@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { LemonButton, LemonButtonProps } from 'lib/components/LemonButton'
 import { LemonModal, LemonModalProps } from '../LemonModal'
 import ReactDOM from 'react-dom'

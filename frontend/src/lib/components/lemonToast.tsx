@@ -1,4 +1,3 @@
-import React from 'react'
 import { toast, ToastContentProps as ToastifyRenderProps, ToastOptions } from 'react-toastify'
 import { IconCheckmark, IconClose, IconErrorOutline, IconInfo, IconWarning } from './icons'
 import { LemonButton } from './LemonButton'

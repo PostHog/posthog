@@ -1,4 +1,3 @@
-import React from 'react'
 import { dashboardLogic } from './dashboardLogic'
 import { useValues } from 'kea'
 import { urls } from 'scenes/urls'
@@ -6,6 +5,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { IconPlus } from 'lib/components/icons'
 import './EmptyDashboardComponent.scss'
+import React from 'react'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (

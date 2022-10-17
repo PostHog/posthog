@@ -1,5 +1,5 @@
 import './PlayerList.scss'
-import React, { ReactElement, useEffect, useRef } from 'react'
+import { ReactElement, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import {

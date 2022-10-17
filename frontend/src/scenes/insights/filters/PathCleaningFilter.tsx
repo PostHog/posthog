@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { Popup } from 'lib/components/Popup/Popup'
 import { PathRegexPopup } from 'lib/components/PathCleanFilters/PathCleanFilter'

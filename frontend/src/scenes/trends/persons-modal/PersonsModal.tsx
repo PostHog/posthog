@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { ActorType, ExporterFormat, SessionRecordingType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'

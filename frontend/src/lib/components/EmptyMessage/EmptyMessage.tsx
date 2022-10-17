@@ -1,4 +1,3 @@
-import React from 'react'
 import './EmptyMessage.scss'
 import { LemonButton } from '../LemonButton'
 

@@ -1,6 +1,5 @@
 import { Row } from 'antd'
 import clsx from 'clsx'
-import React from 'react'
 import { LemonDivider } from './LemonDivider'
 
 interface PageHeaderProps {

@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'

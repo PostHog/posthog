@@ -1,5 +1,5 @@
 import './SessionRecordingPlayer.scss'
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'

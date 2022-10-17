@@ -1,6 +1,5 @@
 import './InfiniteList.scss'
 import '../Popup/Popup.scss'
-import React from 'react'
 import { Empty, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'

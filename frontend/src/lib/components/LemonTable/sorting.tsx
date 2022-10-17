@@ -1,4 +1,3 @@
-import React from 'react'
 import { ArrowDownOutlined, ArrowUpOutlined, MenuOutlined } from '@ant-design/icons'
 
 /** Sorting state. */

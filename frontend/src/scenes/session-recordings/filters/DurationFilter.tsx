@@ -1,4 +1,3 @@
-import React from 'react'
 import { PropertyOperator, RecordingDurationFilter } from '~/types'
 import { Row, Space } from 'antd'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
