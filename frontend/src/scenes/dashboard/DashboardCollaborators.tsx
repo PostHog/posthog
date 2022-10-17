@@ -29,7 +29,7 @@ export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions<DashboardRestrict
 
 export function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['id'] }): JSX.Element | null {
     const {
-        allItems: dashboard,
+        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
         allItemsLoading: dashboardLoading,
         canEditDashboard,
         canRestrictDashboard,
