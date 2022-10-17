@@ -46,7 +46,7 @@ export const eventsListLogic = kea<eventsListLogicType>([
         logic: [eventUsageLogic],
         actions: [
             sessionRecordingDataLogic({ sessionRecordingId }),
-            ['setFilters', 'loadEventsSuccess'],
+            ['setFilters'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['seek'],
         ],
