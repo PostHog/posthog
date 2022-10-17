@@ -25,6 +25,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
+import { Layout } from 'react-grid-layout'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -840,7 +841,7 @@ export interface Cacheable {
 }
 
 export interface Tileable {
-    layouts: Record<string, any>
+    layouts: Record<DashboardLayoutSize, Layout>
     color: InsightColor | null
 }
 
