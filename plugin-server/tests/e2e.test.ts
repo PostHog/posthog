@@ -47,8 +47,11 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 
 const startMultiServer = async () => {
     const ingestionServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'ingestion' })
-    const asyncServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'async' })
-    return await Promise.all([ingestionServer, asyncServer])
+    const asyncServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'async-worker' })
+    const jobsServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'jobs' })
+    const schedulerServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'scheduler' })
+
+    return await Promise.all([ingestionServer, asyncServer, jobsServer, schedulerServer])
 }
 
 const startSingleServer = async () => {

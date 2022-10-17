@@ -23,12 +23,17 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 pluginScheduledTasks: true,
                 ...sharedCapabilities,
             }
-        case 'async-no-scheduler':
+        case 'async-worker':
             return {
-                processPluginJobs: true,
                 processAsyncHandlers: true,
                 ...sharedCapabilities,
             }
+        case 'jobs': {
+            return {
+                processPluginJobs: true,
+                ...sharedCapabilities,
+            }
+        }
         case 'scheduler':
             return {
                 pluginScheduledTasks: true,
