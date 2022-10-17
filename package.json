@@ -170,7 +170,7 @@
         "cypress": "^10.9.0",
         "cypress-axe": "^1.0.0",
         "cypress-terminal-report": "^4.1.2",
-        "esbuild": "^0.14.42",
+        "esbuild": "^0.14.54",
         "esbuild-plugin-less": "^1.1.7",
         "esbuild-sass-plugin": "^1.8.2",
         "eslint": "^7.8.0",
