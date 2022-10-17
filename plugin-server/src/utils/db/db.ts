@@ -9,11 +9,7 @@ import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
-import {
-    KAFKA_GROUPS,
-    KAFKA_PERSON_DISTINCT_ID,
-    KAFKA_PLUGIN_LOG_ENTRIES,
-} from '../../config/kafka-topics'
+import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import {
     Action,
     ActionStep,
@@ -977,7 +973,7 @@ export class DB {
     public async fetchDistinctIds(person: Person, database: Database.ClickHouse): Promise<ClickHousePersonDistinctId2[]>
     public async fetchDistinctIds(
         person: Person,
-        database: Database = Database.Postgres,
+        database: Database = Database.Postgres
     ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId2[]> {
         if (database === Database.ClickHouse) {
             return (

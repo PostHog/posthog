@@ -395,66 +395,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(org_report["plugins_enabled"], {"Installed and enabled": 1})
 
-    def test_status_report_duplicate_distinct_ids(self) -> None:
-        create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
-        create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
-        create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
-        create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
-        create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
-
-        for index in range(0, 2):
-            sync_execute(
-                "INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, 1, %(timestamp)s, 0 VALUES",
-                {
-                    "distinct_id": "duplicate_id_old",
-                    "person_id": str(UUIDT()),
-                    "team_id": self.team.id,
-                    "timestamp": "2020-01-01 12:01:0%s" % index,
-                },
-            )
-
-        all_reports = send_all_org_usage_reports_with_wait(dry_run=True)
-        report = all_reports[0]
-        team_id = list(report["teams"].keys())[0]
-        team_report = report["teams"][team_id]
-
-        duplicate_ids_report = team_report["duplicate_distinct_ids"]
-
-        expected_result = {
-            "prev_total_ids_with_duplicates": 1,
-            "prev_total_extra_distinct_id_rows": 1,
-            "new_total_ids_with_duplicates": 2,
-            "new_total_extra_distinct_id_rows": 4,
-        }
-
-        self.assertEqual(duplicate_ids_report, expected_result)
-
-    # CH only
-    def test_status_report_multiple_ids_per_person(self) -> None:
-        person_id1 = str(UUIDT())
-        person_id2 = str(UUIDT())
-
-        create_person_distinct_id(self.team.id, "id1", person_id1)
-        create_person_distinct_id(self.team.id, "id2", person_id1)
-        create_person_distinct_id(self.team.id, "id3", person_id1)
-        create_person_distinct_id(self.team.id, "id4", person_id1)
-        create_person_distinct_id(self.team.id, "id5", person_id1)
-
-        create_person_distinct_id(self.team.id, "id6", person_id2)
-        create_person_distinct_id(self.team.id, "id7", person_id2)
-        create_person_distinct_id(self.team.id, "id8", person_id2)
-
-        all_reports = send_all_org_usage_reports_with_wait(dry_run=True)
-        report = all_reports[0]
-        team_id = list(report["teams"].keys())[0]
-        team_report = report["teams"][team_id]
-
-        multiple_ids_report = team_report["multiple_ids_per_person"]
-
-        expected_result = {"total_persons_with_more_than_2_ids": 2, "max_distinct_ids_for_one_person": 5}
-
-        self.assertEqual(multiple_ids_report, expected_result)
-
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
