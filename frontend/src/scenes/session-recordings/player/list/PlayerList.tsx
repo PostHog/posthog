@@ -23,7 +23,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { urls } from 'scenes/urls'
 import { IconOpenInNew } from 'lib/components/icons'
-import { Link } from 'lib/components/Link'
 
 interface RowConfig<T extends Record<string, any>> {
     /** Class to append to each row. */
