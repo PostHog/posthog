@@ -1,4 +1,3 @@
-import React from 'react'
 import { Button, Col, Divider, Row, Statistic } from 'antd'
 import { useValues, useActions } from 'kea'
 import { deadLetterQueueLogic } from './deadLetterQueueLogic'

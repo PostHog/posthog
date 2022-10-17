@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { PaginationControl } from './PaginationControl'
 import { usePagination } from './usePagination'

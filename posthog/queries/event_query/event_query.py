@@ -113,14 +113,11 @@ class EventQuery(metaclass=ABCMeta):
             self._should_join_persons = True
             return
 
-        if any(
-            self._should_property_join_persons(prop)
-            for entity in self._filter.entities
-            for prop in entity.property_groups.flat
-        ):
-            self._should_join_distinct_ids = True
-            self._should_join_persons = True
-            return
+        for entity in self._filter.entities:
+            if any(self._should_property_join_persons(prop) for prop in entity.property_groups.flat):
+                self._should_join_distinct_ids = True
+                self._should_join_persons = True
+                return
 
     def _should_property_join_persons(self, prop: Property) -> bool:
         return prop.type == "cohort" and self._does_cohort_need_persons(prop)

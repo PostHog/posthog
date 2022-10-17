@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
 import { PersonsTable } from './PersonsTable'
 import { Popconfirm } from 'antd'

@@ -1,4 +1,3 @@
-import React from 'react'
 import { CreateProjectModal } from '../CreateProjectModal'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'

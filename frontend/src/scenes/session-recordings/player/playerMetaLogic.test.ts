@@ -2,18 +2,18 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
+import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import recordingEventsJson from '../__mocks__/recording_events.json'
 import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
 import { useMocks } from '~/mocks/jest'
-import { sessionRecordingsTableLogic } from '../sessionRecordingsTableLogic'
+import { sessionRecordingsListLogic } from '../sessionRecordingsListLogic'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 
 const playerProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
-describe('metaLogic', () => {
-    let logic: ReturnType<typeof metaLogic.build>
+describe('playerMetaLogic', () => {
+    let logic: ReturnType<typeof playerMetaLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -24,7 +24,7 @@ describe('metaLogic', () => {
             },
         })
         initKeaTests()
-        logic = metaLogic(playerProps)
+        logic = playerMetaLogic(playerProps)
         logic.mount()
     })
 
@@ -66,7 +66,7 @@ describe('metaLogic', () => {
                     },
                 },
             })
-            sessionRecordingsTableLogic().mount()
+            sessionRecordingsListLogic().mount()
 
             silenceKeaLoadersErrors()
         })
@@ -81,8 +81,8 @@ describe('metaLogic', () => {
             })
             logic.mount()
 
-            await expectLogic(sessionRecordingsTableLogic, () => {
-                sessionRecordingsTableLogic.actions.getSessionRecordings()
+            await expectLogic(sessionRecordingsListLogic, () => {
+                sessionRecordingsListLogic.actions.getSessionRecordings()
             }).toDispatchActions(['getSessionRecordingsSuccess'])
             // Before recording metadata is loaded, the person data should be from the recording list
             expectLogic(logic).toMatchValues({ sessionPerson: { name: 'John Doe' } })
@@ -131,8 +131,8 @@ describe('metaLogic', () => {
             })
             logic.mount()
 
-            await expectLogic(sessionRecordingsTableLogic, () => {
-                sessionRecordingsTableLogic.actions.getSessionRecordings()
+            await expectLogic(sessionRecordingsListLogic, () => {
+                sessionRecordingsListLogic.actions.getSessionRecordings()
             }).toDispatchActions(['getSessionRecordingsSuccess'])
             // Before recording metadata is loaded, the person data should be from the recording list
             expectLogic(logic).toMatchValues({ recordingStartTime: 1600000000000 })

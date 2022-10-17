@@ -1,4 +1,3 @@
-import React from 'react'
 import ReactDOM from 'react-dom'
 import { kea } from 'kea'
 import { Modal, Input, Form } from 'antd'

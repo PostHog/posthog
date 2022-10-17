@@ -1,6 +1,5 @@
 import { Select } from 'antd'
 import { range } from 'lib/utils'
-import React from 'react'
 import { LemonSnack } from '../LemonSnack/LemonSnack'
 import { LemonSkeleton } from '../LemonSkeleton'
 import './LemonSelectMultiple.scss'

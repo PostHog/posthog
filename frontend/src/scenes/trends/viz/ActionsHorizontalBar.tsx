@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
 import { useValues } from 'kea'

@@ -1,4 +1,3 @@
-import React from 'react'
 import { ActionAttribute } from '~/toolbar/elements/ActionAttribute'
 import { ActionStepType } from '~/types'
 

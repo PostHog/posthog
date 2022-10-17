@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { ActionStep } from '~/toolbar/elements/ActionStep'
 import { CalendarOutlined, PlusOutlined } from '@ant-design/icons'

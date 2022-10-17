@@ -1,5 +1,3 @@
-import React from 'react'
-
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -8,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconPlus } from '../icons'
 import { LemonSnack } from '../LemonSnack/LemonSnack'
 import clsx from 'clsx'
+import { useState } from 'react'
 
 interface PersonPropertySelectProps {
     addText: string
@@ -42,7 +41,7 @@ export const PersonPropertySelect = ({
     addText,
     sortable = false,
 }: PersonPropertySelectProps): JSX.Element => {
-    const [open, setOpen] = React.useState<boolean>(false)
+    const [open, setOpen] = useState<boolean>(false)
 
     const handleChange = (name: string): void => {
         onChange(Array.from(new Set(selectedProperties.concat([name]))))

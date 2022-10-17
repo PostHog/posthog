@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { EditorFilterProps, InsightEditorFilterGroup, InsightLogicProps, InsightModel } from '~/types'
 import { cleanFilters } from '../utils/cleanFilters'
 import './EditorFilterGroup.scss'

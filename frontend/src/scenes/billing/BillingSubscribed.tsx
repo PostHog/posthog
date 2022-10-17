@@ -1,4 +1,4 @@
-import React, { PropsWithChildren } from 'react'
+import { PropsWithChildren } from 'react'
 import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
 import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'

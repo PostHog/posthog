@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import React from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { identifierToHuman } from 'lib/utils'
 import { IconOpenInNew } from '../icons'

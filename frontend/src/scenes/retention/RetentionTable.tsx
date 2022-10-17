@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { retentionTableLogic } from './retentionTableLogic'
 import { Tooltip } from 'lib/components/Tooltip'

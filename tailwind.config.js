@@ -145,7 +145,7 @@ module.exports = {
         'justifyContent', // The justify-content utilities like justify-center
         // 'justifyItems', // The justify-items utilities like justify-items-end
         // 'justifySelf', // The justify-self utilities like justify-self-end
-        // 'letterSpacing', // The letter-spacing utilities like tracking-normal
+        'letterSpacing', // The letter-spacing utilities like tracking-normal
         'lineHeight', // The line-height utilities like leading-9
         // 'listStylePosition', // The list-style-position utilities like list-inside
         'listStyleType', // The list-style-type utilities like list-disc
@@ -214,7 +214,7 @@ module.exports = {
         // 'transitionProperty', // The transition-property utilities like transition-colors
         // 'transitionTimingFunction', // The transition-timing-function utilities like ease-in
         // 'translate', // The translate utilities like translate-x-full
-        // 'userSelect', // The user-select utilities like select-text
+        'userSelect', // The user-select utilities like select-text
         // 'verticalAlign', // The vertical-align utilities like align-bottom
         // 'visibility', // The visibility utilities like visible
         'whitespace', // The whitespace utilities like whitespace-pre

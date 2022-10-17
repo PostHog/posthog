@@ -14,7 +14,7 @@ from posthog.models.person.sql import GET_ACTORS_FROM_EVENT_QUERY
 from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
-from posthog.queries.trends.trend_event_query import TrendsEventQuery
+from posthog.queries.trends.trends_event_query import TrendsEventQuery
 
 
 def _handle_date_interval(filter: Filter) -> Filter:

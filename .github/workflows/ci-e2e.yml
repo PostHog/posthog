@@ -18,6 +18,10 @@ jobs:
         outputs:
             docker_image_id: ${{ steps.docker_build.outputs.imageid }}
 
+        permissions:
+            contents: read
+            id-token: write
+
         steps:
             - name: Checkout PR branch
               uses: actions/checkout@v2
@@ -39,6 +43,9 @@ jobs:
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v1
 
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v1
 
@@ -51,7 +58,7 @@ jobs:
 
             - name: Build
               id: docker_build
-              uses: docker/build-push-action@v2
+              uses: depot/build-push-action@v1
               with:
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
@@ -59,6 +66,8 @@ jobs:
                   cache-to: type=gha,mode=max
                   outputs: |
                       type=docker,dest=/tmp/posthog-image.tar
+                  project: 1stsk4xt19 # posthog-cloud project
+                  buildx-fallback: true # if Depot builder is unavailable, fall back to local buildx
 
             - name: Upload docker image
               uses: actions/upload-artifact@v2

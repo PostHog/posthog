@@ -10,7 +10,14 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
+from posthog.constants import (
+    ENTITY_ID,
+    ENTITY_TYPE,
+    TREND_FILTER_TYPE_EVENTS,
+    TRENDS_BAR_VALUE,
+    TRENDS_LINEAR,
+    TRENDS_TABLE,
+)
 from posthog.models import Action, ActionStep, Cohort, Entity, Filter, Organization, Person
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
 from posthog.models.person.util import create_person_distinct_id
@@ -138,6 +145,70 @@ def trend_test_factory(trends):
                         team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": i}
                     )
             _create_action(team=self.team, name="sign up")
+
+        def _create_event_count_per_user_events(self):
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"])
+            _create_person(team_id=self.team.pk, distinct_ids=["tintin"])
+            _create_person(team_id=self.team.pk, distinct_ids=["murmur"])
+            _create_person(team_id=self.team.pk, distinct_ids=["reeree"])
+
+            with freeze_time("2020-01-01 00:06:02"):
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="anonymous_id",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="blabla",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="reeree",
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="tintin",
+                )
+
+            with freeze_time("2020-01-03 19:06:34"):
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="murmur",
+                )
+
+            with freeze_time("2020-01-04 23:17:00"):
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="tintin",
+                )
+
+            with freeze_time("2020-01-05 19:06:34"):
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="blabla",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="tintin",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="tintin",
+                )
+                _create_event(
+                    team=self.team,
+                    event="viewed video",
+                    distinct_id="tintin",
+                )
 
         def test_trends_per_day(self):
             self._create_events()
@@ -4807,6 +4878,141 @@ def trend_test_factory(trends):
                     ),
                     self.team,
                 )
+
+        def test_trends_volume_per_user_average(self):
+            self._create_event_count_per_user_events()
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "events": [{"id": "viewed video", "math": "avg", "math_property": "__event_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            assert len(daily_response) == 1
+            assert daily_response[0]["days"] == [
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+                "2020-01-05",
+                "2020-01-06",
+                "2020-01-07",
+            ]
+            assert daily_response[0]["data"] == [1.5, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]
+
+        def test_trends_volume_per_user_average_weekly(self):
+            # Weekly aggregation uses "start_of_week_fix"
+            self._create_event_count_per_user_events()
+
+            weekly_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "events": [{"id": "viewed video", "math": "avg", "math_property": "__event_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                        "interval": "week",
+                    }
+                ),
+                self.team,
+            )
+
+            assert len(weekly_response) == 1
+            assert weekly_response[0]["days"] == ["2019-12-29", "2020-01-05"]
+            assert weekly_response[0]["data"] == [1.3333333333333333, 2.0]
+
+        def test_trends_volume_per_user_average_aggregated(self):
+            self._create_event_count_per_user_events()
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_TABLE,
+                        "events": [{"id": "viewed video", "math": "avg", "math_property": "__event_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            assert len(daily_response) == 1
+            assert daily_response[0]["aggregated_value"] == 2.6666666666666665  # 8 events divided by 3 users
+
+        def test_trends_volume_per_user_maximum(self):
+            self._create_event_count_per_user_events()
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "events": [{"id": "viewed video", "math": "max", "math_property": "__event_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            assert len(daily_response) == 1
+            assert daily_response[0]["days"] == [
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+                "2020-01-05",
+                "2020-01-06",
+                "2020-01-07",
+            ]
+            assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 3.0, 0.0, 0.0]
+
+        def test_trends_volume_per_user_sum_same_as_total_volume(self):
+            self._create_event_count_per_user_events()
+
+            daily_response_sum_per_actor = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "events": [{"id": "viewed video", "math": "sum", "math_property": "__event_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            daily_response_default_total_count = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "events": [{"id": "viewed video"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            assert len(daily_response_sum_per_actor) == 1
+            assert daily_response_sum_per_actor[0]["days"] == [
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+                "2020-01-05",
+                "2020-01-06",
+                "2020-01-07",
+            ]
+            assert daily_response_sum_per_actor[0]["data"] == [3, 0.0, 0.0, 1.0, 4.0, 0.0, 0.0]
+            assert len(daily_response_default_total_count) == 1
+            assert daily_response_sum_per_actor[0]["days"] == daily_response_default_total_count[0]["days"]
+            assert daily_response_sum_per_actor[0]["data"] == daily_response_default_total_count[0]["data"]
 
     return TestTrends
 

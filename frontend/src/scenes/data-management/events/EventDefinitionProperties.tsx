@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import {
     eventDefinitionsTableLogic,
     PROPERTY_DEFINITIONS_PER_EVENT,

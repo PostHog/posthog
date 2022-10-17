@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/components/Tooltip'
 import {
@@ -27,6 +26,8 @@ import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -120,6 +121,7 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -317,6 +319,9 @@ export function ActionFilterRow({
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 groupTypes={[
                                                     TaxonomicFilterGroupType.NumericalEventProperties,
+                                                    ...(featureFlags[FEATURE_FLAGS.EVENT_COUNT_PER_ACTOR]
+                                                        ? [TaxonomicFilterGroupType.EventCount]
+                                                        : []),
                                                     TaxonomicFilterGroupType.Sessions,
                                                 ]}
                                                 value={mathProperty}

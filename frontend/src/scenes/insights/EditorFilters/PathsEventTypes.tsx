@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { PathType, EditorFilterProps } from '~/types'

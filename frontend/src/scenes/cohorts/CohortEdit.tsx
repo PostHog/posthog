@@ -22,7 +22,6 @@ import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyG
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Persons } from 'scenes/persons/Persons'
-import React from 'react'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'

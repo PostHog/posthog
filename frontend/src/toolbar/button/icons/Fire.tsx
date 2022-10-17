@@ -1,5 +1,4 @@
 import './Fire.scss'
-import React from 'react'
 
 const fireColors = {
     engaged: ['#FB4F0E', '#FE6D37', '#FCB811'],

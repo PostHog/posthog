@@ -1,5 +1,4 @@
 import { PersonActorType, PersonType } from '~/types'
-import React from 'react'
 import './PersonHeader.scss'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonModal, LemonModalProps } from './LemonModal'
 import { LemonButton } from '../LemonButton'

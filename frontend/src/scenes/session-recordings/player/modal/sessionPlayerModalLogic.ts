@@ -1,14 +1,15 @@
 import { actions, kea, path, reducers } from 'kea'
 import { SessionRecordingId, SessionRecordingType } from '~/types'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import type { sessionPlayerDrawerLogicType } from './sessionPlayerDrawerLogicType'
+
+import type { sessionPlayerModalLogicType } from './sessionPlayerModalLogicType'
 
 interface HashParams {
     sessionRecordingId?: SessionRecordingId
 }
 
-export const sessionPlayerDrawerLogic = kea<sessionPlayerDrawerLogicType>([
-    path(['scenes', 'session-recordings', 'sessionPlayerDrawerLogic']),
+export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
+    path(['scenes', 'session-recordings', 'sessionPlayerModalLogic']),
     actions({
         openSessionPlayer: (sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>) => ({
             sessionRecording,
@@ -56,7 +57,7 @@ export const sessionPlayerDrawerLogic = kea<sessionPlayerDrawerLogicType>([
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, __: any, hashParams: HashParams): void => {
             // Check if the logic is still mounted. Because this is called on every URL change, the logic might have been unmounted already.
-            if (sessionPlayerDrawerLogic.isMounted()) {
+            if (sessionPlayerModalLogic.isMounted()) {
                 const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
                 if (nulledSessionRecordingId && nulledSessionRecordingId !== values.activeSessionRecording?.id) {
                     actions.openSessionPlayer({ id: nulledSessionRecordingId })

@@ -36,3 +36,9 @@
         border: 1px solid var(--danger);
     }
 }
+
+.LemonTextMarkdown {
+    &.FileDropTarget {
+        border: 3px dashed var(--primary);
+    }
+}

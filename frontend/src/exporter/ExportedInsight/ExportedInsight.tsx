@@ -1,5 +1,4 @@
 import { ChartDisplayType, InsightLogicProps, InsightModel, InsightType } from '~/types'
-import React from 'react'
 import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightViz } from 'lib/components/Cards/InsightCard/InsightCard'

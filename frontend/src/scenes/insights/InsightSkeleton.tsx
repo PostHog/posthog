@@ -1,4 +1,3 @@
-import React from 'react'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 export function InsightSkeleton(): JSX.Element {

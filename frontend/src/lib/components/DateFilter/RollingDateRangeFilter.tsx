@@ -1,4 +1,3 @@
-import React from 'react'
 import { Input } from 'antd'
 import { rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 import { useActions, useValues } from 'kea'

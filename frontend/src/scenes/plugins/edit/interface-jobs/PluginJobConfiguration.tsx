@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { PlayCircleOutlined, CheckOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons'
 import { Tooltip, Radio, InputNumber, DatePicker } from 'antd'
 import { ChildFunctionProps, Form } from 'kea-forms'

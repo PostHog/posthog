@@ -1,5 +1,5 @@
 import './TaxonomicFilter.scss'
-import React, { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
