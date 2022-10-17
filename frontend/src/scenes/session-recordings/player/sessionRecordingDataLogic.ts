@@ -215,19 +215,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
-        sessionPlayerMetaData: {
-            loadRecordingSnapshotsSuccess: (prevSessionPlayerMetaData, { sessionPlayerSnapshotData }) => {
-                const bufferedTo = calculateBufferedTo(
-                    prevSessionPlayerMetaData.metadata?.segments,
-                    sessionPlayerSnapshotData.snapshotsByWindowId,
-                    prevSessionPlayerMetaData.metadata?.startAndEndTimesByWindowId
-                )
-                return {
-                    ...prevSessionPlayerMetaData,
-                    bufferedTo,
-                }
-            },
-        },
     })),
     listeners(({ values, actions, cache }) => ({
         loadEntireRecording: () => {
@@ -293,19 +280,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 const response = await api.get(
                     `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}?${params}`
                 )
+
                 const unparsedMetadata: UnparsedMetadata | undefined = response.result?.session_recording
                 const metadata = parseMetadataResponse(unparsedMetadata)
-                const bufferedTo = calculateBufferedTo(
-                    metadata.segments,
-                    values.sessionPlayerSnapshotData.snapshotsByWindowId,
-                    metadata.startAndEndTimesByWindowId
-                )
                 breakpoint()
                 return {
                     ...values.sessionPlayerMetaData,
                     person: response.result?.person,
                     metadata,
-                    bufferedTo,
                 }
             },
         },
@@ -432,8 +414,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (meta, snapshots): SessionPlayerData => ({
                 ...meta,
                 ...snapshots,
+                bufferedTo: calculateBufferedTo(
+                    meta.metadata?.segments,
+                    snapshots.snapshotsByWindowId,
+                    meta.metadata?.startAndEndTimesByWindowId
+                ),
             }),
         ],
+
         eventsApiParams: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {

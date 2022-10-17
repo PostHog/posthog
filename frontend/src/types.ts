@@ -486,10 +486,11 @@ export interface SessionPlayerSnapshotData {
 export interface SessionPlayerMetaData {
     person: PersonType | null
     metadata: SessionRecordingMeta
-    bufferedTo: PlayerPosition | null
 }
 
-export interface SessionPlayerData extends SessionPlayerSnapshotData, SessionPlayerMetaData {}
+export interface SessionPlayerData extends SessionPlayerSnapshotData, SessionPlayerMetaData {
+    bufferedTo: PlayerPosition | null
+}
 
 export enum SessionRecordingUsageType {
     VIEWED = 'viewed',
