@@ -151,9 +151,12 @@ export async function startPluginsServer(
 
         if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
             const graphileWorkerError = await startGraphileWorker(hub, piscina)
-            if (graphileWorkerError) {
-                logOrThrowJobQueueError(hub, graphileWorkerError, `Cannot start Graphile Worker!`)
-                killProcess()
+            if (graphileWorkerError instanceof Error) {
+                try {
+                    logOrThrowJobQueueError(hub, graphileWorkerError, `Cannot start job queue consumer!`)
+                } catch {
+                    killProcess()
+                }
             }
         }
 
