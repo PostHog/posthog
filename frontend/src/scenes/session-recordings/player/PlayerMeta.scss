@@ -46,12 +46,11 @@
             position: fixed;
             top: 48px;
             left: 0px;
-            bottom: 97px; // TODO: Make this less static
+            bottom: 97px; // NOTE: This isn't perfect but for now hardcoded to match the bottom area size.
             z-index: 1;
-            width: 40rem;
-            max-width: 100%;
+            max-width: 40rem;
+            width: 100%;
             border-right: 1px solid var(--border);
-
             transition: 200ms transform ease-out;
 
             &--enter {
