@@ -60,7 +60,9 @@ export function PlayerList<T extends Record<string, any>>({
     const { data, showPositionFinder, isCurrent, isDirectionUp, expandedRows } = useValues(logic)
     const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick, expandRow, collapseRow } =
         useActions(logic)
-    const { sessionEventsDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
+    const { sessionEventsDataLoading, sessionPlayerMetaDataLoading } = useValues(
+        sessionRecordingDataLogic({ sessionRecordingId, playerKey })
+    )
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
@@ -72,7 +74,7 @@ export function PlayerList<T extends Record<string, any>>({
 
     return (
         <div className="PlayerList">
-            {sessionEventsDataLoading ? (
+            {sessionEventsDataLoading || sessionPlayerMetaDataLoading ? (
                 <SpinnerOverlay />
             ) : (
                 <>
