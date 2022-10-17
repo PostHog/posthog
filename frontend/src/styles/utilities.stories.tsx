@@ -1,5 +1,4 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import React from 'react'
 
 export default {
     title: 'Lemon UI/Utilities',

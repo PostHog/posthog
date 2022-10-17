@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
 import './InviteSignup.scss'
 import { userLogic } from 'scenes/userLogic'

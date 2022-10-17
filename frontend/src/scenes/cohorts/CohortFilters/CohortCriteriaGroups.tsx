@@ -1,5 +1,4 @@
 import './CohortCriteriaGroups.scss'
-import React from 'react'
 import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
 import { Group } from 'kea-forms'
 import { Field as KeaField } from 'kea-forms/lib/components'

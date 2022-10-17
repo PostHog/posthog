@@ -15,7 +15,6 @@ import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters
 import { TrendsBreakdown } from 'scenes/insights/EditorFilters/TrendsBreakdown'
 import { LifecycleToggles } from 'scenes/insights/EditorFilters/LifecycleToggles'
 import { LifecycleGlobalFilters } from 'scenes/insights/EditorFilters/LifecycleGlobalFilters'
-import React from 'react'
 import { RetentionSummary } from './RetentionSummary'
 import { PathsEventTypes } from './PathsEventTypes'
 import { PathsWildcardGroups } from './PathsWildcardGroups'

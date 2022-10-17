@@ -1,4 +1,3 @@
-import React from 'react'
 import './HelpButton.scss'
 import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'

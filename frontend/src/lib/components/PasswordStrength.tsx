@@ -1,4 +1,3 @@
-import React from 'react'
 import { Progress } from 'antd'
 import zxcvbn from 'zxcvbn'
 import { Tooltip } from './Tooltip'

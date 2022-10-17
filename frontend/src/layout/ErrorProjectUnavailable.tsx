@@ -1,4 +1,3 @@
-import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useValues } from 'kea'
 import { organizationLogic } from '../scenes/organizationLogic'

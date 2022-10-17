@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import './IngestionWizard.scss'
 
 import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'

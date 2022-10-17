@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { Lettermark, LettermarkColor, LettermarkProps } from './Lettermark'
 import { range } from 'lib/utils'

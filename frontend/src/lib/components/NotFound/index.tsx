@@ -1,5 +1,4 @@
 import { capitalizeFirstLetter } from 'lib/utils'
-import React from 'react'
 import { Link } from '../Link'
 import './NotFound.scss'
 

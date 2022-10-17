@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 import { BillingSubscribed } from './BillingSubscribed'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { router } from 'kea-router'

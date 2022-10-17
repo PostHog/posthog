@@ -1,6 +1,6 @@
 import './DashboardItems.scss'
 
-import React, { useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 

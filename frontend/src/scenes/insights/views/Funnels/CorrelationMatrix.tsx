@@ -1,5 +1,4 @@
 import { Button, Modal } from 'antd'
-import React from 'react'
 import { CheckCircleFilled, InfoCircleOutlined, MinusCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import './CorrelationMatrix.scss'
 import { useActions, useValues } from 'kea'

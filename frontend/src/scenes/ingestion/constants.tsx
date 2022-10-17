@@ -1,4 +1,3 @@
-import React from 'react'
 import { PlatformType } from 'scenes/ingestion/types'
 import { Segment } from './panels/ThirdPartyIcons'
 
