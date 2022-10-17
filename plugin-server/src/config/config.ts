@@ -88,7 +88,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CONVERSION_BUFFER_ENABLED_TEAMS: '',
         CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '',
         BUFFER_CONVERSION_SECONDS: 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
-        PERSON_INFO_TO_REDIS_TEAMS: '',
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: false,
