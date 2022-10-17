@@ -16,7 +16,7 @@ import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 
 export function DashboardItems(): JSX.Element {
     const {
-        dashboard,
+        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
         tiles,
         layouts,
         dashboardMode,
