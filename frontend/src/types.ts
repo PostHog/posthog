@@ -840,8 +840,12 @@ export interface Cacheable {
     refreshing: boolean
 }
 
+export interface TileLayout extends Omit<Layout, 'i'> {
+    i?: string // we use `i` in the front end but not in the API
+}
+
 export interface Tileable {
-    layouts: Record<DashboardLayoutSize, Layout>
+    layouts: Record<DashboardLayoutSize, TileLayout> | Record<string, never> // allow an empty object or one with DashboardLayoutSize keys
     color: InsightColor | null
 }
 
