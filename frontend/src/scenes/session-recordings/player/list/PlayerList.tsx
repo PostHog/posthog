@@ -130,7 +130,7 @@ export function PlayerList<T extends Record<string, any>>({
                                                     }}
                                                     type="primary"
                                                 >
-                                                    Turn on console log capture
+                                                    Turn on console log capture for future recordings
                                                 </LemonButton>
                                                 <LemonButton
                                                     to={urls.projectSettings() + '#recordings'}
