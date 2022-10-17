@@ -85,10 +85,7 @@ export class EventsProcessor {
                             eventUuid,
                             teamId,
                             distinctId,
-                            properties['$session_id'],
-                            properties['$window_id'],
                             timestamp,
-                            properties['$snapshot_data'],
                             properties,
                             ip
                         )
@@ -246,10 +243,7 @@ export class EventsProcessor {
         uuid: string,
         team_id: number,
         distinct_id: string,
-        session_id: string,
-        window_id: string,
         timestamp: DateTime,
-        snapshot_data: Record<any, any>,
         properties: Properties,
         ip: string | null
     ): Promise<PostIngestionEvent> {
@@ -262,9 +256,6 @@ export class EventsProcessor {
             uuid,
             team_id: team_id,
             distinct_id: distinct_id,
-            session_id: session_id,
-            window_id: window_id,
-            snapshot_data: JSON.stringify(snapshot_data),
             timestamp: timestampString,
             created_at: timestampString,
         }

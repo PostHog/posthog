@@ -830,9 +830,6 @@ export interface RawSessionRecordingEvent {
     timestamp: string
     team_id: number
     distinct_id: string
-    session_id: string
-    window_id: string
-    snapshot_data: string
     created_at: string
 }
 

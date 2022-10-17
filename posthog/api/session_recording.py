@@ -1,4 +1,3 @@
-import dataclasses
 from datetime import datetime
 from typing import Any, Optional, Union
 
@@ -38,6 +37,9 @@ class SessionRecordingSerializer(serializers.Serializer):
     end_time = serializers.DateTimeField()
     distinct_id = serializers.CharField()
     matching_events = serializers.ListField(required=False)
+    click_count = serializers.IntegerField()
+    keypress_count = serializers.IntegerField()
+    url = serializers.CharField()
 
     def to_representation(self, instance):
         return {
@@ -48,6 +50,9 @@ class SessionRecordingSerializer(serializers.Serializer):
             "end_time": instance["end_time"],
             "distinct_id": instance["distinct_id"],
             "matching_events": instance["matching_events"],
+            "click_count": instance["click_count"],
+            "keypress_count": instance["keypress_count"],
+            "url": instance["url"],
         }
 
 
@@ -138,7 +143,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         session_recording_serializer = SessionRecordingMetadataSerializer(
             data={
-                "segments": [dataclasses.asdict(segment) for segment in session_recording_meta_data.segments],
+                "segments": session_recording_meta_data.segments,
                 "start_and_end_times_by_window_id": session_recording_meta_data.start_and_end_times_by_window_id,
                 "session_id": session_recording_id,
                 "viewed": viewed_session_recording,
