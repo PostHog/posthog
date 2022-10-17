@@ -74,7 +74,7 @@ export function PlayerList<T extends Record<string, any>>({
 
     return (
         <div className="PlayerList">
-            {sessionEventsDataLoading || sessionPlayerMetaDataLoading ? (
+            {!data.length && (sessionEventsDataLoading || sessionPlayerMetaDataLoading) ? (
                 <SpinnerOverlay />
             ) : (
                 <>
