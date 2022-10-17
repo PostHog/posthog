@@ -124,10 +124,10 @@ describe('server', () => {
             expect(startGraphileWorker).toHaveBeenCalled()
         })
 
-        test('disabling processPluginJobs and ingestion', async () => {
+        test('disabling processPluginJobs, ingestion, and pluginScheduledTasks', async () => {
             pluginsServer = await createPluginServer(
                 {},
-                { ingestion: false, pluginScheduledTasks: true, processPluginJobs: false }
+                { ingestion: false, pluginScheduledTasks: false, processPluginJobs: false }
             )
 
             expect(startGraphileWorker).not.toHaveBeenCalled()
