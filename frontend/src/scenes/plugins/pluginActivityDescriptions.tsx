@@ -169,5 +169,48 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         }
     }
 
+    if (logItem.activity.startsWith('attachment_')) {
+        for (const change of logItem.detail.changes || []) {
+            let changeWording: string | JSX.Element = ''
+
+            if (logItem.activity === 'attachment_created') {
+                changeWording = (
+                    <>
+                        attached a file <code>{change.after}</code>
+                    </>
+                )
+            } else if (logItem.activity == 'attachment_updated') {
+                if (change.after === change.before) {
+                    changeWording = (
+                        <>
+                            updated attached file <code>{change.after}</code>
+                        </>
+                    )
+                } else {
+                    changeWording = (
+                        <>
+                            updated attached file from <code>{change.before}</code> to <code>{change.after}</code>
+                        </>
+                    )
+                }
+            } else if (logItem.activity === 'attachment_deleted') {
+                changeWording = (
+                    <>
+                        deleted attached file <code>{change.before}</code>
+                    </>
+                )
+            }
+
+            return {
+                description: (
+                    <>
+                        <strong>{logItem.user.first_name}</strong> {changeWording} on app: <b>{logItem.detail.name}</b>{' '}
+                        with config ID {logItem.item_id}
+                    </>
+                ),
+            }
+        }
+    }
+
     return { description: null }
 }

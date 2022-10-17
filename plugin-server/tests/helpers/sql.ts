@@ -120,7 +120,7 @@ export async function resetTestDatabase(
     await db.end()
 }
 
-export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>): Promise<void> {
+export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 
@@ -191,6 +191,7 @@ export async function insertRow(db: Pool, table: string, objectProvided: Record<
             )
         }
         await Promise.all(dependentQueries)
+        return rowSaved
     } catch (error) {
         console.error(`Error on table ${table} when inserting object:\n`, object, '\n', error)
         throw error

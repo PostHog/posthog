@@ -92,7 +92,10 @@ export const trendsLogic = kea<trendsLogicType>([
                 if (filters.insight === InsightType.LIFECYCLE) {
                     results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
                 }
-                if (filters.display === ChartDisplayType.ActionsBarValue) {
+                if (
+                    filters.display === ChartDisplayType.ActionsBarValue ||
+                    filters.display === ChartDisplayType.ActionsPie
+                ) {
                     results.sort((a, b) => b.aggregated_value - a.aggregated_value)
                 }
                 return results.map((result, index) => ({ ...result, id: index }))

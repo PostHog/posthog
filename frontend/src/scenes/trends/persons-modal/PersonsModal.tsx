@@ -15,8 +15,8 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { SaveCohortModal } from './SaveCohortModal'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Skeleton, Tabs } from 'antd'
-import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
-import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
 
 export interface PersonsModalProps {
@@ -49,7 +49,7 @@ function PersonsModal({ url: _url, urlsIndex, urls, title, onAfterClose }: Perso
         missingActorsCount,
     } = useValues(logic)
     const { loadActors, setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal } = useActions(logic)
-    const { openSessionPlayer } = useActions(sessionPlayerDrawerLogic)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     const totalActorsCount = missingActorsCount + actors.length
 
@@ -188,7 +188,7 @@ function PersonsModal({ url: _url, urlsIndex, urls, title, onAfterClose }: Perso
                 onCancel={() => setIsCohortModalOpen(false)}
                 isOpen={isCohortModalOpen}
             />
-            <SessionPlayerDrawer />
+            <SessionPlayerModal />
         </>
     )
 }

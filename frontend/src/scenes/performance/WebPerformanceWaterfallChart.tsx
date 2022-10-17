@@ -10,14 +10,14 @@ import { Popup } from 'lib/components/Popup/Popup'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
-import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import './WebPerformance.scss'
 import Text from 'antd/lib/typography/Text'
 import { getSeriesColor } from 'lib/colors'
-import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -248,7 +248,7 @@ const VerticalMarker = ({
 
 function WaterfallChart(): JSX.Element {
     const { eventToDisplay, currentEvent, sessionRecording } = useValues(webPerformanceLogic)
-    const { openSessionPlayer } = useActions(sessionPlayerDrawerLogic)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     return (
         <>
@@ -280,7 +280,7 @@ function WaterfallChart(): JSX.Element {
                     </Row>
                 </>
             )}
-            <SessionPlayerDrawer />
+            <SessionPlayerModal />
             {eventToDisplay && (
                 <Row>
                     <Col span={24}>

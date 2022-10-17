@@ -127,7 +127,6 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     def _run_query(self, filter: Filter, team: Team, entity: Entity) -> List[Dict[str, Any]]:
         adjusted_filter, cached_result = self.adjusted_filter(filter, team)
         sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
-
         result = sync_execute(sql, params, client_query_id=filter.client_query_id, client_query_team_id=team.pk)
         result = parse_function(result)
         serialized_data = self._format_serialized(entity, result)

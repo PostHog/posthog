@@ -16,7 +16,7 @@ export async function emitToBufferStep(
         teamId: TeamId
     ) => boolean = shouldSendEventToBuffer
 ): Promise<StepResult> {
-    status.debug('🔁', 'Running emitToBufferStep', { event })
+    status.debug('🔁', 'Running emitToBufferStep', { event: event.event, distinct_id: event.distinct_id })
     const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
 
     if (event.event === '$snapshot') {
@@ -36,7 +36,10 @@ export async function emitToBufferStep(
         // use the old logic.
         // TODO: If we want to enable this for all teams, we can remove this
         // check.
-        if (runner.hub.conversionBufferTopicEnabledTeams.has(event.team_id)) {
+        if (
+            runner.hub.CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS === '*' ||
+            runner.hub.conversionBufferTopicEnabledTeams.has(event.team_id)
+        ) {
             // TODO: handle delaying offset commit for this message, according to
             // producer acknowledgement. It's a little tricky as it stands as we do
             // not have the a reference to resolveOffset here. Rather than do a

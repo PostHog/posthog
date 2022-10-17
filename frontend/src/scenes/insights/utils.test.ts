@@ -503,14 +503,16 @@ describe('formatAggregationValue', () => {
     })
 
     it('uses render count when there is a value and property format is a no-op', () => {
-        const fakeRenderCount = (x: number): string => formatAggregationAxisValue('duration', x)
+        const fakeRenderCount = (x: number): string =>
+            formatAggregationAxisValue({ aggregation_axis_format: 'duration' }, x)
         const noOpFormatProperty = jest.fn((_, y) => y)
         const actual = formatAggregationValue('some name', 500, fakeRenderCount, noOpFormatProperty)
         expect(actual).toEqual('8m 20s')
     })
 
     it('uses render count when there is a value and property format converts number to string', () => {
-        const fakeRenderCount = (x: number): string => formatAggregationAxisValue('duration', x)
+        const fakeRenderCount = (x: number): string =>
+            formatAggregationAxisValue({ aggregation_axis_format: 'duration' }, x)
         const noOpFormatProperty = jest.fn((_, y) => String(y))
         const actual = formatAggregationValue('some name', 500, fakeRenderCount, noOpFormatProperty)
         expect(actual).toEqual('8m 20s')

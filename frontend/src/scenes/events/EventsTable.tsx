@@ -39,8 +39,8 @@ import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { EventBufferNotice } from './EventBufferNotice'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
-import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -153,7 +153,7 @@ export function EventsTable({
 
     const { reportEventsTablePollingReactedToPageVisibility } = useActions(eventUsageLogic)
 
-    const { openSessionPlayer } = useActions(sessionPlayerDrawerLogic)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     usePageVisibility((pageIsVisible) => {
         setPollingActive(pageIsVisible)
@@ -640,7 +640,7 @@ export function EventsTable({
                     </LemonButton>
                 ) : null}
             </div>
-            <SessionPlayerDrawer />
+            <SessionPlayerModal />
         </>
     )
 }

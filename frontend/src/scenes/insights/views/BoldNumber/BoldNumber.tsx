@@ -45,9 +45,7 @@ function useBoldNumberTooltip({
 
         ReactDOM.render(
             <InsightTooltip
-                renderCount={(value: number) => (
-                    <>{formatAggregationAxisValue(filters.aggregation_axis_format, value)}</>
-                )}
+                renderCount={(value: number) => <>{formatAggregationAxisValue(filters, value)}</>}
                 seriesData={[
                     {
                         dataIndex: 1,
@@ -110,7 +108,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                     ref={valueRef}
                     onMouseEnter={() => setIsTooltipShown(true)}
                 >
-                    {formatAggregationAxisValue(filters.aggregation_axis_format, resultSeries.aggregated_value)}
+                    {formatAggregationAxisValue(filters, resultSeries.aggregated_value)}
                 </div>
             </Textfit>
             {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} />}

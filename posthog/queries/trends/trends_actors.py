@@ -14,7 +14,7 @@ from posthog.models.person.sql import GET_ACTORS_FROM_EVENT_QUERY
 from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
-from posthog.queries.trends.trend_event_query import TrendsEventQuery
+from posthog.queries.trends.trends_event_query import TrendsEventQuery
 
 
 def _handle_date_interval(filter: Filter) -> Filter:
@@ -28,7 +28,7 @@ def _handle_date_interval(filter: Filter) -> Filter:
     elif filter.interval == "day":
         data.update({"date_to": (date_from).strftime("%Y-%m-%d 23:59:59")})
     elif filter.interval == "hour":
-        data.update({"date_to": date_from + timedelta(hours=1)})
+        data.update({"date_to": (date_from + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")})
     return filter.with_data(data)
 
 

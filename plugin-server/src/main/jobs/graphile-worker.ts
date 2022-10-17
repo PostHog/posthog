@@ -91,13 +91,19 @@ export class GraphileWorker {
     }
 
     async _enqueue(jobName: string, job: EnqueuedJob): Promise<void> {
-        const workerUtils = await this.getWorkerUtils()
-        await workerUtils.addJob(jobName, job, {
-            runAt: new Date(job.timestamp),
-            maxAttempts: 1,
-            priority: 1,
-            jobKey: job.jobKey,
-        })
+        try {
+            const workerUtils = await this.getWorkerUtils()
+            await workerUtils.addJob(jobName, job, {
+                runAt: new Date(job.timestamp),
+                maxAttempts: 1,
+                priority: 1,
+                jobKey: job.jobKey,
+            })
+            this.hub.statsd?.increment('enqueue_job.success', { jobName })
+        } catch (error) {
+            this.hub.statsd?.increment('enqueue_job.fail', { jobName })
+            throw error
+        }
     }
 
     private async getWorkerUtils(): Promise<WorkerUtils> {
@@ -172,7 +178,13 @@ export class GraphileWorker {
                     reject(error)
                 }
             }
-            const pool = createPostgresPool(this.hub, onError)
+
+            // TODO: Refactor - require JOB_QUEUE_GRAPHILE_URL to be explicitly set, improve createPostgresPool
+            const config = this.hub.JOB_QUEUE_GRAPHILE_URL
+                ? { ...this.hub, DATABASE_URL: this.hub.JOB_QUEUE_GRAPHILE_URL }
+                : this.hub
+
+            const pool = createPostgresPool(config, onError)
             try {
                 await pool.query('select 1')
             } catch (error) {
@@ -183,7 +195,7 @@ export class GraphileWorker {
         })
     }
 
-    async startConsumer(jobHandlers: TaskList): Promise<void> {
+    async start(jobHandlers: TaskList): Promise<void> {
         this.jobHandlers = jobHandlers
         if (!this.started) {
             this.started = true
@@ -191,17 +203,17 @@ export class GraphileWorker {
         }
     }
 
-    async stopConsumer(): Promise<void> {
+    async stop(): Promise<void> {
         this.started = false
         await this.syncState()
     }
 
-    async pauseConsumer(): Promise<void> {
+    async pause(): Promise<void> {
         this.paused = true
         await this.syncState()
     }
 
-    isConsumerPaused(): boolean {
+    isPaused(): boolean {
         return this.paused
     }
 

@@ -39,6 +39,7 @@ from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
 from .team import Team
+from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 
 __all__ = [
@@ -97,6 +98,7 @@ __all__ = [
     "TaggedItem",
     "Team",
     "Text",
+    "UploadedMedia",
     "User",
     "UserManager",
     "UserPromptSequenceState",

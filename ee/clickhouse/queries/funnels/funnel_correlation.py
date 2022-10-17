@@ -211,8 +211,8 @@ class FunnelCorrelation:
         query = f"""
             WITH
                 funnel_actors as ({funnel_persons_query}),
-                toDateTime(%(date_to)s) AS date_to,
-                toDateTime(%(date_from)s) AS date_from,
+                toDateTime(%(date_to)s, %(timezone)s) AS date_to,
+                toDateTime(%(date_from)s, %(timezone)s) AS date_from,
                 %(target_step)s AS target_step,
                 %(funnel_step_names)s as funnel_step_names
 
@@ -294,8 +294,8 @@ class FunnelCorrelation:
         query = f"""
             WITH
                 funnel_actors as ({funnel_persons_query}),
-                toDateTime(%(date_to)s) AS date_to,
-                toDateTime(%(date_from)s) AS date_from,
+                toDateTime(%(date_to)s, %(timezone)s) AS date_to,
+                toDateTime(%(date_from)s, %(timezone)s) AS date_from,
                 %(target_step)s AS target_step,
                 %(funnel_step_names)s as funnel_step_names
 
@@ -468,16 +468,16 @@ class FunnelCorrelation:
             WHERE
                 -- add this condition in to ensure we can filter events before
                 -- joining funnel_actors
-                event.timestamp >= date_from
-                AND event.timestamp < date_to
+                toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+                AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
 
                 AND event.team_id = {self._team.pk}
 
                 -- Add in per actor filtering on event time range. We just want
                 -- to include events that happened within the bounds of the
                 -- actors time in the funnel.
-                AND event.timestamp > actors.first_timestamp
-                AND event.timestamp < COALESCE(
+                AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+                AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(
                     actors.final_timestamp,
                     actors.first_timestamp + INTERVAL {self._funnel_actors_generator._filter.funnel_window_interval} {self._funnel_actors_generator._filter.funnel_window_interval_unit_ch()},
                     date_to)
