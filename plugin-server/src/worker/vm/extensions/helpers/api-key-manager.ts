@@ -9,12 +9,12 @@ import { OrganizationMembershipLevel, PluginConfig, RawOrganization } from './..
 const POSTHOG_BOT_USER_EMAIL_DOMAIN = 'posthogbot.user'
 const PERSONAL_API_KEY_SALT = 'posthog_personal_api_key'
 
-const getSecureValue = () => {
-    const iterations = 480000
-    const hash = crypto
-        .pbkdf2Sync(`phx_${generateRandomToken(32)}`, PERSONAL_API_KEY_SALT, iterations, 24, 'sha256')
-        .toString('hex')
-    return `pbkdf2_sha256$${iterations}$${PERSONAL_API_KEY_SALT}$${hash}`
+function generatePersonalApiKeyValue(): [string, string] {
+    const value = `phx_${generateRandomToken(32)}`
+    const iterations = 260000
+    const hash = crypto.pbkdf2Sync(value, PERSONAL_API_KEY_SALT, iterations, 32, 'sha256').toString('base64')
+    const secureValue = `pbkdf2_sha256$${iterations}$${PERSONAL_API_KEY_SALT}$${hash}`
+    return [value, secureValue]
 }
 
 export class PluginsApiKeyManager {
@@ -29,19 +29,19 @@ export class PluginsApiKeyManager {
         pluginConfig: PluginConfig
     ): Promise<string> {
         const createNewKey = async (userId: number): Promise<string> => {
-            return (
-                await this.db.createPersonalApiKey({
-                    id: generateRandomToken(32),
-                    user_id: userId,
-                    label: 'autogen',
-                    secure_value: getSecureValue(),
-                    created_at: new Date(),
-                })
-            ).rows[0].secure_value
+            const [value, secureValue] = generatePersonalApiKeyValue()
+            await this.db.createPersonalApiKey({
+                id: generateRandomToken(32),
+                user_id: userId,
+                label: 'autogen',
+                secure_value: secureValue,
+                created_at: new Date(),
+            })
+            return value
         }
         const cache = createCache({ db: this.db } as any, pluginConfig.plugin_id, pluginConfig.team_id)
 
-        const cachedKey = await cache.get('_bot_api_key', false)
+        const cachedKey = await cache.get('_bot_api_key', null)
         if (cachedKey) {
             return cachedKey as string
         }
@@ -83,7 +83,7 @@ export class PluginsApiKeyManager {
             }
 
             if (!key) {
-                throw new Error('Unable to find or create a Personal API Key')
+                throw new Error('Unable to find or create a personal API key')
             }
 
             await cache.set('_bot_api_key', key)
