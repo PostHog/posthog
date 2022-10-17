@@ -30,7 +30,7 @@ from .organization_domain import OrganizationDomain
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
-from .prompt import PromptSequenceState, UserPromptSequenceState
+from .prompt import UserPromptSequenceState
 from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
@@ -87,7 +87,6 @@ __all__ = [
     "PluginConfig",
     "PluginLogEntry",
     "PluginSourceFile",
-    "PromptSequenceState",
     "Property",
     "PropertyDefinition",
     "RetentionFilter",

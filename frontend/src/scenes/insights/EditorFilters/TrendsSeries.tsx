@@ -42,7 +42,7 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
                 showNestedArrow
                 entitiesLimit={
                     filters.insight === InsightType.LIFECYCLE ||
-                    (filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) && !filters.formula)
+                    (filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) && !isFormulaOn)
                         ? 1
                         : alphabet.length
                 }
@@ -63,15 +63,18 @@ export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Elem
     const { filters, localFilters, isFormulaOn } = useValues(trendsLogic(insightProps))
     const { setIsFormulaOn } = useActions(trendsLogic(insightProps))
 
-    const formulaRemovalDisabled: boolean =
-        !!filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) && localFilters.length > 1
+    const formulaModeButtonDisabled: boolean =
+        isFormulaOn &&
+        !!filters.display &&
+        SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) &&
+        localFilters.length > 1
 
     return (
         <div className="flex items-center justify-between w-full">
             <span>{isFormulaOn ? 'Variables' : 'Series'}</span>
             <Tooltip
                 title={
-                    formulaRemovalDisabled
+                    formulaModeButtonDisabled
                         ? 'This chart type does not support multiple series, so in order to disable formula mode, remove variables or switch to a different chart type.'
                         : 'Make your own formula the output of the insight with formula mode. Use graph series as variables.'
                 }
@@ -81,7 +84,7 @@ export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Elem
                     <LemonButton
                         size="small"
                         onClick={() => setIsFormulaOn(!isFormulaOn)}
-                        disabled={formulaRemovalDisabled}
+                        disabled={formulaModeButtonDisabled}
                         icon={<IconCalculate />}
                         id="trends-formula-switch"
                     >
