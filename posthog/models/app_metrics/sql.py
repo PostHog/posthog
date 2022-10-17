@@ -8,10 +8,7 @@ SHARDED_APP_METRICS_TABLE_ENGINE = lambda: AggregatingMergeTree(
     "sharded_app_metrics", replication_scheme=ReplicationScheme.SHARDED
 )
 
-APP_METRICS_DATA_TABLE_SQL = (
-    lambda: f"""
-CREATE TABLE sharded_app_metrics ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
-(
+BASE_APP_METRICS_COLUMNS = """
     team_id Int64,
     timestamp DateTime64(6, 'UTC'),
     plugin_config_id Int64,
@@ -23,6 +20,13 @@ CREATE TABLE sharded_app_metrics ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
     error_uuid UUID,
     error_type String,
     error_details String CODEC(ZSTD(3))
+""".strip()
+
+APP_METRICS_DATA_TABLE_SQL = (
+    lambda: f"""
+CREATE TABLE sharded_app_metrics ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
+(
+    {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {SHARDED_APP_METRICS_TABLE_ENGINE()}
@@ -31,19 +35,6 @@ ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp),
 """
 )
 
-BASE_APP_METRICS_COLUMNS = """
-    team_id Int64,
-    timestamp DateTime64(6, 'UTC'),
-    plugin_config_id Int64,
-    category LowCardinality(String),
-    job_id String,
-    successes Int64,
-    successes_on_retry Int64,
-    failures Int64,
-    error_uuid UUID,
-    error_type String,
-    error_details String CODEC(ZSTD(3))
-""".strip()
 
 DISTRIBUTED_APP_METRICS_TABLE_SQL = (
     lambda: f"""
@@ -60,7 +51,17 @@ KAFKA_APP_METRICS_TABLE_SQL = (
     lambda: f"""
 CREATE TABLE kafka_app_metrics ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
 (
-    {BASE_APP_METRICS_COLUMNS}
+    team_id Int64,
+    timestamp DateTime64(6, 'UTC'),
+    plugin_config_id Int64,
+    category LowCardinality(String),
+    job_id String,
+    successes Int64,
+    successes_on_retry Int64,
+    failures Int64,
+    error_uuid UUID,
+    error_type String,
+    error_details String CODEC(ZSTD(3))
 )
 ENGINE={kafka_engine(topic=KAFKA_APP_METRICS)}
 """

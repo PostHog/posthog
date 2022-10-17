@@ -129,14 +129,13 @@ describe('inAppPromptLogic', () => {
                         sequence: config.sequences[1],
                         state: {
                             step: 0,
-                            dismissed: false,
+                            canRun: false,
                         },
                     },
                 ],
             })
-        await expectLogic(logic)
+        await expectLogic(logic, () => logic.actions.runFirstValidSequence({ runDismissedOrCompleted: true }))
             .toDispatchActions([
-                'runFirstValidSequence',
                 'closePrompts',
                 logic.actionCreators.runSequence(config.sequences[1] as PromptSequence, 0),
                 inAppPromptEventCaptureLogic.actionCreators.reportPromptShown('tooltip', config.sequences[1].key, 0, 1),
@@ -161,12 +160,12 @@ describe('inAppPromptLogic', () => {
                             state: {
                                 step: 1,
                                 completed: false,
-                                dismissed: false,
+                                canRun: false,
                             },
                         },
                     ],
                 })
-            await expectLogic(logic)
+            await expectLogic(logic, () => logic.actions.runFirstValidSequence({ runDismissedOrCompleted: true }))
                 .toDispatchActions([
                     'runFirstValidSequence',
                     'closePrompts',
@@ -244,11 +243,11 @@ describe('inAppPromptLogic', () => {
             })
                 .toDispatchActions([
                     'closePrompts',
-                    'skipTutorial',
-                    inAppPromptEventCaptureLogic.actionCreators.reportTutorialSkipped(),
+                    'optOutProductTour',
+                    inAppPromptEventCaptureLogic.actionCreators.reportProductTourSkipped(),
                 ])
                 .toMatchValues({
-                    hasSkippedTutorial: true,
+                    canShowProductTour: false,
                 })
         })
         it('can go to previous prompt', async () => {
