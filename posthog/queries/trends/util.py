@@ -78,7 +78,7 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
 
 def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, team_id: int) -> Dict[str, Any]:
     params = {}
-    params.update({"prev_interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 day"})
+    params.update({"prev_interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 DAY"})
     diff = timedelta(days=7) if entity.math == WEEKLY_ACTIVE else timedelta(days=30)
     if filter.date_from:
         prev_range = (filter.date_from - diff).strftime("%Y-%m-%d %H:%M:%S")
