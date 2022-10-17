@@ -144,8 +144,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     }),
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
-        reportUsage: (recordingData: SessionPlayerSnapshotData, loadTime: number) => ({
-            recordingData,
+        reportUsage: (playerData: SessionPlayerData, loadTime: number) => ({
+            playerData,
             loadTime,
         }),
         loadEntireRecording: true,
@@ -260,11 +260,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 cache.eventsStartTime = null
             }
         },
-        reportUsage: async ({ recordingData, loadTime }, breakpoint) => {
+        reportUsage: async ({ playerData, loadTime }, breakpoint) => {
             await breakpoint()
-            eventUsageLogic.actions.reportRecording(recordingData, loadTime, SessionRecordingUsageType.VIEWED, 0)
+            eventUsageLogic.actions.reportRecording(playerData, loadTime, SessionRecordingUsageType.VIEWED, 0)
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportRecording(recordingData, loadTime, SessionRecordingUsageType.ANALYZED, 10)
+            eventUsageLogic.actions.reportRecording(playerData, loadTime, SessionRecordingUsageType.ANALYZED, 10)
         },
     })),
     loaders(({ values, props }) => ({
