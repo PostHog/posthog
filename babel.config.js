@@ -14,6 +14,12 @@ module.exports = {
                 corejs: 3,
             },
         ],
+        [
+            '@babel/preset-react',
+            {
+                runtime: 'automatic',
+            },
+        ],
         '@babel/typescript',
     ],
 }
