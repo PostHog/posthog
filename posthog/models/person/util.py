@@ -13,19 +13,17 @@ from rest_framework import serializers
 
 from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
+from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_BULK_SQL,
-    INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_SQL,
 )
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.queries.person_distinct_id_query import fetch_person_distinct_id2_ready
 from posthog.settings import TEST
 
 if TEST:
@@ -140,15 +138,6 @@ def create_person(
 
 def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, version=0, is_deleted=False) -> None:
     p = ClickhouseProducer()
-    if not fetch_person_distinct_id2_ready():
-        data = {
-            "distinct_id": distinct_id,
-            "person_id": person_id,
-            "team_id": team_id,
-            "_sign": -1 if is_deleted else 1,
-        }
-        p.produce(topic=KAFKA_PERSON_UNIQUE_ID, sql=INSERT_PERSON_DISTINCT_ID, data=data)
-
     p.produce(
         topic=KAFKA_PERSON_DISTINCT_ID,
         sql=INSERT_PERSON_DISTINCT_ID2,
@@ -208,7 +197,7 @@ def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:
             SELECT distinct_id, count(*) as count, toDate(min(timestamp)) as startdate
             FROM (
                 SELECT person_id, distinct_id, max(_timestamp) as timestamp
-                FROM person_distinct_id
+                FROM person_distinct_id2
                 WHERE team_id = %(team_id)s
                 GROUP BY person_id, distinct_id, team_id
                 HAVING max(is_deleted) = 0
@@ -234,7 +223,7 @@ def count_total_persons_with_multiple_ids(team_id: Union[str, int], min_ids: int
         """
         SELECT count(*) as total_persons, max(_count) as max_distinct_ids_for_one_person FROM (
             SELECT person_id, count(distinct_id) as _count
-            FROM person_distinct_id
+            FROM person_distinct_id2
             WHERE team_id = %(team_id)s
             GROUP BY person_id, team_id
             HAVING max(is_deleted) = 0
