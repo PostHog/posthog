@@ -29,6 +29,7 @@ export interface HistoricalExportInfo {
     created_by: UserBasicType | null
     finished_at?: string
     duration?: number
+    progress?: number
 }
 
 export interface AppMetrics {
