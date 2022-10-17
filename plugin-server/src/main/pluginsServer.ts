@@ -1,7 +1,6 @@
 import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
-import { CronItem, TaskList } from 'graphile-worker'
 import { Server } from 'http'
 import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
@@ -15,10 +14,10 @@ import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { delay, getPiscinaStats, logOrThrowJobQueueError,stalenessCheck } from '../utils/utils'
+import { delay, getPiscinaStats, logOrThrowJobQueueError, stalenessCheck } from '../utils/utils'
 import { makePiscina as defaultMakePiscina } from '../worker/piscina'
-import { getIngestionJobHandlers, getPluginJobHandlers, getScheduledTaskHandlers } from './graphile-worker/job-handlers'
 import { loadPluginSchedule } from './graphile-worker/schedule'
+import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
@@ -151,67 +150,13 @@ export async function startPluginsServer(
         piscina = makePiscina(serverConfig)
 
         if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
-            status.info('🔄', 'Starting Graphile Worker...')
-
-            let jobHandlers: TaskList = {}
-
-            const crontab: CronItem[] = []
-
-            if (hub.capabilities.ingestion) {
-                jobHandlers = { ...jobHandlers, ...getIngestionJobHandlers(hub, piscina) }
-                status.info('🔄', 'Graphile Worker: set up ingestion job handlers ...')
-            }
-
-            if (hub.capabilities.processPluginJobs) {
-                jobHandlers = { ...jobHandlers, ...getPluginJobHandlers(hub, piscina) }
-                status.info('🔄', 'Graphile Worker: set up plugin job handlers ...')
-            }
-
-            if (hub.capabilities.pluginScheduledTasks) {
-                hub.pluginSchedule = await loadPluginSchedule(piscina)
-
-                // TODO: In the future we might benefit from scheduling tasks more granularly i.e. <taskType, pluginConfigId>
-                // KLUDGE: Given we're currently not doing the above, if we throw after executing n tasks for given type, those n tasks will be re-run
-                // Note: backfillPeriod must be explicitly defined here (without passing options it defaults to 0 anyway) but we'd currently 
-                // not like to use it as it has a lot of limitations (see: https://github.com/graphile/worker#limiting-backfill)
-                // We might benefit from changing this setting in the future
-                crontab.push({
-                    task: 'runEveryMinute',
-                    identifier: 'runEveryMinute',
-                    pattern: '* * * * *',
-                    options: { maxAttempts: 1, backfillPeriod: 0 },
-                })
-                crontab.push({
-                    task: 'runEveryHour',
-                    identifier: 'runEveryHour',
-                    pattern: '1 * * * *',
-                    options: { maxAttempts: 5, backfillPeriod: 0 },
-                })
-                crontab.push({
-                    task: 'runEveryDay',
-                    identifier: 'runEveryDay',
-                    pattern: '1 1 * * *',
-                    options: { maxAttempts: 10, backfillPeriod: 0 },
-                })
-
-                jobHandlers = {
-                    ...jobHandlers,
-                    ...getScheduledTaskHandlers(hub, piscina),
-                }
-
-                status.info('🔄', 'Graphile Worker: set up scheduled task handlers ...')
-            }
-
-            try {
-                await hub.graphileWorker.start(jobHandlers, crontab)
-            } catch (error) {
-                try {
-                    logOrThrowJobQueueError(hub, error, `Cannot start Graphile Worker!`)
-                } catch {
-                    killProcess()
-                }
+            const graphileWorkerError = await startGraphileWorker(hub, piscina)
+            if (graphileWorkerError) {
+                logOrThrowJobQueueError(hub, graphileWorkerError, `Cannot start Graphile Worker!`)
+                killProcess()
             }
         }
+
         if (hub.capabilities.ingestion) {
             bufferConsumer = await startAnonymousEventBufferConsumer({
                 kafka: hub.kafka,

@@ -218,6 +218,9 @@ export class GraphileWorker {
         if (!this.started) {
             this.started = true
             await this.syncState()
+
+            const handlers = Object.keys(jobHandlers).join(', ')
+            status.info('✅', `Graphile Worker started succesfully with the following handlers setup: ${handlers}`)
         }
     }
 
