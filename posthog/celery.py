@@ -122,7 +122,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
     )
-    sender.add_periodic_task(120, graphile_queue_size.s(), name="Graphile Worker queue size")
+    sender.add_periodic_task(120, graphile_worker_queue_size.s(), name="Graphile Worker queue size")
 
     sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
@@ -330,7 +330,7 @@ def ingestion_lag():
 
 
 @app.task(ignore_result=True)
-def graphile_queue_size():
+def graphile_worker_queue_size():
     from django.db import connections
 
     from posthog.internal_metrics import gauge
@@ -348,7 +348,7 @@ def graphile_queue_size():
         )
 
         queue_size = cursor.fetchone()[0]
-        gauge("graphile_queue_size", queue_size)
+        gauge("graphile_worker_queue_size", queue_size)
 
         # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
         # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
