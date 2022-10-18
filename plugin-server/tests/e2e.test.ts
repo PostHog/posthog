@@ -3,7 +3,7 @@ import { Kafka, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
-import { ONE_HOUR } from '../src/config/constants'
+import { ONE_HOUR, ONE_MINUTE } from '../src/config/constants'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import {
     LogLevel,
@@ -23,6 +23,9 @@ import { insertRow, POSTGRES_TRUNCATE_TABLES_QUERY } from './helpers/sql'
 const { console: testConsole } = writeToFile
 
 jest.setTimeout(60000) // 60 sec timeout
+
+beforeEach(() => jest.useRealTimers())
+afterEach(() => jest.useRealTimers())
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 1,
@@ -411,6 +414,39 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             await delayUntilEventIngested(() => testConsole.read(), 1)
             const output = testConsole.read().flatMap((x) => x)
             expect(output).toContain('runMeAsync')
+        })
+
+        test('runEveryMinute is executed', async () => {
+            // NOTE: we do not check Hour and Day, merely because if we advance
+            // too much it seems we end up performing alot of reloads of
+            // actions, which prevents the test from completing.
+            //
+            // Note this also somewhat plays havoc with the Kafka consumer
+            // sessions.
+            jest.useFakeTimers({ advanceTimers: 30 })
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'runEveryMinute plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: `
+                    import { console as testConsole } from 'test-utils/write-to-file'
+        
+                    export function runEveryMinute () {
+                        testConsole.log('runEveryMinute')
+                    }
+                `,
+            })
+
+            const teamId = await createTeam(postgres, organizationId)
+            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId))
+
+            jest.advanceTimersByTime(ONE_MINUTE)
+            await delayUntilEventIngested(() => testConsole.read())
+            const consoleOutput = testConsole.read()
+            expect(consoleOutput.flatMap((x) => x)).toContain('runEveryMinute')
         })
     })
 
