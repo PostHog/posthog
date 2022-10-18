@@ -155,7 +155,7 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
 
                 await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
 
-                await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1)
+                await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
                 const events = await fetchEvents(clickHouseClient, teamId)
                 expect(events.length).toBe(1)
 
@@ -164,10 +164,14 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
                 expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
 
                 // onEvent ran
-                const onEvent = await delayUntilEventIngested(async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'onEvent')
+                const onEvent = await delayUntilEventIngested(
+                    async () =>
+                        (
+                            await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                        ).filter(({ message: [method] }) => method === 'onEvent'),
+                    1,
+                    500,
+                    40
                 )
 
                 expect(onEvent.length).toBeGreaterThan(0)
@@ -210,10 +214,14 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
 
                 await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
 
-                const onEvent = await delayUntilEventIngested(async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'onEvent')
+                const onEvent = await delayUntilEventIngested(
+                    async () =>
+                        (
+                            await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                        ).filter(({ message: [method] }) => method === 'onEvent'),
+                    1,
+                    500,
+                    40
                 )
 
                 expect(onEvent.length).toBeGreaterThan(0)
@@ -246,7 +254,7 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
                     $snapshot_data: 'yes way',
                 })
 
-                await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1)
+                await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1, 500, 40)
                 const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
                 expect(events.length).toBe(1)
 
@@ -296,11 +304,11 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
                 $anon_distinct_id: returningDistinctId,
             })
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 3)
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 3, 500, 40)
             const events = await fetchEvents(clickHouseClient, teamId)
             expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
 
-            await delayUntilEventIngested(() => fetchPersons(clickHouseClient, teamId), 1)
+            await delayUntilEventIngested(() => fetchPersons(clickHouseClient, teamId), 1, 500, 40)
             const persons = await fetchPersons(clickHouseClient, teamId)
             expect(persons.length).toBe(1)
         })
@@ -332,16 +340,20 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
                 uuid: new UUIDT().toString(),
             })
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1)
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
 
             const events = await fetchEvents(clickHouseClient, teamId)
             expect(events.length).toBe(1)
 
             // Then check that the exportEvents function was called
-            const exportEvents = await delayUntilEventIngested(async () =>
-                (
-                    await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                ).filter(({ message: [method] }) => method === 'exportEvents')
+            const exportEvents = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'exportEvents'),
+                1,
+                500,
+                40
             )
 
             expect(exportEvents.length).toBeGreaterThan(0)
@@ -397,16 +409,20 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
                 uuid: new UUIDT().toString(),
             })
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1)
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
 
             const events = await fetchEvents(clickHouseClient, teamId)
             expect(events.length).toBe(1)
 
             // Then check that the runNow function was called
-            const runNow = await delayUntilEventIngested(async () =>
-                (
-                    await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                ).filter(({ message: [method] }) => method === 'runMeAsync')
+            const runNow = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'runMeAsync'),
+                1,
+                500,
+                40
             )
 
             expect(runNow.length).toBeGreaterThan(0)
