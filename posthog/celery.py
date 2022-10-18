@@ -149,6 +149,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         )
 
     if settings.EE_AVAILABLE:
+        sender.add_periodic_task(
+            crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
+        )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
+
         materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
         if materialize_columns_crontab:
@@ -632,3 +636,14 @@ def schedule_all_subscriptions():
         pass
     else:
         _schedule_all_subscriptions()
+
+
+@app.task(ignore_result=True)
+def clickhouse_send_license_usage():
+    try:
+        if not settings.MULTI_TENANCY:
+            from ee.tasks.send_license_usage import send_license_usage
+
+            send_license_usage()
+    except ImportError:
+        pass
