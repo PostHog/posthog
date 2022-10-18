@@ -13,7 +13,7 @@ import {
     UserBasicType,
     UserType,
 } from '~/types'
-import { FEATURE_FLAGS, OrganizationMembershipLevel, PluginsAccessLevel } from './constants'
+import { OrganizationMembershipLevel, PluginsAccessLevel } from './constants'
 import apiReal from 'lib/api'
 
 export const MOCK_USER_UUID: UserType['uuid'] = 'USER_UUID'
@@ -99,6 +99,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     first_name: 'John',
     email: 'john.doe@posthog.com',
     email_opt_in: true,
+    notification_settings: { plugin_disabled: false },
     anonymize_data: false,
     toolbar_mode: 'toolbar',
     has_password: true,
@@ -185,9 +186,3 @@ export const MOCK_GROUP_TYPES: GroupType[] = [
         name_plural: 'projects',
     },
 ]
-
-export const MOCK_DECIDE = {
-    featureFlags: {
-        [FEATURE_FLAGS.IN_APP_PROMPTS_EXPERIMENT]: 'test',
-    },
-}

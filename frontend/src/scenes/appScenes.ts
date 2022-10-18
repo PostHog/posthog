@@ -50,6 +50,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.BillingLocked]: () => import('./billing/BillingLocked'),
     [Scene.Plugins]: () => import('./plugins/Plugins'),
     [Scene.FrontendAppScene]: () => import('./apps/FrontendAppScene'),
+    [Scene.AppMetrics]: () => import('./apps/AppMetricsScene'),
     [Scene.Login]: () => import('./authentication/Login'),
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
     [Scene.PasswordReset]: () => import('./authentication/PasswordReset'),

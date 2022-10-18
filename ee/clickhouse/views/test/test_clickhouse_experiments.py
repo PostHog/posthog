@@ -4,6 +4,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from posthog.constants import ExperimentSignificanceCode
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -17,46 +18,6 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_getting_archived_experiments(self):
-        archived_experiment = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": "a-b-tests",
-                "archived": True,
-                "parameters": None,
-                "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
-                    "properties": [
-                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
-                    ],
-                },
-            },
-        )
-        self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": "a-b-tests2",
-                "parameters": None,
-                "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
-                    "properties": [
-                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
-                    ],
-                },
-            },
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments?archived=true")
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], archived_experiment.json()["id"])
-
     @pytest.mark.skip_on_multitenancy
     def test_cannot_list_experiments_without_proper_license(self):
         self.organization.available_features = []
@@ -64,6 +25,54 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertEqual(response.json(), self.license_required_response())
+
+    def test_getting_experiments_is_not_nplus1(self) -> None:
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            data={
+                "name": "Test Experiment",
+                "feature_flag_key": f"flag_0",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        ).json()
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            data={
+                "name": "Test Experiment",
+                "feature_flag_key": f"exp_flag_000",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "end_date": "2021-12-01T10:23",
+                "archived": True,
+                "parameters": None,
+            },
+            format="json",
+        ).json()
+
+        with self.assertNumQueries(9):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(1, 5):
+            self.client.post(
+                f"/api/projects/{self.team.id}/experiments/",
+                data={
+                    "name": "Test Experiment",
+                    "feature_flag_key": f"flag_{i}",
+                    "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                    "start_date": "2021-12-01T10:23",
+                    "parameters": None,
+                },
+                format="json",
+            ).json()
+
+        with self.assertNumQueries(9):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_creating_updating_basic_experiment(self):
         ff_key = "a-b-tests"
@@ -109,6 +118,60 @@ class TestExperimentCRUD(APILicensedTest):
         experiment = Experiment.objects.get(pk=id)
         self.assertEqual(experiment.description, "Bazinga")
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
+
+    def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
+            },
+            name="cohort_behavioral",
+        )
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"},
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        id = response.json()["id"]
+
+        # Now update
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {"filters": {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["code"], "behavioral_cohort_found")
 
     def test_invalid_create(self):
         # Draft experiment
@@ -739,6 +802,116 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 "description": "",
                 "start_date": "2020-01-01T00:00",
                 "end_date": "2020-01-06T00:00",
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "insight": "funnels",
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                        # properties superceded by FF breakdown
+                    ],
+                },
+            },
+        )
+
+        id = response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()
+        result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
+
+        self.assertEqual(result[0][0]["name"], "$pageview")
+        self.assertEqual(result[0][0]["count"], 2)
+        self.assertEqual("control", result[0][0]["breakdown_value"][0])
+
+        self.assertEqual(result[0][1]["name"], "$pageleave")
+        self.assertEqual(result[0][1]["count"], 2)
+        self.assertEqual("control", result[0][1]["breakdown_value"][0])
+
+        self.assertEqual(result[1][0]["name"], "$pageview")
+        self.assertEqual(result[1][0]["count"], 3)
+        self.assertEqual("test", result[1][0]["breakdown_value"][0])
+
+        self.assertEqual(result[1][1]["name"], "$pageleave")
+        self.assertEqual(result[1][1]["count"], 1)
+        self.assertEqual("test", result[1][1]["breakdown_value"][0])
+
+        # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
+        # The variant has very low probability of being better.
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
+        self.assertEqual(response_data["significance_code"], ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
+
+    @pytest.mark.skip(
+        reason="This test needs proper timezone support, coming in https://github.com/PostHog/posthog/pull/11935"
+    )
+    @snapshot_clickhouse_queries
+    def test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones(self):
+
+        journeys_for(
+            {
+                "person1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-01 13:40:00",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04 13:00:00",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03 13:00:00",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-05 13:00:00",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+                "person3": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04T13:00:00",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-05T13:00:00",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+                # non-converters with FF
+                "person4": [
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "test"}}
+                ],
+                "person5": [
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}}
+                ],
+            },
+            self.team,
+        )
+
+        self.team.timezone = "Europe/Amsterdam"  # GMT+1
+        self.team.save()
+
+        ff_key = "a-b-test"
+        # generates the FF which should result in the above events^
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2020-01-01T14:20",  # date is after first event, BUT timezone is GMT+1, so should be included
+                "end_date": "2020-01-06T10:00",
                 "feature_flag_key": ff_key,
                 "parameters": None,
                 "filters": {

@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
+import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
 import React, { useRef, useState } from 'react'
 import { IntervalType, AnnotationType } from '~/types'
 import { IconDelete, IconEdit, IconPlusMini } from '../icons'
@@ -223,7 +223,7 @@ function AnnotationsPopover({
 }
 
 function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Element {
-    const { insightId } = useValues(annotationsOverlayLogic)
+    const { insightId, timezone } = useValues(annotationsOverlayLogic)
     const { deleteAnnotation } = useActions(annotationsModel)
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
 
@@ -231,7 +231,8 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
         <li className="AnnotationCard flex flex-col w-full p-3 rounded border list-none">
             <div className="flex items-center gap-2">
                 <h5 className="grow m-0 text-muted">
-                    {annotation.date_marker.format('MMM DD, YYYY h:mm A')} – {annotationScopeToName[annotation.scope]}
+                    {annotation.date_marker.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
+                    {annotationScopeToName[annotation.scope]}
                     -level
                 </h5>
                 <LemonButton

@@ -1,4 +1,3 @@
-import React from 'react'
 import { dashboardLogic } from './dashboardLogic'
 import { useValues } from 'kea'
 import { urls } from 'scenes/urls'
@@ -6,6 +5,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { IconPlus } from 'lib/components/icons'
 import './EmptyDashboardComponent.scss'
+import React from 'react'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
@@ -76,7 +76,9 @@ function SkeletonCardTwo({ active }: { active: boolean }): JSX.Element {
 }
 
 export function EmptyDashboardComponent({ loading }: { loading: boolean }): JSX.Element {
-    const { dashboard } = useValues(dashboardLogic)
+    const {
+        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
+    } = useValues(dashboardLogic)
 
     return (
         <div className="EmptyDashboard">

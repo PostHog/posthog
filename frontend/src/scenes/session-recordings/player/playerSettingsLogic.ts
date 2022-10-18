@@ -10,6 +10,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
+        setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
     }),
     reducers({
         speed: [
@@ -30,6 +31,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             false,
             {
                 setShowOnlyMatching: (_, { showOnlyMatching }) => showOnlyMatching,
+            },
+        ],
+        isFullScreen: [
+            false,
+            {
+                setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
             },
         ],
     }),

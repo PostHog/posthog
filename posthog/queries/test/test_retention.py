@@ -41,7 +41,7 @@ def _create_signup_actions(team, user_and_timestamps):
 
 
 def _date(day, hour=5, month=0):
-    return datetime(2020, 6 + month, 10 + day, hour, tzinfo=pytz.UTC).isoformat()
+    return datetime(2020, 6 + month, 10 + day, hour).isoformat()
 
 
 def pluck(list_of_dicts, key, child_key=None):
@@ -1002,11 +1002,13 @@ def retention_test_factory(retention):
             result_pacific = retention().run(
                 RetentionFilter(data={"date_to": _date(10, hour=6)}, team=self.team), self.team
             )
+
             self.assertEqual(
                 pluck(result_pacific, "label"),
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
             )
-            self.assertEqual(result_pacific[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+
+            self.assertEqual(result_pacific[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.timezone("US/Pacific")))
 
             self.assertEqual(
                 pluck(result, "values", "count"),
@@ -1028,13 +1030,13 @@ def retention_test_factory(retention):
             self.assertEqual(
                 pluck(result_pacific, "values", "count"),
                 [
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 0],  # person 2 is across two dates in US/Pacific
+                    [1, 1, 0, 0, 0, 0],  # person 2 is across two dates in US/Pacific
+                    [1, 0, 0, 0, 0],
                     [0, 0, 0, 0],
                     [0, 0, 0],
                     [0, 0],

@@ -126,10 +126,6 @@ mypy-extensions==0.4.3
     #   -r requirements-dev.in
     #   black
     #   mypy
-numpy==1.21.4
-    # via
-    #   -c requirements.txt
-    #   -r requirements-dev.in
 packaging==21.3
     # via
     #   -c requirements.txt

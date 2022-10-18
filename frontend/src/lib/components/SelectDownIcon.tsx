@@ -1,4 +1,3 @@
-import React from 'react'
 import { DownOutlined } from '@ant-design/icons'
 
 // Downward arrow icon with styling that mimics that of the antd Select

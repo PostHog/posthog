@@ -171,7 +171,12 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "alpha-feature", "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "alpha-feature",
+                        "short_id": None,
+                    },
                 }
             ],
         )
@@ -398,7 +403,7 @@ class TestFeatureFlag(APIBaseTest):
                                 },
                             },
                         ],
-                        "merge": None,
+                        "trigger": None,
                         "name": "a-feature-flag-that-is-updated",
                         "short_id": None,
                     },
@@ -411,7 +416,7 @@ class TestFeatureFlag(APIBaseTest):
                     "item_id": str(flag_id),
                     "detail": {
                         "changes": None,
-                        "merge": None,
+                        "trigger": None,
                         "name": "a-feature-flag-that-is-updated",
                         "short_id": None,
                     },
@@ -480,7 +485,7 @@ class TestFeatureFlag(APIBaseTest):
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
-                        "merge": None,
+                        "trigger": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -491,7 +496,12 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity", "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "feature_with_activity",
+                        "short_id": None,
+                    },
                 },
             ],
         )
@@ -544,7 +554,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:29:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(second_flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "flag-two", "short_id": None},
+                    "detail": {"changes": None, "trigger": None, "name": "flag-two", "short_id": None},
                 },
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
@@ -562,7 +572,7 @@ class TestFeatureFlag(APIBaseTest):
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
-                        "merge": None,
+                        "trigger": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -573,7 +583,12 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity", "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "feature_with_activity",
+                        "short_id": None,
+                    },
                 },
             ],
         )

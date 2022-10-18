@@ -1,5 +1,4 @@
 import { PageHeader } from 'lib/components/PageHeader'
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import './ToolbarLaunch.scss'
 import { SearchOutlined } from '@ant-design/icons'

@@ -31,6 +31,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Group]: Scene.Persons,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
+    [Scene.AppMetrics]: Scene.Plugins,
 }
 
 export const sceneLogic = kea<sceneLogicType>({

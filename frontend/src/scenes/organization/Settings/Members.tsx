@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'

@@ -1,4 +1,3 @@
-import React from 'react'
 import './HelpButton.scss'
 import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -15,10 +14,11 @@ import {
     IconQuestionAnswer,
     IconMessages,
     IconFlare,
+    IconTrendingUp,
 } from '../icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react-dom-interactions'
-import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
 
@@ -145,6 +145,19 @@ export function HelpButton({
                                 Read the docs
                             </LemonButton>
                         )}
+                        {!isPromptVisible && (
+                            <LemonButton
+                                icon={<IconTrendingUp />}
+                                status="stealth"
+                                fullWidth
+                                onClick={() => {
+                                    promptAction('activation-checklist')
+                                    hideHelp()
+                                }}
+                            >
+                                How to be successful with PostHog
+                            </LemonButton>
+                        )}
                         {validSequences.length > 0 && (
                             <LemonButton
                                 icon={<IconMessages />}
@@ -152,7 +165,7 @@ export function HelpButton({
                                 fullWidth
                                 onClick={() => {
                                     if (isPromptVisible) {
-                                        promptAction('skip')
+                                        promptAction(DefaultAction.SKIP)
                                     } else {
                                         runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
                                     }
@@ -162,7 +175,6 @@ export function HelpButton({
                                 {isPromptVisible ? 'Stop tutorial' : 'Explain this page'}
                             </LemonButton>
                         )}
-
                         <LemonButton
                             icon={<IconFlare />}
                             status="stealth"
@@ -172,7 +184,7 @@ export function HelpButton({
                                 hideHelp()
                             }}
                         >
-                            {hedgehogModeEnabled ? 'Disable Hedgehog mode' : 'Enable Hedgehog mode'}
+                            {hedgehogModeEnabled ? 'Disable' : 'Enable'} Hedgehog Mode
                         </LemonButton>
                     </>
                 }

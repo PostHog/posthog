@@ -4,11 +4,16 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person import Person
 from posthog.queries.retention import Retention
-from posthog.queries.test.test_retention import _create_events, _date, pluck, retention_test_factory
-from posthog.test.base import snapshot_clickhouse_queries, test_with_materialized_columns
+from posthog.queries.test.test_retention import _create_events, _date, pluck
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    snapshot_clickhouse_queries,
+    test_with_materialized_columns,
+)
 
 
-class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignore
+class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
     def _create_groups_and_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)

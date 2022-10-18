@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { THIRD_PARTY, BOOKMARKLET, platforms } from 'scenes/ingestion/constants'

@@ -621,6 +621,10 @@
 .rounded {
     border-radius: 0.25rem; /* 4px */
 }
+.rounded-t {
+    border-top-left-radius: 0.25rem; /* 4px */
+    border-top-right-radius: 0.25rem; /* 4px */
+}
 .rounded-md {
     border-radius: 0.375rem; /* 6px */
 }
@@ -762,4 +766,36 @@
 
 .object-contain {
     object-fit: contain;
+}
+
+.tracking-tighter {
+    letter-spacing: -0.05em;
+}
+.tracking-tight {
+    letter-spacing: -0.025em;
+}
+.tracking-normal {
+    letter-spacing: 0em;
+}
+.tracking-wide {
+    letter-spacing: 0.025em;
+}
+.tracking-wider {
+    letter-spacing: 0.05em;
+}
+.tracking-widest {
+    letter-spacing: 0.1em;
+}
+
+.select-none {
+    user-select: none;
+}
+.select-text {
+    user-select: text;
+}
+.select-all {
+    user-select: all;
+}
+.select-auto {
+    user-select: auto;
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { getSlackAppManifest, integrationsLogic } from './integrationsLogic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'

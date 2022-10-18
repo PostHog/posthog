@@ -57,10 +57,10 @@ class SessionRecording:
             # but until we straighten out the recording start time logic, we should have a buffer
             return (
                 """
-                    AND timestamp >= toDateTime(%(start_time)s) - INTERVAL 1 DAY
-                    AND timestamp <= toDateTime(%(start_time)s) + INTERVAL 2 DAY
+                    AND toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) >= toDateTime(%(start_time)s, %(timezone)s) - INTERVAL 1 DAY
+                    AND toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) <= toDateTime(%(start_time)s, %(timezone)s) + INTERVAL 2 DAY
             """,
-                {"start_time": self._recording_start_time},
+                {"start_time": self._recording_start_time, "timezone": self._team.timezone},
             )
         return ("", {})
 

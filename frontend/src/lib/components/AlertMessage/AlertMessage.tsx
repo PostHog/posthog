@@ -1,4 +1,3 @@
-import React from 'react'
 import './AlertMessage.scss'
 import { IconClose, IconInfo, IconWarning } from '../icons'
 import clsx from 'clsx'

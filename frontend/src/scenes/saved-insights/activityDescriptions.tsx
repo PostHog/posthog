@@ -9,12 +9,11 @@ import {
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
-import React from 'react'
-import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
-import '../../lib/components/InsightCard/InsightCard.scss'
+import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { pluralize } from 'lib/utils'
-import { INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED } from 'lib/components/InsightCard/InsightCard'
+import { INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED } from 'lib/components/Cards/InsightCard/InsightCard'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
@@ -22,12 +21,28 @@ const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | n
     return short_id ? <Link to={urls.insightView(short_id)}>{displayName}</Link> : displayName
 }
 
-interface DashboardLink {
+interface TileStyleDashboardLink {
+    insight: { id: number }
+    dashboard: BareDashboardLink
+}
+
+interface BareDashboardLink {
     id: number
     name: string
 }
 
-const linkToDashboard = (dashboard: DashboardLink): JSX.Element => (
+// insight activity logs changed the format that dashboard changes were reported in
+type DashboardLink = TileStyleDashboardLink | BareDashboardLink
+
+const unboxBareLink = (boxedLink: DashboardLink): BareDashboardLink => {
+    if ('dashboard' in boxedLink) {
+        return boxedLink.dashboard
+    } else {
+        return boxedLink
+    }
+}
+
+const linkToDashboard = (dashboard: BareDashboardLink): JSX.Element => (
     <div className="highlighted-activity">
         <Link to={urls.dashboard(dashboard.id)}>{dashboard.name}</Link>
     </div>
@@ -156,8 +171,8 @@ const insightActionsMapping: Record<
         return { description: changes }
     },
     dashboards: function onDashboardsChange(change, logItem, asNotification) {
-        const dashboardsBefore = change?.before as DashboardLink[]
-        const dashboardsAfter = change?.after as DashboardLink[]
+        const dashboardsBefore = (change?.before as DashboardLink[]).map(unboxBareLink)
+        const dashboardsAfter = (change?.after as DashboardLink[]).map(unboxBareLink)
 
         const addedDashboards = dashboardsAfter.filter(
             (after) => !dashboardsBefore.some((before) => before.id === after.id)
@@ -201,8 +216,6 @@ const insightActionsMapping: Record<
     created_at: () => null,
     created_by: () => null,
     filters_hash: () => null,
-    layouts: () => null,
-    color: () => null,
     refreshing: () => null,
     updated_at: () => null,
     last_modified_at: () => null,
@@ -216,6 +229,7 @@ const insightActionsMapping: Record<
     timezone: () => null,
     effective_restriction_level: () => null, // read from dashboards
     effective_privilege_level: () => null, // read from dashboards
+    disable_baseline: () => null,
 }
 
 export function insightActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

@@ -149,11 +149,15 @@ class LifecycleEventQuery(EventQuery):
 
         created_at_clause = "person.created_at" if not self._using_person_on_events else "person_created_at"
 
+        null_person_filter = (
+            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
+        )
+
         return (
             f"""
             SELECT DISTINCT
                 {self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id as person_id,
-                dateTrunc(%(interval)s, toDateTime(events.timestamp, %(timezone)s)) AS period,
+                dateTrunc(%(interval)s, toTimeZone(toDateTime(events.timestamp, 'UTC'), %(timezone)s)) AS period,
                 toDateTime({created_at_clause}, %(timezone)s) AS created_at
             FROM events AS {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
@@ -164,6 +168,7 @@ class LifecycleEventQuery(EventQuery):
             {date_query}
             {prop_query}
             {entity_prop_query}
+            {null_person_filter}
         """,
             self.params,
         )
@@ -190,8 +195,8 @@ class LifecycleEventQuery(EventQuery):
         # :TRICKY: We fetch all data even for the period before the graph starts up until the end of the last period
         return (
             f"""
-            AND timestamp >= toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_from)s))) - INTERVAL 1 {self._filter.interval}
-            AND timestamp < toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_to)s))) + INTERVAL 1 {self._filter.interval}
+            AND timestamp >= toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_from)s, %(timezone)s))) - INTERVAL 1 {self._filter.interval}
+            AND timestamp < toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_to)s, %(timezone)s))) + INTERVAL 1 {self._filter.interval}
         """,
             params,
         )

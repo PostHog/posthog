@@ -2,7 +2,7 @@ import Piscina from '@posthog/piscina'
 
 import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../../src/main/ingestion-queues/queue'
-import { startJobQueueConsumer } from '../../src/main/job-queues/job-queue-consumer'
+import { startGraphileWorker } from '../../src/main/jobs/worker-setup'
 import { Hub, LogLevel } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 
@@ -45,39 +45,39 @@ describe('capabilities', () => {
         })
     })
 
-    describe('startJobQueueConsumer()', () => {
+    describe('startGraphileWorker()', () => {
         it('sets up bufferJob handler if ingestion is on', async () => {
-            hub.jobQueueManager.startConsumer = jest.fn()
+            hub.graphileWorker.start = jest.fn()
             hub.capabilities.ingestion = true
             hub.capabilities.processPluginJobs = false
 
-            await startJobQueueConsumer(hub, piscina)
+            await startGraphileWorker(hub, piscina)
 
-            expect(hub.jobQueueManager.startConsumer).toHaveBeenCalledWith({
+            expect(hub.graphileWorker.start).toHaveBeenCalledWith({
                 bufferJob: expect.anything(),
             })
         })
 
         it('sets up pluginJob handler if processPluginJobs is on', async () => {
-            hub.jobQueueManager.startConsumer = jest.fn()
+            hub.graphileWorker.start = jest.fn()
             hub.capabilities.ingestion = false
             hub.capabilities.processPluginJobs = true
 
-            await startJobQueueConsumer(hub, piscina)
+            await startGraphileWorker(hub, piscina)
 
-            expect(hub.jobQueueManager.startConsumer).toHaveBeenCalledWith({
+            expect(hub.graphileWorker.start).toHaveBeenCalledWith({
                 pluginJob: expect.anything(),
             })
         })
 
         it('sets up bufferJob and pluginJob handlers if ingestion and processPluginJobs are on', async () => {
-            hub.jobQueueManager.startConsumer = jest.fn()
+            hub.graphileWorker.start = jest.fn()
             hub.capabilities.ingestion = true
             hub.capabilities.processPluginJobs = true
 
-            await startJobQueueConsumer(hub, piscina)
+            await startGraphileWorker(hub, piscina)
 
-            expect(hub.jobQueueManager.startConsumer).toHaveBeenCalledWith({
+            expect(hub.graphileWorker.start).toHaveBeenCalledWith({
                 bufferJob: expect.anything(),
                 pluginJob: expect.anything(),
             })

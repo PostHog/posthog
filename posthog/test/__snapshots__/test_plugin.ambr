@@ -6,7 +6,8 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -23,7 +24,8 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'index.ts'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -40,9 +42,11 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
-  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx')
+  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx',
+                                                   'site.ts')
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
   '
 ---
@@ -60,7 +64,8 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -77,7 +82,8 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'index.ts'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -94,9 +100,11 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
-  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx')
+  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx',
+                                                   'site.ts')
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
   '
 ---
@@ -114,7 +122,8 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -131,7 +140,8 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'index.ts'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -148,9 +158,11 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
-  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx')
+  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx',
+                                                   'site.ts')
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
   '
 ---
@@ -168,7 +180,8 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -185,7 +198,8 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'index.ts'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -202,9 +216,11 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
-  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx')
+  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx',
+                                                   'site.ts')
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
   '
 ---
@@ -222,7 +238,8 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -239,7 +256,8 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'frontend.tsx'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -256,9 +274,11 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
-  WHERE ("posthog_pluginsourcefile"."filename" IN ('index.ts')
+  WHERE ("posthog_pluginsourcefile"."filename" IN ('site.ts',
+                                                   'index.ts')
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
   '
 ---
@@ -268,7 +288,65 @@
   FROM "posthog_pluginsourcefile"
   '
 ---
-# name: TestPluginSourceFile.test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works
+  '
+  SELECT "posthog_pluginsourcefile"."id",
+         "posthog_pluginsourcefile"."plugin_id",
+         "posthog_pluginsourcefile"."filename",
+         "posthog_pluginsourcefile"."source",
+         "posthog_pluginsourcefile"."status",
+         "posthog_pluginsourcefile"."transpiled",
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
+  FROM "posthog_pluginsourcefile"
+  WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
+         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+  LIMIT 21
+  FOR
+  UPDATE
+  '
+---
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works.1
+  '
+  SELECT "posthog_pluginsourcefile"."id",
+         "posthog_pluginsourcefile"."plugin_id",
+         "posthog_pluginsourcefile"."filename",
+         "posthog_pluginsourcefile"."source",
+         "posthog_pluginsourcefile"."status",
+         "posthog_pluginsourcefile"."transpiled",
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
+  FROM "posthog_pluginsourcefile"
+  WHERE ("posthog_pluginsourcefile"."filename" = 'site.ts'
+         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+  LIMIT 21
+  FOR
+  UPDATE
+  '
+---
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works.2
+  '
+  SELECT "posthog_pluginsourcefile"."id",
+         "posthog_pluginsourcefile"."plugin_id",
+         "posthog_pluginsourcefile"."filename",
+         "posthog_pluginsourcefile"."source",
+         "posthog_pluginsourcefile"."status",
+         "posthog_pluginsourcefile"."transpiled",
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
+  FROM "posthog_pluginsourcefile"
+  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx',
+                                                   'index.ts')
+         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+  '
+---
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works.3
+  '
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_pluginsourcefile"
+  '
+---
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works
   '
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
@@ -285,7 +363,7 @@
   UPDATE
   '
 ---
-# name: TestPluginSourceFile.test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works.1
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works.1
   '
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
@@ -294,6 +372,63 @@
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
          "posthog_pluginsourcefile"."error"
+  FROM "posthog_pluginsourcefile"
+  WHERE ("posthog_pluginsourcefile"."filename" = 'site.ts'
+         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+  LIMIT 21
+  FOR
+  UPDATE
+  '
+---
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works.2
+  '
+  SELECT "posthog_pluginsourcefile"."id",
+         "posthog_pluginsourcefile"."plugin_id",
+         "posthog_pluginsourcefile"."filename",
+         "posthog_pluginsourcefile"."source",
+         "posthog_pluginsourcefile"."status",
+         "posthog_pluginsourcefile"."transpiled",
+         "posthog_pluginsourcefile"."error"
+  FROM "posthog_pluginsourcefile"
+  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx',
+                                                   'index.ts')
+         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+  '
+---
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works.3
+  '
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_pluginsourcefile"
+  '
+---
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works
+  '
+  SELECT "posthog_pluginsourcefile"."id",
+         "posthog_pluginsourcefile"."plugin_id",
+         "posthog_pluginsourcefile"."filename",
+         "posthog_pluginsourcefile"."source",
+         "posthog_pluginsourcefile"."status",
+         "posthog_pluginsourcefile"."transpiled",
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
+  FROM "posthog_pluginsourcefile"
+  WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
+         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+  LIMIT 21
+  FOR
+  UPDATE
+  '
+---
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works.1
+  '
+  SELECT "posthog_pluginsourcefile"."id",
+         "posthog_pluginsourcefile"."plugin_id",
+         "posthog_pluginsourcefile"."filename",
+         "posthog_pluginsourcefile"."source",
+         "posthog_pluginsourcefile"."status",
+         "posthog_pluginsourcefile"."transpiled",
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'index.ts'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -310,9 +445,11 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
-  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx')
+  WHERE ("posthog_pluginsourcefile"."filename" IN ('frontend.tsx',
+                                                   'site.ts')
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
   '
 ---
@@ -330,7 +467,8 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -347,7 +485,8 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'frontend.tsx'
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
@@ -364,9 +503,11 @@
          "posthog_pluginsourcefile"."source",
          "posthog_pluginsourcefile"."status",
          "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginsourcefile"."error"
+         "posthog_pluginsourcefile"."error",
+         "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
-  WHERE ("posthog_pluginsourcefile"."filename" IN ('index.ts')
+  WHERE ("posthog_pluginsourcefile"."filename" IN ('site.ts',
+                                                   'index.ts')
          AND "posthog_pluginsourcefile"."plugin_id" = 2)
   '
 ---

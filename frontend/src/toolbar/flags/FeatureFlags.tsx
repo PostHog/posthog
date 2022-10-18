@@ -1,6 +1,5 @@
 import './featureFlags.scss'
 
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { Radio, Switch, Row, Typography, List, Input } from 'antd'

@@ -173,6 +173,8 @@ ENV CHROME_BIN=/usr/bin/chromium-browser \
 
 COPY gunicorn.config.py ./
 
+ENV NODE_ENV=production
+
 # Expose container port and run entry point script
 EXPOSE 8000
 

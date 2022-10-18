@@ -5,6 +5,8 @@ import { OrganizationManager } from '../../../src/worker/ingestion/organization-
 import { commonOrganizationId } from '../../helpers/plugins'
 import { resetTestDatabase } from '../../helpers/sql'
 
+jest.mock('../../../src/utils/status')
+
 describe('OrganizationManager()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -13,7 +15,7 @@ describe('OrganizationManager()', () => {
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
         await resetTestDatabase()
-        organizationManager = new OrganizationManager(hub.db)
+        organizationManager = new OrganizationManager(hub.db, hub.teamManager)
     })
     afterEach(async () => {
         await closeHub()
@@ -48,6 +50,39 @@ describe('OrganizationManager()', () => {
 
         it('returns null when no such team', async () => {
             expect(await organizationManager.fetchOrganization(new UUIDT().toString())).toEqual(null)
+        })
+    })
+
+    describe('hasAvailableFeature()', () => {
+        beforeEach(async () => {
+            await hub.db.postgresQuery(
+                `UPDATE posthog_organization SET available_features = array['some_feature']`,
+                undefined,
+                ''
+            )
+        })
+
+        it('returns if an organization has a feature', async () => {
+            expect(await organizationManager.hasAvailableFeature(2, 'some_feature')).toEqual(true)
+            expect(await organizationManager.hasAvailableFeature(2, 'another_feature')).toEqual(false)
+        })
+
+        it('efficiently uses cached values', async () => {
+            // pre-cache the value
+            await organizationManager.hasAvailableFeature(2, 'some_feature')
+
+            jest.spyOn(hub.teamManager, 'fetchTeam')
+            jest.spyOn(organizationManager, 'fetchOrganization')
+
+            expect(await organizationManager.hasAvailableFeature(2, 'some_feature')).toEqual(true)
+            expect(await organizationManager.hasAvailableFeature(2, 'another_feature')).toEqual(false)
+
+            expect(hub.teamManager.fetchTeam).not.toHaveBeenCalled()
+            expect(organizationManager.fetchOrganization).not.toHaveBeenCalled()
+        })
+
+        it('returns false if team does not exist', async () => {
+            expect(await organizationManager.hasAvailableFeature(77, 'some_feature')).toEqual(false)
         })
     })
 })

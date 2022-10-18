@@ -1,4 +1,3 @@
-import React from 'react'
 import { SearchOutlined, EditOutlined } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
 import { commandPaletteLogic } from './commandPaletteLogic'

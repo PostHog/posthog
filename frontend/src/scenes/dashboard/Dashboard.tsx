@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
@@ -46,7 +46,7 @@ function DashboardScene(): JSX.Element {
         placement,
         dashboard,
         canEditDashboard,
-        items,
+        tiles,
         itemsLoading,
         filters: dashboardFilters,
         dashboardMode,
@@ -97,7 +97,7 @@ function DashboardScene(): JSX.Element {
 
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
-            ) : !items || items.length === 0 ? (
+            ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading} />
             ) : (
                 <div>

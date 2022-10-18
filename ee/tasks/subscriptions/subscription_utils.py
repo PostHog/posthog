@@ -22,11 +22,9 @@ ASSET_GENERATION_MAX_TIMEOUT = timedelta(minutes=10)
 def generate_assets(
     resource: Union[Subscription, SharingConfiguration], max_asset_count: int = DEFAULT_MAX_ASSET_COUNT
 ) -> Tuple[List[Insight], List[ExportedAsset]]:
-    insights = []
-
     if resource.dashboard:
         tiles = get_tiles_ordered_by_position(resource.dashboard)
-        insights = [tile.insight for tile in tiles]
+        insights = [tile.insight for tile in tiles if tile.insight]
     elif resource.insight:
         insights = [resource.insight]
     else:

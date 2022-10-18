@@ -81,7 +81,12 @@ class TestPluginAPI(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Plugin",
                     "item_id": str(response.json()["id"]),
-                    "detail": {"name": "helloworldplugin", "changes": None, "merge": None, "short_id": None},
+                    "detail": {
+                        "name": "helloworldplugin",
+                        "changes": None,
+                        "trigger": None,
+                        "short_id": None,
+                    },
                 }
             ]
         )
@@ -286,7 +291,12 @@ class TestPluginAPI(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Plugin",
                     "item_id": str(plugin_id),
-                    "detail": {"name": "helloworldplugin", "changes": None, "merge": None, "short_id": None},
+                    "detail": {
+                        "name": "helloworldplugin",
+                        "changes": None,
+                        "trigger": None,
+                        "short_id": None,
+                    },
                 },
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com"},
@@ -294,7 +304,12 @@ class TestPluginAPI(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Plugin",
                     "item_id": str(plugin_id),
-                    "detail": {"name": "helloworldplugin", "changes": None, "merge": None, "short_id": None},
+                    "detail": {
+                        "name": "helloworldplugin",
+                        "changes": None,
+                        "trigger": None,
+                        "short_id": None,
+                    },
                 },
             ]
         )
@@ -740,8 +755,11 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": "moop"},
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
+        plugin_config = PluginConfig.objects.first()
+        self.assertIsNotNone(plugin_config.web_token)  # type: ignore
 
         # If we're trying to create another plugin config for the same plugin, just return the original
         response = self.client.post(
@@ -768,6 +786,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": "soup"},
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
         self.client.delete(f"/api/plugin_config/{plugin_config_id}")
@@ -942,6 +961,59 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(response.json()["config"], {"bar": "moop"})
         self.assertEqual(PluginAttachment.objects.count(), 0)
 
+        response = self.client.get("/api/organizations/@current/plugins/activity")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        changes = response.json()["results"]
+
+        self.assertEqual(len(changes), 5)
+
+        for i in (0, 1, 2, 3):
+            self.assertEqual(changes[i]["scope"], "PluginConfig")
+
+        self.assertEqual(changes[4]["scope"], "Plugin")
+
+        self.assertEqual(changes[0]["activity"], "attachment_deleted")
+        self.assertEqual(
+            changes[0]["detail"]["changes"],
+            [
+                {
+                    "type": "PluginConfig",
+                    "action": "deleted",
+                    "field": None,
+                    "before": "foo-database-2.db",
+                    "after": None,
+                }
+            ],
+        )
+
+        self.assertEqual(changes[1]["activity"], "attachment_updated")
+        self.assertEqual(
+            changes[1]["detail"]["changes"],
+            [
+                {
+                    "type": "PluginConfig",
+                    "action": "changed",
+                    "field": None,
+                    "before": "foo-database-1.db",
+                    "after": "foo-database-2.db",
+                }
+            ],
+        )
+
+        self.assertEqual(changes[2]["activity"], "attachment_created")
+        self.assertEqual(
+            changes[2]["detail"]["changes"],
+            [
+                {
+                    "type": "PluginConfig",
+                    "action": "created",
+                    "field": None,
+                    "before": None,
+                    "after": "foo-database-1.db",
+                }
+            ],
+        )
+
     def test_create_plugin_config_with_secrets(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)
 
@@ -977,6 +1049,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": "**************** POSTHOG SECRET FIELD ****************"},
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
 
@@ -999,6 +1072,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": ""},  # empty secret configs are returned normally
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
 
@@ -1019,6 +1093,7 @@ class TestPluginAPI(APIBaseTest):
                 "config": {"bar": "**************** POSTHOG SECRET FIELD ****************"},
                 "error": None,
                 "team_id": self.team.pk,
+                "plugin_info": None,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
@@ -1045,15 +1120,19 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         execute_fn = db_connections["default"].cursor().__enter__().execute
         self.assertEqual(execute_fn.call_count, 1)
-        expected_sql = "SELECT graphile_worker.add_job('pluginJob', %s)"
-        expected_params = [
-            (
-                '{"type": "myJob", "payload": {"a": 1, "$operation": "stop"}, '
-                f'"pluginConfigId": {plugin_config_id}, "pluginConfigTeam": {self.team.pk}'
-                "}"
-            )
-        ]
-        execute_fn.assert_called_with(expected_sql, expected_params)
+
+        execute_fn_args = execute_fn.mock_calls[0].args
+        self.assertEqual(execute_fn_args[0], "SELECT graphile_worker.add_job('pluginJob', %s)")
+        self.assertDictEqual(
+            json.loads(execute_fn_args[1][0]),
+            {
+                "type": "myJob",
+                "payload": {"a": 1, "$operation": "stop", "$job_id": ANY},
+                "pluginConfigId": plugin_config_id,
+                "pluginConfigTeam": self.team.pk,
+            },
+        )
+
         mock_validate_plugin_job_payload.assert_called_with(ANY, "myJob", {"a": 1}, is_staff=False)
 
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
@@ -1099,7 +1178,12 @@ class TestPluginAPI(APIBaseTest):
                 {
                     "activity": "installed",
                     "created_at": "2021-08-25T22:09:14.252000Z",
-                    "detail": {"changes": None, "merge": None, "name": "helloworldplugin", "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "helloworldplugin",
+                        "short_id": None,
+                    },
                     "item_id": str(plugin_id),
                     "scope": "Plugin",
                     "user": {"email": "user1@posthog.com", "first_name": ""},
@@ -1107,7 +1191,12 @@ class TestPluginAPI(APIBaseTest):
                 {
                     "activity": "enabled",
                     "created_at": "2021-08-25T22:09:14.252000Z",
-                    "detail": {"changes": [], "merge": None, "name": "helloworldplugin", "short_id": None},
+                    "detail": {
+                        "changes": [],
+                        "trigger": None,
+                        "name": "helloworldplugin",
+                        "short_id": None,
+                    },
                     "item_id": str(plugin_config_id),
                     "scope": "PluginConfig",
                     "user": {"email": "user1@posthog.com", "first_name": ""},

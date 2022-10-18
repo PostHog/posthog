@@ -1,5 +1,5 @@
 import { parseGithubRepoURL } from 'lib/utils'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CodeOutlined } from '@ant-design/icons'
 import imgPluginDefault from 'public/plugin-default.svg'
 import { PluginInstallationType } from 'scenes/plugins/types'

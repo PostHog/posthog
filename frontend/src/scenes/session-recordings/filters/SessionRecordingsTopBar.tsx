@@ -1,6 +1,5 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
-import { sessionRecordingsTableLogic } from '../sessionRecordingsTableLogic'
+import { sessionRecordingsListLogic } from '../sessionRecordingsListLogic'
 import { DurationFilter } from './DurationFilter'
 import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -17,10 +16,10 @@ export function SessionRecordingsTopBar({
     personUUID,
     isPersonPage = false,
 }: SessionRecordingsTopBarProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
-    const { fromDate, toDate, durationFilter } = useValues(sessionRecordingsTableLogicInstance)
+    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ personUUID })
+    const { fromDate, toDate, durationFilter } = useValues(sessionRecordingsListLogicInstance)
     const { setDateRange, setDurationFilter, reportRecordingsListFilterAdded } = useActions(
-        sessionRecordingsTableLogicInstance
+        sessionRecordingsListLogicInstance
     )
 
     return (
@@ -33,7 +32,7 @@ export function SessionRecordingsTopBar({
                     dateTo={toDate ?? undefined}
                     onChange={(changedDateFrom, changedDateTo) => {
                         reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
-                        setDateRange(changedDateFrom, changedDateTo ?? undefined)
+                        setDateRange(changedDateFrom ?? undefined, changedDateTo ?? undefined)
                     }}
                     dateOptions={[
                         { key: 'Custom', values: [] },

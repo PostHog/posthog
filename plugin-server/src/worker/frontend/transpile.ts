@@ -18,3 +18,18 @@ export function transpileFrontend(rawCode: string): string {
     }
     return `"use strict";\nexport function getFrontendApp (require) { let exports = {}; ${code}; return exports; }`
 }
+
+export function transpileSite(rawCode: string): string {
+    const { code } = transform(rawCode, {
+        envName: 'production',
+        code: true,
+        babelrc: false,
+        configFile: false,
+        filename: 'site.ts',
+        presets: [['typescript', { isTSX: false, allExtensions: true }], 'env'],
+    })
+    if (!code) {
+        throw new Error('Could not transpile web code')
+    }
+    return `(function () {let exports={};${code};return exports;})`
+}

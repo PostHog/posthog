@@ -188,25 +188,17 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_get_insight_in_dashboard_context(self):
         filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
 
-        dashboard_id, _ = self._create_dashboard({"name": "the dashboard"})
+        dashboard_id, _ = self._create_dashboard({"name": "the dashboard", "filters": {"date_from": "-180d"}})
 
-        blue_insight_id, _ = self._create_insight(
-            {"filters": filter_dict, "name": "blue insight", "dashboards": [dashboard_id]}
-        )
+        insight_id, _ = self._create_insight({"filters": filter_dict, "name": "insight", "dashboards": [dashboard_id]})
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {"colors": [{"id": blue_insight_id, "color": "blue"}]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        insight_in_isolation = self._get_insight(insight_id)
+        self.assertIsNotNone(insight_in_isolation.get("filters_hash", None))
 
-        blue_insight_in_isolation = self._get_insight(blue_insight_id)
-        self.assertEqual(blue_insight_in_isolation["name"], "blue insight")
-        self.assertEqual(blue_insight_in_isolation.get("color", None), None)
+        insight_on_dashboard = self._get_insight(insight_id, query_params={"from_dashboard": dashboard_id})
+        self.assertIsNotNone(insight_on_dashboard.get("filters_hash", None))
 
-        blue_insight_on_dashboard = self._get_insight(blue_insight_id, query_params={"from_dashboard": dashboard_id})
-        self.assertEqual(blue_insight_on_dashboard["name"], "blue insight")
-        self.assertEqual(blue_insight_on_dashboard.get("color", None), "blue")
+        self.assertNotEqual(insight_in_isolation["filters_hash"], insight_on_dashboard["filters_hash"])
 
     def test_get_insight_by_short_id(self):
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -328,7 +320,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "item_id": str(response_data["id"]),
                     "detail": {
                         "changes": None,
-                        "merge": None,
+                        "trigger": None,
                         "name": "a created dashboard",
                         "short_id": response_data["short_id"],
                     },
@@ -371,6 +363,70 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
         self.assertIsNotNone(tile.filters_hash)
+
+    def test_insight_items_on_a_dashboard_ignore_deleted_dashboards(self):
+        dashboard_id, _ = self._create_dashboard({})
+        deleted_dashboard_id, _ = self._create_dashboard({})
+
+        insight_id, _ = self._create_insight(
+            {
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+                "dashboards": [dashboard_id, deleted_dashboard_id],
+            }
+        )
+
+        self._update_dashboard(deleted_dashboard_id, {"deleted": True})
+
+        insight_json = self._get_insight(insight_id)
+        assert insight_json["dashboards"] == [dashboard_id]
+
+        new_dashboard_id, _ = self._create_dashboard({})
+        # accidentally include a deleted dashboard
+        _, update_response = self._update_insight(
+            insight_id, {"dashboards": [dashboard_id, deleted_dashboard_id, new_dashboard_id]}
+        )
+        assert update_response["dashboards"] == [dashboard_id, new_dashboard_id]
+
+    def test_can_update_insight_with_inconsistent_dashboards(self):
+        """
+        Regression test because there are some DashboardTiles in production that should not exist.
+        Which were created before Tiles were deleted when dashboards are soft deleted
+        """
+        dashboard_id, _ = self._create_dashboard({})
+        deleted_dashboard_id, _ = self._create_dashboard({})
+
+        insight_id, _ = self._create_insight(
+            {
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+                "dashboards": [dashboard_id, deleted_dashboard_id],
+            }
+        )
+
+        # update outside of API so that DashboardTile still exists
+        dashboard_in_db = Dashboard.objects.get(id=deleted_dashboard_id)
+        dashboard_in_db.deleted = True
+        dashboard_in_db.save(update_fields=["deleted"])
+
+        assert DashboardTile.objects.filter(dashboard_id=deleted_dashboard_id).exists()
+
+        insight_json = self._get_insight(insight_id)
+        assert insight_json["dashboards"] == [dashboard_id, deleted_dashboard_id]
+
+        # accidentally include a deleted dashboard
+        _, update_response = self._update_insight(insight_id, {"dashboards": [deleted_dashboard_id]})
+        assert update_response["dashboards"] == []
+
+        # confirm it's gone when reloaded
+        insight_json = self._get_insight(insight_id)
+        assert insight_json["dashboards"] == []
 
     def test_adding_insight_to_a_dashboard_sets_filters_hash(self) -> None:
         dashboard_id, _ = self._create_dashboard({})
@@ -418,7 +474,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "item_id": str(response_data["id"]),
                     "detail": {
                         "changes": None,
-                        "merge": None,
+                        "trigger": None,
                         "name": "pageview unique users",
                         "short_id": response_data["short_id"],
                     },
@@ -477,7 +533,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                     "after": "insight new name",
                                 },
                             ],
-                            "merge": None,
+                            "trigger": None,
                             "name": "insight new name",
                             "short_id": short_id,
                         },
@@ -488,7 +544,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "activity": "created",
                         "scope": "Insight",
                         "item_id": str(insight_id),
-                        "detail": {"changes": None, "merge": None, "name": "insight name", "short_id": short_id},
+                        "detail": {
+                            "changes": None,
+                            "trigger": None,
+                            "name": "insight name",
+                            "short_id": short_id,
+                        },
                         "created_at": "2012-01-14T03:21:34Z",
                     },
                 ],
@@ -542,7 +603,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "item_id": str(insight_id),
                     "detail": {
                         "changes": None,
-                        "merge": None,
+                        "trigger": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -563,7 +624,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                 "after": ["1", "2", "3"],
                             }
                         ],
-                        "merge": None,
+                        "trigger": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -584,7 +645,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                 "after": ["3"],
                             }
                         ],
-                        "merge": None,
+                        "trigger": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -760,10 +821,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     def test_nonexistent_cohort_is_handled(self):
         response_nonexistent_property = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'event','key':'foo','value':'barabarab'}])}"
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'event', 'key': 'foo', 'value': 'barabarab'}])}"
         )
         response_nonexistent_cohort = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'cohort', 'key': 'id', 'value': 2137}])}"
         )  # This should not throw an error, just act like there's no event matches
 
         response_nonexistent_property_data = response_nonexistent_property.json()
@@ -778,10 +839,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         whatever_cohort_without_match_groups = Cohort.objects.create(team=self.team)
 
         response_nonexistent_property = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'event','key':'foo','value':'barabarab'}])}"
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'event', 'key': 'foo', 'value': 'barabarab'}])}"
         )
         response_cohort_without_match_groups = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id':'$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':whatever_cohort_without_match_groups.pk}])}"
+            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'cohort', 'key': 'id', 'value': whatever_cohort_without_match_groups.pk}])}"
         )  # This should not throw an error, just act like there's no event matches
 
         self.assertEqual(response_nonexistent_property.status_code, 200)
@@ -807,10 +868,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             response_user_property = self.client.get(
-                f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'person','key':'foo','value':'bar'}])}"
+                f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'person', 'key': 'foo', 'value': 'bar'}])}"
             )
             response_precalculated_cohort = self.client.get(
-                f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id':'$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':113}])}"
+                f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'cohort', 'key': 'id', 'value': 113}])}"
             )
 
         self.assertEqual(response_precalculated_cohort.status_code, 200)
@@ -844,7 +905,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_insight_trends_breakdown_pagination(self):
         with freeze_time("2012-01-14T03:21:34.000Z"):
             for i in range(25):
-
                 _create_event(
                     team=self.team, event="$pageview", distinct_id="1", properties={"$some_property": f"value{i}"}
                 )
@@ -1009,7 +1069,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         _create_event(team=self.team, event="user signed up", distinct_id="1")
         _create_event(team=self.team, event="user did things", distinct_id="1")
         response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/funnel/?funnel_window_days=14&events={json.dumps([{'id': 'user signed up', 'type': 'events', 'order': 0},{'id': 'user did things', 'type': 'events', 'order': 1},])}"
+            f"/api/projects/{self.team.id}/insights/funnel/?funnel_window_days=14&events={json.dumps([{'id': 'user signed up', 'type': 'events', 'order': 0}, {'id': 'user did things', 'type': 'events', 'order': 1}, ])}"
         ).json()
 
         # clickhouse funnels don't have a loading system
@@ -1192,7 +1252,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678"
         )
         with freeze_time("2022-03-22T00:00:00.000Z"):
-
             response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -1683,11 +1742,37 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         response_json = response.json()
         return response_json.get("id", None), response_json
 
+    def _update_insight(
+        self,
+        insight_id: int,
+        data: Dict[str, Any],
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+    ) -> Tuple[int, Dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+
+        response = self.client.patch(f"/api/projects/{team_id}/insights/{insight_id}", data=data)
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+        response_json = response.json()
+        return response_json.get("id", None), response_json
+
     def _create_dashboard(self, data: Dict[str, Any], team_id: Optional[int] = None) -> Tuple[int, Dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
         response = self.client.post(f"/api/projects/{team_id}/dashboards/", data)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_json = response.json()
+        return response_json["id"], response_json
+
+    def _update_dashboard(
+        self, dashboard_id: int, data: Dict[str, Any], team_id: Optional[int] = None
+    ) -> Tuple[int, Dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+        response = self.client.patch(f"/api/projects/{team_id}/dashboards/{dashboard_id}", data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         return response_json["id"], response_json
 

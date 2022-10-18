@@ -988,7 +988,6 @@ describe('funnelLogic', () => {
                 funnel_viz_type: FunnelVizType.Steps,
             }
             await router.actions.push(urls.insightNew(filters))
-            console.log(router.values.location)
 
             await expectLogic(logic, () => logic.actions.setFilters({ aggregation_group_type_index: 0 }))
                 .toFinishAllListeners()

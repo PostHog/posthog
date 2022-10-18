@@ -302,7 +302,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                 const isBreakdown =
                     Array.isArray(step.nested_breakdown) &&
                     step.nested_breakdown?.length !== undefined &&
-                    !(step.nested_breakdown.length === 1 && step.nested_breakdown[0].breakdown_value === 'Baseline')
+                    !(step.nested_breakdown.length === 1)
 
                 const dropOffCount = step.order > 0 ? steps[stepIndex - 1].count - step.count : 0
 

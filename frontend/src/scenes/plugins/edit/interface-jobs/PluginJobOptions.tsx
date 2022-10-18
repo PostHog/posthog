@@ -1,6 +1,6 @@
 import { LemonTag } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { JobSpec } from '~/types'
 import {
     HISTORICAL_EXPORT_JOB_NAME,

@@ -25,6 +25,7 @@ import {
     SubscriptionType,
     TeamType,
     UserType,
+    MediaUploadResponse,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -326,6 +327,10 @@ class ApiRequest {
 
     public integrationSlackChannels(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
+    }
+
+    public media(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
 
     // Request finalization
@@ -816,6 +821,12 @@ const api = {
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
+        },
+    },
+
+    media: {
+        async upload(data: FormData): Promise<MediaUploadResponse> {
+            return await new ApiRequest().media().create({ data })
         },
     },
 

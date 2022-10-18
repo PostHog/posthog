@@ -7,8 +7,8 @@ import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/compone
 import type { notificationsLogicType } from './notificationsLogicType'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 
-const POLL_TIMEOUT = 5000
-const MARK_READ_TIMEOUT = 10000
+const POLL_TIMEOUT = 10000
+const MARK_READ_TIMEOUT = 7500
 
 export const notificationsLogic = kea<notificationsLogicType>([
     path(['layout', 'navigation', 'TopBar', 'notificationsLogic']),
@@ -17,6 +17,8 @@ export const notificationsLogic = kea<notificationsLogicType>([
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
         setMarkReadTimeout: (markReadTimeout: number) => ({ markReadTimeout }),
+        incrementErrorCount: true,
+        clearErrorCount: true,
     }),
     loaders(({ actions, values }) => ({
         importantChanges: [
@@ -31,9 +33,19 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         const response = (await api.get(
                             `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
                         )) as ActivityLogItem[]
+                        // we can't rely on automatic success action here because we swallow errors so always succeed
+                        actions.clearErrorCount()
                         return humanize(response, describerFor, true)
+                    } catch (e) {
+                        // swallow errors as this isn't user initiated
+                        // increment a counter to backoff calling the API while errors persist
+                        actions.incrementErrorCount()
+                        return []
                     } finally {
-                        const timeout = window.setTimeout(actions.loadImportantChanges, POLL_TIMEOUT)
+                        const pollTimeoutMilliseconds = values.errorCounter
+                            ? POLL_TIMEOUT * values.errorCounter
+                            : POLL_TIMEOUT
+                        const timeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
                         actions.setPollTimeout(timeout)
                     }
                 },
@@ -41,6 +53,13 @@ export const notificationsLogic = kea<notificationsLogicType>([
         ],
     })),
     reducers({
+        errorCounter: [
+            0,
+            {
+                incrementErrorCount: (state) => (state >= 5 ? 5 : state + 1),
+                clearErrorCount: () => 0,
+            },
+        ],
         isNotificationPopoverOpen: [
             false,
             {

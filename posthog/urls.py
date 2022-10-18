@@ -21,7 +21,9 @@ from posthog.api import (
     router,
     sharing,
     signup,
+    site_app,
     unsubscribe,
+    uploaded_media,
     user,
 )
 from posthog.api.decide import hostname_in_allowed_url_list
@@ -134,6 +136,7 @@ urlpatterns = [
     path("embedded/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path("exporter/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
+    path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     opt_slash_path("decide", decide.get_decide),
@@ -151,6 +154,7 @@ urlpatterns = [
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
+    path("uploaded_media/<str:image_uuid>", uploaded_media.download),
 ]
 
 if settings.DEBUG:

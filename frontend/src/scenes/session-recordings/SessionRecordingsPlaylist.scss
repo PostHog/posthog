@@ -2,11 +2,12 @@
 
 .SessionRecordingsPlaylist {
     display: flex;
-    flex-direction: column;
+    flex-direction: column-reverse;
     gap: 1rem;
 
     @include screen($md) {
         flex-direction: row;
+        justify-content: flex-start;
     }
 
     .SessionRecordingsPlaylist__left-column {

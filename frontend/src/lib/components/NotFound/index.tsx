@@ -1,11 +1,10 @@
 import { capitalizeFirstLetter } from 'lib/utils'
-import React from 'react'
 import { Link } from '../Link'
 import './NotFound.scss'
 
 interface NotFoundProps {
     object: string // Type of object that was not found (e.g. `dashboard`, `insight`, `action`, ...)
-    caption?: string
+    caption?: React.ReactNode
 }
 
 export function NotFound({ object, caption }: NotFoundProps): JSX.Element {

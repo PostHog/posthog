@@ -1,7 +1,8 @@
+import { Hub } from '../src/types'
 import { defaultConfig, formatConfigHelp } from './config/config'
 import { healthcheckWithExit } from './healthcheck'
 import { initApp } from './init'
-import { GraphileQueue } from './main/job-queues/concurrent/graphile-queue'
+import { GraphileWorker } from './main/jobs/graphile-worker'
 import { startPluginsServer } from './main/pluginsServer'
 import { Status } from './utils/status'
 import { makePiscina } from './worker/piscina'
@@ -55,7 +56,7 @@ switch (alternativeMode) {
         status.info(`🔗`, `Attempting to connect to Graphile job queue to run migrations`)
         void (async function () {
             try {
-                const graphile = new GraphileQueue(defaultConfig)
+                const graphile = new GraphileWorker(defaultConfig as Hub)
                 await graphile.migrate()
                 status.info(`✅`, `Graphile migrations are now up to date!`)
                 await graphile.disconnectProducer()
