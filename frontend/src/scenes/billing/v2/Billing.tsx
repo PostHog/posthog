@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { billingLogic } from './billingLogic'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'

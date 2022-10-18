@@ -1,4 +1,3 @@
-import React from 'react'
 import { Meta } from '@storybook/react'
 import { BillingV2 } from './Billing'
 import { useStorybookMocks, mswDecorator } from '~/mocks/browser'

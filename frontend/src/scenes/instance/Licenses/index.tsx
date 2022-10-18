@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { More } from 'lib/components/LemonButton/More'
 import { Alert, Form, Button, Input } from 'antd'
 import { isLicenseExpired, licenseLogic } from './licenseLogic'

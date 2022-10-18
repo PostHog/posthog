@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { Tooltip } from 'lib/components/Tooltip'
 import { compactNumber } from 'lib/utils'
-import React, { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './BillingGuage.scss'
 
 type BillingGuageItemProps = {

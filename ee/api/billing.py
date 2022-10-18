@@ -6,6 +6,7 @@ import jwt
 import posthoganalytics
 import pytz
 import requests
+import structlog
 from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse
@@ -25,7 +26,6 @@ from posthog.models import Organization
 from posthog.models.event.util import get_event_count_for_team_and_period
 from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
 from posthog.models.team.team import Team
-import structlog
 
 logger = structlog.get_logger(__name__)
 
