@@ -77,7 +77,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
             plugin_json = cast(
                 Optional[Dict[str, Any]],
-                get_file_from_archive(validated_data["archive"], "plugin.json", parsed_url.get("path", None)),
+                get_file_from_archive(validated_data["archive"], "plugin.json"),
             )
             if not plugin_json:
                 raise ValidationError("Could not find plugin.json in the plugin")
@@ -266,13 +266,8 @@ class PluginSourceFileManager(models.Manager):
         """Create PluginSourceFile objects from a plugin that has an archive.
 
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
-        path = None
-        if plugin.plugin_type not in (Plugin.PluginType.SOURCE, Plugin.PluginType.LOCAL) and plugin.url:
-            parsed_url = parse_url(plugin.url, get_latest_if_none=False)
-            path = parsed_url.get("path", None)
-
         try:
-            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed, path)
+            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
         # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
