@@ -325,12 +325,12 @@ export const experimentLogic = kea<experimentLogicType>({
         },
         launchExperiment: async () => {
             const startDate = dayjs()
-            actions.updateExperiment({ start_date: startDate.format('YYYY-MM-DDTHH:mm') })
+            actions.updateExperiment({ start_date: startDate.toISOString() })
             values.experimentData && eventUsageLogic.actions.reportExperimentLaunched(values.experimentData, startDate)
         },
         endExperiment: async () => {
             const endDate = dayjs()
-            actions.updateExperiment({ end_date: endDate.format('YYYY-MM-DDTHH:mm') })
+            actions.updateExperiment({ end_date: endDate.toISOString() })
             const duration = endDate.diff(values.experimentData?.start_date, 'second')
             values.experimentData &&
                 eventUsageLogic.actions.reportExperimentCompleted(

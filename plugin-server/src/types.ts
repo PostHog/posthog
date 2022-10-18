@@ -17,7 +17,7 @@ import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
-import { GraphileWorker } from './main/jobs/graphile-worker'
+import { GraphileWorker } from './main/graphile-worker/graphile-worker'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
@@ -183,7 +183,6 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigs: Map<PluginConfigId, PluginConfig>
     pluginConfigsPerTeam: Map<TeamId, PluginConfig[]>
     pluginSchedule: Record<string, PluginConfigId[]> | null
-    pluginSchedulePromises: Record<string, Record<PluginConfigId, Promise<any> | null>>
     // unique hash for each plugin config; used to verify IDs caught on stack traces for unhandled promise rejections
     pluginConfigSecrets: Map<PluginConfigId, string>
     pluginConfigSecretLookup: Map<string, PluginConfigId>
@@ -217,7 +216,7 @@ export interface PluginServerCapabilities {
     http?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob
+export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
@@ -230,6 +229,11 @@ export interface EnqueuedPluginJob {
 export interface EnqueuedBufferJob {
     eventPayload: PluginEvent
     timestamp: number
+    jobKey?: string
+}
+
+export interface GraphileWorkerCronScheduleJob {
+    timestamp?: number
     jobKey?: string
 }
 

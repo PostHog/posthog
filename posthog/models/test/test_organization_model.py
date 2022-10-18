@@ -54,3 +54,12 @@ class TestOrganization(BaseTest):
 
         self.assertEqual(Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 0)
         self.assertEqual(mock_get.call_count, 0)
+
+    def test_plugins_access_level_is_determined_based_on_realm(self):
+        with self.settings(MULTI_TENANCY=True):
+            new_org, _, _ = Organization.objects.bootstrap(self.user)
+            assert new_org.plugins_access_level == Organization.PluginsAccessLevel.CONFIG
+
+        with self.settings(MULTI_TENANCY=False):
+            new_org, _, _ = Organization.objects.bootstrap(self.user)
+            assert new_org.plugins_access_level == Organization.PluginsAccessLevel.ROOT

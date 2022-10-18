@@ -226,18 +226,21 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         },
     })),
 
-    urlToAction(({ values, actions }) => ({
+    urlToAction(({ values, actions, props }) => ({
         '/app/:pluginConfigId/:page': (
             url: Record<string, string | undefined>,
             params: Record<string, string | undefined>
         ) => {
-            if (!values.pluginConfig) {
-                actions.loadPluginConfig()
-            }
-            if (url.page === AppMetricsTab.HistoricalExports) {
-                actions.setActiveTab(AppMetricsTab.HistoricalExports)
-            } else if (params.tab && INITIAL_TABS.includes(params.tab as any)) {
-                actions.setActiveTab(params.tab as AppMetricsTab)
+            // :KLUDGE: Only handle actions if this logic is active
+            if (props.pluginConfigId === Number(url.pluginConfigId)) {
+                if (!values.pluginConfig) {
+                    actions.loadPluginConfig()
+                }
+                if (url.page === AppMetricsTab.HistoricalExports) {
+                    actions.setActiveTab(AppMetricsTab.HistoricalExports)
+                } else if (params.tab && INITIAL_TABS.includes(params.tab as any)) {
+                    actions.setActiveTab(params.tab as AppMetricsTab)
+                }
             }
         },
     })),
