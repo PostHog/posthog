@@ -487,7 +487,6 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
     # TODO: Delete this test when moved to person-on-events
     @test_with_materialized_columns(event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False)
-    @snapshot_clickhouse_queries
     def test_funnel_correlation_with_properties_and_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
 
