@@ -85,4 +85,18 @@ describe('OrganizationManager()', () => {
             expect(await organizationManager.hasAvailableFeature(77, 'some_feature')).toEqual(false)
         })
     })
+
+    describe('resetAvailableFeatureCache()', () => {
+        it('resets internal caches', async () => {
+            await organizationManager.hasAvailableFeature(2, 'some_feature')
+
+            expect(organizationManager.availableFeaturesCache.size).toEqual(1)
+            expect(organizationManager.organizationCache.size).toEqual(1)
+
+            organizationManager.resetAvailableFeatureCache(commonOrganizationId)
+
+            expect(organizationManager.availableFeaturesCache.size).toEqual(0)
+            expect(organizationManager.organizationCache.size).toEqual(0)
+        })
+    })
 })

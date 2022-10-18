@@ -56,4 +56,9 @@ export class OrganizationManager {
 
         return availableFeatures.includes(feature)
     }
+
+    public resetAvailableFeatureCache(organizationId: string) {
+        this.availableFeaturesCache = new Map()
+        this.organizationCache.delete(organizationId)
+    }
 }
