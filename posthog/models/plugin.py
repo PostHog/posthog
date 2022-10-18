@@ -76,7 +76,8 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             validated_data["tag"] = parsed_url.get("tag", None)
             validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
             plugin_json = cast(
-                Optional[Dict[str, Any]], get_file_from_archive(validated_data["archive"], "plugin.json")
+                Optional[Dict[str, Any]],
+                get_file_from_archive(validated_data["archive"], "plugin.json", parsed_url.get("path", None)),
             )
             if not plugin_json:
                 raise ValidationError("Could not find plugin.json in the plugin")
