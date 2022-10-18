@@ -14,7 +14,7 @@ from django.conf import settings
 def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
     url, private_token = split_url_and_private_token(url)
     match = re.search(
-        r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(/(commit|tree|releases/tag)/([A-Za-z0-9_.\-]+)(/[A-Za-z0-9_.\-/]+)?)?$",
+        r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(/(commit|tree|releases/tag)/([A-Za-z0-9_.\-]+)/?([A-Za-z0-9_.\-/]+)?)?$",
         url,
     )
     if not match:
@@ -25,6 +25,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
         )
     if not match:
         return None
+
     parsed: Dict[str, Optional[str]] = {
         "type": "github",
         "user": match.group(1),

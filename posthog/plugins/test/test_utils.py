@@ -62,7 +62,7 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(parsed_url["user"], "PostHog")
         self.assertEqual(parsed_url["repo"], "posthog")
         self.assertEqual(parsed_url["tag"], "82c9218ee40f561b7f37a22d6b6a0ca82887ee3e")
-        self.assertEqual(parsed_url["path"], "/test/path/in/repo")
+        self.assertEqual(parsed_url["path"], "test/path/in/repo")
         self.assertEqual(mock_get.call_count, 1)
         mock_get.assert_called_with("https://api.github.com/repos/PostHog/posthog/commits", headers={})
 
@@ -82,7 +82,7 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(parsed_url["user"], "PostHog")
         self.assertEqual(parsed_url["repo"], "posthog")
         self.assertEqual(parsed_url["tag"], "main")
-        self.assertEqual(parsed_url["path"], "/test/path/in/repo")
+        self.assertEqual(parsed_url["path"], "test/path/in/repo")
         self.assertEqual(mock_get.call_count, 1)
         mock_get.assert_called_with("https://api.github.com/repos/PostHog/posthog/commits", headers={})
 
