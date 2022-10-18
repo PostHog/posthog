@@ -13,7 +13,7 @@ export const workerTasks: Record<string, TaskRunner> = {
     runPluginJob: (hub, { job }: { job: EnqueuedPluginJob }) => {
         return runPluginTask(hub, job.type, PluginTaskType.Job, job.pluginConfigId, job.payload)
     },
-    runEveryMinute: (hub, args: { pluginConfigId: number }) => {
+    runEveryMinute: async (hub, args: { pluginConfigId: number }) => {
         return runPluginTask(hub, 'runEveryMinute', PluginTaskType.Schedule, args.pluginConfigId)
     },
     runEveryHour: (hub, args: { pluginConfigId: number }) => {
