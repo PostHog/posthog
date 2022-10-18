@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { SubscriptionType } from '~/types'

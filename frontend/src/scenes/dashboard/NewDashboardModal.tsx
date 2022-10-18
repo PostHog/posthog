@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/components/LemonButton'

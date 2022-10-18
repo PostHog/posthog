@@ -1,4 +1,3 @@
-import React from 'react'
 import { uniqueBy } from 'lib/utils'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'

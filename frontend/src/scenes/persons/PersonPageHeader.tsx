@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import React from 'react'
 import { GroupsTabs } from 'scenes/groups/GroupsTabs'
 import { groupsModel } from '~/models/groupsModel'
 

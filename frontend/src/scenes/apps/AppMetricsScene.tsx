@@ -1,4 +1,3 @@
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Tabs } from 'antd'
 import { appMetricsSceneLogic, AppMetricsTab } from 'scenes/apps/appMetricsSceneLogic'
@@ -7,6 +6,7 @@ import { useValues, useActions } from 'kea'
 import { MetricsTab } from './MetricsTab'
 import { HistoricalExportsTab } from './HistoricalExportsTab'
 import { LemonSkeleton } from '../../lib/components/LemonSkeleton'
+import { ErrorDetailsDrawer } from './ErrorDetailsDrawer'
 
 export const scene: SceneExport = {
     component: AppMetrics,
@@ -56,6 +56,8 @@ export function AppMetrics(): JSX.Element {
                     )}
                 </Tabs>
             )}
+
+            <ErrorDetailsDrawer />
         </div>
     )
 }

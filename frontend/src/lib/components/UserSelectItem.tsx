@@ -1,4 +1,3 @@
-import React from 'react'
 import { UserBasicType, UserType } from '~/types'
 import { LemonSelectMultipleOptionItem } from './LemonSelectMultiple/LemonSelectMultiple'
 import { ProfilePicture } from './ProfilePicture'

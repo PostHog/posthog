@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'

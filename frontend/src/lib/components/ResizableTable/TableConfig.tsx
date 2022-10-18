@@ -1,5 +1,4 @@
 import { Button, Col, Row, Space } from 'antd'
-import React from 'react'
 import { CloseOutlined, LockOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'

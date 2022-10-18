@@ -28,13 +28,13 @@ describe('objectTagsLogic', () => {
         })
         it('handle adding a new tag', async () => {
             await expectLogic(logic, async () => {
-                await logic.actions.setNewTag('Nightly')
-                logic.actions.handleAdd()
+                await logic.actions.setNewTag('Nigh')
+                logic.actions.handleAdd('Nightly')
             })
                 .toDispatchActions(['setNewTag'])
                 .toMatchValues({
-                    newTag: 'Nightly',
-                    cleanedNewTag: 'nightly',
+                    newTag: 'Nigh',
+                    cleanedNewTag: 'nigh', //user only needs to type part of the tag to find it in a list
                 })
                 .toDispatchActions(['handleAdd', logic.actionCreators.setTags(['a', 'b', 'c', 'nightly'])])
                 .toMatchValues({
@@ -50,10 +50,9 @@ describe('objectTagsLogic', () => {
         })
         it('noop on duplicate tag', async () => {
             await expectLogic(logic, async () => {
-                await logic.actions.setNewTag('a')
-                logic.actions.handleAdd()
+                logic.actions.handleAdd('a')
             })
-                .toDispatchActions(['setNewTag', 'handleAdd'])
+                .toDispatchActions(['handleAdd'])
                 .toNotHaveDispatchedActions(['setTags'])
                 .toMatchValues({
                     tags: ['a', 'b', 'c'],

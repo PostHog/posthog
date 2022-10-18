@@ -1,6 +1,5 @@
 import './PropertyFilterButton.scss'
 import { Button } from 'antd'
-import React from 'react'
 import { AnyPropertyFilter } from '~/types'
 import { CloseButton } from 'lib/components/CloseButton'
 import { IconCohort, IconPerson, UnverifiedEvent } from 'lib/components/icons'
@@ -10,6 +9,7 @@ import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatPropertyLabel, midEllipsis } from 'lib/utils'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import React from 'react'
 
 export interface PropertyFilterButtonProps {
     onClick?: () => void

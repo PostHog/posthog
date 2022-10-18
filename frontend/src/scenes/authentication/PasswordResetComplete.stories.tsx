@@ -1,7 +1,7 @@
 // PasswordResetComplete.stories.tsx
 import { Meta } from '@storybook/react'
 import { PasswordResetComplete } from './PasswordResetComplete'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { useStorybookMocks } from '~/mocks/browser'

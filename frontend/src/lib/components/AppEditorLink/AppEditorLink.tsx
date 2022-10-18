@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { Modal, Button } from 'antd'

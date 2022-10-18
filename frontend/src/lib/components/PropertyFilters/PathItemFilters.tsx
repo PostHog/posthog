@@ -1,4 +1,4 @@
-import React, { CSSProperties, useEffect } from 'react'
+import { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import '../../../scenes/actions/Actions.scss'

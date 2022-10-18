@@ -1,12 +1,14 @@
 import { Tag, Select } from 'antd'
 import { colorForString } from 'lib/utils'
-import React, { CSSProperties, useMemo } from 'react'
+import { CSSProperties, useMemo } from 'react'
 import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
 import { useActions, useValues } from 'kea'
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
 import { AvailableFeature } from '~/types'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import clsx from 'clsx'
 
 interface ObjectTagsPropsBase {
     tags: string[]
@@ -55,7 +57,7 @@ export function ObjectTags({
     const objectTagId = useMemo(() => uniqueMemoizedIndex++, [])
     const logic = objectTagsLogic({ id: objectTagId, onChange, tags })
     const { guardAvailableFeature } = useActions(sceneLogic)
-    const { addingNewTag, newTag, cleanedNewTag, deletedTags } = useValues(logic)
+    const { addingNewTag, cleanedNewTag, deletedTags } = useValues(logic)
     const { setAddingNewTag, setNewTag, handleDelete, handleAdd } = useActions(logic)
 
     /** Displaying nothing is confusing, so in case of empty static tags we use a dash as a placeholder */
@@ -76,7 +78,7 @@ export function ObjectTags({
     }
 
     return (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, ...style }} className={className} data-attr={dataAttr}>
+        <div style={{ ...style }} className={clsx(className, 'flex flex-wrap gap-2 items-center')} data-attr={dataAttr}>
             {showPlaceholder
                 ? '—'
                 : tags
@@ -107,6 +109,7 @@ export function ObjectTags({
                               </Tag>
                           )
                       })}
+            {saving && <Spinner />}
             {!staticOnly && onChange && saving !== undefined && (
                 <span style={{ display: 'inline-flex', fontWeight: 400 }}>
                     <Tag
@@ -137,15 +140,15 @@ export function ObjectTags({
                             defaultOpen
                             showSearch
                             style={{ width: 160 }}
-                            onChange={handleAdd}
+                            onChange={(changedValue) => handleAdd(changedValue)}
                             loading={saving}
                             onSearch={setNewTag}
                             placeholder='try "official"'
                         >
-                            {newTag ? (
+                            {cleanedNewTag ? (
                                 <Select.Option
-                                    key={`${newTag}_${id}`}
-                                    value={newTag}
+                                    key={`${cleanedNewTag}_${id}`}
+                                    value={cleanedNewTag}
                                     className="ph-no-capture"
                                     data-attr="new-tag-option"
                                 >

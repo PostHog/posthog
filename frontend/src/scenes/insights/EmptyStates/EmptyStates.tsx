@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { IconErrorOutline, IconOpenInNew, IconPlus, IconTrendUp } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'

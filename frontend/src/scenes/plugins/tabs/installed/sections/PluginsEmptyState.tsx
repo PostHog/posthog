@@ -1,7 +1,6 @@
 import { CaretRightOutlined } from '@ant-design/icons'
 import { Button, Col, Empty, Row, Skeleton } from 'antd'
 import { Subtitle } from 'lib/components/PageHeader'
-import React from 'react'
 import { PluginLoading } from 'scenes/plugins/plugin/PluginLoading'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'

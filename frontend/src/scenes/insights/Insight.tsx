@@ -1,5 +1,5 @@
 import './Insight.scss'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'

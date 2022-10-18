@@ -1,4 +1,3 @@
-import React from 'react'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { useActions, useValues } from 'kea'
 import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'

@@ -1,4 +1,3 @@
-import React from 'react'
 import { Tooltip } from 'antd'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'

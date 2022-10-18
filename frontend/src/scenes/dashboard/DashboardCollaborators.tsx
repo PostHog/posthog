@@ -1,7 +1,5 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconDelete, IconLock, IconLockOpen } from 'lib/components/icons'
 import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
@@ -29,9 +27,9 @@ export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions<DashboardRestrict
 ]
 
 export function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['id'] }): JSX.Element | null {
-    const { dashboardLoading } = useValues(dashboardsModel)
     const {
-        allItems: dashboard, // dashboard directly on the logic not via dashboardsModel
+        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
+        allItemsLoading: dashboardLoading,
         canEditDashboard,
         canRestrictDashboard,
     } = useValues(dashboardLogic)

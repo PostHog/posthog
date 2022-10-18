@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { asDisplay } from './PersonHeader'

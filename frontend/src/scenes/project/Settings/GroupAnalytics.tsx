@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { GroupType } from '~/types'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
