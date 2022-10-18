@@ -9,6 +9,7 @@ class Migration(migrations.Migration):
         ("posthog", "0271_delete_promptsequencestate"),
     ]
 
+    # NOTE: This is basically a no-op as the default logic is all in runtime anyway
     operations = [
         migrations.AlterField(
             model_name="organization",
