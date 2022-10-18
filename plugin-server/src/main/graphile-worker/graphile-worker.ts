@@ -135,8 +135,8 @@ export class GraphileWorker {
         if (!this.workerUtilsPromise) {
             this.workerUtilsPromise = makeWorkerUtils({
                 pgPool: this.producerPool as any,
-                schema: this.hub.JOB_QUEUE_GRAPHILE_SCHEMA,
-                noPreparedStatements: !this.hub.JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS,
+                schema: this.hub.GRAPHILE_WORKER_SCHEMA,
+                noPreparedStatements: !this.hub.GRAPHILE_WORKER_PREPARED_STATEMENTS,
             })
         }
         return await this.workerUtilsPromise
@@ -159,11 +159,11 @@ export class GraphileWorker {
             this.runner = await run({
                 // graphile's types refer to a local node_modules version of Pool
                 pgPool: this.consumerPool as Pool as any,
-                schema: this.hub.JOB_QUEUE_GRAPHILE_SCHEMA,
-                noPreparedStatements: !this.hub.JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS,
+                schema: this.hub.GRAPHILE_WORKER_SCHEMA,
+                noPreparedStatements: !this.hub.GRAPHILE_WORKER_PREPARED_STATEMENTS,
                 concurrency: 1,
                 // Do not install signal handlers, we are handled signals in
-                // higher level code. If we let graphile handle signals it
+                // higher level code. If we let graphile worker handle the signals it
                 // ends up sending another SIGTERM.
                 noHandleSignals: true,
                 pollInterval: 2000,
@@ -202,9 +202,9 @@ export class GraphileWorker {
                 }
             }
 
-            // TODO: Refactor - require JOB_QUEUE_GRAPHILE_URL to be explicitly set, improve createPostgresPool
-            const config = this.hub.JOB_QUEUE_GRAPHILE_URL
-                ? { ...this.hub, DATABASE_URL: this.hub.JOB_QUEUE_GRAPHILE_URL }
+            // TODO: Refactor - require GRAPHILE_WORKER_URL to be explicitly set, improve createPostgresPool
+            const config = this.hub.GRAPHILE_WORKER_URL
+                ? { ...this.hub, DATABASE_URL: this.hub.GRAPHILE_WORKER_URL }
                 : this.hub
 
             const pool = createPostgresPool(config, onError)

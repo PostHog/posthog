@@ -10,7 +10,7 @@ import { EventPipelineRunner } from '../src/worker/ingestion/event-pipeline/runn
 import { makePiscina } from '../src/worker/piscina'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
-import { resetGraphileSchema } from './helpers/graphile'
+import { resetGraphileWorkerSchema } from './helpers/graphile-worker'
 import { resetKafka } from './helpers/kafka'
 import { pluginConfig39 } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
@@ -57,7 +57,7 @@ describe('Historical Export (v2)', () => {
         await Promise.all([
             await resetTestDatabase(indexJs),
             await resetTestDatabaseClickhouse(extraServerConfig),
-            await resetGraphileSchema(defaultConfig),
+            await resetGraphileWorkerSchema(defaultConfig),
         ])
 
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
