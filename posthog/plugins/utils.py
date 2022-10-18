@@ -14,12 +14,13 @@ from django.conf import settings
 def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
     url, private_token = split_url_and_private_token(url)
     match = re.search(
-        r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)((/commit|/tree|/releases/tag)/([A-Za-z0-9_.\-/]+))?$",
+        r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(/(commit|tree|releases/tag)/([A-Za-z0-9_.\-]+)(/[A-Za-z0-9_.\-/]+)?)?$",
         url,
     )
     if not match:
+        # we include an empty group () to default the path to '' while keeping the number of groups the same
         match = re.search(
-            r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)((/archive)/([A-Za-z0-9_.\-/]+)(\.zip|\.tar\.gz))?$",
+            r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)((/archive)/([A-Za-z0-9_.\-/]+)(?:\.zip|\.tar\.gz)())?$",
             url,
         )
     if not match:
@@ -29,6 +30,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
         "user": match.group(1),
         "repo": match.group(2),
         "tag": match.group(5),
+        "path": match.group(6) if match.group(6) != "" else None,
         "private_token": private_token,
     }
 
