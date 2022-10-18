@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'

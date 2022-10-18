@@ -1,6 +1,6 @@
 import './ToolbarButton.scss'
 
-import React, { useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { HogLogo } from '~/toolbar/assets/HogLogo'
 import { Circle } from '~/toolbar/button/Circle'

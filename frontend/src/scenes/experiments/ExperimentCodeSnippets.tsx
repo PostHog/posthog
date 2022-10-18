@@ -1,5 +1,4 @@
 import { Link } from '@posthog/lemon-ui'
-import React from 'react'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 
 function ServerSideWarning(): JSX.Element {

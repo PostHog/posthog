@@ -1,4 +1,3 @@
-import React from 'react'
 import './SentenceList.scss'
 
 export interface SentenceListProps {

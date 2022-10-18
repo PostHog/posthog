@@ -9,7 +9,6 @@ import { Paths } from 'scenes/paths/Paths'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable'
-import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonCalendarRange, LemonCalendarRangeProps } from 'lib/components/LemonCalendarRange/LemonCalendarRange'
 import { Popup } from 'lib/components/Popup/Popup'

@@ -1,4 +1,3 @@
-import * as React from 'react'
 import '~/styles'
 import './storybook.scss'
 import { worker } from '~/mocks/browser'

@@ -1,4 +1,3 @@
-import React from 'react'
 import { IconChevronLeft, IconChevronRight } from '../icons'
 import { LemonButton } from '../LemonButton'
 import './PaginationControl.scss'

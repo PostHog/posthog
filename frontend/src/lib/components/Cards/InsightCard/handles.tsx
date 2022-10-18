@@ -1,4 +1,3 @@
-import React from 'react'
 import clsx from 'clsx'
 
 /** A one-dimensional (either horizontal or vertical) resize handle. */

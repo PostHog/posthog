@@ -1,5 +1,3 @@
-import React from 'react'
-
 export function Property({ value }: { value: any }): JSX.Element {
     return (
         <span title={value}>

@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration, range } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'

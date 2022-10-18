@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Col, Row } from 'antd'
 import { useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'

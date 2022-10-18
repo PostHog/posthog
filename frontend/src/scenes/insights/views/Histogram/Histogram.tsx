@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import * as d3 from 'd3'
 import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'
 import { FunnelLayout } from 'lib/constants'

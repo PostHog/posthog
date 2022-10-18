@@ -1,7 +1,7 @@
 import { Meta } from '@storybook/react'
 import eventsResponse from './__mocks__/eventsResponse.json'
 
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { Row } from 'antd'
 import { MinimalPerformanceResourceTiming } from 'scenes/performance/webPerformanceLogic'
 import { mswDecorator } from '~/mocks/browser'

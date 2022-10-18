@@ -1,5 +1,5 @@
 import './TaxonomicPropertyFilter.scss'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'

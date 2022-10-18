@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import './ProfilePicture.scss'

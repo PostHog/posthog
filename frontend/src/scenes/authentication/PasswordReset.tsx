@@ -1,7 +1,6 @@
 /*
 Scene to request a password reset email.
 */
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'

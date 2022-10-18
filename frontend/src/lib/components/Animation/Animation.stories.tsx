@@ -1,4 +1,3 @@
-import * as React from 'react'
 import { AnimationType } from 'lib/animations/animations'
 import { ComponentStory, Meta } from '@storybook/react'
 import { Animation } from 'lib/components/Animation/Animation'

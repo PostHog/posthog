@@ -1,4 +1,3 @@
-import React from 'react'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'

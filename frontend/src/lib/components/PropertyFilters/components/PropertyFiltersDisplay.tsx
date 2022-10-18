@@ -1,4 +1,4 @@
-import React, { CSSProperties } from 'react'
+import { CSSProperties } from 'react'
 import { AnyPropertyFilter } from '~/types'
 import { PropertyFilterButton } from './PropertyFilterButton'
 
