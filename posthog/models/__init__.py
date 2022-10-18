@@ -33,7 +33,6 @@ from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from .prompt import UserPromptSequenceState
 from .property import Property
 from .property_definition import PropertyDefinition
-from .session_recording_event import SessionRecordingEvent
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
@@ -90,7 +89,6 @@ __all__ = [
     "Property",
     "PropertyDefinition",
     "RetentionFilter",
-    "SessionRecordingEvent",
     "SharingConfiguration",
     "Subscription",
     "Tag",
