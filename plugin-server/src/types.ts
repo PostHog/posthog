@@ -122,9 +122,9 @@ export interface PluginsServerConfig extends Record<string, any> {
     EVENT_PROPERTY_LRU_SIZE: number
     INTERNAL_MMDB_SERVER_PORT: number
     JOB_QUEUES: string
-    GRAPHILE_WORKER_URL: string
-    GRAPHILE_WORKER_SCHEMA: string
-    GRAPHILE_WORKER_PREPARED_STATEMENTS: boolean
+    JOB_QUEUE_GRAPHILE_URL: string
+    JOB_QUEUE_GRAPHILE_SCHEMA: string
+    JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean
     JOB_QUEUE_S3_AWS_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_REGION: string
