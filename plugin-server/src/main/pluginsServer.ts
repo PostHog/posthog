@@ -7,7 +7,7 @@ import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
-import { Hub, JobsConsumerControl, PluginScheduleControl, PluginServerCapabilities, PluginsServerConfig } from '../types'
+import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub } from '../utils/db/hub'
 import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
@@ -83,19 +83,6 @@ export async function startPluginsServer(
     // meantime.
     let bufferConsumer: Consumer | undefined
 
-    // A wrapper around Graphile Worker. This is used to run jobs that are
-    // scheduled by plugins. The functionality roughly looks like:
-    //
-    // 1. running bufferJob jobs, which are scheduled from `bufferConsumer`
-    // 2. running pluginJob jobs. These are jobs that are specified in the
-    //    `jobs` attribute of plugin definitions.
-    //
-    let jobQueueConsumer: JobsConsumerControl | undefined
-
-    // A wrapper around node-schedule. It is a cron like service that runs
-    // plugin defined runEveryMinute, runEveryHour, runEveryDay.
-    let pluginScheduleControl: PluginScheduleControl | undefined
-
     let httpServer: Server | undefined // healthcheck server
     let mmdbServer: net.Server | undefined // geoip server
 
@@ -117,13 +104,13 @@ export async function startPluginsServer(
             !mmdbServer
                 ? resolve()
                 : mmdbServer.close((error) => {
-                    if (error) {
-                        reject(error)
-                    } else {
-                        status.info('🛑', 'Closed internal MMDB server!')
-                        resolve()
-                    }
-                })
+                      if (error) {
+                          reject(error)
+                      } else {
+                          status.info('🛑', 'Closed internal MMDB server!')
+                          resolve()
+                      }
+                  })
         )
         if (piscina) {
             await stopPiscina(piscina)
@@ -246,11 +233,11 @@ export async function startPluginsServer(
             },
             ...(hub.capabilities.processAsyncHandlers
                 ? {
-                    'reload-action': async (message) =>
-                        await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-                    'drop-action': async (message) =>
-                        await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
-                }
+                      'reload-action': async (message) =>
+                          await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
+                      'drop-action': async (message) =>
+                          await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                  }
                 : {}),
         })
 
@@ -357,5 +344,5 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
     await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
     try {
         await piscina.destroy()
-    } catch { }
+    } catch {}
 }
