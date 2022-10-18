@@ -25,6 +25,9 @@ from posthog.models import Organization
 from posthog.models.event.util import get_event_count_for_team_and_period
 from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
 from posthog.models.team.team import Team
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 
@@ -107,6 +110,12 @@ def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
     return usage
 
 
+def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404)) -> None:
+    if res.status_code not in valid_codes:
+        logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
+        raise Exception(f"Billing service returned bad status code: {res.status_code}")
+
+
 class BillingViewset(viewsets.GenericViewSet):
     serializer_class = BillingSerializer
 
@@ -131,17 +140,15 @@ class BillingViewset(viewsets.GenericViewSet):
                 headers={"Authorization": f"Bearer {billing_service_token}"},
             )
 
+            handle_billing_service_error(res)
+
             data = res.json()
 
             if data.get("license"):
                 self._update_license_details(license, data["license"])
 
-            if res.status_code == 200 and data.get("customer"):
+            if data.get("customer"):
                 response.update(data["customer"])
-
-            # For all unhandled statuses we raise an exception
-            if res.status_code not in (200, 404):
-                raise Exception(f"Billing service returned bad status code: {res.status_code}")
 
         # If there isn't a valid v2 subscription then we only return sucessfully if BILLING_V2_ENABLED
         if not response.get("has_active_subscription") and not settings.BILLING_V2_ENABLED:
@@ -177,16 +184,15 @@ class BillingViewset(viewsets.GenericViewSet):
             json={"custom_limits_usd": request.data.get("custom_limits_usd")},
         )
 
-        if res.status_code == 200:
-            res = requests.get(
-                f"{BILLING_SERVICE_URL}/api/billing/",
-                headers={"Authorization": f"Bearer {billing_service_token}"},
-            )
+        handle_billing_service_error(res)
 
-            if res.status_code == 200 and res.json().get("customer"):
-                return Response(res.json()["customer"])
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing/",
+            headers={"Authorization": f"Bearer {billing_service_token}"},
+        )
 
-        raise Exception(f"Billing service returned bad status code: {res.status_code}")
+        handle_billing_service_error(res)
+        return Response(res.json()["customer"])
 
     @action(methods=["GET"], detail=False)
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -223,16 +229,15 @@ class BillingViewset(viewsets.GenericViewSet):
             headers={"Authorization": f"Bearer {build_billing_token(license, str(organization.id))}"},
         )
 
-        if res.status_code == 200:
-            data = res.json()
-            self._update_license_details(license, data["license"])
-            return Response({"success": True})
-
-        raise ValidationError(
-            {
-                "license": f"License could not be activated. Please contact support. (BillingService status {res.status_code})",
-            }
-        )
+        if res.status_code != 200:
+            raise ValidationError(
+                {
+                    "license": f"License could not be activated. Please contact support. (BillingService status {res.status_code})",
+                }
+            )
+        data = res.json()
+        self._update_license_details(license, data["license"])
+        return Response({"success": True})
 
     def _get_org(self) -> Organization:
         org = None if self.request.user.is_anonymous else self.request.user.organization
@@ -246,6 +251,9 @@ class BillingViewset(viewsets.GenericViewSet):
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/products",
         )
+
+        handle_billing_service_error(res)
+
         return res.json()["products"]
 
     def _update_license_details(self, license: License, data: Dict[str, Any]) -> License:
