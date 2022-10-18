@@ -202,12 +202,7 @@ export class GraphileWorker {
                 }
             }
 
-            // TODO: Refactor - require JOB_QUEUE_GRAPHILE_URL to be explicitly set, improve createPostgresPool
-            const config = this.hub.JOB_QUEUE_GRAPHILE_URL
-                ? { ...this.hub, DATABASE_URL: this.hub.JOB_QUEUE_GRAPHILE_URL }
-                : this.hub
-
-            const pool = createPostgresPool(config, onError)
+            const pool = createPostgresPool(this.hub.JOB_QUEUE_GRAPHILE_URL, onError)
             try {
                 await pool.query('select 1')
             } catch (error) {

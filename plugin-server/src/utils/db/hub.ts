@@ -177,7 +177,7 @@ export async function createHub(
     status.info('👍', `Kafka ready`)
 
     status.info('🤔', `Connecting to Postgresql...`)
-    const postgres = createPostgresPool(serverConfig)
+    const postgres = createPostgresPool(serverConfig.DATABASE_URL)
     status.info('👍', `Postgresql ready`)
 
     status.info('🤔', `Connecting to Redis...`)
