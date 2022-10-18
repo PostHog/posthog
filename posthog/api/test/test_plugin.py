@@ -399,7 +399,7 @@ class TestPluginAPI(APIBaseTest):
                 "plugin_type": "custom",
                 "name": "helloworldplugin",
                 "description": "Greet the World and Foo a Bar, JS edition!",
-                "url": "https://github.com/PostHog/helloworldplugin",
+                "url": f"https://github.com/PostHog/helloworldplugin/commit/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}",
                 "config_schema": {
                     "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
                 },
@@ -434,7 +434,7 @@ class TestPluginAPI(APIBaseTest):
                 "plugin_type": "custom",
                 "name": "helloworldplugin",
                 "description": "Greet the World and Foo a Bar, JS edition, vol 2!",
-                "url": "https://github.com/PostHog/helloworldplugin",
+                "url": f"https://github.com/PostHog/helloworldplugin/commit/{HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0]}",
                 "config_schema": {
                     "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False},
                     "foodb": {"name": "Upload your database", "type": "attachment", "required": False},
