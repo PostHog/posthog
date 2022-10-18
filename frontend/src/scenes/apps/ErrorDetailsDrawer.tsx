@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { appMetricsSceneLogic } from './appMetricsSceneLogic'
 import { Drawer } from 'lib/components/Drawer'
