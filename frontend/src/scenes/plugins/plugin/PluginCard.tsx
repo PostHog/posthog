@@ -31,6 +31,7 @@ import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
 import { urls } from 'scenes/urls'
+import { DeliveryRateBadge } from './DeliveryRateBadge'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -155,7 +156,12 @@ export function PluginCard({
                     </Col>
                     <Col style={{ flex: 1 }}>
                         <div>
-                            <strong style={{ marginRight: 8 }}>{name}</strong>
+                            <strong style={{ marginRight: 8 }}>
+                                {shouldShowAppMetrics && (
+                                    <DeliveryRateBadge deliveryRate={pluginConfig?.delivery_rate_1d ?? null} />
+                                )}
+                                {name}
+                            </strong>
                             {hasSpecifiedMaintainer && (
                                 <CommunityPluginTag isCommunity={pluginMaintainer === 'community'} />
                             )}

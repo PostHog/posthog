@@ -998,6 +998,7 @@ export interface PluginConfigType {
     order: number
     config: Record<string, any>
     error?: PluginErrorType
+    delivery_rate_1d?: number | null
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {
