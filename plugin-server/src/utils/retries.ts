@@ -2,7 +2,7 @@ import { RetryError } from '@posthog/plugin-scaffold'
 
 import { runInTransaction } from '../sentry'
 import { Hub } from '../types'
-import { AppMetricIdentifier } from '../worker/ingestion/app-metrics'
+import { AppMetricIdentifier, ErrorWithContext } from '../worker/ingestion/app-metrics'
 
 export function getNextRetryMs(baseMs: number, multiplier: number, attempt: number): number {
     if (attempt < 1) {
@@ -28,6 +28,7 @@ export interface MetricsDefinition {
     metricName: string
     metricTags?: Record<string, string>
     appMetric?: AppMetricIdentifier
+    appMetricErrorContext?: Omit<ErrorWithContext, 'error'>
 }
 
 export type RetriableFunctionPayload = RetriableFunctionDefinition &
@@ -47,6 +48,7 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
         retryBaseMs = 5000,
         retryMultiplier = 2,
         appMetric,
+        appMetricErrorContext,
     } = retriableFunctionPayload
     return runInTransaction(
         {
@@ -92,10 +94,16 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
                     await catchFn?.(error)
                     hub.statsd?.increment(`${metricName}.ERROR`, metricTags)
                     if (appMetric) {
-                        await hub.appMetrics.queueMetric({
-                            ...appMetric,
-                            failures: 1,
-                        })
+                        await hub.appMetrics.queueError(
+                            {
+                                ...appMetric,
+                                failures: 1,
+                            },
+                            {
+                                error,
+                                ...appMetricErrorContext,
+                            }
+                        )
                     }
                 }
             }

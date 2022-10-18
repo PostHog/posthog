@@ -2,7 +2,7 @@ import { kea, events, key, props, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { teamLogic } from '../teamLogic'
-import { AppMetrics, HistoricalExportInfo } from './appMetricsSceneLogic'
+import { AppErrorSummary, AppMetrics, HistoricalExportInfo } from './appMetricsSceneLogic'
 
 import type { historicalExportLogicType } from './historicalExportLogicType'
 
@@ -14,6 +14,7 @@ export interface HistoricalExportLogicProps {
 export interface ExportData {
     metrics: AppMetrics
     summary: HistoricalExportInfo
+    errors: Array<AppErrorSummary>
 }
 
 export const historicalExportLogic = kea<historicalExportLogicType>([
