@@ -6,13 +6,15 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0271_delete_promptsequencestate'),
+        ("posthog", "0271_delete_promptsequencestate"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='organization',
-            name='plugins_access_level',
-            field=models.PositiveSmallIntegerField(choices=[(0, 'none'), (3, 'config'), (6, 'install'), (9, 'root')], default=3),
+            model_name="organization",
+            name="plugins_access_level",
+            field=models.PositiveSmallIntegerField(
+                choices=[(0, "none"), (3, "config"), (6, "install"), (9, "root")], default=3
+            ),
         ),
     ]
