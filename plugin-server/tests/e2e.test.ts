@@ -133,55 +133,51 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
             }
         `
 
-        test.concurrent(
-            'event captured, processed, ingested',
-            async () => {
-                const plugin = await createPlugin(postgres, {
-                    organization_id: organizationId,
-                    name: 'test plugin',
-                    plugin_type: 'source',
-                    is_global: false,
-                    source__index_ts: indexJs,
-                })
-                const teamId = await createTeam(postgres, organizationId)
-                const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
-                const distinctId = new UUIDT().toString()
-                const uuid = new UUIDT().toString()
+        test.concurrent('event captured, processed, ingested', async () => {
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'test plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: indexJs,
+            })
+            const teamId = await createTeam(postgres, organizationId)
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+            const distinctId = new UUIDT().toString()
+            const uuid = new UUIDT().toString()
 
-                const event = {
-                    event: 'custom event',
-                    properties: { name: 'haha' },
-                }
+            const event = {
+                event: 'custom event',
+                properties: { name: 'haha' },
+            }
 
-                await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
+            await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
 
-                await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
-                const events = await fetchEvents(clickHouseClient, teamId)
-                expect(events.length).toBe(1)
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+            const events = await fetchEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
 
-                // processEvent ran and modified
-                expect(events[0].properties.processed).toEqual('hell yes')
-                expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
+            // processEvent ran and modified
+            expect(events[0].properties.processed).toEqual('hell yes')
+            expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
 
-                // onEvent ran
-                const onEvent = await delayUntilEventIngested(
-                    async () =>
-                        (
-                            await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                        ).filter(({ message: [method] }) => method === 'onEvent'),
-                    1,
-                    500,
-                    40
-                )
+            // onEvent ran
+            const onEvent = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'onEvent'),
+                1,
+                500,
+                40
+            )
 
-                expect(onEvent.length).toBeGreaterThan(0)
+            expect(onEvent.length).toBeGreaterThan(0)
 
-                const onEventEvent = onEvent[0].message[1]
-                expect(onEventEvent.event).toEqual('custom event')
-                expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
-            },
-            10000
-        )
+            const onEventEvent = onEvent[0].message[1]
+            expect(onEventEvent.event).toEqual('custom event')
+            expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
+        })
 
         test.concurrent(
             'correct $autocapture properties included in onEvent calls',
@@ -237,7 +233,7 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
                     }),
                 ])
             },
-            10000
+            20000
         )
     })
 
@@ -261,7 +257,7 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
                 // processEvent did not modify
                 expect(events[0].snapshot_data).toEqual('yes way')
             },
-            10000
+            20000
         )
     })
 
@@ -613,7 +609,7 @@ const createOrganization = async (pgClient: Pool) => {
         available_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,
-        slug: Math.round(Math.random() * 10000),
+        slug: Math.round(Math.random() * 20000),
     })
     return organizationId
 }
