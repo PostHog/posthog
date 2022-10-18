@@ -66,7 +66,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         />
                     )}
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 overflow-hidden">
                     <div className="font-bold">
                         {!sessionPerson || !recordingStartTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
