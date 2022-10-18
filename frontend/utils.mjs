@@ -123,6 +123,7 @@ export const commonConfig = {
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
     entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
     plugins: [sassPlugin(), lessPlugin],
+    tsconfig: isDev ? 'tsconfig.dev.json' : 'tsconfig.json',
     define: {
         global: 'globalThis',
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',

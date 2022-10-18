@@ -19,7 +19,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
+from posthog.models import Plugin, PluginAttachment, PluginConfig, Team, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Change,
@@ -47,16 +47,16 @@ from posthog.utils import format_query_params_absolute_url
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
 
 
-# TODO: Log activity for plugin attachments
 def _update_plugin_attachments(request: request.Request, plugin_config: PluginConfig):
+    user = cast(User, request.user)
     for key, file in request.FILES.items():
         match = re.match(r"^add_attachment\[([^]]+)\]$", key)
         if match:
-            _update_plugin_attachment(plugin_config, match.group(1), file)
+            _update_plugin_attachment(plugin_config, match.group(1), file, user)
     for key, file in request.POST.items():
         match = re.match(r"^remove_attachment\[([^]]+)\]$", key)
         if match:
-            _update_plugin_attachment(plugin_config, match.group(1), None)
+            _update_plugin_attachment(plugin_config, match.group(1), None, user)
 
 
 def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, Any], secret_fields=[]) -> List[Change]:
@@ -71,7 +71,7 @@ def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, 
     return config_changes
 
 
-def log_enabled_change_activity(new_plugin_config: PluginConfig, old_enabled: bool, user: Any, changes=[]):
+def log_enabled_change_activity(new_plugin_config: PluginConfig, old_enabled: bool, user: User, changes=[]):
     if old_enabled != new_plugin_config.enabled:
         log_activity(
             organization_id=new_plugin_config.team.organization.id,
@@ -86,7 +86,7 @@ def log_enabled_change_activity(new_plugin_config: PluginConfig, old_enabled: bo
 
 
 def log_config_update_activity(
-    new_plugin_config: PluginConfig, old_config: Dict[str, Any], secret_fields: Set[str], old_enabled: bool, user: Any
+    new_plugin_config: PluginConfig, old_config: Dict[str, Any], secret_fields: Set[str], old_enabled: bool, user: User
 ):
     config_changes = get_plugin_config_changes(
         old_config=old_config, new_config=new_plugin_config.config, secret_fields=secret_fields
@@ -107,10 +107,13 @@ def log_config_update_activity(
     log_enabled_change_activity(new_plugin_config=new_plugin_config, old_enabled=old_enabled, user=user)
 
 
-def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optional[UploadedFile]):
+def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optional[UploadedFile], user: User):
     try:
         plugin_attachment = PluginAttachment.objects.get(team=plugin_config.team, plugin_config=plugin_config, key=key)
         if file:
+            activity = "attachment_updated"
+            change = Change(type="PluginConfig", action="changed", before=plugin_attachment.file_name, after=file.name)
+
             plugin_attachment.content_type = file.content_type
             plugin_attachment.file_name = file.name
             plugin_attachment.file_size = file.size
@@ -118,6 +121,9 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
             plugin_attachment.save()
         else:
             plugin_attachment.delete()
+
+            activity = "attachment_deleted"
+            change = Change(type="PluginConfig", action="deleted", before=plugin_attachment.file_name, after=None)
     except ObjectDoesNotExist:
         if file:
             PluginAttachment.objects.create(
@@ -129,6 +135,19 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
                 file_size=file.size,
                 contents=file.file.read(),
             )
+
+            activity = "attachment_created"
+            change = Change(type="PluginConfig", action="created", before=None, after=file.name)
+
+    log_activity(
+        organization_id=plugin_config.team.organization.id,
+        team_id=plugin_config.team.id,
+        user=user,
+        item_id=plugin_config.id,
+        scope="PluginConfig",
+        activity=activity,
+        detail=Detail(name=plugin_config.plugin.name, changes=[change]),
+    )
 
 
 # sending files via a multipart form puts the config JSON in a un-serialized format

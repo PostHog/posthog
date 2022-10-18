@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { LogsDrawer } from '../../plugin/LogsDrawer'

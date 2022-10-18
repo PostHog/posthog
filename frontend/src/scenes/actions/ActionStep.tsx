@@ -1,4 +1,3 @@
-import React from 'react'
 import { EventName } from './EventName'
 import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'

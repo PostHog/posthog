@@ -1,4 +1,3 @@
-import React from 'react'
 import { TZLabel } from '../TimezoneAware'
 import { Row } from 'antd'
 import { ProfilePicture } from '../ProfilePicture'

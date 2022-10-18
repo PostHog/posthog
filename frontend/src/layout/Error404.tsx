@@ -1,5 +1,3 @@
-import React from 'react'
-
 import { NotFound } from 'lib/components/NotFound'
 
 export function Error404(): JSX.Element {

@@ -978,7 +978,6 @@ export const insightLogic = kea<insightLogicType>([
         },
         toggleVisibility: ({ index }) => {
             const currentIsHidden = !!values.hiddenLegendKeys?.[index]
-
             actions.setFilters({
                 ...values.filters,
                 hidden_legend_keys: {

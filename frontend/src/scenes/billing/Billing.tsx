@@ -1,4 +1,3 @@
-import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Plan } from './Plan'
 import { CurrentUsage } from './CurrentUsage'

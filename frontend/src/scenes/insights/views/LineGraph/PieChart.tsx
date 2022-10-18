@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import {
     ActiveElement,
     Chart,
@@ -15,6 +15,7 @@ import { GraphType } from '~/types'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
     ensureTooltipElement,
+    filterNestedDataset,
     LineGraphProps,
     onChartClick,
     onChartHover,
@@ -84,7 +85,7 @@ export function PieChart({
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
             // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-            datasets = datasets.filter((data) => !hiddenLegendKeys?.[data.id])
+            datasets = filterNestedDataset(hiddenLegendKeys, datasets)
         }
 
         const processedDatasets = datasets.map((dataset) => dataset as ChartDataset<'pie'>)

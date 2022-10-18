@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Radio } from 'antd'

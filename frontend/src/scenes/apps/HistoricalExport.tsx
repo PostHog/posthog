@@ -1,6 +1,5 @@
 import { Card } from 'antd'
 import { useValues } from 'kea'
-import React from 'react'
 import { humanFriendlyDuration } from 'lib/utils'
 import { AppMetricsGraph } from './AppMetricsGraph'
 import { AppMetricsTab } from './appMetricsSceneLogic'

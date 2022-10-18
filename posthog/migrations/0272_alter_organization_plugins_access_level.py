@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0270_add_uploaded_media"),
+        ("posthog", "0271_delete_promptsequencestate"),
     ]
 
     operations = [

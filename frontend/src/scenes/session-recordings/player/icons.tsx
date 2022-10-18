@@ -1,4 +1,3 @@
-import React from 'react'
 import clsx from 'clsx'
 
 export function IconWindow({ value, className = '' }: { value: number | string; className?: string }): JSX.Element {

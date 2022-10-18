@@ -1,4 +1,3 @@
-import React from 'react'
 import { InsightTooltip } from './InsightTooltip'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'

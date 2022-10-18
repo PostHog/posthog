@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { insightLogic } from 'scenes/insights/insightLogic'

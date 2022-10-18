@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Button, Col, Divider, Input, Row } from 'antd'
 import { useActions } from 'kea'
 import { asyncMigrationsLogic } from './asyncMigrationsLogic'

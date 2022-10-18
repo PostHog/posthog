@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useValues } from 'kea'
 import { Chart, ChartItem, TooltipModel } from 'chart.js'
 import { range } from 'lib/utils'

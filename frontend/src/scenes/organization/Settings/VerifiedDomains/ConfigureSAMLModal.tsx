@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
-import React from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'

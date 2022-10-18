@@ -1,4 +1,3 @@
-import React from 'react'
 import { LemonButtonWithPopup } from '.'
 import { IconEllipsis } from '../icons'
 import { PopupProps } from '../Popup/Popup'

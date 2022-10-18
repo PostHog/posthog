@@ -1,4 +1,3 @@
-import React from 'react'
 import { Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PluginUpdateStatusType } from '../types'

@@ -1,5 +1,3 @@
-import React from 'react'
-
 import { ProfileBubbles as ProfileBubblesComponent, ProfileBubblesProps } from './ProfileBubbles'
 import { ComponentMeta } from '@storybook/react'
 import { alphabet, range } from 'lib/utils'

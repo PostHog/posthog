@@ -1,4 +1,3 @@
-import React from 'react'
 import { Dropdown, Menu } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'

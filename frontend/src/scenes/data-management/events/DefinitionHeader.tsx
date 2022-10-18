@@ -1,4 +1,3 @@
-import React from 'react'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import {
     IconAutocapture,

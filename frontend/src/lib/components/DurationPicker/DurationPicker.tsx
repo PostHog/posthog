@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Duration, SmallTimeUnit } from '~/types'
 import { LemonSelect, LemonInput } from '@posthog/lemon-ui'
 

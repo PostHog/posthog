@@ -1,4 +1,3 @@
-import React from 'react'
 import { Button, Card, Col, Input, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'

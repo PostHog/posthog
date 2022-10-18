@@ -1,4 +1,3 @@
-import React from 'react'
 import { FontSizeOutlined, LinkOutlined, FormOutlined, BranchesOutlined } from '@ant-design/icons'
 
 function SelectorString({ value }: { value: string }): JSX.Element {

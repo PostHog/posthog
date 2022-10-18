@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/components/Tooltip'
 import {

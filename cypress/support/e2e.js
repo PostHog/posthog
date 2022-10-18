@@ -19,7 +19,8 @@ beforeEach(() => {
     cy.intercept('https://app.posthog.com/decide/*', (req) =>
         req.reply(
             decideResponse({
-                'toolbar-launch-side-action': true,
+                // set feature flags here e.g.
+                // 'toolbar-launch-side-action': true,
             })
         )
     )

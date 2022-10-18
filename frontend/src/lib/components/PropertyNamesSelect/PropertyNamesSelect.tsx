@@ -1,10 +1,10 @@
 import { SearchOutlined } from '@ant-design/icons'
 import { Checkbox, Input } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
-import React from 'react'
 import { propertySelectLogic } from './propertyNamesSelectLogic'
 import './PropertyNamesSelect.scss'
 import { IconArrowDropDown } from '../icons'
+import React, { useEffect } from 'react'
 
 // Incrementing counter to ensure uniqueness of logic for each component
 let propertyNameSelectCounter = 0
@@ -66,7 +66,7 @@ export const PropertyNamesSelectBox = ({
     } = useActions(propertySelectLogic)
 
     // Explicitly set the selectedProperties on value change
-    React.useEffect(() => {
+    useEffect(() => {
         setSelectedProperties(Array.from(value))
     }, [value, setSelectedProperties])
 

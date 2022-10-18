@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory, Story } from '@storybook/react'
 
 import { LemonTextArea, LemonTextAreaProps, LemonTextMarkdown as _LemonTextMarkdown } from './LemonTextArea'

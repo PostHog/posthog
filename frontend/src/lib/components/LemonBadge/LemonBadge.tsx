@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import React from 'react'
 import { CSSTransition } from 'react-transition-group'
 import './LemonBadge.scss'
 
