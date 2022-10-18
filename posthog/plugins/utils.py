@@ -262,7 +262,7 @@ def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None
 
 
 def extract_plugin_code(
-    archive: bytes, plugin_json_parsed: Optional[Dict[str, Any]] = None
+    archive: bytes, plugin_json_parsed: Optional[Dict[str, Any]] = None, path: Optional[str] = None
 ) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
     """Extract plugin.json, index.ts (which can be aliased) and frontend.tsx out of an archive.
 
@@ -272,7 +272,7 @@ def extract_plugin_code(
     # Extract plugin.json - required, might be provided already
     plugin_json: str
     if plugin_json_parsed is None:
-        plugin_json_original = get_file_from_archive(archive, "plugin.json", json_parse=False)
+        plugin_json_original = get_file_from_archive(archive, "plugin.json", path, json_parse=False)
         if not plugin_json_original:
             raise ValueError(f"Could not find plugin.json")
         try:

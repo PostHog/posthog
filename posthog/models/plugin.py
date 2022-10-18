@@ -265,8 +265,13 @@ class PluginSourceFileManager(models.Manager):
         """Create PluginSourceFile objects from a plugin that has an archive.
 
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
+        path = None
+        if plugin.plugin_type != Plugin.PluginType.SOURCE:
+            parsed_url = parse_url(plugin.url, get_latest_if_none=True)
+            path = parsed_url.get("path", None)
+
         try:
-            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
+            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed, path)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
         # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
