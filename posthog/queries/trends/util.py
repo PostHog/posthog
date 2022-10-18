@@ -1,3 +1,4 @@
+import datetime
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -76,31 +77,28 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     }
 
 
-def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, team_id: int) -> Dict[str, Any]:
-    params = {}
-    params.update({"prev_interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 DAY"})
-    diff = timedelta(days=7) if entity.math == WEEKLY_ACTIVE else timedelta(days=30)
+def get_active_user_params(
+    filter: Union[Filter, PathFilter], entity: Entity, team_id: int
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    diff = timedelta(days=7 if entity.math == WEEKLY_ACTIVE else 30)
+
+    date_from: datetime.datetime
     if filter.date_from:
-        prev_range = (filter.date_from - diff).strftime("%Y-%m-%d %H:%M:%S")
-        params.update(
-            {
-                "parsed_date_from_prev_range": f"AND toDateTime(timestamp, 'UTC') >= toDateTime('{prev_range}', %(timezone)s)"
-            }
-        )
+        date_from = filter.date_from
     else:
         try:
-            earliest_date = get_earliest_timestamp(team_id)
+            date_from = get_earliest_timestamp(team_id)
         except IndexError:
             raise ValidationError("Active User queries require a lower date bound")
-        else:
-            prev_range = (earliest_date - diff).strftime("%Y-%m-%d %H:%M:%S")
-            params.update(
-                {
-                    "parsed_date_from_prev_range": f"AND toDateTime(timestamp, 'UTC') >= toDateTime('{prev_range}', %(timezone)s)"
-                }
-            )
 
-    return params
+    format_params = {
+        # Not 7 and 30 because the day of the date marker is included already in the query (`+ INTERVAL 1 DAY`)
+        "prev_interval": "6 DAY" if entity.math == WEEKLY_ACTIVE else "29 DAY",
+        "parsed_date_from_prev_range": f"AND toDateTime(timestamp, 'UTC') >= toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s)",
+    }
+    query_params = {"date_from_active_users_adjusted": (date_from - diff).strftime("%Y-%m-%d %H:%M:%S")}
+
+    return format_params, query_params
 
 
 def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:

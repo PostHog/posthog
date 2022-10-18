@@ -4021,6 +4021,9 @@ def trend_test_factory(trends):
 
         def _create_active_user_events(self):
             _create_person(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -4029,7 +4032,6 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -4037,6 +4039,14 @@ def trend_test_factory(trends):
                 timestamp="2020-01-09T12:00:00Z",
                 properties={"key": "val"},
             )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p2",
+                timestamp="2020-01-09T12:00:00Z",
+                properties={"key": "val"},
+            )
+
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -4044,6 +4054,7 @@ def trend_test_factory(trends):
                 timestamp="2020-01-10T12:00:00Z",
                 properties={"key": "val"},
             )
+
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -4051,15 +4062,6 @@ def trend_test_factory(trends):
                 timestamp="2020-01-11T12:00:00Z",
                 properties={"key": "val"},
             )
-
-            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p2",
-                timestamp="2020-01-09T12:00:00Z",
-                properties={"key": "val"},
-            )
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -4068,34 +4070,155 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-        def test_active_user_math(self):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p0",
+                timestamp="2020-01-12T12:00:00Z",
+                properties={"key": "val"},
+            )
+
+        def test_weekly_active_users_daily(self):
             self._create_active_user_events()
 
             data = {
-                "date_from": "2020-01-09T00:00:00Z",
-                "date_to": "2020-01-16T00:00:00Z",
+                "date_from": "2020-01-08",
+                "date_to": "2020-01-19",
                 "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
             }
 
             filter = Filter(data=data)
             result = trends().run(filter, self.team)
-            self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            self.assertEqual(
+                result[0]["days"],
+                [
+                    "2020-01-08",
+                    "2020-01-09",
+                    "2020-01-10",
+                    "2020-01-11",
+                    "2020-01-12",
+                    "2020-01-13",
+                    "2020-01-14",
+                    "2020-01-15",
+                    "2020-01-16",
+                    "2020-01-17",
+                    "2020-01-18",
+                    "2020-01-19",
+                ],
+            )
+            self.assertEqual(
+                result[0]["data"],
+                [
+                    1.0,  # 2020-01-08 - p0 only
+                    3.0,  # 2020-01-09 - p0, p1, and p2
+                    2.0,  # 2020-01-10 - p1, and p2
+                    2.0,  # 2020-01-11 - p1 and p2
+                    3.0,  # 2020-01-12 - p0, p1, and p2
+                    3.0,  # 2020-01-13 - p0, p1, and p2
+                    3.0,  # 2020-01-14 - p0, p1, and p2
+                    3.0,  # 2020-01-15 - p0, p1, and p2
+                    3.0,  # 2020-01-16 - p0, p1, and p2
+                    3.0,  # 2020-01-17 - p0, p1, and p2
+                    1.0,  # 2020-01-18 - p0 only
+                    0.0,  # 2020-01-19 - nobody
+                ],
+            )
 
-        def test_active_user_math_action(self):
+        def test_weekly_active_users_daily_based_on_action(self):
             action = _create_action(name="$pageview", team=self.team)
             self._create_active_user_events()
 
             data = {
-                "date_from": "2020-01-09T00:00:00Z",
-                "date_to": "2020-01-16T00:00:00Z",
+                "date_from": "2020-01-08",
+                "date_to": "2020-01-19",
                 "actions": [{"id": action.id, "type": "actions", "order": 0, "math": "weekly_active"}],
             }
 
             filter = Filter(data=data)
             result = trends().run(filter, self.team)
-            self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            self.assertEqual(
+                result[0]["days"],
+                [
+                    "2020-01-08",
+                    "2020-01-09",
+                    "2020-01-10",
+                    "2020-01-11",
+                    "2020-01-12",
+                    "2020-01-13",
+                    "2020-01-14",
+                    "2020-01-15",
+                    "2020-01-16",
+                    "2020-01-17",
+                    "2020-01-18",
+                    "2020-01-19",
+                ],
+            )
+            self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
 
-        def test_active_user_math_action_with_zero_person_ids(self):
+        def test_weekly_active_users_monthly(self):
+            self._create_active_user_events()
+
+            data = {
+                "date_from": "2019-12-01",
+                "date_to": "2020-02-29",  # T'was a leap year
+                "interval": "month",
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+            }
+
+            filter = Filter(data=data)
+            result = trends().run(filter, self.team)
+            self.assertEqual(result[0]["days"], ["2019-12-01", "2020-01-01", "2020-02-01"])
+            # No users fall into the period of 7 days before any month starts
+            self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0])
+
+        def test_weekly_active_users_weekly(self):
+            self._create_active_user_events()
+
+            data = {
+                "date_from": "2019-12-29",
+                "date_to": "2020-01-18",
+                "interval": "week",
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+            }
+
+            filter = Filter(data=data)
+            result = trends().run(filter, self.team)
+            self.assertEqual(result[0]["days"], ["2019-12-29", "2020-01-05", "2020-01-12"])
+            self.assertEqual(result[0]["data"], [0.0, 1.0, 3.0])
+
+        def test_weekly_active_users_hourly(self):
+            self._create_active_user_events()
+
+            data = {
+                "date_from": "2020-01-14T00:00:00Z",
+                "date_to": "2020-01-14T12:00:00Z",
+                "interval": "hour",
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+            }
+
+            filter = Filter(data=data)
+            result = trends().run(filter, self.team)
+            self.assertEqual(
+                result[0]["days"],
+                [
+                    "2020-01-14 00:00:00",
+                    "2020-01-14 01:00:00",
+                    "2020-01-14 02:00:00",
+                    "2020-01-14 03:00:00",
+                    "2020-01-14 04:00:00",
+                    "2020-01-14 05:00:00",
+                    "2020-01-14 06:00:00",
+                    "2020-01-14 07:00:00",
+                    "2020-01-14 08:00:00",
+                    "2020-01-14 09:00:00",
+                    "2020-01-14 10:00:00",
+                    "2020-01-14 11:00:00",
+                    "2020-01-14 12:00:00",
+                ],
+            )
+            self.assertEqual(result[0]["data"], [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0])
+
+        def test_weekly_active_users_based_on_action_with_zero_person_ids(self):
             # only a person-on-event test
             if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
                 return True
@@ -4131,7 +4254,7 @@ def trend_test_factory(trends):
             self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
         @test_with_materialized_columns(["key"])
-        def test_breakdown_active_user_math(self):
+        def test_breakdown_weekly_active_users(self):
 
             _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
@@ -4184,8 +4307,7 @@ def trend_test_factory(trends):
             self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
         @snapshot_clickhouse_queries
-        def test_breakdown_active_user_math_with_actions(self):
-
+        def test_breakdown_weekly_active_users_based_on_action(self):
             _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team,

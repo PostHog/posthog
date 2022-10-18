@@ -54,6 +54,7 @@ class TrendsTotalVolume:
             "aggregate_operation": aggregate_operation,
             "timestamp": "e.timestamp",
             "interval": trunc_func,
+            "interval_func": interval_func,
         }
         params: Dict = {"team_id": team.id, "timezone": team.timezone}
         params = {**params, **math_params, **event_query_params}
