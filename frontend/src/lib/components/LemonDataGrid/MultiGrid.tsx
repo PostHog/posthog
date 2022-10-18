@@ -3,6 +3,7 @@ import { CellMeasurerCacheDecorator } from './CellMeasurerCacheDecorator'
 import { Grid, GridCellProps, GridProps, ScrollbarPresenceParams, ScrollParams } from 'react-virtualized/dist/es/Grid'
 import { CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 const SCROLLBAR_SIZE_BUFFER = 20
+const MINIMUM_SCROLL_AREA = 100
 /**
  * Renders 1, 2, or 4 Grids depending on configuration.
  * A main (body) Grid will always be rendered.
@@ -93,6 +94,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
     _lastRenderedHeight?: number
     _lastRenderedRowHeight?: number | ((opts: { index: number }) => number)
     _lastRenderedStyle?: React.CSSProperties
+    _lastRenderedEnoughSpaceForFixedColumns?: boolean
 
     _leftGridWidth?: number | null
     _topGridHeight?: number | null
@@ -297,7 +299,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
                             position: 'absolute',
                             top: 0,
                             bottom: adjustScrollHeight && showHorizontalScrollbar ? scrollbarSize : 0,
-                            left: this._getLeftGridWidth(),
+                            left: this._enoughSpaceForFixedColumns() ? this._getLeftGridWidth() : 0,
                             zIndex: 22,
                         }}
                     />
@@ -341,22 +343,24 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
     }
     _cellRendererBottomRightGrid = ({ columnIndex, rowIndex, ...rest }: GridCellProps): React.ReactNode => {
         const { cellRenderer, fixedColumnCount, fixedRowCount } = this.props
+        const fixedColumns = this._enoughSpaceForFixedColumns() ? fixedColumnCount : 0
         return cellRenderer({
             ...rest,
-            columnIndex: columnIndex + fixedColumnCount,
+            columnIndex: columnIndex + fixedColumns,
             parent: this,
             rowIndex: rowIndex + fixedRowCount,
         })
     }
     _cellRendererTopRightGrid = ({ columnIndex, ...rest }: GridCellProps): React.ReactNode => {
         const { cellRenderer, columnCount, fixedColumnCount } = this.props
+        const fixedColumns = this._enoughSpaceForFixedColumns() ? fixedColumnCount : 0
 
-        if (columnIndex === columnCount - fixedColumnCount) {
+        if (columnIndex === columnCount - fixedColumns) {
             return <div key={rest.key} style={{ ...rest.style, width: SCROLLBAR_SIZE_BUFFER }} />
         } else {
             return cellRenderer({
                 ...rest,
-                columnIndex: columnIndex + fixedColumnCount,
+                columnIndex: columnIndex + fixedColumns,
                 parent: this,
             })
         }
@@ -471,6 +475,10 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
         }
     }
 
+    _enoughSpaceForFixedColumns(): boolean {
+        return this.props.fixedColumnCount > 0 && this._getLeftGridWidth() <= this.props.width - MINIMUM_SCROLL_AREA
+    }
+
     /**
      * Avoid recreating inline styles each render; this bypasses Grid's shallowCompare.
      * This method recalculates styles only when specific props change.
@@ -495,7 +503,9 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
         const leftSizeChange =
             resetAll ||
             columnWidth !== this._lastRenderedColumnWidth ||
-            fixedColumnCount !== this._lastRenderedFixedColumnCount
+            fixedColumnCount !== this._lastRenderedFixedColumnCount ||
+            this._enoughSpaceForFixedColumns() !== this._lastRenderedEnoughSpaceForFixedColumns ||
+            width !== this._lastRenderedWidth
         const topSizeChange =
             resetAll || fixedRowCount !== this._lastRenderedFixedRowCount || rowHeight !== this._lastRenderedRowHeight
 
@@ -538,7 +548,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
         if (resetAll || leftSizeChange || styleBottomRightGrid !== this._lastRenderedStyleBottomRightGrid) {
             this._bottomRightGridStyle = {
                 left: 0,
-                paddingLeft: this._getLeftGridWidth(),
+                paddingLeft: this._enoughSpaceForFixedColumns() ? this._getLeftGridWidth() : 0,
                 position: 'absolute',
                 zIndex: 2,
                 width,
@@ -561,7 +571,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
         if (resetAll || leftSizeChange || styleTopRightGrid !== this._lastRenderedStyleTopRightGrid) {
             this._topRightGridStyle = {
                 left: 0,
-                paddingLeft: this._getLeftGridWidth(),
+                paddingLeft: this._enoughSpaceForFixedColumns() ? this._getLeftGridWidth() : 0,
                 overflowX: enableFixedRowScroll ? 'auto' : 'hidden',
                 overflowY: 'hidden',
                 position: 'absolute',
@@ -583,12 +593,14 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
         this._lastRenderedStyleTopLeftGrid = styleTopLeftGrid
         this._lastRenderedStyleTopRightGrid = styleTopRightGrid
         this._lastRenderedWidth = width
+        this._lastRenderedEnoughSpaceForFixedColumns = this._enoughSpaceForFixedColumns()
     }
 
     _prepareForRender(): void {
         if (
             this._lastRenderedColumnWidth !== this.props.columnWidth ||
-            this._lastRenderedFixedColumnCount !== this.props.fixedColumnCount
+            this._lastRenderedFixedColumnCount !== this.props.fixedColumnCount ||
+            this._lastRenderedEnoughSpaceForFixedColumns !== this._enoughSpaceForFixedColumns()
         ) {
             this._leftGridWidth = null
             this._scrollWidth = null
@@ -607,6 +619,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
         this._lastRenderedFixedColumnCount = this.props.fixedColumnCount
         this._lastRenderedFixedRowCount = this.props.fixedRowCount
         this._lastRenderedRowHeight = this.props.rowHeight
+        this._lastRenderedEnoughSpaceForFixedColumns = this._enoughSpaceForFixedColumns()
     }
 
     _onScroll = (scrollInfo: ScrollParams): void => {
@@ -660,7 +673,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
             props
         const { showVerticalScrollbar } = this.state
 
-        if (!fixedColumnCount) {
+        if (!fixedColumnCount || !this._enoughSpaceForFixedColumns()) {
             return null
         }
 
@@ -709,24 +722,29 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
 
     _renderBottomRightGrid(props: GridProps): React.ReactNode {
         const { columnCount, fixedColumnCount, fixedRowCount, rowCount, scrollToColumn, scrollToRow } = props
+        const fixedColumns = this._enoughSpaceForFixedColumns() ? fixedColumnCount : 0
         return (
             <Grid
                 {...props}
                 cellRenderer={this._cellRendererBottomRightGrid}
                 className={this.props.classNameBottomRightGrid}
-                columnCount={Math.max(0, columnCount - fixedColumnCount)}
-                columnWidth={this._columnWidthRightGrid}
-                deferredMeasurementCache={this._deferredMeasurementCacheBottomRightGrid}
+                columnCount={Math.max(0, columnCount - fixedColumns)}
+                columnWidth={fixedColumns ? this._columnWidthRightGrid : this.props.columnWidth}
+                deferredMeasurementCache={
+                    fixedColumns
+                        ? this._deferredMeasurementCacheBottomRightGrid
+                        : this._deferredMeasurementCacheBottomLeftGrid
+                }
                 height={this._getBottomGridHeight()}
                 onScroll={this._onScroll}
                 onScrollbarPresenceChange={this._onScrollbarPresenceChange}
                 ref={this._bottomRightGridRef}
                 rowCount={Math.max(0, rowCount - fixedRowCount)}
                 rowHeight={this._rowHeightBottomGrid}
-                scrollToColumn={typeof scrollToColumn === 'number' ? scrollToColumn - fixedColumnCount : scrollToColumn}
+                scrollToColumn={typeof scrollToColumn === 'number' ? scrollToColumn - fixedColumns : scrollToColumn}
                 scrollToRow={typeof scrollToRow === 'number' ? scrollToRow - fixedRowCount : scrollToRow}
                 style={this._bottomRightGridStyle}
-                width={this._getRightGridWidth()}
+                width={fixedColumns ? this._getRightGridWidth() : this.props.width}
             />
         )
     }
@@ -734,7 +752,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
     _renderTopLeftGrid(props: GridProps): React.ReactNode {
         const { fixedColumnCount, fixedRowCount } = props
 
-        if (!fixedColumnCount || !fixedRowCount) {
+        if (!fixedColumnCount || !fixedRowCount || !this._enoughSpaceForFixedColumns()) {
             return null
         }
 
@@ -769,8 +787,9 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
             return null
         }
 
+        const fixedColumns = this._enoughSpaceForFixedColumns() ? fixedColumnCount : 0
         const height = this._getTopGridHeight(),
-            width = this._getRightGridWidth(),
+            width = fixedColumns ? this._getRightGridWidth() : this.props.width,
             additionalHeight = showHorizontalScrollbar ? scrollbarSize : 0
 
         let gridHeight = height,
@@ -786,9 +805,11 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
                 {...props}
                 cellRenderer={this._cellRendererTopRightGrid}
                 className={props.classNameTopRightGrid}
-                columnCount={Math.max(0, columnCount - fixedColumnCount)}
-                columnWidth={this._columnWidthRightGrid}
-                deferredMeasurementCache={this._deferredMeasurementCacheTopRightGrid}
+                columnCount={Math.max(0, columnCount - fixedColumns)}
+                columnWidth={fixedColumns ? this._columnWidthRightGrid : this.props.columnWidth}
+                deferredMeasurementCache={
+                    fixedColumns ? this._deferredMeasurementCacheTopRightGrid : this.props.deferredMeasurementCache
+                }
                 height={gridHeight}
                 onScroll={enableFixedRowScroll ? this._onScrollLeft : undefined}
                 ref={this._topRightGridRef}
