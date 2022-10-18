@@ -58,7 +58,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     if (definitionMissing) {
         return <NotFound object="event" />
     }
-    console.log('DEFINITION', definition)
     return (
         <div className={clsx('definition-page', `definition-${mode}-page`)}>
             {mode === DefinitionPageMode.Edit ? (
