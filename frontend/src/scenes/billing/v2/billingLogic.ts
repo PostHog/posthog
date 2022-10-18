@@ -55,17 +55,6 @@ export const billingLogic = kea<billingLogicType>([
                 loadBilling: async () => {
                     const response = await api.get('api/billing-v2')
 
-                    // if (
-                    //     response.event_allocation &&
-                    //     response.current_usage > response.event_allocation &&
-                    //     response.should_setup_billing &&
-                    //     router.values.location.pathname !== '/organization/billing/locked' &&
-                    //     values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
-                    // ) {
-                    //     posthog.capture('billing locked screen shown')
-                    //     router.actions.replace('/organization/billing/locked')
-                    // }
-                    // actions.registerInstrumentationProps()
                     return parseBillingResponse(response)
                 },
 
@@ -134,25 +123,4 @@ export const billingLogic = kea<billingLogicType>([
             }
         },
     })),
-    // listeners(({ values }) => ({
-    //     subscribeSuccess: ({ billingSubscription }) => {
-    //         if (billingSubscription?.subscription_url) {
-    //             window.location.href = billingSubscription.subscription_url
-    //         }
-    //     },
-    //     registerInstrumentationProps: async (_, breakpoint) => {
-    //         await breakpoint(100)
-    //         if (posthog && values.billing) {
-    //             posthog.register({
-    //                 has_billing_plan: !!values.billing?.plan,
-    //                 metered_billing: values.billing.plan?.is_metered_billing,
-    //                 event_allocation: values.billing.event_allocation,
-    //                 allocation_used:
-    //                     values.billing.event_allocation && values.billing.current_usage !== null
-    //                         ? values.billing.current_usage / values.billing.event_allocation
-    //                         : undefined,
-    //             })
-    //         }
-    //     },
-    // }))
 ])
