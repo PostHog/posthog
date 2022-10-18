@@ -110,6 +110,17 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertNotEqual(self.organization.name, "ASDFG")
 
+    def test_cant_update_plugins_access_level(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.plugins_access_level = 3
+        self.organization.save()
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"plugins_access_level": 9})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.plugins_access_level, 3)
+
 
 def create_organization(name: str) -> Organization:
     """
