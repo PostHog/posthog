@@ -232,7 +232,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             params: Record<string, string | undefined>
         ) => {
             // :KLUDGE: Only handle actions if this logic is active
-            if (props.pluginConfigId === Number(params.pluginConfigId)) {
+            if (props.pluginConfigId === Number(url.pluginConfigId)) {
                 if (!values.pluginConfig) {
                     actions.loadPluginConfig()
                 }
