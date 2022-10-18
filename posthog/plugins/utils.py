@@ -249,10 +249,10 @@ def get_file_from_archive(archive: bytes, filename: str, path: Optional[str] = N
         return None
 
 
-def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None) -> str:
+def find_index_ts_in_archive(archive: bytes, path: Optional[str] = None, main_filename: Optional[str] = None) -> str:
     main_filenames_to_try = [main_filename] if main_filename else ["index.js", "index.ts"]
     for main_filename in main_filenames_to_try:
-        index_ts = get_file_from_archive(archive, main_filename, json_parse=False)
+        index_ts = get_file_from_archive(archive, main_filename, path, json_parse=False)
         if index_ts is not None:
             return index_ts
     raise ValueError(f"Could not find main file {' or '.join(main_filenames_to_try)}")
@@ -279,13 +279,13 @@ def extract_plugin_code(
     plugin_json = json.dumps(plugin_json_parsed)  # We serialize this even if just extracted from file, for minification
     assert plugin_json_parsed is not None  # Just to let mypy know this must be loaded at this point
     # Extract frontend.tsx - optional
-    frontend_tsx: Optional[str] = get_file_from_archive(archive, "frontend.tsx", json_parse=False)
+    frontend_tsx: Optional[str] = get_file_from_archive(archive, "frontend.tsx", path, json_parse=False)
     # Extract site.ts - optional
-    site_ts: Optional[str] = get_file_from_archive(archive, "site.ts", json_parse=False)
+    site_ts: Optional[str] = get_file_from_archive(archive, "site.ts", path, json_parse=False)
     # Extract index.ts - optional if frontend.tsx is present, otherwise required
     index_ts: Optional[str] = None
     try:
-        index_ts = find_index_ts_in_archive(archive, plugin_json_parsed.get("main"))
+        index_ts = find_index_ts_in_archive(archive, path, plugin_json_parsed.get("main"))
     except ValueError as e:
         if frontend_tsx is None and site_ts is None:
             raise e
