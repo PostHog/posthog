@@ -11,6 +11,8 @@ import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/Insights
 import { ChartDisplayType, FilterType, InsightType } from '~/types'
 import clsx from 'clsx'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { IndexedTrendResult } from 'scenes/trends/types'
+// import { useEffect, useRef } from 'react'
 
 export interface InsightLegendProps {
     readOnly?: boolean
@@ -44,36 +46,53 @@ export function InsightLegendButton(): JSX.Element | null {
     ) : null
 }
 
-function InsightLegendRow({
-    hiddenLegendKeys,
-    rowIndex,
-    highlightedSeries,
-    item,
-    hasMultipleSeries,
-    toggleVisibility,
-    filters,
-}: {
-    hiddenLegendKeys: any
-    rowIndex: number
+function shouldHighlightThisRow(
+    hiddenLegendKeys: Record<string, boolean | undefined>,
+    rowIndex: number,
     highlightedSeries: number | null
-    item: any
-    hasMultipleSeries: boolean
-    toggleVisibility: (index: number) => void
-    filters: Partial<FilterType>
-}): JSX.Element {
+): boolean {
     const numberOfSeriesToSkip = Object.entries(hiddenLegendKeys).filter(
         ([key, isHidden]) => isHidden && Number(key) < rowIndex
     ).length
     const isSkipped = hiddenLegendKeys[rowIndex]
-    const highlightStyle: Record<string, any> =
-        highlightedSeries !== null && !isSkipped && highlightedSeries + numberOfSeriesToSkip === rowIndex
-            ? {
-                  style: { backgroundColor: getSeriesColor(item.id, false, true) },
-              }
-            : {}
+    return highlightedSeries !== null && !isSkipped && highlightedSeries + numberOfSeriesToSkip === rowIndex
+}
+
+function InsightLegendRow({
+    hiddenLegendKeys,
+    rowIndex,
+    item,
+    hasMultipleSeries,
+    toggleVisibility,
+    filters,
+    highlighted,
+}: {
+    hiddenLegendKeys: Record<string, boolean | undefined>
+    rowIndex: number
+    item: IndexedTrendResult
+    hasMultipleSeries: boolean
+    toggleVisibility: (index: number) => void
+    filters: Partial<FilterType>
+    highlighted: boolean
+}): JSX.Element {
+    const highlightStyle: Record<string, any> = highlighted
+        ? {
+              style: { backgroundColor: getSeriesColor(item.id, false, true) },
+          }
+        : {}
+    // const rowRef = useRef<HTMLDivElement>(null)
+    // useEffect(() => {
+    //     if (highlighted && rowRef.current) {
+    //         rowRef.current.scrollIntoView()
+    //     }
+    // }, [highlighted])
 
     return (
-        <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row">
+        <div
+            key={item.id}
+            className="InsightLegendMenu-item p-2 w-full flex flex-row"
+            // ref={rowRef}
+        >
             <div key={item.id} className={clsx('InsightLegendMenu-item p-2 w-full flex flex-row')} {...highlightStyle}>
                 <LemonCheckbox
                     className="text-xs mr-4"
@@ -126,7 +145,7 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
                             item={item}
                             rowIndex={index}
                             hasMultipleSeries={indexedResults.length > 1}
-                            highlightedSeries={highlightedSeries}
+                            highlighted={shouldHighlightThisRow(hiddenLegendKeys, index, highlightedSeries)}
                             toggleVisibility={toggleVisibility}
                             filters={filters}
                         />
