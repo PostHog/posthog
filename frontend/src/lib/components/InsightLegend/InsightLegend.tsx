@@ -12,7 +12,7 @@ import { ChartDisplayType, FilterType, InsightType } from '~/types'
 import clsx from 'clsx'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { IndexedTrendResult } from 'scenes/trends/types'
-// import { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 export interface InsightLegendProps {
     readOnly?: boolean
@@ -80,19 +80,16 @@ function InsightLegendRow({
               style: { backgroundColor: getSeriesColor(item.id, false, true) },
           }
         : {}
-    // const rowRef = useRef<HTMLDivElement>(null)
-    // useEffect(() => {
-    //     if (highlighted && rowRef.current) {
-    //         rowRef.current.scrollIntoView()
-    //     }
-    // }, [highlighted])
+
+    const rowRef = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        if (highlighted && rowRef.current) {
+            rowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+        }
+    }, [highlighted])
 
     return (
-        <div
-            key={item.id}
-            className="InsightLegendMenu-item p-2 w-full flex flex-row"
-            // ref={rowRef}
-        >
+        <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row" ref={rowRef}>
             <div key={item.id} className={clsx('InsightLegendMenu-item p-2 w-full flex flex-row')} {...highlightStyle}>
                 <LemonCheckbox
                     className="text-xs mr-4"
