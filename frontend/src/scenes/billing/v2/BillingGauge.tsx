@@ -51,6 +51,7 @@ export function BillingGauge({ items }: BillingGaugeProps): JSX.Element {
     }, [items])
 
     useEffect(() => {
+        // On mount, animate the gauge to full width
         setExpanded(true)
     }, [])
 
