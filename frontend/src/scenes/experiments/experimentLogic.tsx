@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import React, { ReactElement } from 'react'
+import { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'

@@ -1,6 +1,5 @@
 import { Button, Card, Col, Row, Space, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginConfigType, PluginErrorType } from '~/types'
 import {

@@ -1,6 +1,6 @@
 import './DashboardItems.scss'
 
-import React, { useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 
@@ -16,7 +16,7 @@ import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 
 export function DashboardItems(): JSX.Element {
     const {
-        dashboard,
+        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
         tiles,
         layouts,
         dashboardMode,

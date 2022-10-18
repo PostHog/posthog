@@ -1,6 +1,5 @@
 import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import React from 'react'
 import { MetricValue } from './RenderMetricValue'
 
 interface MetricValueEditInterface extends MetricValue {

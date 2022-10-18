@@ -1,4 +1,3 @@
-import React from 'react'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
 

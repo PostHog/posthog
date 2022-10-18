@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import './ProjectHomepage.scss'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'

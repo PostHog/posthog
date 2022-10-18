@@ -85,7 +85,7 @@ class Organization(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
+        default=PluginsAccessLevel.CONFIG,
         choices=PluginsAccessLevel.choices,
     )
     available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
@@ -162,6 +162,8 @@ class Organization(UUIDModel):
 def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
     if instance._state.adding:
         instance.update_available_features()
+        if not settings.MULTI_TENANCY:
+            instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
 class OrganizationMembership(UUIDModel):

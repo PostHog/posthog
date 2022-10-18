@@ -1,4 +1,3 @@
-import React from 'react'
 import { IconClose } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import Modal from 'react-modal'

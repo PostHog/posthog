@@ -1,5 +1,5 @@
 import './InsightTooltip.scss'
-import React, { ReactNode } from 'react'
+import { ReactNode } from 'react'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import {
     COL_CUTOFF,

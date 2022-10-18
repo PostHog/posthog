@@ -1,4 +1,3 @@
-import React from 'react'
 import { AnyCohortCriteriaType, CohortType, FilterLogicalOperator } from '~/types'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
 import {

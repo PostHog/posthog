@@ -1,4 +1,3 @@
-import React from 'react'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { range } from 'lib/utils'
 import { urls } from 'scenes/urls'

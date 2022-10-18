@@ -38,7 +38,7 @@ export async function clearError(server: Hub, pluginConfig: PluginConfig): Promi
     }
 }
 
-function cleanErrorStackTrace(stack: string | undefined): string | undefined {
+export function cleanErrorStackTrace(stack: string | undefined): string | undefined {
     if (!stack) {
         return stack
     }

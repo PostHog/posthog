@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import React from 'react'
 import { FilterType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'

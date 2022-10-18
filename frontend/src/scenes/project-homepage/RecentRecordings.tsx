@@ -1,4 +1,3 @@
-import React from 'react'
 import { dayjs } from 'lib/dayjs'
 import { useActions, useValues } from 'kea'
 

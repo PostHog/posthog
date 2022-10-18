@@ -1,7 +1,6 @@
 import { Meta } from '@storybook/react'
 
 import { PreflightCheck } from './PreflightCheck'
-import React from 'react'
 
 export default {
     title: 'Scenes-Other/Onboarding',
