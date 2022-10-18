@@ -4,6 +4,7 @@ import { Grid, GridCellProps, GridProps, ScrollbarPresenceParams, ScrollParams }
 import { CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 const SCROLLBAR_SIZE_BUFFER = 20
 const MINIMUM_SCROLL_AREA = 150
+const FLOAT_HEADER_AT = 56
 /**
  * Renders 1, 2, or 4 Grids depending on configuration.
  * A main (body) Grid will always be rendered.
@@ -17,7 +18,6 @@ interface MultiGridProps extends GridProps {
     classNameBottomRightGrid?: string
     classNameTopLeftGrid?: string
     classNameTopRightGrid?: string
-    enableFixedColumnScroll?: boolean
     enableFixedRowScroll?: boolean
     fixedColumnCount: number
     fixedRowCount: number
@@ -30,12 +30,18 @@ interface MultiGridProps extends GridProps {
     hideBottomLeftGridScrollbar?: boolean
     columnWidth: number | ((opts: { index: number }) => number)
 }
+enum HeaderState {
+    Top = 'top',
+    Bottom = 'bottom',
+    Fixed = 'fixed',
+}
 interface MultiGridState {
     scrollLeft: number
     scrollTop: number
     scrollbarSize: number
     showHorizontalScrollbar: boolean
     showVerticalScrollbar: boolean
+    headerState: HeaderState
 }
 export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridState> {
     static defaultProps: Partial<MultiGridProps> = {
@@ -43,7 +49,6 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
         classNameBottomRightGrid: '',
         classNameTopLeftGrid: '',
         classNameTopRightGrid: '',
-        enableFixedColumnScroll: false,
         enableFixedRowScroll: false,
         fixedColumnCount: 0,
         fixedRowCount: 0,
@@ -63,6 +68,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
         scrollbarSize: 0,
         showHorizontalScrollbar: false,
         showVerticalScrollbar: false,
+        headerState: HeaderState.Top,
     }
     _deferredMeasurementCacheBottomLeftGrid?: CellMeasurerCache
     _deferredMeasurementCacheBottomRightGrid?: CellMeasurerCache
@@ -72,11 +78,14 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
     _bottomRightGrid?: Grid
     _topLeftGrid?: Grid
     _topRightGrid?: Grid
+    _container?: HTMLDivElement
 
     _bottomLeftGridStyle?: React.CSSProperties
     _bottomRightGridStyle?: React.CSSProperties
     _topLeftGridStyle?: React.CSSProperties
     _topRightGridStyle?: React.CSSProperties
+    _leftScrollHelperStyle?: React.CSSProperties
+    _rightScrollHelperStyle?: React.CSSProperties
 
     _lastRenderedStyleBottomLeftGrid?: React.CSSProperties
     _lastRenderedStyleBottomRightGrid?: React.CSSProperties
@@ -95,6 +104,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
     _lastRenderedRowHeight?: number | ((opts: { index: number }) => number)
     _lastRenderedStyle?: React.CSSProperties
     _lastRenderedEnoughSpaceForFixedColumns?: boolean
+    _lastRenderedHeaderState?: HeaderState
 
     _leftGridWidth?: number | null
     _topGridHeight?: number | null
@@ -232,6 +242,14 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
         }
 
         this._handleInvalidatedGridSize()
+
+        window.addEventListener('scroll', this._handleWindowScrollResize)
+        window.addEventListener('resize', this._handleWindowScrollResize)
+    }
+
+    componentWillUnmount(): void {
+        window.removeEventListener('scroll', this._handleWindowScrollResize)
+        window.removeEventListener('resize', this._handleWindowScrollResize)
     }
 
     componentDidUpdate(): void {
@@ -262,7 +280,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
         // scrollTop and scrollLeft props are explicitly filtered out and ignored
         const { scrollLeft, scrollTop } = this.state
         return (
-            <div style={this._containerOuterStyle}>
+            <div style={this._containerOuterStyle} ref={this._containerRef}>
                 <div style={this._containerTopStyle}>
                     {this._renderTopLeftGrid(rest)}
                     {this._renderTopRightGrid({ ...rest, onScroll, scrollLeft })}
@@ -292,30 +310,26 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
             <>
                 {scrollLeft > 0 ? (
                     <div
-                        style={{
-                            boxShadow: '16px 0 16px -16px rgba(0, 0, 0, 0.25) inset',
-                            width: 16,
-                            pointerEvents: 'none',
-                            position: 'absolute',
-                            top: 0,
-                            bottom: adjustScrollHeight && showHorizontalScrollbar ? scrollbarSize : 0,
-                            left: this._enoughSpaceForFixedColumns() ? this._getLeftGridWidth() : 0,
-                            zIndex: 22,
-                        }}
+                        style={
+                            adjustScrollHeight && showHorizontalScrollbar
+                                ? {
+                                      ...this._leftScrollHelperStyle,
+                                      bottom: adjustScrollHeight && showHorizontalScrollbar ? scrollbarSize : 0,
+                                  }
+                                : this._leftScrollHelperStyle
+                        }
                     />
                 ) : null}
                 {scrollLeft < this._getScrollWidth() - width ? (
                     <div
-                        style={{
-                            boxShadow: '-16px 0 16px -16px rgba(0, 0, 0, 0.25) inset',
-                            width: 16,
-                            pointerEvents: 'none',
-                            position: 'absolute',
-                            top: 0,
-                            right: 0,
-                            bottom: adjustScrollHeight && showHorizontalScrollbar ? scrollbarSize : 0,
-                            zIndex: 22,
-                        }}
+                        style={
+                            adjustScrollHeight && showHorizontalScrollbar
+                                ? {
+                                      ...this._rightScrollHelperStyle,
+                                      bottom: adjustScrollHeight && showHorizontalScrollbar ? scrollbarSize : 0,
+                                  }
+                                : this._rightScrollHelperStyle
+                        }
                     />
                 ) : null}
             </>
@@ -382,10 +396,6 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
                   index: index + fixedColumnCount,
               })
             : columnWidth
-    }
-
-    _getBottomGridHeight(): number {
-        return this.props.height - this._getTopGridHeight()
     }
 
     _getLeftGridWidth(): number {
@@ -486,7 +496,6 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
     _maybeCalculateCachedStyles(resetAll?: boolean): void {
         const {
             columnWidth,
-            enableFixedColumnScroll,
             enableFixedRowScroll,
             height,
             fixedColumnCount,
@@ -499,6 +508,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
             styleTopRightGrid,
             width,
         } = this.props
+        const { headerState } = this.state
         const sizeChange = resetAll || height !== this._lastRenderedHeight || width !== this._lastRenderedWidth
         const leftSizeChange =
             resetAll ||
@@ -508,6 +518,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
             width !== this._lastRenderedWidth
         const topSizeChange =
             resetAll || fixedRowCount !== this._lastRenderedFixedRowCount || rowHeight !== this._lastRenderedRowHeight
+        const headerStateChange = resetAll || headerState !== this._lastRenderedHeaderState
 
         if (resetAll || sizeChange || style !== this._lastRenderedStyle) {
             this._containerOuterStyle = {
@@ -515,22 +526,49 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
                 overflow: 'visible',
                 // Let :focus outline show through
                 width,
+                position: 'relative',
+                zIndex: 1,
                 ...style,
             }
         }
 
-        if (resetAll || sizeChange || topSizeChange) {
+        if (resetAll || sizeChange || topSizeChange || headerStateChange) {
             this._containerTopStyle = {
                 height: this._getTopGridHeight(),
-                position: 'relative',
                 width,
+                ...(headerState === HeaderState.Fixed
+                    ? { position: 'fixed', top: FLOAT_HEADER_AT, zIndex: 3 }
+                    : { position: 'relative', zIndex: 3 }),
             }
             this._containerBottomStyle = {
                 height: height - this._getTopGridHeight(),
                 overflow: 'visible',
                 // Let :focus outline show through
                 position: 'relative',
+                zIndex: 2,
                 width,
+                ...(headerState === HeaderState.Fixed ? { marginTop: this._getTopGridHeight() } : {}),
+            }
+
+            this._leftScrollHelperStyle = {
+                boxShadow: '16px 0 16px -16px rgba(0, 0, 0, 0.25) inset',
+                width: 16,
+                pointerEvents: 'none',
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: this._enoughSpaceForFixedColumns() ? this._getLeftGridWidth() : 0,
+                zIndex: 22,
+            }
+            this._rightScrollHelperStyle = {
+                boxShadow: '-16px 0 16px -16px rgba(0, 0, 0, 0.25) inset',
+                width: 16,
+                pointerEvents: 'none',
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 22,
             }
         }
 
@@ -538,7 +576,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
             this._bottomLeftGridStyle = {
                 left: 0,
                 overflowX: 'hidden',
-                overflowY: enableFixedColumnScroll ? 'auto' : 'hidden',
+                overflowY: 'hidden',
                 position: 'absolute',
                 zIndex: 10,
                 ...styleBottomLeftGrid,
@@ -594,6 +632,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
         this._lastRenderedStyleTopRightGrid = styleTopRightGrid
         this._lastRenderedWidth = width
         this._lastRenderedEnoughSpaceForFixedColumns = this._enoughSpaceForFixedColumns()
+        this._lastRenderedHeaderState = this.state.headerState
     }
 
     _prepareForRender(): void {
@@ -668,9 +707,26 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
         })
     }
 
+    _handleWindowScrollResize = (): void => {
+        const { scrollTop, headerState } = this.state
+        const containerY = this._container?.getBoundingClientRect()?.y ?? 0
+        const newScrollTop = containerY < FLOAT_HEADER_AT ? FLOAT_HEADER_AT - containerY : 0
+        const newHeaderState = containerY > FLOAT_HEADER_AT ? HeaderState.Top : HeaderState.Fixed
+
+        if (newScrollTop !== scrollTop || newHeaderState !== headerState) {
+            this.setState({
+                scrollTop: newScrollTop,
+                headerState: newHeaderState,
+            })
+        }
+    }
+
+    _getBottomGridHeight(): number {
+        return this.props.height - this._getTopGridHeight()
+    }
+
     _renderBottomLeftGrid(props: GridProps): React.ReactNode {
-        const { enableFixedColumnScroll, fixedColumnCount, fixedRowCount, rowCount, hideBottomLeftGridScrollbar } =
-            props
+        const { fixedColumnCount, fixedRowCount, rowCount, hideBottomLeftGridScrollbar } = props
         const { showVerticalScrollbar } = this.state
 
         if (!fixedColumnCount || !this._enoughSpaceForFixedColumns()) {
@@ -691,7 +747,6 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
                 columnCount={fixedColumnCount}
                 deferredMeasurementCache={this._deferredMeasurementCacheBottomLeftGrid}
                 height={height}
-                onScroll={enableFixedColumnScroll ? this._onScrollTop : undefined}
                 ref={this._bottomLeftGridRef}
                 rowCount={Math.max(0, rowCount - fixedRowCount) + additionalRowCount}
                 rowHeight={this._rowHeightBottomGrid}
@@ -865,5 +920,9 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
 
     _topRightGridRef = (ref: Grid): void => {
         this._topRightGrid = ref
+    }
+
+    _containerRef = (ref: HTMLDivElement): void => {
+        this._container = ref
     }
 }
