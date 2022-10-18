@@ -103,6 +103,10 @@ idna==2.8
     #   -c requirements.txt
     #   requests
     #   urllib3
+importlib-metadata==5.0.0
+    # via
+    #   -c requirements.txt
+    #   pytest-randomly
 iniconfig==1.1.1
     # via pytest
 isort==5.2.2
@@ -177,6 +181,7 @@ pytest==6.2.2
     #   pytest-env
     #   pytest-icdiff
     #   pytest-mock
+    #   pytest-randomly
     #   pytest-split
     #   pytest-watch
     #   syrupy
@@ -189,6 +194,8 @@ pytest-env==0.6.2
 pytest-icdiff==0.5
     # via -r requirements-dev.in
 pytest-mock==3.5.1
+    # via -r requirements-dev.in
+pytest-randomly==3.12.0
     # via -r requirements-dev.in
 pytest-split==0.6.0
     # via -r requirements-dev.in
@@ -272,6 +279,10 @@ wrapt==1.14.1
     # via
     #   -c requirements.txt
     #   deprecated
+zipp==3.1.0
+    # via
+    #   -c requirements.txt
+    #   importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip
