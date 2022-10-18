@@ -11,6 +11,8 @@ import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/Insights
 import { ChartDisplayType, FilterType, InsightType } from '~/types'
 import clsx from 'clsx'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { IndexedTrendResult } from 'scenes/trends/types'
+import { useEffect, useRef } from 'react'
 
 export interface InsightLegendProps {
     readOnly?: boolean
@@ -44,8 +46,81 @@ export function InsightLegendButton(): JSX.Element | null {
     ) : null
 }
 
+function shouldHighlightThisRow(
+    hiddenLegendKeys: Record<string, boolean | undefined>,
+    rowIndex: number,
+    highlightedSeries: number | null
+): boolean {
+    const numberOfSeriesToSkip = Object.entries(hiddenLegendKeys).filter(
+        ([key, isHidden]) => isHidden && Number(key) < rowIndex
+    ).length
+    const isSkipped = hiddenLegendKeys[rowIndex]
+    return highlightedSeries !== null && !isSkipped && highlightedSeries + numberOfSeriesToSkip === rowIndex
+}
+
+function InsightLegendRow({
+    hiddenLegendKeys,
+    rowIndex,
+    item,
+    hasMultipleSeries,
+    toggleVisibility,
+    filters,
+    highlighted,
+}: {
+    hiddenLegendKeys: Record<string, boolean | undefined>
+    rowIndex: number
+    item: IndexedTrendResult
+    hasMultipleSeries: boolean
+    toggleVisibility: (index: number) => void
+    filters: Partial<FilterType>
+    highlighted: boolean
+}): JSX.Element {
+    const highlightStyle: Record<string, any> = highlighted
+        ? {
+              style: { backgroundColor: getSeriesColor(item.id, false, true) },
+          }
+        : {}
+
+    const rowRef = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        if (highlighted && rowRef.current) {
+            rowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+        }
+    }, [highlighted])
+
+    return (
+        <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row" ref={rowRef}>
+            <div key={item.id} className={clsx('InsightLegendMenu-item p-2 w-full flex flex-row')} {...highlightStyle}>
+                <LemonCheckbox
+                    className="text-xs mr-4"
+                    color={getSeriesColor(item.id, !!filters.compare)}
+                    checked={!hiddenLegendKeys[rowIndex]}
+                    onChange={() => toggleVisibility(rowIndex)}
+                    fullWidth
+                    label={
+                        <InsightLabel
+                            key={item.id}
+                            seriesColor={getSeriesColor(item.id, !!filters.compare)}
+                            action={item.action}
+                            fallbackName={item.breakdown_value === '' ? 'None' : item.label}
+                            hasMultipleSeries={hasMultipleSeries}
+                            breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
+                            compareValue={filters.compare ? formatCompareLabel(item) : undefined}
+                            pillMidEllipsis={item?.filter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
+                            hideIcon
+                        />
+                    }
+                />
+                {filters.display === ChartDisplayType.ActionsPie && (
+                    <div className={'text-muted'}>{formatAggregationAxisValue(filters, item.aggregated_value)}</div>
+                )}
+            </div>
+        </div>
+    )
+}
+
 export function InsightLegend({ horizontal, inCardView, readOnly = false }: InsightLegendProps): JSX.Element | null {
-    const { insightProps, filters, activeView } = useValues(insightLogic)
+    const { insightProps, filters, highlightedSeries, activeView } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
@@ -60,39 +135,18 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
         >
             <div className="InsightLegendMenu-scroll">
                 {indexedResults &&
-                    indexedResults.map((item, index) => {
-                        return (
-                            <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row">
-                                <LemonCheckbox
-                                    className="text-xs mr-4"
-                                    color={getSeriesColor(item.id, !!filters.compare)}
-                                    checked={!hiddenLegendKeys[index]}
-                                    onChange={() => toggleVisibility(index)}
-                                    fullWidth
-                                    label={
-                                        <InsightLabel
-                                            key={item.id}
-                                            seriesColor={getSeriesColor(item.id, !!filters.compare)}
-                                            action={item.action}
-                                            fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                                            hasMultipleSeries={indexedResults.length > 1}
-                                            breakdownValue={
-                                                item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()
-                                            }
-                                            compareValue={filters.compare ? formatCompareLabel(item) : undefined}
-                                            pillMidEllipsis={item?.filter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
-                                            hideIcon
-                                        />
-                                    }
-                                />
-                                {filters.display === ChartDisplayType.ActionsPie && (
-                                    <div className={'text-muted'}>
-                                        {formatAggregationAxisValue(filters, item.aggregated_value)}
-                                    </div>
-                                )}
-                            </div>
-                        )
-                    })}
+                    indexedResults.map((item, index) => (
+                        <InsightLegendRow
+                            key={index}
+                            hiddenLegendKeys={hiddenLegendKeys}
+                            item={item}
+                            rowIndex={index}
+                            hasMultipleSeries={indexedResults.length > 1}
+                            highlighted={shouldHighlightThisRow(hiddenLegendKeys, index, highlightedSeries)}
+                            toggleVisibility={toggleVisibility}
+                            filters={filters}
+                        />
+                    ))}
             </div>
         </div>
     ) : null
