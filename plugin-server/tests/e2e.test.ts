@@ -1,9 +1,10 @@
 import ClickHouse from '@posthog/clickhouse'
+import Redis from 'ioredis'
 import { Kafka, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
-import { ONE_HOUR, ONE_MINUTE } from '../src/config/constants'
+import { ONE_HOUR } from '../src/config/constants'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import {
     LogLevel,
@@ -23,9 +24,6 @@ import { insertRow, POSTGRES_TRUNCATE_TABLES_QUERY } from './helpers/sql'
 const { console: testConsole } = writeToFile
 
 jest.setTimeout(60000) // 60 sec timeout
-
-beforeEach(() => jest.useRealTimers())
-afterEach(() => jest.useRealTimers())
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 1,
@@ -65,6 +63,7 @@ let producer: Producer
 let clickHouseClient: ClickHouse
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let kafka: Kafka
+let redis: Redis.Redis
 let organizationId: string
 
 beforeAll(async () => {
@@ -88,12 +87,13 @@ beforeAll(async () => {
     kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
     producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
     await producer.connect()
+    redis = new Redis(defaultConfig.REDIS_URL)
 
     organizationId = await createOrganization(postgres)
 })
 
 afterAll(async () => {
-    await Promise.all([producer.disconnect(), postgres.end()])
+    await Promise.all([producer.disconnect(), postgres.end(), redis.disconnect()])
 })
 
 describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) => {
@@ -135,10 +135,6 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 }
                 testConsole.log('onEvent', JSON.stringify(event))
             }
-            
-            export async function runEveryMinute() {
-                testConsole.log('runEveryMinute')
-            }
         `
 
         beforeAll(async () => {
@@ -153,7 +149,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
         test('event captured, processed, ingested', async () => {
             const teamId = await createTeam(postgres, organizationId)
-            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+            await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
 
@@ -189,7 +185,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             // object. Thus we want to ensure that this information is passed
             // through to any plugins with `onEvent` handlers
             const teamId = await createTeam(postgres, organizationId)
-            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+            await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
 
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
@@ -218,7 +214,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
         test('console logging is persistent', async () => {
             const teamId = await createTeam(postgres, organizationId)
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
 
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
@@ -330,7 +326,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 source__index_ts: indexJs,
             })
             const teamId = await createTeam(postgres, organizationId)
-            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+            await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
 
@@ -395,7 +391,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 source__index_ts: indexJs,
             })
             const teamId = await createTeam(postgres, organizationId)
-            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+            await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
 
@@ -421,9 +417,9 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             // too much it seems we end up performing alot of reloads of
             // actions, which prevents the test from completing.
             //
-            // Note this also somewhat plays havoc with the Kafka consumer
-            // sessions.
-            jest.useFakeTimers({ advanceTimers: 30 })
+            // NOTE: we do not use Fake Timers here as there is an issue in that
+            // it only appears to work for timers in the main thread, and not
+            // ones in the worker threads.
             const plugin = await createPlugin(postgres, {
                 organization_id: organizationId,
                 name: 'runEveryMinute plugin',
@@ -431,23 +427,24 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 is_global: false,
                 source__index_ts: `
                     import { console as testConsole } from 'test-utils/write-to-file'
-        
-                    export function runEveryMinute () {
+
+                    export async function runEveryMinute() {
                         testConsole.log('runEveryMinute')
                     }
                 `,
             })
 
             const teamId = await createTeam(postgres, organizationId)
-            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+            await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId))
-
-            jest.advanceTimersByTime(ONE_MINUTE)
-            await delayUntilEventIngested(() => testConsole.read())
-            const consoleOutput = testConsole.read()
-            expect(consoleOutput.flatMap((x) => x)).toContain('runEveryMinute')
-        })
+            const consoleOutput = await delayUntilEventIngested(
+                () => testConsole.read().filter(([method]) => method === 'runEveryMinute'),
+                1,
+                1000,
+                60
+            )
+            expect(consoleOutput).toContainEqual(['runEveryMinute'])
+        }, 60000)
     })
 
     describe(`scheduled tasks (${pluginServer.name})`, () => {
@@ -537,17 +534,12 @@ const createPluginConfig = async (
     })
 }
 
-const createAndReloadPluginConfig = async (
-    pgClient: Pool,
-    teamId: number,
-    pluginId: number,
-    pluginsServers: ServerInstance[]
-) => {
+const createAndReloadPluginConfig = async (pgClient: Pool, teamId: number, pluginId: number, redis: Redis.Redis) => {
     const pluginConfig = await createPluginConfig(postgres, { team_id: teamId, plugin_id: pluginId })
     // Make sure the plugin server reloads the newly created plugin config.
     // TODO: avoid reaching into the pluginsServer internals and rather use
     // the pubsub mechanism to trigger this.
-    await Promise.all(pluginsServers.map((instance) => instance.piscina.broadcastTask({ task: 'reloadPlugins' })))
+    await redis.publish('reload-plugins', '')
     return pluginConfig
 }
 
