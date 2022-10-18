@@ -266,7 +266,7 @@ class PluginSourceFileManager(models.Manager):
 
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
         path = None
-        if plugin.plugin_type not in (Plugin.PluginType.SOURCE, Plugin.PluginType.LOCAL):
+        if plugin.plugin_type not in (Plugin.PluginType.SOURCE, Plugin.PluginType.LOCAL) and plugin.url:
             parsed_url = parse_url(plugin.url, get_latest_if_none=True)
             path = parsed_url.get("path", None)
 
