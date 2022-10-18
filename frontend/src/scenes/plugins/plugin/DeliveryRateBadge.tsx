@@ -1,13 +1,23 @@
 import { Badge } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
+import { urls } from 'scenes/urls'
+import { Link } from 'lib/components/Link'
 
 type BadgeColor = 'green' | 'yellow' | 'red' | 'grey'
 
-export function DeliveryRateBadge({ deliveryRate }: { deliveryRate: number | null }): JSX.Element {
+export function DeliveryRateBadge({
+    deliveryRate,
+    pluginConfigId,
+}: {
+    deliveryRate: number | null
+    pluginConfigId: number
+}): JSX.Element {
     const [color, tooltip] = deliveryRateSummary(deliveryRate)
     return (
         <Tooltip title={tooltip}>
-            <Badge color={color} />
+            <Link to={urls.appMetrics(pluginConfigId)}>
+                <Badge color={color} />
+            </Link>
         </Tooltip>
     )
 }
