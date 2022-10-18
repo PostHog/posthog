@@ -5,6 +5,7 @@ from freezegun.api import freeze_time
 
 from posthog.models.activity_logging.activity_log import Detail, Trigger, log_activity
 from posthog.models.team.team import Team
+from posthog.models.utils import UUIDT
 from posthog.queries.app_metrics.historical_exports import historical_export_metrics, historical_exports_activity
 from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries, snapshot_postgres_queries
@@ -227,6 +228,9 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             job_id="1234",
             timestamp="2021-08-25T02:55:00Z",
             failures=2,
+            error_uuid=str(UUIDT()),
+            error_type="SomeError",
+            error_details={"event": {}},
         )
         create_app_metric(
             team_id=self.team.pk,
@@ -266,6 +270,13 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                     "status": "success",
                     "created_by": mock.ANY,
                 },
+                "errors": [
+                    {
+                        "error_type": "SomeError",
+                        "count": 1,
+                        "last_seen": datetime.fromisoformat("2021-08-25T02:55:00+00:00"),
+                    },
+                ],
             },
         )
 

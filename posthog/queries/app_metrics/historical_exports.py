@@ -3,14 +3,15 @@ from typing import Dict, Optional
 
 import pytz
 
-from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
-from posthog.queries.app_metrics.app_metrics import AppMetricsQuery
+from posthog.queries.app_metrics.app_metrics import AppMetricsErrorsQuery, AppMetricsQuery
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
 
 
 def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Optional[str] = None):
+    from posthog.api.shared import UserBasicSerializer
+
     entries = ActivityLog.objects.filter(
         team_id=team_id,
         scope="PluginConfig",
@@ -66,5 +67,6 @@ def historical_export_metrics(team: Team, plugin_config_id: int, job_id: str):
     filter = AppMetricsRequestSerializer(data=filter_data)
     filter.is_valid(raise_exception=True)
     metric_results = AppMetricsQuery(team, plugin_config_id, filter).run()
+    errors = AppMetricsErrorsQuery(team, plugin_config_id, filter).run()
 
-    return {"summary": export_summary, "metrics": metric_results}
+    return {"summary": export_summary, "metrics": metric_results, "errors": errors}

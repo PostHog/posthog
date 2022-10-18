@@ -43,6 +43,32 @@ export interface AppMetrics {
     }
 }
 
+export interface AppErrorSummary {
+    error_type: string
+    count: number
+    last_seen: string
+}
+
+export interface AppMetricsResponse {
+    metrics: AppMetrics
+    errors: Array<AppErrorSummary>
+}
+
+export interface AppMetricErrorDetail {
+    timestamp: string
+    error_uuid: string
+    error_type: string
+    error_details: {
+        error: {
+            name: string
+            message?: string
+            stack?: string
+        }
+        event?: any
+        eventCount?: number
+    }
+}
+
 const INITIAL_TABS: Array<AppMetricsTab> = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
@@ -57,6 +83,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
     actions({
         setActiveTab: (tab: AppMetricsTab) => ({ tab }),
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
+        openErrorDetailsDrawer: (errorType: string, category: string, jobId?: string) => ({
+            errorType,
+            category,
+            jobId,
+        }),
+        closeErrorDetailsDrawer: true,
     }),
 
     reducers({
@@ -72,6 +104,13 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 setDateFrom: (_, { dateFrom }) => dateFrom,
             },
         ],
+        errorDetailsDrawerError: [
+            null as string | null,
+            {
+                openErrorDetailsDrawer: (_, { errorType }) => errorType,
+                closeErrorDetailsDrawer: () => null,
+            },
+        ],
     }),
 
     loaders(({ values, props }) => ({
@@ -85,15 +124,14 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 },
             },
         ],
-        metrics: [
-            null as AppMetrics | null,
+        appMetricsResponse: [
+            null as AppMetricsResponse | null,
             {
                 loadMetrics: async () => {
                     const params = toParams({ category: values.activeTab, date_from: values.dateFrom })
-                    const { results } = await api.get(
+                    return await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}?${params}`
                     )
-                    return results
                 },
             },
         ],
@@ -105,6 +143,18 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                         `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}/historical_exports`
                     )
                     return results as Array<HistoricalExportInfo>
+                },
+            },
+        ],
+        errorDetails: [
+            [] as Array<AppMetricErrorDetail>,
+            {
+                openErrorDetailsDrawer: async ({ category, jobId, errorType }) => {
+                    const params = toParams({ category, job_id: jobId, error_type: errorType })
+                    const { result } = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}/error_details?${params}`
+                    )
+                    return result
                 },
             },
         ],

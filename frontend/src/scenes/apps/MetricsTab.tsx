@@ -1,11 +1,14 @@
 import { Card } from 'antd'
-import { AppMetrics, appMetricsSceneLogic, AppMetricsTab } from './appMetricsSceneLogic'
+import { AppErrorSummary, AppMetrics, appMetricsSceneLogic, AppMetricsTab } from './appMetricsSceneLogic'
 import { DescriptionColumns } from './constants'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { humanFriendlyNumber } from 'lib/utils'
 import { AppMetricsGraph } from './AppMetricsGraph'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { useActions, useValues } from 'kea'
+import { LemonTable } from '../../lib/components/LemonTable'
+import { TZLabel } from 'lib/components/TimezoneAware'
+import { Link } from '../../lib/components/Link'
 
 export interface MetricsTabProps {
     tab: AppMetricsTab
@@ -13,12 +16,12 @@ export interface MetricsTabProps {
 
 export interface MetricsOverviewProps {
     tab: AppMetricsTab
-    metrics: AppMetrics | null
+    metrics?: AppMetrics | null
     metricsLoading: boolean
 }
 
 export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
-    const { metrics, metricsLoading, dateFrom } = useValues(appMetricsSceneLogic)
+    const { appMetricsResponse, appMetricsResponseLoading, dateFrom } = useValues(appMetricsSceneLogic)
     const { setDateFrom } = useActions(appMetricsSceneLogic)
 
     return (
@@ -39,11 +42,27 @@ export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
                     </div>
                 }
             >
-                <MetricsOverview tab={tab} metrics={metrics} metricsLoading={metricsLoading} />
+                <MetricsOverview
+                    tab={tab}
+                    metrics={appMetricsResponse?.metrics}
+                    metricsLoading={appMetricsResponseLoading}
+                />
             </Card>
 
             <Card title="Delivery trends" className="mt-4">
-                <AppMetricsGraph tab={tab} metrics={metrics} metricsLoading={metricsLoading} />
+                <AppMetricsGraph
+                    tab={tab}
+                    metrics={appMetricsResponse?.metrics}
+                    metricsLoading={appMetricsResponseLoading}
+                />
+            </Card>
+
+            <Card title="Errors" className="mt-4">
+                <ErrorsOverview
+                    category={tab}
+                    errors={appMetricsResponse?.errors || []}
+                    loading={appMetricsResponseLoading}
+                />
             </Card>
         </div>
     )
@@ -71,6 +90,70 @@ export function MetricsOverview({ tab, metrics, metricsLoading }: MetricsOvervie
                 <div>{renderNumber(metrics?.totals?.failures)}</div>
             </div>
         </>
+    )
+}
+
+export function ErrorsOverview({
+    errors,
+    loading,
+    category,
+    jobId,
+}: {
+    errors: Array<AppErrorSummary>
+    loading?: boolean
+    category: string
+    jobId?: string
+}): JSX.Element {
+    const { openErrorDetailsDrawer } = useActions(appMetricsSceneLogic)
+
+    return (
+        <LemonTable
+            dataSource={errors}
+            loading={loading}
+            columns={[
+                {
+                    title: 'Error type',
+                    dataIndex: 'error_type',
+                    render: function RenderErrorType(_, errorSummary) {
+                        return (
+                            <Link
+                                title="View details"
+                                className="font-semibold"
+                                onClick={(event) => {
+                                    event.preventDefault()
+                                    openErrorDetailsDrawer(errorSummary.error_type, category, jobId)
+                                }}
+                            >
+                                {errorSummary.error_type}
+                            </Link>
+                        )
+                    },
+                    sorter: (a, b) => a.error_type.localeCompare(b.error_type),
+                },
+                {
+                    title: 'Count',
+                    dataIndex: 'count',
+                    align: 'right',
+                    sorter: (a, b) => a.count - b.count,
+                },
+                {
+                    title: 'Last seen',
+                    dataIndex: 'last_seen',
+                    render: function RenderCreatedAt(lastSeen) {
+                        return (
+                            <div className="whitespace-nowrap text-right">
+                                <TZLabel time={lastSeen as string} />
+                            </div>
+                        )
+                    },
+                    align: 'right',
+                    sorter: (a, b) => (new Date(a.last_seen || 0) > new Date(b.last_seen || 0) ? 1 : -1),
+                },
+            ]}
+            defaultSorting={{ columnKey: 'last_seen', order: -1 }}
+            useURLForSorting={false}
+            noSortingCancellation
+        />
     )
 }
 

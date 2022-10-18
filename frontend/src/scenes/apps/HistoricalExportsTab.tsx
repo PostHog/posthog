@@ -48,6 +48,7 @@ export function HistoricalExportsTab(): JSX.Element {
                                 )
                         }
                     },
+                    align: 'right',
                 },
                 createdByColumn() as LemonTableColumn<HistoricalExportInfo, any>,
                 createdAtColumn() as LemonTableColumn<HistoricalExportInfo, any>,
@@ -60,6 +61,8 @@ export function HistoricalExportsTab(): JSX.Element {
                     return <HistoricalExport pluginConfigId={pluginConfig.id} jobId={historicalExport.job_id} />
                 },
             }}
+            useURLForSorting={false}
+            noSortingCancellation
         />
     )
 }
