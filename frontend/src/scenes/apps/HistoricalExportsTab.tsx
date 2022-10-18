@@ -4,6 +4,7 @@ import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { HistoricalExport } from './HistoricalExport'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { Progress } from 'antd'
 
 export function HistoricalExportsTab(): JSX.Element {
     const { historicalExports, historicalExportsLoading, pluginConfig } = useValues(appMetricsSceneLogic)
@@ -24,9 +25,9 @@ export function HistoricalExportsTab(): JSX.Element {
                     },
                 },
                 {
-                    title: 'Status',
-                    width: 100,
-                    render: function RenderActive(_, historicalExport: HistoricalExportInfo) {
+                    title: 'Progress',
+                    width: 130,
+                    render: function RenderProgress(_, historicalExport: HistoricalExportInfo) {
                         switch (historicalExport.status) {
                             case 'success':
                                 return (
@@ -41,11 +42,7 @@ export function HistoricalExportsTab(): JSX.Element {
                                     </LemonTag>
                                 )
                             case 'not_finished':
-                                return (
-                                    <LemonTag type="default" className="uppercase">
-                                        Running
-                                    </LemonTag>
-                                )
+                                return <Progress percent={Math.floor((historicalExport.progress || 0) * 100)} />
                         }
                     },
                     align: 'right',

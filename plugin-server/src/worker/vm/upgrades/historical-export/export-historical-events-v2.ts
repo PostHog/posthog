@@ -285,7 +285,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 })
             )
 
-            await meta.storage.set(`EXPORT_COORDINATION`, {
+            await meta.storage.set(EXPORT_COORDINATION_KEY, {
                 done: update.done,
                 running: update.running,
                 progress: update.progress,

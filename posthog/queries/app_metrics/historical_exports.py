@@ -1,9 +1,11 @@
+import json
 from datetime import timedelta
 from typing import Dict, Optional
 
 import pytz
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.plugin import PluginStorage
 from posthog.models.team.team import Team
 from posthog.queries.app_metrics.app_metrics import AppMetricsErrorsQuery, AppMetricsQuery
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
@@ -26,26 +28,30 @@ def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Opt
         by_category[entry.activity][entry.detail["trigger"]["job_id"]] = entry
 
     historical_exports = []
-    for job_id, trigger_entry in by_category["job_triggered"].items():
+    for export_job_id, trigger_entry in by_category["job_triggered"].items():
         record = {
             "created_at": trigger_entry.created_at,
             "created_by": UserBasicSerializer(instance=trigger_entry.user).data,
-            "job_id": job_id,
+            "job_id": export_job_id,
             "payload": trigger_entry.detail["trigger"]["payload"],
         }
 
-        if job_id in by_category["export_success"]:
-            entry = by_category["export_success"][job_id]
+        if export_job_id in by_category["export_success"]:
+            entry = by_category["export_success"][export_job_id]
             record["status"] = "success"
             record["finished_at"] = entry.created_at
             record["duration"] = (entry.created_at - trigger_entry.created_at).total_seconds()
-        elif job_id in by_category["export_fail"]:
-            entry = by_category["export_fail"][job_id]
+        elif export_job_id in by_category["export_fail"]:
+            entry = by_category["export_fail"][export_job_id]
             record["status"] = "fail"
             record["finished_at"] = entry.created_at
             record["duration"] = (entry.created_at - trigger_entry.created_at).total_seconds()
         else:
+
             record["status"] = "not_finished"
+            progress = _fetch_export_progress(plugin_config_id, export_job_id)
+            if progress is not None:
+                record["progress"] = progress
         historical_exports.append(record)
 
     historical_exports.sort(key=lambda record: record["created_at"], reverse=True)
@@ -70,3 +76,16 @@ def historical_export_metrics(team: Team, plugin_config_id: int, job_id: str):
     errors = AppMetricsErrorsQuery(team, plugin_config_id, filter).run()
 
     return {"summary": export_summary, "metrics": metric_results, "errors": errors}
+
+
+def _fetch_export_progress(plugin_config_id: int, job_id: str) -> Optional[float]:
+    coordination_entry = PluginStorage.objects.filter(
+        plugin_config_id=plugin_config_id,
+        # Keep this in sync with plugin-server/src/worker/vm/upgrades/historical-export/export-historical-events-v2.ts
+        key="EXPORT_COORDINATION",
+    ).first()
+
+    if coordination_entry is None:
+        return None
+
+    return json.loads(coordination_entry.value).get("progress")
