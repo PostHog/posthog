@@ -71,7 +71,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
     else:
         parsed_url = parse_url(url, get_latest_if_none=True)
         if parsed_url:
-            validated_data["url"] = parsed_url["root_url"]
+            validated_data["url"] = url
             validated_data["tag"] = parsed_url.get("tag", None)
             validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
             plugin_json = cast(
