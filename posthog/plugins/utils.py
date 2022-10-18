@@ -31,13 +31,9 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
         "user": match.group(1),
         "repo": match.group(2),
         "tag": match.group(5),
-        "path": match.group(6) if match.group(6) != "" else None,
+        "path": match.group(6) or None,
         "private_token": private_token,
     }
-
-    parsed["root_url"] = "https://github.com/{}/{}{}".format(
-        parsed["user"], parsed["repo"], "?private_token={}".format(private_token) if private_token else ""
-    )
 
     if get_latest_if_none and not parsed["tag"]:
         try:
@@ -54,10 +50,11 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
         except Exception as e:
             raise Exception(f"Could not get latest commit for {parsed['root_url']}. Reason: {e}")
     if parsed["tag"]:
-        parsed["tagged_url"] = "https://github.com/{}/{}/tree/{}{}".format(
+        parsed["tagged_url"] = "https://github.com/{}/{}/tree/{}{}{}".format(
             parsed["user"],
             parsed["repo"],
             parsed["tag"],
+            "/" + parsed["path"] if parsed["path"] else "",
             "?private_token={}".format(private_token) if private_token else "",
         )
     return parsed
