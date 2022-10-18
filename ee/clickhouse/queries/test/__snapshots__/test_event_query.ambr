@@ -1,6 +1,6 @@
 # name: TestEventQuery.test_account_filters
   '
-  /* request:1 */
+  
   SELECT count(*)
   FROM
     (SELECT 1
@@ -16,7 +16,7 @@
 ---
 # name: TestEventQuery.test_account_filters.1
   '
-  /* request:1 */
+  
   SELECT count(*)
   FROM
     (SELECT 1
@@ -32,7 +32,7 @@
 ---
 # name: TestEventQuery.test_account_filters.2
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp,
          pdi.person_id as person_id
   FROM events e
@@ -63,7 +63,7 @@
 ---
 # name: TestEventQuery.test_basic_event_filter
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp
   FROM events e
   WHERE team_id = 2
@@ -74,7 +74,7 @@
 ---
 # name: TestEventQuery.test_cohort_filter
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp,
          pdi.person_id as person_id
   FROM events e
@@ -111,7 +111,7 @@
 ---
 # name: TestEventQuery.test_denormalised_props
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp,
          e."mat_test_prop" as "mat_test_prop"
   FROM events e
@@ -125,7 +125,7 @@
 ---
 # name: TestEventQuery.test_element
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp
   FROM events e
   WHERE team_id = 2
@@ -137,7 +137,7 @@
 ---
 # name: TestEventQuery.test_element.1
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp
   FROM events e
   WHERE team_id = 2
@@ -149,7 +149,7 @@
 ---
 # name: TestEventQuery.test_entity_filtered_by_cohort
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp,
          pdi.person_id as person_id
   FROM events e
@@ -186,7 +186,7 @@
 ---
 # name: TestEventQuery.test_entity_filtered_by_multiple_session_duration_filters
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp,
          sessions.session_duration as session_duration,
          sessions.$session_id as $session_id
@@ -210,7 +210,7 @@
 ---
 # name: TestEventQuery.test_entity_filtered_by_session_duration
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp,
          sessions.session_duration as session_duration,
          sessions.$session_id as $session_id
@@ -233,7 +233,7 @@
 ---
 # name: TestEventQuery.test_event_properties_filter
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp,
          e."properties" as "properties"
   FROM events e
@@ -246,7 +246,7 @@
 ---
 # name: TestEventQuery.test_event_properties_filter.1
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp
   FROM events e
   WHERE team_id = 2
@@ -258,7 +258,7 @@
 ---
 # name: TestEventQuery.test_groups_filters
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp
   FROM events e
   INNER JOIN
@@ -285,7 +285,7 @@
 ---
 # name: TestEventQuery.test_groups_filters_mixed
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp,
          pdi.person_id as person_id
   FROM events e
@@ -324,7 +324,7 @@
 ---
 # name: TestEventQuery.test_static_cohort_filter
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp,
          pdi.person_id as person_id
   FROM events e
@@ -354,7 +354,7 @@
 ---
 # name: TestEventQuery.test_unique_session_math_filtered_by_session_duration
   '
-  /* request:1 */
+  
   SELECT e.timestamp as timestamp,
          e."$session_id" as "$session_id",
          sessions.session_duration as session_duration
