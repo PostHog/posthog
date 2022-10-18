@@ -722,7 +722,7 @@ def get_instance_region() -> Optional[str]:
     """
     Returns the region for the current instance. `US` or 'EU'.
     """
-    if settings.MULTI_TENANCY:
+    if is_cloud():
         return settings.REGION
     return None
 
