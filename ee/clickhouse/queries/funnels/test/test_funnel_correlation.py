@@ -648,7 +648,6 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         group_properties=[(0, "industry")],
         verify_no_jsonextract=False,
     )
-    @snapshot_clickhouse_queries
     def test_funnel_correlation_with_properties_and_groups_person_on_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
 
