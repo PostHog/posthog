@@ -219,22 +219,22 @@ def load_json_file(filename: str):
         return None
 
 
-def get_file_from_zip_archive(archive: bytes, filename: str, *, json_parse: bool) -> Any:
+def get_file_from_zip_archive(archive: bytes, filename: str, path: Optional[str] = None, *, json_parse: bool) -> Any:
     zip_file = ZipFile(io.BytesIO(archive), "r")
     root_folder = zip_file.namelist()[0]
-    file_path = os.path.join(root_folder, filename)
+    file_path = os.path.join(root_folder, path or "", filename)
     with zip_file.open(file_path) as reader:
         file_bytes = reader.read()
         return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
 
 
-def get_file_from_tgz_archive(archive: bytes, filename, *, json_parse: bool) -> Any:
+def get_file_from_tgz_archive(archive: bytes, filename, path: Optional[str] = None, *, json_parse: bool) -> Any:
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
         if tar.getmembers()[0].isdir():
             root_folder = tar.getmembers()[0].name
         else:
             root_folder = "/".join(tar.getmembers()[0].name.split("/")[0:-1])
-        file_path = os.path.join(root_folder, filename)
+        file_path = os.path.join(root_folder, path or "", filename)
         extracted_file = tar.extractfile(file_path)
         if not extracted_file:
             return None
@@ -242,12 +242,12 @@ def get_file_from_tgz_archive(archive: bytes, filename, *, json_parse: bool) -> 
         return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
 
 
-def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = True) -> Any:
+def get_file_from_archive(archive: bytes, filename: str, path: Optional[str] = None, *, json_parse: bool = True) -> Any:
     try:
         try:
-            return get_file_from_zip_archive(archive, filename, json_parse=json_parse)
+            return get_file_from_zip_archive(archive, filename, path, json_parse=json_parse)
         except BadZipFile:
-            return get_file_from_tgz_archive(archive, filename, json_parse=json_parse)
+            return get_file_from_tgz_archive(archive, filename, path, json_parse=json_parse)
     except KeyError:
         return None
 
