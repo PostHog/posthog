@@ -5,7 +5,7 @@ import re
 import tarfile
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, quote
-from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
+from zipfile import ZIP_DEFLATED, BadZipFile, Path, ZipFile
 
 import requests
 from django.conf import settings
@@ -163,7 +163,7 @@ def split_url_and_private_token(url: str) -> Tuple[str, Optional[str]]:
 
 
 # passing `tag` overrides whatever is in the URL
-def download_plugin_archive(url: str, tag: Optional[str] = None):
+def download_plugin_archive(url: str, tag: Optional[str] = None) -> bytes:
     parsed_url = parse_url(url, True)
     headers = {}
 
@@ -205,6 +205,10 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
     response = requests.get(url, headers=headers)
     if not response.ok:
         raise Exception("Could not download archive from {}".format(parsed_url["type"]))
+
+    if parsed_url["type"] == "github" and parsed_url["path"]:
+        return rezip_subdirectory(response.content, parsed_url["path"])
+
     return response.content
 
 
@@ -216,22 +220,40 @@ def load_json_file(filename: str):
         return None
 
 
-def get_file_from_zip_archive(archive: bytes, filename: str, path: Optional[str] = None, *, json_parse: bool) -> Any:
+def rezip_subdirectory(archive: bytes, path: str):
     zip_file = ZipFile(io.BytesIO(archive), "r")
     root_folder = zip_file.namelist()[0]
-    file_path = os.path.join(root_folder, path or "", filename)
-    with zip_file.open(file_path) as reader:
+    zip_path = Path(zip_file) / root_folder / path
+    zip_archive = io.BytesIO()
+
+    with ZipFile(zip_archive, "w") as new_archive:
+        new_archive.writestr(root_folder, root_folder)
+        for file in zip_path.iterdir():
+            new_archive.writestr(os.path.join(root_folder, file.name), file.read_bytes())
+
+    return zip_archive.getvalue()
+
+
+def get_file_from_zip_archive(archive: bytes, filename: str, *, json_parse: bool) -> Any:
+    zip_file = ZipFile(io.BytesIO(archive), "r")
+    root_folder = zip_file.namelist()[0]
+    file_path = Path(zip_file)
+    if Path(zip_file).joinpath(root_folder).is_dir():
+        file_path = file_path / root_folder / filename
+    else:
+        file_path = file_path / filename
+    with file_path.open() as reader:
         file_bytes = reader.read()
         return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
 
 
-def get_file_from_tgz_archive(archive: bytes, filename, path: Optional[str] = None, *, json_parse: bool) -> Any:
+def get_file_from_tgz_archive(archive: bytes, filename, *, json_parse: bool) -> Any:
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
         if tar.getmembers()[0].isdir():
             root_folder = tar.getmembers()[0].name
         else:
             root_folder = "/".join(tar.getmembers()[0].name.split("/")[0:-1])
-        file_path = os.path.join(root_folder, path or "", filename)
+        file_path = os.path.join(root_folder, filename)
         extracted_file = tar.extractfile(file_path)
         if not extracted_file:
             return None
@@ -239,27 +261,27 @@ def get_file_from_tgz_archive(archive: bytes, filename, path: Optional[str] = No
         return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
 
 
-def get_file_from_archive(archive: bytes, filename: str, path: Optional[str] = None, *, json_parse: bool = True) -> Any:
+def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = True) -> Any:
     try:
         try:
-            return get_file_from_zip_archive(archive, filename, path, json_parse=json_parse)
+            return get_file_from_zip_archive(archive, filename, json_parse=json_parse)
         except BadZipFile:
-            return get_file_from_tgz_archive(archive, filename, path, json_parse=json_parse)
+            return get_file_from_tgz_archive(archive, filename, json_parse=json_parse)
     except KeyError:
         return None
 
 
-def find_index_ts_in_archive(archive: bytes, path: Optional[str] = None, main_filename: Optional[str] = None) -> str:
+def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None) -> str:
     main_filenames_to_try = [main_filename] if main_filename else ["index.js", "index.ts"]
     for main_filename in main_filenames_to_try:
-        index_ts = get_file_from_archive(archive, main_filename, path, json_parse=False)
+        index_ts = get_file_from_archive(archive, main_filename, json_parse=False)
         if index_ts is not None:
             return index_ts
     raise ValueError(f"Could not find main file {' or '.join(main_filenames_to_try)}")
 
 
 def extract_plugin_code(
-    archive: bytes, plugin_json_parsed: Optional[Dict[str, Any]] = None, path: Optional[str] = None
+    archive: bytes, plugin_json_parsed: Optional[Dict[str, Any]] = None
 ) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
     """Extract plugin.json, index.ts (which can be aliased) and frontend.tsx out of an archive.
 
@@ -269,7 +291,7 @@ def extract_plugin_code(
     # Extract plugin.json - required, might be provided already
     plugin_json: str
     if plugin_json_parsed is None:
-        plugin_json_original = get_file_from_archive(archive, "plugin.json", path, json_parse=False)
+        plugin_json_original = get_file_from_archive(archive, "plugin.json", json_parse=False)
         if not plugin_json_original:
             raise ValueError(f"Could not find plugin.json")
         try:
@@ -279,13 +301,13 @@ def extract_plugin_code(
     plugin_json = json.dumps(plugin_json_parsed)  # We serialize this even if just extracted from file, for minification
     assert plugin_json_parsed is not None  # Just to let mypy know this must be loaded at this point
     # Extract frontend.tsx - optional
-    frontend_tsx: Optional[str] = get_file_from_archive(archive, "frontend.tsx", path, json_parse=False)
+    frontend_tsx: Optional[str] = get_file_from_archive(archive, "frontend.tsx", json_parse=False)
     # Extract site.ts - optional
-    site_ts: Optional[str] = get_file_from_archive(archive, "site.ts", path, json_parse=False)
+    site_ts: Optional[str] = get_file_from_archive(archive, "site.ts", json_parse=False)
     # Extract index.ts - optional if frontend.tsx is present, otherwise required
     index_ts: Optional[str] = None
     try:
-        index_ts = find_index_ts_in_archive(archive, path, plugin_json_parsed.get("main"))
+        index_ts = find_index_ts_in_archive(archive, plugin_json_parsed.get("main"))
     except ValueError as e:
         if frontend_tsx is None and site_ts is None:
             raise e
