@@ -36,10 +36,11 @@ class TestOrganization(BaseTest):
         self.assertEqual(
             Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name, "helloworldplugin"
         )
-        self.assertEqual(mock_get.call_count, 2)
-        mock_get.assert_called_with(
+        self.assertEqual(mock_get.call_count, 4)
+        mock_get.assert_any_call(
             f"https://github.com/PostHog/helloworldplugin/archive/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}.zip", headers={}
         )
+        mock_get.assert_called_with(f"https://api.github.com/repos/PostHog/helloworldplugin/commits", headers={})
 
     @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
     def test_plugins_are_not_preinstalled_on_cloud(self, mock_get):

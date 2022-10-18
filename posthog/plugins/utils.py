@@ -164,7 +164,7 @@ def split_url_and_private_token(url: str) -> Tuple[str, Optional[str]]:
 
 # passing `tag` overrides whatever is in the URL
 def download_plugin_archive(url: str, tag: Optional[str] = None):
-    parsed_url = parse_url(url)
+    parsed_url = parse_url(url, True)
     headers = {}
 
     if parsed_url["type"] == "github":
