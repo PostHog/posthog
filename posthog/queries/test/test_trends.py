@@ -4019,7 +4019,7 @@ def trend_test_factory(trends):
             self.assertEqual(len(response), 1)
             self.assertEqual(response[0]["breakdown_value"], "test2@posthog.com")
 
-        def _create_active_user_events(self):
+        def _create_active_users_events(self):
             _create_person(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
             _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
@@ -4079,7 +4079,7 @@ def trend_test_factory(trends):
             )
 
         def test_weekly_active_users_daily(self):
-            self._create_active_user_events()
+            self._create_active_users_events()
 
             data = {
                 "date_from": "2020-01-08",
@@ -4126,7 +4126,7 @@ def trend_test_factory(trends):
 
         def test_weekly_active_users_daily_based_on_action(self):
             action = _create_action(name="$pageview", team=self.team)
-            self._create_active_user_events()
+            self._create_active_users_events()
 
             data = {
                 "date_from": "2020-01-08",
@@ -4153,10 +4153,11 @@ def trend_test_factory(trends):
                     "2020-01-19",
                 ],
             )
+            # Same as test_weekly_active_users_daily
             self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
 
         def test_weekly_active_users_monthly(self):
-            self._create_active_user_events()
+            self._create_active_users_events()
 
             data = {
                 "date_from": "2019-12-01",
@@ -4168,11 +4169,11 @@ def trend_test_factory(trends):
             filter = Filter(data=data)
             result = trends().run(filter, self.team)
             self.assertEqual(result[0]["days"], ["2019-12-01", "2020-01-01", "2020-02-01"])
-            # No users fall into the period of 7 days before any month starts
+            # No users fall into the period of 7 days before any first day of the month
             self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0])
 
         def test_weekly_active_users_weekly(self):
-            self._create_active_user_events()
+            self._create_active_users_events()
 
             data = {
                 "date_from": "2019-12-29",
@@ -4187,11 +4188,11 @@ def trend_test_factory(trends):
             self.assertEqual(result[0]["data"], [0.0, 1.0, 3.0])
 
         def test_weekly_active_users_hourly(self):
-            self._create_active_user_events()
+            self._create_active_users_events()
 
             data = {
-                "date_from": "2020-01-14T00:00:00Z",
-                "date_to": "2020-01-14T12:00:00Z",
+                "date_from": "2020-01-09T06:00:00Z",
+                "date_to": "2020-01-09T17:00:00Z",
                 "interval": "hour",
                 "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
             }
@@ -4201,22 +4202,23 @@ def trend_test_factory(trends):
             self.assertEqual(
                 result[0]["days"],
                 [
-                    "2020-01-14 00:00:00",
-                    "2020-01-14 01:00:00",
-                    "2020-01-14 02:00:00",
-                    "2020-01-14 03:00:00",
-                    "2020-01-14 04:00:00",
-                    "2020-01-14 05:00:00",
-                    "2020-01-14 06:00:00",
-                    "2020-01-14 07:00:00",
-                    "2020-01-14 08:00:00",
-                    "2020-01-14 09:00:00",
-                    "2020-01-14 10:00:00",
-                    "2020-01-14 11:00:00",
-                    "2020-01-14 12:00:00",
+                    "2020-01-09 06:00:00",
+                    "2020-01-09 07:00:00",
+                    "2020-01-09 08:00:00",
+                    "2020-01-09 09:00:00",
+                    "2020-01-09 10:00:00",
+                    "2020-01-09 11:00:00",
+                    "2020-01-09 12:00:00",
+                    "2020-01-09 13:00:00",
+                    "2020-01-09 14:00:00",
+                    "2020-01-09 15:00:00",
+                    "2020-01-09 16:00:00",
+                    "2020-01-09 17:00:00",
                 ],
             )
-            self.assertEqual(result[0]["data"], [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0])
+            # p0 falls out of the window at noon, p1 and p2 are included because the next 24 hours are ALSO included
+            # in this count
+            self.assertEqual(result[0]["data"], [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])
 
         def test_weekly_active_users_based_on_action_with_zero_person_ids(self):
             # only a person-on-event test
@@ -4224,7 +4226,7 @@ def trend_test_factory(trends):
                 return True
 
             action = _create_action(name="$pageview", team=self.team)
-            self._create_active_user_events()
+            self._create_active_users_events()
 
             _create_event(
                 team=self.team,
