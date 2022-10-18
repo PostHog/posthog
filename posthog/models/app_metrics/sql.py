@@ -125,7 +125,7 @@ SELECT
 """
 
 QUERY_APP_METRICS_DELIVERY_RATE = """
-SELECT plugin_config_id, sum(successes) / (sum(successes) + sum(successes_on_retry) + sum(failures)) AS rate
+SELECT plugin_config_id, (sum(successes) + sum(successes_on_retry)) / (sum(successes) + sum(successes_on_retry) + sum(failures)) AS rate
 FROM app_metrics
 WHERE team_id = %(team_id)s
   AND timestamp > %(from_date)s

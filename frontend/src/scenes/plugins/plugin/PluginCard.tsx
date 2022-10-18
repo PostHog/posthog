@@ -157,7 +157,7 @@ export function PluginCard({
                     <Col style={{ flex: 1 }}>
                         <div>
                             <strong style={{ marginRight: 8 }}>
-                                {shouldShowAppMetrics && pluginConfig && (
+                                {shouldShowAppMetrics && pluginConfig?.id && (
                                     <DeliveryRateBadge
                                         deliveryRate={pluginConfig.delivery_rate_1d ?? null}
                                         pluginConfigId={pluginConfig.id}

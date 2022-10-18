@@ -86,7 +86,7 @@ class TestTeamPluginsDeliveryRateQuery(ClickhouseTestMixin, BaseTest):
         )
 
         results = TeamPluginsDeliveryRateQuery(self.team).run()
-        self.assertEqual(results, {1: 0, 2: 0.5, 3: 0.25})
+        self.assertEqual(results, {1: 0, 2: 0.5, 3: 1})
 
     @freeze_time("2021-12-05T13:23:00Z")
     def test_ignores_out_of_bound_metrics(self):
