@@ -1,4 +1,3 @@
-import React from 'react'
 import { ManageSubscriptions } from './views/ManageSubscriptions'
 import { EditSubscription } from './views/EditSubscription'
 import { useActions, useValues } from 'kea'

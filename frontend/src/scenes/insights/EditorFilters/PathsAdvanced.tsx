@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { EditorFilterProps, PathEdgeParameters } from '~/types'
 import { SettingOutlined } from '@ant-design/icons'

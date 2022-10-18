@@ -1,4 +1,3 @@
-import React from 'react'
 import { Card, Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PlanInterface } from '~/types'

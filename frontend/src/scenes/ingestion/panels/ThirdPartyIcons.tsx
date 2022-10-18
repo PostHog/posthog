@@ -1,5 +1,3 @@
-import React from 'react'
-
 export const Segment = (props: React.SVGProps<SVGSVGElement>): JSX.Element => {
     return (
         <svg {...props} width="30" height="30" fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 23">

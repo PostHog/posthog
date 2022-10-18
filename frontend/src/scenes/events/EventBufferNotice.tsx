@@ -1,4 +1,3 @@
-import React from 'react'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { pluralize } from 'lib/utils'
 import { useActions, useValues } from 'kea'

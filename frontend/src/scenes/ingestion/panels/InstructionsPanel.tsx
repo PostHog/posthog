@@ -13,7 +13,6 @@ import {
     RNInstructions,
     RubyInstructions,
 } from 'scenes/ingestion/frameworks'
-import React from 'react'
 import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
 import { useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'

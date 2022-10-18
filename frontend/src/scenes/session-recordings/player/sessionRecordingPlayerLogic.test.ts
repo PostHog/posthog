@@ -61,22 +61,24 @@ describe('sessionRecordingPlayerLogic', () => {
                     },
                     true
                 )
+            }).toDispatchActionsInAnyOrder([
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsFailure,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                'seek',
+                'setErrorPlayerState',
+            ])
+
+            expectLogic(logic).toMatchValues({
+                sessionPlayerData: {
+                    person: recordingMetaJson.person,
+                    metadata: parseMetadataResponse(recordingMetaJson.session_recording),
+                    snapshotsByWindowId: {},
+                    bufferedTo: null,
+                },
+                isErrored: true,
             })
-                .toDispatchActionsInAnyOrder([
-                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
-                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsFailure,
-                    'seek',
-                    'setErrorPlayerState',
-                ])
-                .toMatchValues({
-                    sessionPlayerData: {
-                        person: recordingMetaJson.person,
-                        metadata: parseMetadataResponse(recordingMetaJson.session_recording),
-                        snapshotsByWindowId: {},
-                        bufferedTo: null,
-                    },
-                    isErrored: true,
-                })
             resumeKeaLoadersErrors()
         })
     })

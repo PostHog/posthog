@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useMemo, useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import { funnelLogic } from './funnelLogic'
 import './FunnelBarChart.scss'
 import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'

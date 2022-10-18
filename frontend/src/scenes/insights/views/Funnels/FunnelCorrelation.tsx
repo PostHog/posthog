@@ -1,7 +1,7 @@
 import { Card } from 'antd'
 import { CommentOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
-import React, { useRef } from 'react'
+import { useRef } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import './FunnelCorrelation.scss'
 import { IconClose, IconFeedbackWarning } from 'lib/components/icons'

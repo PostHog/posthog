@@ -1,5 +1,4 @@
 import './InsightLegend.scss'
-import React from 'react'
 import { Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IconLegend } from 'lib/components/icons'
@@ -19,30 +18,30 @@ export interface InsightLegendProps {
     inCardView?: boolean
 }
 
-const legendToggleDenyList = [
+const trendTypeCanShowLegendDenyList = [
     ChartDisplayType.WorldMap,
     ChartDisplayType.ActionsTable,
     ChartDisplayType.BoldNumber,
     ChartDisplayType.ActionsBarValue,
 ]
 
-const shouldHideLegend = (filters: Partial<FilterType>, activeView: InsightType): boolean =>
-    (filters.display && legendToggleDenyList.includes(filters.display)) || activeView === InsightType.STICKINESS
+const insightViewCanShowLegendAllowList = [InsightType.TRENDS, InsightType.STICKINESS]
+
+const shouldShowLegend = (filters: Partial<FilterType>, activeView: InsightType): boolean =>
+    insightViewCanShowLegendAllowList.includes(activeView) &&
+    !!filters.display &&
+    !trendTypeCanShowLegendDenyList.includes(filters.display)
 
 export function InsightLegendButton(): JSX.Element | null {
     const { filters, activeView } = useValues(insightLogic)
     const { toggleInsightLegend } = useActions(insightLogic)
 
-    if (shouldHideLegend(filters, activeView)) {
-        return null
-    }
-
-    return (
+    return shouldShowLegend(filters, activeView) ? (
         <Button className="InsightLegendButton" onClick={toggleInsightLegend}>
             <IconLegend />
             <span className="InsightLegendButton-title">{filters.show_legend ? 'Hide' : 'Show'} legend</span>
         </Button>
-    )
+    ) : null
 }
 
 export function InsightLegend({ horizontal, inCardView, readOnly = false }: InsightLegendProps): JSX.Element | null {
@@ -51,11 +50,7 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
 
-    if (shouldHideLegend(filters, activeView)) {
-        return null
-    }
-
-    return (
+    return shouldShowLegend(filters, activeView) ? (
         <div
             className={clsx('InsightLegendMenu', {
                 'InsightLegendMenu--horizontal': horizontal,
@@ -121,5 +116,5 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
                     })}
             </div>
         </div>
-    )
+    ) : null
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { personsLogic } from './personsLogic'
 import { IconInfo } from 'lib/components/icons'

@@ -1,4 +1,3 @@
-import React from 'react'
 import '../../../scenes/actions/Actions.scss'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FilterRow } from '../PropertyFilters/components/FilterRow'

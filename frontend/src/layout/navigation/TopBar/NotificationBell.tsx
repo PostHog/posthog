@@ -1,4 +1,3 @@
-import React from 'react'
 import { IconArrowDropDown, IconInfo, IconNotification, IconWithCount } from 'lib/components/icons'
 import { notificationsLogic } from '~/layout/navigation/TopBar/notificationsLogic'
 import { useActions, useValues } from 'kea'

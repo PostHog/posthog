@@ -1,4 +1,3 @@
-import * as React from 'react'
 import { Meta } from '@storybook/react'
 import { Popup } from './Popup/Popup'
 import { useState } from 'react'

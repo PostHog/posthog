@@ -1,7 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { ActivityLogItem, ActivityScope, HumanizedChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import React from 'react'
 import { SECRET_FIELD_VALUE } from './utils'
 
 export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChange {

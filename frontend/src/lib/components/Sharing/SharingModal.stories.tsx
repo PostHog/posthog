@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { SharingModal, SharingModalProps } from './SharingModal'
 import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'

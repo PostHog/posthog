@@ -1,4 +1,3 @@
-import React from 'react'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PersonType } from '~/types'

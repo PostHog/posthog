@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import React from 'react'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { Breakdown, ChartDisplayType, FilterType, InsightType } from '~/types'

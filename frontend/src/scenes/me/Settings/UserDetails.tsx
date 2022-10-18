@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { LemonButton } from 'lib/components/LemonButton'

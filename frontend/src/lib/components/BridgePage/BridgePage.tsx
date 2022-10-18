@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 import { CSSTransition } from 'react-transition-group'
 import './BridgePage.scss'

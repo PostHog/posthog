@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Form, Group } from 'kea-forms'
 import { Button, Slider, Card, Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs, Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'

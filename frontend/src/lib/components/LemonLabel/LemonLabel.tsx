@@ -1,5 +1,4 @@
 import './LemonLabel.scss'
-import React from 'react'
 import { Tooltip } from '../Tooltip'
 import { IconInfo } from '../icons'
 import clsx from 'clsx'

@@ -1,6 +1,5 @@
 import { Layout } from 'antd'
 import { useValues } from 'kea'
-import React from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { Breadcrumbs } from './Breadcrumbs/Breadcrumbs'

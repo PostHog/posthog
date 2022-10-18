@@ -1,4 +1,3 @@
-import React from 'react'
 import { Link } from 'lib/components/Link'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { LemonDivider } from 'lib/components/LemonDivider'

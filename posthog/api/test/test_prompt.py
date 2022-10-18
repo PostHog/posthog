@@ -4,12 +4,12 @@ from freezegun.api import freeze_time
 from rest_framework import status
 
 from posthog.models import User
-from posthog.models.prompt import UserPromptSequenceState, experiment_config
+from posthog.models.prompt import UserPromptSequenceState, prompts_config
 from posthog.test.base import APIBaseTest
 
 
 class TestPrompt(APIBaseTest):
-    sequences: List[Dict] = experiment_config
+    sequences: List[Dict] = prompts_config
 
     @classmethod
     def setUpTestData(cls):

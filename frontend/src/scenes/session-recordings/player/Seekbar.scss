@@ -25,7 +25,6 @@ $tick_hover_size: 5px;
             background-color: var(--recording-seekbar-red);
             transform-origin: center;
             transform: translateX(-$thumb_size / 2);
-            transition: transform 50ms;
         }
 
         .slider-bar,
@@ -45,7 +44,7 @@ $tick_hover_size: 5px;
 
         .buffer-bar {
             z-index: 2;
-            transition: width 200ms;
+            // transition: width 10ms;
             background-color: var(--recording-buffer-bg);
             position: absolute;
             height: 2px;
@@ -125,7 +124,6 @@ $tick_hover_size: 5px;
                 top: -1 * floor($tick_size / 2);
                 border-width: 0.5px;
                 transform-origin: center;
-                transition: transform 200ms;
 
                 &.tick-thumb__big {
                     transform: scale(1.3);

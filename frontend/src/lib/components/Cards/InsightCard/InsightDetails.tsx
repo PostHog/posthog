@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties, formatPropertyLabel } from 'lib/utils'
-import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { BreakdownFilter } from 'scenes/insights/filters/BreakdownFilter'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
@@ -19,6 +18,7 @@ import { keyMapping, PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TimezoneAware'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
+import React from 'react'
 
 function CompactPropertyFiltersDisplay({
     properties,

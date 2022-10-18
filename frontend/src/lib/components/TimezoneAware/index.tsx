@@ -1,4 +1,3 @@
-import React from 'react'
 import './index.scss'
 import { Col, Popover, Row } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -11,6 +10,7 @@ import { teamLogic } from '../../../scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import clsx from 'clsx'
+import React from 'react'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY HH:mm'
 
