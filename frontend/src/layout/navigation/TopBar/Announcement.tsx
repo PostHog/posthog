@@ -1,4 +1,3 @@
-import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import clsx from 'clsx'
 import { CloseOutlined } from '@ant-design/icons'

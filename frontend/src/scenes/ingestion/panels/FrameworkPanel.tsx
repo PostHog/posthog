@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'

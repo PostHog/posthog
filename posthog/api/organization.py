@@ -83,6 +83,11 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "slug",
             "created_at",
             "updated_at",
+            "membership_level",
+            "plugins_access_level",
+            "teams",
+            "available_features",
+            "metadata",
         ]
         extra_kwargs = {
             "slug": {

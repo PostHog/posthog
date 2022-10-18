@@ -1,4 +1,3 @@
-import React from 'react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { consoleLogsListLogicType } from './consoleLogsListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'

@@ -1,4 +1,3 @@
-import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { teamLogic } from 'scenes/teamLogic'
 import { useValues } from 'kea'

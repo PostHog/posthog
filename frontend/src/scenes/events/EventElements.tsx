@@ -1,4 +1,3 @@
-import React from 'react'
 import { EventType } from '../../types'
 import clsx from 'clsx'
 

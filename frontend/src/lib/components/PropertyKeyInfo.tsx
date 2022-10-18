@@ -1,5 +1,4 @@
 import './PropertyKeyInfo.scss'
-import React from 'react'
 import { Popover } from 'antd'
 import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'

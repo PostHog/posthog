@@ -1,4 +1,3 @@
-import React from 'react'
 import { AlertMessage } from 'lib/components/AlertMessage'
 
 export function UsageDisabledWarning(): JSX.Element {

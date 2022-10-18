@@ -1,6 +1,5 @@
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { IconHandClick } from 'lib/components/icons'
-import React from 'react'
 import { IntervalType } from '~/types'
 import './LEGACY_InsightTooltip.scss'
 

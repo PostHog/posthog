@@ -1,6 +1,6 @@
 import { Tag, Select } from 'antd'
 import { colorForString } from 'lib/utils'
-import React, { CSSProperties, useMemo } from 'react'
+import { CSSProperties, useMemo } from 'react'
 import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
 import { useActions, useValues } from 'kea'

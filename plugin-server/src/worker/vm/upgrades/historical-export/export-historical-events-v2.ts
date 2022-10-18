@@ -285,7 +285,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 })
             )
 
-            await meta.storage.set(`EXPORT_COORDINATION`, {
+            await meta.storage.set(EXPORT_COORDINATION_KEY, {
                 done: update.done,
                 running: update.running,
                 progress: update.progress,
@@ -513,13 +513,19 @@ export function addHistoricalEventsExportCapabilityV2(
                 plugin: pluginConfig.plugin?.name ?? '?',
                 retriable: 'false',
             })
-            await hub.appMetrics.queueMetric({
-                teamId: pluginConfig.team_id,
-                pluginConfigId: pluginConfig.id,
-                jobId: payload.exportId.toString(),
-                category: 'exportEvents',
-                failures: eventCount,
-            })
+            await hub.appMetrics.queueError(
+                {
+                    teamId: pluginConfig.team_id,
+                    pluginConfigId: pluginConfig.id,
+                    jobId: payload.exportId.toString(),
+                    category: 'exportEvents',
+                    failures: eventCount,
+                },
+                {
+                    error,
+                    eventCount,
+                }
+            )
         }
     }
 

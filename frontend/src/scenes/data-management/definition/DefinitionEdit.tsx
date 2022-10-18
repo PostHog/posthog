@@ -1,4 +1,3 @@
-import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { DefinitionPageMode } from 'scenes/data-management/definition/definitionLogic'
 import { useActions, useValues } from 'kea'

@@ -1,4 +1,3 @@
-import React from 'react'
 import './NPSPrompt.scss' // Lazy, but this is an experimental feature so not worth optimizing
 import { CloseOutlined } from '@ant-design/icons'
 import { Button } from 'antd'

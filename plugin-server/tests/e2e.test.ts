@@ -340,11 +340,13 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             expect(events.length).toBe(1)
 
             // Then check that the exportEvents function was called
-            await delayUntilEventIngested(() => testConsole.read(), 1)
-            expect(testConsole.read().length).toBeGreaterThan(0)
+            const consoleOutput = await delayUntilEventIngested(
+                () => testConsole.read().filter(([method]) => method === 'exportEvents'),
+                1
+            )
+            expect(consoleOutput.length).toBeGreaterThan(0)
 
-            const [[method, exportedEvents]] = testConsole.read()
-            expect(method).toBe('exportEvents')
+            const exportedEvents = consoleOutput[0][1]
             expect(JSON.parse(exportedEvents)).toEqual([
                 expect.objectContaining({
                     distinct_id: distinctId,

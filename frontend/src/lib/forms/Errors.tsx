@@ -1,5 +1,3 @@
-import React from 'react'
-
 export interface FormErrorsProps {
     errors: Record<string, any>
 }

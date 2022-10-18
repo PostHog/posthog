@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'

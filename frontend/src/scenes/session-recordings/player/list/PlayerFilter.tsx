@@ -1,4 +1,3 @@
-import React from 'react'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { useActions, useValues } from 'kea'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'

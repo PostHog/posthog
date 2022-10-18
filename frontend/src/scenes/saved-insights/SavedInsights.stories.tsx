@@ -3,7 +3,7 @@ import { Meta } from '@storybook/react'
 import { App } from 'scenes/App'
 import insightsJson from './__mocks__/insights.json'
 
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { mswDecorator } from '~/mocks/browser'
 

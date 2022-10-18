@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { LemonInput } from '../LemonInput/LemonInput'
 import { LemonButton } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'

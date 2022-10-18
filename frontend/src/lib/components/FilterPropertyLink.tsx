@@ -1,4 +1,3 @@
-import React from 'react'
 import { combineUrl } from 'kea-router'
 
 import { Property } from 'lib/components/Property'

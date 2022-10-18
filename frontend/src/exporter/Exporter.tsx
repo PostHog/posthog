@@ -1,6 +1,6 @@
 import '~/styles'
 import './Exporter.scss'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { ExportedData, ExportType } from '~/exporter/types'
 import { DashboardPlacement } from '~/types'
 import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'

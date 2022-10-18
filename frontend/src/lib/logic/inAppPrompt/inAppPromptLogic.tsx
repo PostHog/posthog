@@ -1,4 +1,3 @@
-import React from 'react'
 import ReactDOM from 'react-dom'
 import { Placement } from '@floating-ui/react-dom-interactions'
 import { kea, path, actions, reducers, listeners, selectors, connect, afterMount, beforeUnmount } from 'kea'

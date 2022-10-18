@@ -1,5 +1,4 @@
 import './PlayerMeta.scss'
-import React from 'react'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { useValues } from 'kea'
