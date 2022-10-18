@@ -51,6 +51,13 @@ class TestOrganizationAPI(APIBaseTest):
             response = self.client.post("/api/organizations/", {"name": "Test"})
             self.assertEqual(Organization.objects.count(), 1)
 
+    def test_cant_create_organization_with_custom_plugin_level(self):
+        with self.settings(MULTI_TENANCY=True):
+            response = self.client.post("/api/organizations/", {"name": "Test", "plugins_access_level": 6})
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(Organization.objects.count(), 2)
+            self.assertEqual(response.json()["plugins_access_level"], 3)
+
     # Updating organizations
 
     def test_update_organization_if_admin(self):
