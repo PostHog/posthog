@@ -3,7 +3,7 @@ import { CellMeasurerCacheDecorator } from './CellMeasurerCacheDecorator'
 import { Grid, GridCellProps, GridProps, ScrollbarPresenceParams, ScrollParams } from 'react-virtualized/dist/es/Grid'
 import { CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 const SCROLLBAR_SIZE_BUFFER = 20
-const MINIMUM_SCROLL_AREA = 100
+const MINIMUM_SCROLL_AREA = 150
 /**
  * Renders 1, 2, or 4 Grids depending on configuration.
  * A main (body) Grid will always be rendered.
