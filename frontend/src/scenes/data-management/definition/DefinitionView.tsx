@@ -58,6 +58,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     if (definitionMissing) {
         return <NotFound object="event" />
     }
+    console.log('DEFINITION', definition)
     return (
         <div className={clsx('definition-page', `definition-${mode}-page`)}>
             {mode === DefinitionPageMode.Edit ? (
@@ -114,27 +115,29 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         }
                         buttons={
                             <>
-                                <LemonButton
-                                    type="secondary"
-                                    to={
-                                        combineUrl(urls.sessionRecordings(), {
-                                            filters: {
-                                                events: [
-                                                    {
-                                                        id: definition.name,
-                                                        type: 'events',
-                                                        order: 0,
-                                                        name: definition.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
-                                    sideIcon={<IconPlayCircle />}
-                                    data-attr="event-definition-view-recordings"
-                                >
-                                    View recordings
-                                </LemonButton>
+                                {isEvent && (
+                                    <LemonButton
+                                        type="secondary"
+                                        to={
+                                            combineUrl(urls.sessionRecordings(), {
+                                                filters: {
+                                                    events: [
+                                                        {
+                                                            id: definition.name,
+                                                            type: 'events',
+                                                            order: 0,
+                                                            name: definition.name,
+                                                        },
+                                                    ],
+                                                },
+                                            }).url
+                                        }
+                                        sideIcon={<IconPlayCircle />}
+                                        data-attr="event-definition-view-recordings"
+                                    >
+                                        View recordings
+                                    </LemonButton>
+                                )}
 
                                 {hasTaxonomyFeatures && (
                                     <LemonButton
