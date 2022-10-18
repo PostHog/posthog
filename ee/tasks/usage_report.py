@@ -319,10 +319,11 @@ def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
             }
             org_reports.append(report)
             if not dry_run:
+                capture_event("org usage report", organization_id, report, dry_run=dry_run)  # type: ignore
                 send_report(report, org["token"])
-                capture_event("org usage report sent", organization_id, report, dry_run=dry_run)  # type: ignore
                 time.sleep(0.25)
         except Exception as err:
+            capture_exception(err)
             capture_event("send org report failure", organization_id, {"error": str(err)}, dry_run=dry_run)
 
     return org_reports
