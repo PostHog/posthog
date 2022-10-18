@@ -158,7 +158,6 @@ class BillingViewset(viewsets.GenericViewSet):
         # If there isn't a valid v2 subscription then we only return sucessfully if BILLING_V2_ENABLED
         if not response.get("has_active_subscription") and not settings.BILLING_V2_ENABLED:
             distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
-            # TODO: Change this to local evaluation
             if not (distinct_id and posthoganalytics.get_feature_flag("billing-v2-enabled", distinct_id)):
                 raise NotFound("Billing V2 is not enabled for this organization")
 
