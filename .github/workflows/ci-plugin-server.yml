@@ -134,7 +134,7 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-              run: cd plugin-server && yarn jest tests/ --shard=${{matrix.shard}}
+              run: cd plugin-server && yarn jest --runInBand --forceExit tests/ --shard=${{matrix.shard}}
 
     functional-tests:
         name: Functional tests
@@ -215,4 +215,11 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-              run: cd plugin-server && yarn jest functional_tests/
+              run: cd plugin-server && yarn jest functional_tests/ && true
+
+            - name: Test with Jest
+              env:
+                  # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  REDIS_URL: 'redis://localhost'
+              run: cd plugin-server && yarn jest functional_tests/ && true
