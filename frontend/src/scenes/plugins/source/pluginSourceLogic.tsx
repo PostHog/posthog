@@ -8,11 +8,9 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { validateJson } from 'lib/utils'
 import { FormErrors } from 'lib/forms/Errors'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { formatSource } from 'scenes/plugins/source/formatSource'
 import { beforeUnload } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface PluginSourceProps {
     pluginId: number
@@ -27,7 +25,7 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
     props({} as PluginSourceProps),
     key((props) => props.pluginConfigId ?? `plugin-${props.pluginId}`),
 
-    connect({ values: [featureFlagLogic, ['featureFlags']], logic: [pluginsLogic] }),
+    connect({ logic: [pluginsLogic] }),
 
     actions({
         setCurrentFile: (currentFile: string) => ({ currentFile }),
@@ -116,16 +114,9 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
             },
         ],
         fileNames: [
-            (s) => [s.featureFlags],
-            (featureFlags): string[] => {
-                return Array.from(
-                    new Set([
-                        'plugin.json',
-                        'index.ts',
-                        'site.ts',
-                        ...(featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? ['frontend.tsx'] : []),
-                    ])
-                )
+            () => [],
+            (): string[] => {
+                return Array.from(new Set(['plugin.json', 'index.ts', 'frontend.tsx', 'site.ts']))
             },
         ],
     }),
