@@ -119,7 +119,6 @@ export const FEATURE_FLAGS = {
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
-    FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
     BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
     CANCEL_RUNNING_QUERIES: 'cancel-running-queries', // owner @timgl
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
