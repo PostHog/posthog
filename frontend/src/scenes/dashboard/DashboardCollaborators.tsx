@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { LemonButton } from 'lib/components/LemonButton'

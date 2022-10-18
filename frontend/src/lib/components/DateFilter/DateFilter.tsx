@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import { useRef } from 'react'
 import { dateMapping, dateFilterToText, uuid } from 'lib/utils'
 import { DateMappingOption } from '~/types'
 import { dayjs } from 'lib/dayjs'

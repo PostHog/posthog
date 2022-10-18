@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { funnelLogic } from './funnelLogic'
 import { FilterType, FunnelStepWithConversionMetrics } from '~/types'

@@ -1,4 +1,3 @@
-import React from 'react'
 import { Placement } from '@floating-ui/react-dom-interactions'
 import { Popup } from 'lib/components/Popup/Popup'
 import { IconOpenInNew } from 'lib/components/icons'

@@ -1,5 +1,4 @@
 import { Button, Popover, Tag } from 'antd'
-import React from 'react'
 import { ClearOutlined } from '@ant-design/icons'
 import { PluginErrorType } from '~/types'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'

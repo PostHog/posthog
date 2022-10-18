@@ -1,5 +1,4 @@
 import './EventPropertyDefinitionsTable.scss'
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { PropertyDefinition } from '~/types'

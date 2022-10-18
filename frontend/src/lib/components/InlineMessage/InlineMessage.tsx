@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import './InlineMessage.scss'
 import { ExclamationCircleFilled, CloseOutlined } from '@ant-design/icons'
 import clsx from 'clsx'

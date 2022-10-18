@@ -1,4 +1,3 @@
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { EventsTable } from 'scenes/events/EventsTable'

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { ActionFilter, ActionFilterProps } from './ActionFilter'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'

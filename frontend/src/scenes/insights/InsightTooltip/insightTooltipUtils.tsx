@@ -1,5 +1,4 @@
 import { dayjs } from 'lib/dayjs'
-import React from 'react'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 import { cohortsModel } from '~/models/cohortsModel'

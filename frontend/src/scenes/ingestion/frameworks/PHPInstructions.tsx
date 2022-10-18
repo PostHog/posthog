@@ -1,4 +1,3 @@
-import React from 'react'
 import { CodeSnippet, Language } from './CodeSnippet'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'

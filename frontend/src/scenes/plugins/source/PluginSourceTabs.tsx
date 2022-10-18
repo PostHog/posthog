@@ -1,6 +1,6 @@
-import React from 'react'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
+import React from 'react'
 import type { pluginSourceLogicType } from './pluginSourceLogicType'
 
 export function PluginSourceTabs({ logic }: { logic: BuiltLogic<pluginSourceLogicType> }): JSX.Element {

@@ -508,7 +508,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         To improve UI responsiveness if there is not already a result cached the insight is returned without a result.
         This allows the UI to render and then request the result separately.
 
-        To ensure the result is calculated and returned include a `refresh=1` query parameter.
+        To ensure the result is calculated and returned include a `refresh=true` query parameter.
         """
         instance = self.get_object()
         serializer_context = self.get_serializer_context()

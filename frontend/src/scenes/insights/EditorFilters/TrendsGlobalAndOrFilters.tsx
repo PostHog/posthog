@@ -1,4 +1,3 @@
-import React from 'react'
 import { convertPropertiesToPropertyGroup } from 'lib/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'

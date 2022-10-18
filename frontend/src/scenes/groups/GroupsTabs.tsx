@@ -2,7 +2,6 @@ import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import React from 'react'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsListLogic } from './groupsListLogic'
 

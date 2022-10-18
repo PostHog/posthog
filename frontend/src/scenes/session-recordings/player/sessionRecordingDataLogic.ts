@@ -172,14 +172,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadRecordingSnapshotsSuccess: (state) => state + 1,
             },
         ],
-        sessionEventsDataLoading: [
-            false,
-            {
-                loadEventsSuccess: (_, { sessionEventsData }) => {
-                    return !!sessionEventsData?.next
-                },
-            },
-        ],
         loadMetaTimeMs: [
             null as number | null,
             {
@@ -236,14 +228,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             else {
                 eventUsageLogic.actions.reportRecording(
                     values.sessionPlayerData,
-                    performance.now() - cache.startTime,
+                    performance.now() - cache.loadStartTime,
                     SessionRecordingUsageType.LOADED,
                     0
                 )
             }
             // Not always accurate that recording is playable after first chunk is loaded, but good guesstimate for now
             if (values.chunkPaginationIndex === 1) {
-                actions.reportUsage(values.sessionPlayerData, performance.now() - cache.startTime)
+                actions.reportUsage(values.sessionPlayerData, performance.now() - cache.loadStartTime)
             }
         },
         loadEventsSuccess: () => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import './Login.scss'
 import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'

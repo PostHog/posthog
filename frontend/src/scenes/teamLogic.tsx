@@ -1,5 +1,4 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import React from 'react'
 import api from 'lib/api'
 import type { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'

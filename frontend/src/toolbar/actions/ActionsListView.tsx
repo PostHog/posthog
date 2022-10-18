@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions } from 'kea'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { List, Space } from 'antd'

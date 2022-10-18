@@ -1,5 +1,4 @@
 import { Button } from 'antd'
-import React from 'react'
 import { Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'

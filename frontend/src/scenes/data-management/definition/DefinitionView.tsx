@@ -1,5 +1,4 @@
 import './Definition.scss'
-import React from 'react'
 import clsx from 'clsx'
 import { Divider } from 'antd'
 import { SceneExport } from 'scenes/sceneTypes'

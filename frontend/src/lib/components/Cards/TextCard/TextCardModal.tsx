@@ -5,7 +5,6 @@ import { LemonModal } from 'lib/components/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Field, Form } from 'kea-forms'
 import { LemonTextMarkdown } from 'lib/components/LemonTextArea/LemonTextArea'
-import React from 'react'
 
 export function TextCardModal({
     isOpen,

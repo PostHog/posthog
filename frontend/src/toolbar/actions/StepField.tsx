@@ -1,4 +1,3 @@
-import React from 'react'
 import { Checkbox, Form, Input } from 'antd'
 import { SelectorCount } from '~/toolbar/actions/SelectorCount'
 import { cssEscape } from 'lib/utils/cssEscape'

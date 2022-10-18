@@ -61,6 +61,9 @@ export const urls = {
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     annotations: (): string => '/annotations',
     projectApps: (): string => '/project/apps',
+    projectApp: (id: string | number): string => `/project/apps/${id}`,
+    projectAppLogs: (id: string | number): string => `/project/apps/${id}/logs`,
+    projectAppSource: (id: string | number): string => `/project/apps/${id}/source`,
     frontendApp: (id: string | number): string => `/app/${id}`,
     appMetrics: (pluginConfigId: string | number, tab?: string): string =>
         combineUrl(`/app/${pluginConfigId}/metrics`, { tab }).url,

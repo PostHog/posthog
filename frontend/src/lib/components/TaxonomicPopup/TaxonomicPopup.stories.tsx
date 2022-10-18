@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { TaxonomicPopup, TaxonomicStringPopup } from './TaxonomicPopup'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'

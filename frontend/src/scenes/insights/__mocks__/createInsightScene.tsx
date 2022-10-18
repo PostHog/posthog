@@ -1,6 +1,6 @@
 import { InsightModel } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { App } from 'scenes/App'
 
