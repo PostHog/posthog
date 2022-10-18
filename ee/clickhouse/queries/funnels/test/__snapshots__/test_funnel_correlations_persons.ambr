@@ -1,6 +1,6 @@
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings
   '
-  /* request:1 */ WITH funnel_actors as
+  WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events,
             timestamp,
@@ -110,10 +110,10 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       toDateTime('2021-01-08 23:59:59', 'UTC') AS date_to,
-                       toDateTime('2021-01-01 00:00:00', 'UTC') AS date_from,
-                       2 AS target_step,
-                       ['$pageview', 'insight analyzed'] as funnel_step_names
+       toDateTime('2021-01-08 23:59:59', 'UTC') AS date_to,
+       toDateTime('2021-01-01 00:00:00', 'UTC') AS date_from,
+       2 AS target_step,
+       ['$pageview', 'insight analyzed'] as funnel_step_names
   SELECT actors.actor_id AS actor_id ,
          any(actors.matching_events) AS matching_events
   FROM events AS event
@@ -141,7 +141,7 @@
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.1
   '
-  /* request:1 */
+  
   SELECT DISTINCT session_id
   FROM session_recording_events
   WHERE team_id = 2
@@ -151,7 +151,7 @@
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.2
   '
-  /* request:1 */ WITH funnel_actors as
+  WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events,
             timestamp,
@@ -333,10 +333,10 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2, 3]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       toDateTime('2021-01-08 23:59:59', 'UTC') AS date_to,
-                       toDateTime('2021-01-01 00:00:00', 'UTC') AS date_from,
-                       3 AS target_step,
-                       ['$pageview', 'insight analyzed', 'insight updated'] as funnel_step_names
+       toDateTime('2021-01-08 23:59:59', 'UTC') AS date_to,
+       toDateTime('2021-01-01 00:00:00', 'UTC') AS date_from,
+       3 AS target_step,
+       ['$pageview', 'insight analyzed', 'insight updated'] as funnel_step_names
   SELECT actors.actor_id AS actor_id ,
          any(actors.matching_events) AS matching_events
   FROM events AS event
@@ -364,7 +364,7 @@
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.3
   '
-  /* request:1 */
+  
   SELECT DISTINCT session_id
   FROM session_recording_events
   WHERE team_id = 2
@@ -374,7 +374,7 @@
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings
   '
-  /* request:1 */ WITH funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events,
             timestamp,
@@ -496,7 +496,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
   FROM funnel_actors
@@ -509,7 +509,7 @@
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings.1
   '
-  /* request:1 */
+  
   SELECT DISTINCT session_id
   FROM session_recording_events
   WHERE team_id = 2
@@ -519,7 +519,7 @@
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings
   '
-  /* request:1 */ WITH funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events,
             timestamp,
@@ -639,7 +639,7 @@
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
   FROM funnel_actors
@@ -652,7 +652,7 @@
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.1
   '
-  /* request:1 */
+  
   SELECT DISTINCT session_id
   FROM session_recording_events
   WHERE team_id = 2
@@ -662,7 +662,7 @@
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.2
   '
-  /* request:1 */ WITH funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events,
             timestamp,
@@ -782,7 +782,7 @@
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
   FROM funnel_actors
@@ -795,7 +795,7 @@
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.3
   '
-  /* request:1 */
+  
   SELECT DISTINCT session_id
   FROM session_recording_events
   WHERE team_id = 2
