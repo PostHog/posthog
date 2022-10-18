@@ -10,11 +10,6 @@ import { organizationLogic } from './organizationLogic'
 import { teamLogic } from './teamLogic'
 import { UserType } from '~/types'
 
-export interface UserDetailsFormType {
-    first_name: string
-    email: string
-}
-
 export const appContextLogic = kea<appContextLogicType>([
     path(['scenes', 'appContextLogic']),
     connect({
