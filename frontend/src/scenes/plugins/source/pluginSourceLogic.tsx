@@ -129,10 +129,9 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
             },
         ],
     }),
-    beforeUnload(({ actions, values }) => ({
+    beforeUnload(({ values }) => ({
         enabled: () => values.pluginSourceChanged,
         message: LEAVE_WARNING,
-        onConfirm: () => actions.resetAndClose(),
     })),
     listeners(({ actions, props, values }) => ({
         resetAndClose: () => {
