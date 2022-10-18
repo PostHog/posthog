@@ -1,10 +1,10 @@
-.BillingGuage {
+.BillingGauge {
 }
 
-.BillingGuageItem {
+.BillingGaugeItem {
     transition: all 1000ms cubic-bezier(0.15, 0.15, 0.2, 1);
 
-    .BillingGuageItem__info {
+    .BillingGaugeItem__info {
         position: absolute;
         white-space: nowrap;
         border-left: 1px solid var(--border);

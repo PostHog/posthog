@@ -12,7 +12,7 @@ import { BillingProductV2Type, BillingV2Type } from '~/types'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
-import { BillingGuage, BillingGuageProps } from './BillingGuage'
+import { BillingGauge, BillingGaugeProps } from './BillingGauge'
 import { convertAmountToUsage, convertUsageToAmount, projectUsage, summarizeUsage } from './billing-utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -43,7 +43,7 @@ export function BillingV2(): JSX.Element {
             {!billing && !billingLoading ? (
                 <div className="space-y-4">
                     <AlertMessage type="error">
-                        There was an issue retreiving your current billing information. If this message persists please
+                        There was an issue retrieving your current billing information. If this message persists please
                         {supportLink}.
                     </AlertMessage>
 
@@ -241,7 +241,7 @@ const BillingProduct = ({
         })
     }
 
-    const billingGuageItems: BillingGuageProps['items'] = useMemo(
+    const billingGaugeItems: BillingGaugeProps['items'] = useMemo(
         () =>
             [
                 {
@@ -391,7 +391,7 @@ const BillingProduct = ({
                     </div>
                 ) : null}
 
-                <BillingGuage items={billingGuageItems} />
+                <BillingGauge items={billingGaugeItems} />
             </div>
 
             <LemonDivider vertical dashed />
