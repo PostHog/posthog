@@ -129,6 +129,11 @@ class BillingViewset(viewsets.GenericViewSet):
         license = License.objects.first_valid()
         org = self._get_org()
 
+        # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
+        if hasattr(org, "billing"):
+            if org.billing:  # type: ignore
+                raise NotFound("Billing V2 is not enabled for this organization")
+
         response: Dict[str, Any] = {}
 
         if license:
