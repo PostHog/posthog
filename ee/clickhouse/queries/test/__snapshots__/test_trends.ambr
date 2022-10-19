@@ -253,7 +253,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_by_group_props_person_on_events
   '
-  
+  /* request:1 */
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
@@ -272,7 +272,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_by_group_props_person_on_events.1
   '
-  
+  /* request:1 */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -320,7 +320,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_by_group_props_person_on_events.2
   '
-  
+  /* request:1 */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -342,7 +342,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_by_group_props_person_on_events_materialized
   '
-  
+  /* request:1 */
   SELECT groupArray(value)
   FROM
     (SELECT "mat_gp0_industry" AS value,
@@ -361,7 +361,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_by_group_props_person_on_events_materialized.1
   '
-  
+  /* request:1 */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -409,7 +409,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_by_group_props_person_on_events_materialized.2
   '
-  
+  /* request:1 */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -547,7 +547,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
   '
-  
+  /* request:1 */
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
@@ -567,7 +567,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.1
   '
-  
+  /* request:1 */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -616,7 +616,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_by_group_props_with_person_filter_person_on_events_materialized
   '
-  
+  /* request:1 */
   SELECT groupArray(value)
   FROM
     (SELECT "mat_gp0_industry" AS value,
@@ -636,7 +636,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_by_group_props_with_person_filter_person_on_events_materialized.1
   '
-  
+  /* request:1 */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -784,7 +784,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_with_filter_groups_person_on_events
   '
-  
+  /* request:1 */
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
@@ -804,7 +804,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_with_filter_groups_person_on_events.1
   '
-  
+  /* request:1 */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -853,7 +853,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_with_filter_groups_person_on_events_materialized
   '
-  
+  /* request:1 */
   SELECT groupArray(value)
   FROM
     (SELECT "mat_key" AS value,
@@ -873,7 +873,7 @@
 ---
 # name: TestClickhouseTrends.test_breakdown_with_filter_groups_person_on_events_materialized.1
   '
-  
+  /* request:1 */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -922,7 +922,7 @@
 ---
 # name: TestClickhouseTrends.test_filtering_by_multiple_groups_person_on_events
   '
-  
+  /* request:1 */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -956,7 +956,7 @@
 ---
 # name: TestClickhouseTrends.test_filtering_by_multiple_groups_person_on_events.1
   '
-  
+  /* request:1 */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -980,7 +980,7 @@
 ---
 # name: TestClickhouseTrends.test_filtering_by_multiple_groups_person_on_events_materialized
   '
-  
+  /* request:1 */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -1014,7 +1014,7 @@
 ---
 # name: TestClickhouseTrends.test_filtering_by_multiple_groups_person_on_events_materialized.1
   '
-  
+  /* request:1 */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -1094,7 +1094,7 @@
 ---
 # name: TestClickhouseTrends.test_filtering_with_group_props_person_on_events
   '
-  
+  /* request:1 */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -1128,7 +1128,7 @@
 ---
 # name: TestClickhouseTrends.test_filtering_with_group_props_person_on_events_materialized
   '
-  
+  /* request:1 */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
