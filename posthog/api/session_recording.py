@@ -37,7 +37,7 @@ class SessionRecordingSerializer(serializers.Serializer):
     start_time = serializers.DateTimeField()
     end_time = serializers.DateTimeField()
     distinct_id = serializers.CharField()
-    properties = serializers.DictField()
+    properties = serializers.DictField(required=False)
     matching_events = serializers.ListField(required=False)
 
     def to_representation(self, instance):
