@@ -31,7 +31,7 @@ import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
 import { createTopics } from '../tests/helpers/kafka'
-import { insertRow, POSTGRES_TRUNCATE_TABLES_QUERY } from '../tests/helpers/sql'
+import { insertRow } from '../tests/helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
 
@@ -93,7 +93,6 @@ beforeAll(async () => {
         // so set max connections to 1.
         max: 1,
     })
-    await postgres.query(POSTGRES_TRUNCATE_TABLES_QUERY)
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
         port: 8123,
