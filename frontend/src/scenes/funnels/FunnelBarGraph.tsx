@@ -369,7 +369,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                             converted: true,
                                                         })
                                                     }
-                                                    disabled={!isInDashboardContext}
+                                                    disabled={isInDashboardContext}
                                                     popoverTitle={
                                                         <div style={{ wordWrap: 'break-word' }}>
                                                             <PropertyKeyInfo value={step.name} />
@@ -452,7 +452,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             percentage={step.conversionRates.fromBasisStep}
                                             name={step.name}
                                             onBarClick={() => openPersonsModalForStep({ step, converted: true })}
-                                            disabled={!isInDashboardContext}
+                                            disabled={isInDashboardContext}
                                             popoverTitle={<PropertyKeyInfo value={step.name} />}
                                             popoverMetrics={[
                                                 {
@@ -510,7 +510,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                     <div className="center-flex">
                                         <ValueInspectorButton
                                             onClick={() => openPersonsModalForStep({ step, converted: true })}
-                                            disabled={!isInDashboardContext}
+                                            disabled={isInDashboardContext}
                                         >
                                             <IconTrendingFlat
                                                 style={{ color: 'var(--success)' }}
@@ -545,7 +545,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                     <div className="center-flex">
                                         <ValueInspectorButton
                                             onClick={() => openPersonsModalForStep({ step, converted: false })}
-                                            disabled={!isInDashboardContext}
+                                            disabled={isInDashboardContext}
                                         >
                                             <IconTrendingFlatDown
                                                 style={{ color: 'var(--danger)' }}
