@@ -365,10 +365,10 @@
          (SELECT id
           FROM person
           WHERE team_id = 2
-            AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))) )
+            AND (has(['bla'], person."pmat_email")) )
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))) person ON person.id = pdi.person_id
+     AND (has(['bla'], argMax(person."pmat_email", _timestamp)))) person ON person.id = pdi.person_id
   WHERE 1 = 1
   GROUP BY session_recordings.session_id
   ORDER BY start_time DESC
