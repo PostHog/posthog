@@ -1,6 +1,6 @@
 # name: TestClickhouseSessionRecordingsList.test_event_filter_matching_with_no_session_id
   '
-  /* request:1 */
+  
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
@@ -61,7 +61,7 @@
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_matching_with_no_session_id.1
   '
-  /* request:1 */
+  
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
@@ -122,7 +122,7 @@
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties
   '
-  /* request:1 */
+  
   SELECT count(*)
   FROM
     (SELECT 1
@@ -138,7 +138,7 @@
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.1
   '
-  /* request:1 */
+  
   SELECT count(*)
   FROM
     (SELECT 1
@@ -154,7 +154,7 @@
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.2
   '
-  /* request:1 */
+  
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
@@ -207,7 +207,7 @@
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_matching_on_session_id
   '
-  /* request:1 */
+  
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
@@ -268,7 +268,7 @@
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_matching_on_session_id.1
   '
-  /* request:1 */
+  
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
@@ -329,7 +329,7 @@
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_person_properties
   '
-  /* request:1 */
+  
   SELECT session_recordings.session_id,
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
