@@ -74,8 +74,13 @@ export function NewDashboardModal(): JSX.Element {
                         options={[
                             {
                                 value: 'DEFAULT_APP',
-                                label: 'Website',
+                                label: 'Website app',
                                 'data-attr': 'dashboard-select-default-app',
+                            },
+                            {
+                                value: 'WEBSITE_TRAFFIC',
+                                label: 'Website traffic',
+                                'data-attr': 'dashboard-select-wesbite-template',
                             },
                         ]}
                         fullWidth
