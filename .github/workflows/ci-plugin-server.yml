@@ -217,3 +217,4 @@ jobs:
                   REDIS_URL: 'redis://localhost'
               run: |
                   cd plugin-server && yarn functional_tests
+                  yarn functional_tests
