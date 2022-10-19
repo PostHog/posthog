@@ -1,38 +1,24 @@
 from infi.clickhouse_orm import migrations
 
 from posthog.client import sync_execute
+from posthog.models.session_recording_event.sql import MATERIALIZED_COLUMNS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_REPLICATION
 
 
 def create_events_summary_mat_columns(database):
-    columns = {
-        "events_summary": {
-            "schema": "Array(String)",
-            "materializer": "MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)')",
-        },
-        "click_count": {
-            "schema": "Int8",
-            "materializer": "MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary))",
-        },
-        "keypress_count": {
-            "schema": "Int8",
-            "materializer": "MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary))",
-        },
-        "first_event_timestamp": {
-            "schema": "DateTime64(6, 'UTC')",
-            "materializer": "MATERIALIZED toDateTime(arrayReduce('min', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)",
-        },
-        "last_event_timestamp": {
-            "schema": "DateTime64(6, 'UTC')",
-            "materializer": "MATERIALIZED toDateTime(arrayReduce('max', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)",
-        },
-        "urls": {
-            "schema": "Array(String)",
-            "materializer": "MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))",
-        },
-    }
 
-    for column, data in columns.items():
+    columns_to_add = [
+        "events_summary",
+        "click_count",
+        "keypress_count",
+        "first_event_timestamp",
+        "last_event_timestamp",
+        "urls",
+    ]
+
+    for column in columns_to_add:
+        data = MATERIALIZED_COLUMNS[column]
+
         if CLICKHOUSE_REPLICATION:
             sync_execute(
                 f"""

@@ -24,25 +24,49 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
-SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
-    , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
-    , events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)') COMMENT 'column_materializer::events_summary'
-    , click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'type') = 2, events_summary))
-    , keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary))
-    , first_event_timestamp DateTime64(3, 'UTC') MATERIALIZED toDateTime(arrayReduce('min', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)
-    , last_event_timestamp DateTime64(3, 'UTC') MATERIALIZED toDateTime(arrayReduce('max', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)
-    , urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
-"""
+MATERIALIZED_COLUMNS = {
+    "has_full_snapshot": {
+        "schema": "Int8",
+        "materializer": "MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'",
+    },
+    "events_summary": {
+        "schema": "Array(String)",
+        "materializer": "MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)')",
+    },
+    "click_count": {
+        "schema": "Int8",
+        "materializer": "MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary))",
+    },
+    "keypress_count": {
+        "schema": "Int8",
+        "materializer": "MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary))",
+    },
+    "first_event_timestamp": {
+        "schema": "DateTime64(6, 'UTC')",
+        "materializer": "MATERIALIZED toDateTime(arrayReduce('min', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)",
+    },
+    "last_event_timestamp": {
+        "schema": "DateTime64(6, 'UTC')",
+        "materializer": "MATERIALIZED toDateTime(arrayReduce('max', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)",
+    },
+    "urls": {
+        "schema": "Array(String)",
+        "materializer": "MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))",
+    },
+}
 
-SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = """
-    , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'
-    , events_summary Array(String) COMMENT 'column_materializer::events_summary'
-    , click_count Int8 COMMENT 'column_materializer::click_count'
-    , keypress_count Int8 COMMENT 'column_materializer::keypress_count'
-    , first_event_timestamp DateTime64(3, 'UTC') COMMENT 'column_materializer::first_event_timestamp'
-    , last_event_timestamp DateTime64(3, 'UTC') COMMENT 'column_materializer::last_event_timestamp'
-    , urls Array(String) COMMENT 'column_materializer::urls'
-"""
+
+# Like "has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'"
+SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = ", " + ", ".join(
+    f"{column_name} {column['schema']} {column['materializer']}" for column_name, column in MATERIALIZED_COLUMNS.items()
+)
+
+# Like "has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'"
+SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = ", " + ", ".join(
+    f"{column_name} {column['schema']} COMMENT 'column_materializer::{column_name}'"
+    for column_name, column in MATERIALIZED_COLUMNS.items()
+)
+
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
     ALTER TABLE session_recording_events
