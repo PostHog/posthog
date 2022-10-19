@@ -284,13 +284,13 @@ export function addHistoricalEventsExportCapabilityV2(
                     await startChunk(payload, payload.progress)
                 })
             )
-
-            await meta.storage.set(EXPORT_COORDINATION_KEY, {
-                done: update.done,
-                running: update.running,
-                progress: update.progress,
-            })
         }
+
+        await meta.storage.set(EXPORT_COORDINATION_KEY, {
+            done: update.done,
+            running: update.running,
+            progress: update.progress,
+        })
     }
 
     async function calculateCoordination(
