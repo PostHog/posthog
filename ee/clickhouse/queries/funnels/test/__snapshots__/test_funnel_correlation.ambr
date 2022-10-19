@@ -1,6 +1,6 @@
 # name: TestClickhouseFunnelCorrelation.test_action_events_are_excluded_from_correlations
   '
-  /* request:1 */ WITH funnel_actors as
+  WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -73,10 +73,10 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
-                       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
-                       2 AS target_step,
-                       ['paid', 'user signed up'] as funnel_step_names
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
+       2 AS target_step,
+       ['paid', 'user signed up'] as funnel_step_names
   SELECT event.event AS name,
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
