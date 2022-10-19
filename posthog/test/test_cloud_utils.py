@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
+
 import pytest
+
 from ee.models.license import License
 from posthog.cloud_utils import TEST_clear_cloud_cache, is_cloud
 from posthog.test.base import BaseTest
