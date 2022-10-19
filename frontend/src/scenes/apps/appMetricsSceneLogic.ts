@@ -14,6 +14,11 @@ export interface AppMetricsLogicProps {
     pluginConfigId: number
 }
 
+export interface AppMetricsUrlParams {
+    tab?: AppMetricsTab
+    from?: string
+}
+
 export enum AppMetricsTab {
     ProcessEvent = 'processEvent',
     OnEvent = 'onEvent',
@@ -70,6 +75,7 @@ export interface AppMetricErrorDetail {
     }
 }
 
+const DEFAULT_DATE_FROM = '-30d'
 const INITIAL_TABS: Array<AppMetricsTab> = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
@@ -100,7 +106,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             },
         ],
         dateFrom: [
-            '-30d' as string,
+            DEFAULT_DATE_FROM as string,
             {
                 setDateFrom: (_, { dateFrom }) => dateFrom,
             },
@@ -217,20 +223,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
     })),
 
     actionToUrl(({ values, props }) => ({
-        setActiveTab: () => {
-            if (values.activeTab === AppMetricsTab.HistoricalExports) {
-                return urls.appHistoricalExports(props.pluginConfigId)
-            }
-
-            return urls.appMetrics(props.pluginConfigId, values.activeTab ?? undefined)
-        },
+        setActiveTab: () => getUrl(values, props),
+        setDateFrom: () => getUrl(values, props),
     })),
 
     urlToAction(({ values, actions, props }) => ({
-        '/app/:pluginConfigId/:page': (
-            url: Record<string, string | undefined>,
-            params: Record<string, string | undefined>
-        ) => {
+        '/app/:pluginConfigId/:page': (url: Record<string, string | undefined>, params: AppMetricsUrlParams) => {
             // :KLUDGE: Only handle actions if this logic is active
             if (props.pluginConfigId === Number(url.pluginConfigId)) {
                 if (!values.pluginConfig) {
@@ -238,10 +236,31 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 }
                 if (url.page === AppMetricsTab.HistoricalExports) {
                     actions.setActiveTab(AppMetricsTab.HistoricalExports)
-                } else if (params.tab && INITIAL_TABS.includes(params.tab as any)) {
-                    actions.setActiveTab(params.tab as AppMetricsTab)
+                } else {
+                    if (params.tab && INITIAL_TABS.includes(params.tab as any)) {
+                        actions.setActiveTab(params.tab as AppMetricsTab)
+                    }
+                    if (params.from) {
+                        actions.setDateFrom(params.from)
+                    }
                 }
             }
         },
     })),
 ])
+
+function getUrl(values: appMetricsSceneLogicType['values'], props: appMetricsSceneLogicType['props']): string {
+    if (values.activeTab === AppMetricsTab.HistoricalExports) {
+        return urls.appHistoricalExports(props.pluginConfigId)
+    }
+
+    const params = {}
+    if (values.activeTab) {
+        params['tab'] = values.activeTab
+    }
+    if (values.dateFrom !== DEFAULT_DATE_FROM) {
+        params['from'] = values.dateFrom
+    }
+
+    return urls.appMetrics(props.pluginConfigId, params)
+}
