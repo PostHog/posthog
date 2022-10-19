@@ -27,7 +27,7 @@ def is_cloud():
             # TRICKY - The license table may not exist if a migration is running
             license = License.objects.first_valid()
             is_cloud_cached = license.plan == "cloud" if license else False
-        except ProgrammingError as e:
+        except ProgrammingError:
             # TRICKY - The license table may not exist if a migration is running
             pass
         except Exception as e:
