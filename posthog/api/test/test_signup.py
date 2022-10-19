@@ -115,7 +115,7 @@ class TestSignupAPI(APIBaseTest):
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_self_hosted_by_default(self):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"}
             )
@@ -149,10 +149,12 @@ class TestSignupAPI(APIBaseTest):
             Organization.objects.create(name="name")
             User.objects.create(first_name="name", email="email@posthog.com")
             count = Organization.objects.count()
-            with self.settings(MULTI_TENANCY=False, MULTI_ORG_ENABLED=True):
-                response = self.client.post(
-                    "/api/signup/", {"first_name": "Jane", "email": "hedgehog4@posthog.com", "password": "notsecure"}
-                )
+            with self.is_cloud(False):
+                with self.settings(MULTI_ORG_ENABLED=True):
+                    response = self.client.post(
+                        "/api/signup/",
+                        {"first_name": "Jane", "email": "hedgehog4@posthog.com", "password": "notsecure"},
+                    )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             self.assertEqual(response.json()["email"], "hedgehog4@posthog.com")
             self.assertEqual(Organization.objects.count(), count + 1)
@@ -476,14 +478,14 @@ class TestSignupAPI(APIBaseTest):
     def test_social_signup_with_whitelisted_domain_on_cloud(
         self, mock_identify, mock_sso_providers, mock_request, mock_capture
     ):
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request, mock_capture)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
     def test_social_signup_with_whitelisted_domain_on_cloud_reverse(self, mock_sso_providers, mock_request):
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             # user already exists
             User.objects.create(email="jane@hogflix.posthog.com", distinct_id=str(uuid.uuid4()))
 
@@ -600,7 +602,7 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
     def test_social_signup_to_existing_org_without_whitelisted_domain_on_cloud(self, mock_sso_providers, mock_request):
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             mock_sso_providers.return_value = {"google-oauth2": True}
             Organization.objects.create(name="Hogflix Movies")
             user_count = User.objects.count()
@@ -905,7 +907,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         count = User.objects.count()
 
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             response = self.client.post(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
