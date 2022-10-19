@@ -136,7 +136,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         response: Dict[str, Any] = {}
 
-        if license:
+        if license and license.is_v2_license:
             response["license"] = {"plan": license.plan}
             billing_service_token = build_billing_token(license, str(org.id))
 
