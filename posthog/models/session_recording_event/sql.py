@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 MATERIALIZED_COLUMNS = {
     "has_full_snapshot": {
         "schema": "Int8",
-        "materializer": "MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'",
+        "materializer": "MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot')",
     },
     "events_summary": {
         "schema": "Array(String)",
