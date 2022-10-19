@@ -20,7 +20,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
     if not match:
         # we include an empty group () to default the path to '' while keeping the number of groups the same
         match = re.search(
-            r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)((/archive)/([A-Za-z0-9_.\-/]+)(?:\.zip|\.tar\.gz)())?$",
+            r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(/(archive)/([A-Za-z0-9_.\-/]+)(?:\.zip|\.tar\.gz)())?$",
             url,
         )
     if not match:
@@ -30,25 +30,56 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
         "type": "github",
         "user": match.group(1),
         "repo": match.group(2),
+        "ref_type": match.group(4),
         "tag": match.group(5),
         "path": match.group(6) or None,
         "private_token": private_token,
     }
 
-    if get_latest_if_none and not parsed["tag"]:
+    if get_latest_if_none and parsed["ref_type"] not in ("commit", "archive"):
+        token = private_token or settings.GITHUB_TOKEN
+        headers = {"Authorization": "token {}".format(token)} if token else {}
+
         try:
-            token = private_token or settings.GITHUB_TOKEN
-            headers = {"Authorization": "token {}".format(token)} if token else {}
-            commits_url = "https://api.github.com/repos/{}/{}/commits".format(parsed["user"], parsed["repo"])
-            commits = requests.get(commits_url, headers=headers).json()
-            if isinstance(commits, dict):
-                raise Exception(commits.get("message"))
-            if len(commits) > 0 and commits[0].get("sha", None):
-                parsed["tag"] = commits[0]["sha"]
-            else:
-                raise Exception(f"Could not find a commit with a hash in {commits}")
+            if parsed["ref_type"] is None:
+                commits_url = "https://api.github.com/repos/{}/{}/commits".format(parsed["user"], parsed["repo"])
+                commits = requests.get(commits_url, headers=headers).json()
+                if isinstance(commits, dict):
+                    raise Exception(commits.get("message"))
+                if len(commits) > 0 and commits[0].get("sha", None):
+                    parsed["tag"] = commits[0]["sha"]
+                else:
+                    raise Exception(f"Could not find a commit with a hash in {commits}")
+
+            elif parsed["ref_type"] == "releases/tag":
+                parsed["tag"] = "refs/tags/{}".format(parsed["tag"])
+
+            # fetch the latest commit on the branch, as long as the provided tag isn't a full commit hash
+            elif parsed["ref_type"] == "tree" and parsed["tag"] and not re.match(r"^[a-f0-9]{40}$", parsed["tag"]):
+                branch_url = "https://api.github.com/repos/{}/{}/branches/{}".format(
+                    parsed["user"], parsed["repo"], parsed["tag"]
+                )
+                branch = requests.get(branch_url, headers=headers).json()
+
+                if not isinstance(branch, dict):
+                    raise Exception(
+                        "Could not fetch branch {} from https://github.com/{}/{}".format(
+                            parsed["tag"], parsed["user"], parsed["repo"]
+                        )
+                    )
+
+                if branch["commit"].get("sha", None):
+                    parsed["tag"] = branch["commit"]["sha"]
+                else:
+                    raise Exception(
+                        "Could not fetch the latest commit on branch {} from https://github.com/{}/{}".format(
+                            parsed["tag"], parsed["user"], parsed["repo"]
+                        )
+                    )
+
         except Exception as e:
             raise Exception(f"Could not get latest commit for {parsed['root_url']}. Reason: {e}")
+
     if parsed["tag"]:
         parsed["tagged_url"] = "https://github.com/{}/{}/tree/{}{}{}".format(
             parsed["user"],
@@ -57,6 +88,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
             "/" + parsed["path"] if parsed["path"] else "",
             "?private_token={}".format(private_token) if private_token else "",
         )
+
     return parsed
 
 
