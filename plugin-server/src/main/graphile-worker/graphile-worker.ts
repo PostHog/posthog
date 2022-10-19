@@ -163,7 +163,7 @@ export class GraphileWorker {
                 noPreparedStatements: !this.hub.JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS,
                 concurrency: 1,
                 // Do not install signal handlers, we are handled signals in
-                // higher level code. If we let graphile handle signals it
+                // higher level code. If we let graphile worker handle the signals it
                 // ends up sending another SIGTERM.
                 noHandleSignals: true,
                 pollInterval: 2000,
@@ -202,12 +202,7 @@ export class GraphileWorker {
                 }
             }
 
-            // TODO: Refactor - require JOB_QUEUE_GRAPHILE_URL to be explicitly set, improve createPostgresPool
-            const config = this.hub.JOB_QUEUE_GRAPHILE_URL
-                ? { ...this.hub, DATABASE_URL: this.hub.JOB_QUEUE_GRAPHILE_URL }
-                : this.hub
-
-            const pool = createPostgresPool(config, onError)
+            const pool = createPostgresPool(this.hub.JOB_QUEUE_GRAPHILE_URL, onError)
             try {
                 await pool.query('select 1')
             } catch (error) {
