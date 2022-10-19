@@ -88,22 +88,18 @@ def waitForInstance(hostname, timeout=20, retry_interval=15):
     url = f"https://{hostname}/_health"
     timeout_seconds = timeout * 60
     start_time = datetime.datetime.now()
-    while True:
+    while datetime.datetime.now() < start_time + datetime.timedelta(seconds=timeout_seconds):
         try:
             r = requests.get(url, verify=False)
         except Exception as e:
             print(f"Host is probably not up. Received exception\n{e}")
-            time.sleep(retry_interval)
-            continue
-        elapsed = datetime.datetime.now() - start_time
         if r.status_code == 200:
             print("Success - received heartbeat from the instance")
             return True
-        if elapsed.seconds >= timeout_seconds:
-            print("Failure - we timed out before receiving a heartbeat")
-            return False
         print("Instance not ready - sleeping")
         time.sleep(retry_interval)
+    print("Failure - we timed out before receiving a heartbeat")
+    return False
 
 
 def destroy_environment(droplet, domain, record, retries=3):
