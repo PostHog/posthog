@@ -9,7 +9,7 @@ is_cloud_cached: Optional[bool] = None
 def is_cloud():
     global is_cloud_cached
 
-    if not settings.TEST and isinstance(is_cloud_cached, bool):
+    if isinstance(is_cloud_cached, bool):
         return is_cloud_cached
 
     try:
