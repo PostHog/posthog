@@ -12,16 +12,21 @@ def is_cloud():
     if isinstance(is_cloud_cached, bool):
         return is_cloud_cached
 
-    try:
-        from ee.models import License
+    # Until billing-v2 is fully migrated, multi-tenancy take priority
+    is_cloud_cached = settings.MULTI_TENANCY
 
+    if not is_cloud_cached:
+        try:
+            from ee.models import License
+
+            # TRICKY - The license table may not exist if a migration is running
+            license = License.objects.first_valid()
+            is_cloud_cached = license.plan == "cloud" if license else False
         # TRICKY - The license table may not exist if a migration is running
-        license = License.objects.first_valid()
-        is_cloud_cached = license.plan == "cloud" if license else settings.MULTI_TENANCY
-        return is_cloud_cached
-    # TRICKY - The license table may not exist if a migration is running
-    except (ImportError, ProgrammingError):
-        return False
+        except (ImportError, ProgrammingError):
+            is_cloud_cached = False
+
+    return is_cloud_cached
 
 
 # NOTE: This is purely for testing purposes
