@@ -66,7 +66,7 @@ export const urls = {
     projectAppLogs: (id: string | number): string => `/project/apps/${id}/logs`,
     projectAppSource: (id: string | number): string => `/project/apps/${id}/source`,
     frontendApp: (id: string | number): string => `/app/${id}`,
-    appMetrics: (pluginConfigId: string | number, params: AppMetricsUrlParams): string =>
+    appMetrics: (pluginConfigId: string | number, params: AppMetricsUrlParams = {}): string =>
         combineUrl(`/app/${pluginConfigId}/metrics`, params).url,
     appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
     projectCreateFirst: (): string => '/project/create',
