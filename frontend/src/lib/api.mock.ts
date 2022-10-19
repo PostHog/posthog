@@ -139,10 +139,8 @@ export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
 
 export const MOCK_DEFAULT_LICENSE: LicenseType = {
     id: 1,
-    key: 'license-key',
     plan: LicensePlan.Scale,
     valid_until: '2025-03-11T14:05:45.338000Z',
-    max_users: 21312,
     created_at: '2022-03-11T14:05:36.107000Z',
 }
 

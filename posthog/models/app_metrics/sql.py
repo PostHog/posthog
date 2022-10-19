@@ -91,8 +91,45 @@ FROM {settings.CLICKHOUSE_DATABASE}.kafka_app_metrics
 TRUNCATE_APP_METRICS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS sharded_app_metrics"
 
 INSERT_APP_METRICS_SQL = """
-INSERT INTO sharded_app_metrics (team_id, timestamp, plugin_config_id, category, job_id, successes, successes_on_retry, failures, _timestamp, _offset, _partition)
-SELECT %(team_id)s, %(timestamp)s, %(plugin_config_id)s, %(category)s, %(job_id)s, %(successes)s, %(successes_on_retry)s, %(failures)s, now(), 0, 0
+INSERT INTO sharded_app_metrics (
+    team_id,
+    timestamp,
+    plugin_config_id,
+    category,
+    job_id,
+    successes,
+    successes_on_retry,
+    failures,
+    error_uuid,
+    error_type,
+    error_details,
+    _timestamp,
+    _offset,
+    _partition
+)
+SELECT
+    %(team_id)s,
+    %(timestamp)s,
+    %(plugin_config_id)s,
+    %(category)s,
+    %(job_id)s,
+    %(successes)s,
+    %(successes_on_retry)s,
+    %(failures)s,
+    %(error_uuid)s,
+    %(error_type)s,
+    %(error_details)s,
+    now(),
+    0,
+    0
+"""
+
+QUERY_APP_METRICS_DELIVERY_RATE = """
+SELECT plugin_config_id, (sum(successes) + sum(successes_on_retry)) / (sum(successes) + sum(successes_on_retry) + sum(failures)) AS rate
+FROM app_metrics
+WHERE team_id = %(team_id)s
+  AND timestamp > %(from_date)s
+GROUP BY plugin_config_id
 """
 
 QUERY_APP_METRICS_TIME_SERIES = """
@@ -134,4 +171,30 @@ FROM (
     GROUP BY date
     ORDER BY date
 )
+"""
+
+QUERY_APP_METRICS_ERRORS = """
+SELECT error_type, count() AS count, max(timestamp) AS last_seen
+FROM app_metrics
+WHERE team_id = %(team_id)s
+  AND plugin_config_id = %(plugin_config_id)s
+  AND category = %(category)s
+  {job_id_clause}
+  AND timestamp >= %(date_from)s
+  AND timestamp < %(date_to)s
+  AND error_type <> ''
+GROUP BY error_type
+ORDER BY count DESC
+"""
+
+QUERY_APP_METRICS_ERROR_DETAILS = """
+SELECT timestamp, error_uuid, error_type, error_details
+FROM app_metrics
+WHERE team_id = %(team_id)s
+  AND plugin_config_id = %(plugin_config_id)s
+  AND category = %(category)s
+  AND error_type = %(error_type)s
+  {job_id_clause}
+ORDER BY timestamp DESC
+LIMIT 20
 """

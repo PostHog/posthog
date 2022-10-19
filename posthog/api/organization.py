@@ -1,12 +1,12 @@
 from typing import Any, Dict, List, Optional, cast
 
-from django.conf import settings
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
 from posthog.api.shared import TeamBasicSerializer
+from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
@@ -31,7 +31,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
         user = cast(User, request.user)
         if (
             # Make multiple orgs only premium on self-hosted, since enforcement of this wouldn't make sense on Cloud
-            not settings.MULTI_TENANCY
+            not is_cloud()
             and request.method in CREATE_METHODS
             and (
                 user.organization is None
@@ -83,6 +83,11 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "slug",
             "created_at",
             "updated_at",
+            "membership_level",
+            "plugins_access_level",
+            "teams",
+            "available_features",
+            "metadata",
         ]
         extra_kwargs = {
             "slug": {

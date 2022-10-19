@@ -3,10 +3,10 @@ from typing import Optional, Tuple
 
 import dns.resolver
 import structlog
-from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.utils import UUIDModel
@@ -162,7 +162,7 @@ class OrganizationDomain(UUIDModel):
         Performs a DNS verification for a specific domain.
         """
 
-        if not getattr(settings, "MULTI_TENANCY", False):
+        if not is_cloud():
             # We only do DNS validation on PostHog Cloud
             return self._complete_verification()
 

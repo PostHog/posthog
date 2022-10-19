@@ -95,6 +95,7 @@ CUSTOM_EVENT = "custom_event"
 
 DATE_FROM = "date_from"
 DATE_TO = "date_to"
+EXPLICIT_DATE = "explicit_date"
 ENTITIES = "entities"
 ACTIONS = "actions"
 EVENTS = "events"

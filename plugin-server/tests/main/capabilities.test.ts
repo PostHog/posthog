@@ -1,12 +1,13 @@
 import Piscina from '@posthog/piscina'
 
+import { startGraphileWorker } from '../../src/main/graphile-worker/worker-setup'
 import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../../src/main/ingestion-queues/queue'
-import { startGraphileWorker } from '../../src/main/jobs/worker-setup'
 import { Hub, LogLevel } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 
 jest.mock('../../src/main/ingestion-queues/kafka-queue')
+jest.mock('../../src/main/graphile-worker/schedule')
 
 describe('capabilities', () => {
     let hub: Hub
@@ -47,40 +48,99 @@ describe('capabilities', () => {
 
     describe('startGraphileWorker()', () => {
         it('sets up bufferJob handler if ingestion is on', async () => {
-            hub.graphileWorker.start = jest.fn()
+            jest.spyOn(hub.graphileWorker, 'start').mockImplementation(jest.fn())
             hub.capabilities.ingestion = true
             hub.capabilities.processPluginJobs = false
+            hub.capabilities.pluginScheduledTasks = false
 
             await startGraphileWorker(hub, piscina)
 
-            expect(hub.graphileWorker.start).toHaveBeenCalledWith({
-                bufferJob: expect.anything(),
-            })
+            expect(hub.graphileWorker.start).toHaveBeenCalledWith(
+                {
+                    bufferJob: expect.anything(),
+                },
+                []
+            )
         })
 
         it('sets up pluginJob handler if processPluginJobs is on', async () => {
-            hub.graphileWorker.start = jest.fn()
+            jest.spyOn(hub.graphileWorker, 'start').mockImplementation(jest.fn())
             hub.capabilities.ingestion = false
             hub.capabilities.processPluginJobs = true
+            hub.capabilities.pluginScheduledTasks = false
 
             await startGraphileWorker(hub, piscina)
 
-            expect(hub.graphileWorker.start).toHaveBeenCalledWith({
-                pluginJob: expect.anything(),
-            })
+            expect(hub.graphileWorker.start).toHaveBeenCalledWith(
+                {
+                    pluginJob: expect.anything(),
+                },
+                []
+            )
         })
 
         it('sets up bufferJob and pluginJob handlers if ingestion and processPluginJobs are on', async () => {
-            hub.graphileWorker.start = jest.fn()
+            jest.spyOn(hub.graphileWorker, 'start').mockImplementation(jest.fn())
             hub.capabilities.ingestion = true
             hub.capabilities.processPluginJobs = true
+            hub.capabilities.pluginScheduledTasks = false
 
             await startGraphileWorker(hub, piscina)
 
-            expect(hub.graphileWorker.start).toHaveBeenCalledWith({
-                bufferJob: expect.anything(),
-                pluginJob: expect.anything(),
-            })
+            expect(hub.graphileWorker.start).toHaveBeenCalledWith(
+                {
+                    bufferJob: expect.anything(),
+                    pluginJob: expect.anything(),
+                },
+                []
+            )
+        })
+
+        it('sets up scheduled task handlers if pluginScheduledTasks is on', async () => {
+            jest.spyOn(hub.graphileWorker, 'start').mockImplementation(jest.fn())
+
+            hub.capabilities.ingestion = false
+            hub.capabilities.processPluginJobs = false
+            hub.capabilities.pluginScheduledTasks = true
+
+            await startGraphileWorker(hub, piscina)
+
+            expect(hub.graphileWorker.start).toHaveBeenCalledWith(
+                {
+                    runEveryMinute: expect.anything(),
+                    runEveryHour: expect.anything(),
+                    runEveryDay: expect.anything(),
+                },
+                [
+                    {
+                        identifier: 'runEveryMinute',
+                        options: {
+                            backfillPeriod: 0,
+                            maxAttempts: 1,
+                        },
+                        pattern: '* * * * *',
+                        task: 'runEveryMinute',
+                    },
+                    {
+                        identifier: 'runEveryHour',
+                        options: {
+                            backfillPeriod: 0,
+                            maxAttempts: 5,
+                        },
+                        pattern: '0 * * * *',
+                        task: 'runEveryHour',
+                    },
+                    {
+                        identifier: 'runEveryDay',
+                        options: {
+                            backfillPeriod: 0,
+                            maxAttempts: 10,
+                        },
+                        pattern: '0 0 * * *',
+                        task: 'runEveryDay',
+                    },
+                ]
+            )
         })
     })
 })

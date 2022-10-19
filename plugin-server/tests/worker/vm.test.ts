@@ -2,7 +2,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as fetch from 'node-fetch'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
-import { GraphileWorker } from '../../src/main/jobs/graphile-worker'
+import { GraphileWorker } from '../../src/main/graphile-worker/graphile-worker'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
@@ -15,7 +15,7 @@ import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 jest.mock('../../src/utils/db/kafka-producer-wrapper')
-jest.mock('../../src/main/jobs/graphile-worker')
+jest.mock('../../src/main/graphile-worker/graphile-worker')
 
 jest.setTimeout(100000)
 

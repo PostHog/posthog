@@ -82,7 +82,20 @@ class Insight(models.Model):
             dashboard_filters = {**dashboard.filters}
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
 
-            filters = {**self.filters, **dashboard_filters}
+            insight_date_from = self.filters.get("date_from", None)
+            insight_date_to = self.filters.get("date_to", None)
+            dashboard_date_from = dashboard_filters.get("date_from", None)
+            dashboard_date_to = dashboard_filters.get("date_to", None)
+
+            filters = {
+                **self.filters,
+                **dashboard_filters,
+                "date_from": dashboard_date_from or insight_date_from,
+            }
+
+            if dashboard_date_to or insight_date_to:
+                filters["date_to"] = dashboard_date_to or insight_date_to
+
             if dashboard_properties:
                 if isinstance(self.filters.get("properties"), list):
                     filters["properties"] = {

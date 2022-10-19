@@ -4,6 +4,7 @@ import pytest
 from django.utils import timezone
 from rest_framework import status
 
+from posthog.cloud_utils import is_cloud
 from posthog.models import Action, Tag
 from posthog.test.base import APIBaseTest
 
@@ -16,7 +17,7 @@ class TestActionApi(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
         )
 
         response = self.client.post(f"/api/projects/{self.team.id}/actions/", data={"name": "user signed up"})
@@ -41,7 +42,7 @@ class TestActionApi(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
         )
 
         response = self.client.post(
@@ -55,8 +56,11 @@ class TestActionApi(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
         )
+
+        # Ensure the cloud check is cached to not affect the number of queries
+        assert not is_cloud()
 
         tag = Tag.objects.create(name="tag", team=self.team)
         for i in range(20):
@@ -74,7 +78,7 @@ class TestActionApi(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
         )
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/", data={"name": "user signed up", "tags": ["a", "b", "a"]}

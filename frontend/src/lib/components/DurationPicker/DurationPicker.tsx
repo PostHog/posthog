@@ -52,7 +52,7 @@ export function DurationPicker({ initialValue, onChange, autoFocus }: DurationPi
                 step={1}
                 onChange={(val) => {
                     const newValue = val
-                    setTimeValue(newValue)
+                    setTimeValue(newValue || 0)
                 }}
             />
             <LemonSelect

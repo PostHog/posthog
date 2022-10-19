@@ -25,6 +25,7 @@ from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_GITHUB_ZIP,
     HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP,
 )
+from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
@@ -452,7 +453,7 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(mock_reload.call_count, 1)
 
     def test_create_plugin_version_range_eq_current(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {"url": f"https://github.com/posthog-plugin/version-equals/commit/{VERSION}"},
@@ -460,7 +461,7 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(response.status_code, 201)
 
     def test_create_plugin_version_range_eq_next_minor(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {"url": f"https://github.com/posthog-plugin/version-equals/commit/{Version(VERSION).next_minor()}"},
@@ -472,7 +473,7 @@ class TestPluginAPI(APIBaseTest):
             )
 
     def test_create_plugin_version_range_gt_current(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {"url": f"https://github.com/posthog-plugin/version-greater-than/commit/0.0.0"},
@@ -480,7 +481,7 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(response.status_code, 201)
 
     def test_create_plugin_version_range_gt_next_major(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {
@@ -494,7 +495,7 @@ class TestPluginAPI(APIBaseTest):
             )
 
     def test_create_plugin_version_range_lt_current(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {"url": f"https://github.com/posthog-plugin/version-less-than/commit/{VERSION}"},
@@ -506,7 +507,7 @@ class TestPluginAPI(APIBaseTest):
             )
 
     def test_create_plugin_version_range_lt_next_major(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {"url": f"https://github.com/posthog-plugin/version-less-than/commit/{Version(VERSION).next_major()}"},
@@ -514,7 +515,7 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(response.status_code, 201)
 
     def test_create_plugin_version_range_lt_invalid(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {"url": f"https://github.com/posthog-plugin/version-less-than/commit/..."},
@@ -525,7 +526,7 @@ class TestPluginAPI(APIBaseTest):
             )
 
     def test_create_plugin_version_range_gt_next_major_ignore_on_cloud(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {
@@ -756,6 +757,7 @@ class TestPluginAPI(APIBaseTest):
                 "error": None,
                 "team_id": self.team.pk,
                 "plugin_info": None,
+                "delivery_rate_24h": None,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -787,6 +789,7 @@ class TestPluginAPI(APIBaseTest):
                 "error": None,
                 "team_id": self.team.pk,
                 "plugin_info": None,
+                "delivery_rate_24h": None,
             },
         )
         self.client.delete(f"/api/plugin_config/{plugin_config_id}")
@@ -1050,6 +1053,7 @@ class TestPluginAPI(APIBaseTest):
                 "error": None,
                 "team_id": self.team.pk,
                 "plugin_info": None,
+                "delivery_rate_24h": None,
             },
         )
 
@@ -1073,6 +1077,7 @@ class TestPluginAPI(APIBaseTest):
                 "error": None,
                 "team_id": self.team.pk,
                 "plugin_info": None,
+                "delivery_rate_24h": None,
             },
         )
 
@@ -1094,10 +1099,56 @@ class TestPluginAPI(APIBaseTest):
                 "error": None,
                 "team_id": self.team.pk,
                 "plugin_info": None,
+                "delivery_rate_24h": None,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
         self.assertEqual(plugin_config.config, {"bar": "a new very secret value"})
+
+    @freeze_time("2021-12-05T13:23:00Z")
+    def test_plugin_config_list(self, mock_get, mock_reload):
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config1 = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
+        plugin_config2 = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=2)
+
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=plugin_config1.pk,
+            timestamp="2021-12-05T00:10:00Z",
+            successes=5,
+            failures=5,
+        )
+
+        response = self.client.get("/api/plugin_config/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["results"],
+            [
+                {
+                    "id": plugin_config1.pk,
+                    "plugin": plugin.pk,
+                    "enabled": True,
+                    "order": 1,
+                    "config": {},
+                    "error": None,
+                    "team_id": self.team.pk,
+                    "plugin_info": None,
+                    "delivery_rate_24h": 0.5,
+                },
+                {
+                    "id": plugin_config2.pk,
+                    "plugin": plugin.pk,
+                    "enabled": True,
+                    "order": 2,
+                    "config": {},
+                    "error": None,
+                    "team_id": self.team.pk,
+                    "plugin_info": None,
+                    "delivery_rate_24h": None,
+                },
+            ],
+        )
 
     @patch("posthog.api.plugin.validate_plugin_job_payload")
     @patch("posthog.api.plugin.connections")
