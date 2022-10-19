@@ -61,6 +61,9 @@ export const workerTasks: Record<string, TaskRunner> = {
     flushKafkaMessages: async (hub) => {
         await hub.kafkaProducer.flush()
     },
+    resetAvailableFeaturesCache: (hub, args: { organization_id: string }) => {
+        hub.organizationManager.resetAvailableFeatureCache(args.organization_id)
+    },
     // Exported only for tests
     _testsRunProcessEvent: async (hub, args: { event: PluginEvent }) => {
         return runProcessEvent(hub, args.event)

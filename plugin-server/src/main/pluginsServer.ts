@@ -188,6 +188,9 @@ export async function startPluginsServer(
                     hub.pluginSchedule = await loadPluginSchedule(piscina)
                 }
             },
+            'reset-available-features-cache': async (message) => {
+                await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
+            },
             ...(hub.capabilities.processAsyncHandlers
                 ? {
                       'reload-action': async (message) =>

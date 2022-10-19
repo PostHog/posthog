@@ -1,6 +1,8 @@
+import json
 import sys
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
+import structlog
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
@@ -13,6 +15,7 @@ from rest_framework import exceptions
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
+from posthog.redis import get_client
 from posthog.utils import absolute_uri, mask_email_address
 
 if TYPE_CHECKING:
@@ -23,6 +26,8 @@ try:
 except ImportError:
     License = None  # type: ignore
 
+
+logger = structlog.get_logger(__name__)
 
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
 
@@ -164,6 +169,14 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         instance.update_available_features()
         if not settings.MULTI_TENANCY:
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
+
+
+@receiver(models.signals.post_save, sender=Organization)
+def ensure_available_features_sync(sender, instance: Organization, **kwargs):
+    updated_fields = kwargs.get("update_fields") or []
+    if "available_features" in updated_fields:
+        logger.info("Notifying plugin-server to reset available features cache.", {"organization_id": instance.id})
+        get_client().publish("reset-available-features-cache", json.dumps({"organization_id": str(instance.id)}))
 
 
 class OrganizationMembership(UUIDModel):
