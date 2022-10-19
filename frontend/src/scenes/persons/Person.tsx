@@ -1,8 +1,6 @@
-import React from 'react'
 import { Dropdown, Menu, Tabs, Tag } from 'antd'
 import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
-import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { asDisplay } from './PersonHeader'
@@ -26,8 +24,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/SessionRecordingsPlaylist'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -95,7 +91,6 @@ export function Person(): JSX.Element | null {
         useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!person) {
         return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
@@ -119,13 +114,15 @@ export function Person(): JSX.Element | null {
                             Delete person
                         </LemonButton>
 
-                        <LemonButton
-                            onClick={() => setSplitMergeModalShown(true)}
-                            data-attr="merge-person-button"
-                            type="secondary"
-                        >
-                            Split or merge IDs
-                        </LemonButton>
+                        {person.distinct_ids.length > 1 && (
+                            <LemonButton
+                                onClick={() => setSplitMergeModalShown(true)}
+                                data-attr="merge-person-button"
+                                type="secondary"
+                            >
+                                Split IDs
+                            </LemonButton>
+                        )}
                     </div>
                 }
             />
@@ -174,19 +171,11 @@ export function Person(): JSX.Element | null {
                             </AlertMessage>
                         </div>
                     ) : null}
-                    {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3] ? (
-                        <SessionRecordingsPlaylist
-                            key={person.uuid} // force refresh if user changes
-                            personUUID={person.uuid}
-                            isPersonPage
-                        />
-                    ) : (
-                        <SessionRecordingsTable
-                            key={person.uuid} // force refresh if user changes
-                            personUUID={person.uuid}
-                            isPersonPage
-                        />
-                    )}
+                    <SessionRecordingsPlaylist
+                        key={person.uuid} // force refresh if user changes
+                        personUUID={person.uuid}
+                        isPersonPage
+                    />
                 </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>

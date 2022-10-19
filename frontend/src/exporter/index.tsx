@@ -1,6 +1,5 @@
 import '~/styles'
 import './Exporter.scss'
-import React from 'react'
 import ReactDOM from 'react-dom'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { initKea } from '~/initKea'

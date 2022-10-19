@@ -63,7 +63,7 @@ FROM {database}.kafka_ingestion_warnings
 DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL = lambda: INGESTION_WARNINGS_TABLE_BASE_SQL.format(
     table_name="ingestion_warnings",
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(data_table="sharded_ingestion_warnings", sharding_key=None),
+    engine=Distributed(data_table="sharded_ingestion_warnings", sharding_key="rand()"),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     materialized_columns="",
 )

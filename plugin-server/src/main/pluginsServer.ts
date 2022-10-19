@@ -7,29 +7,22 @@ import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
-import {
-    Hub,
-    JobQueueConsumerControl,
-    PluginScheduleControl,
-    PluginServerCapabilities,
-    PluginsServerConfig,
-} from '../types'
+import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub } from '../utils/db/hub'
 import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { delay, getPiscinaStats, logOrThrowJobQueueError, stalenessCheck } from '../utils/utils'
+import { makePiscina as defaultMakePiscina } from '../worker/piscina'
+import { loadPluginSchedule } from './graphile-worker/schedule'
+import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
-import { GraphileQueue } from './job-queues/concurrent/graphile-queue'
-import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
-import { jobQueueMap } from './job-queues/job-queues'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
-import { startPluginSchedules } from './services/schedule'
 
 const { version } = require('../../package.json')
 
@@ -45,7 +38,7 @@ export type ServerInstance = {
 
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
-    makePiscina: (config: PluginsServerConfig) => Piscina,
+    makePiscina: (config: PluginsServerConfig) => Piscina = defaultMakePiscina,
     capabilities: PluginServerCapabilities | null = null
 ): Promise<ServerInstance> {
     const timer = new Date()
@@ -62,10 +55,8 @@ export async function startPluginsServer(
     let hub: Hub | undefined
     let piscina: Piscina | undefined
     let queue: KafkaQueue | undefined | null // ingestion queue
-    let jobQueueConsumer: JobQueueConsumerControl | undefined
     let bufferConsumer: Consumer | undefined
     let closeHub: () => Promise<void> | undefined
-    let pluginScheduleControl: PluginScheduleControl | undefined
     let mmdbServer: net.Server | undefined
     let lastActivityCheck: NodeJS.Timeout | undefined
     let httpServer: Server | undefined
@@ -78,9 +69,8 @@ export async function startPluginsServer(
         stopEventLoopMetrics?.()
         await queue?.stop()
         await pubSub?.stop()
-        await jobQueueConsumer?.stop()
+        await hub?.graphileWorker.stop()
         await bufferConsumer?.disconnect()
-        await pluginScheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
                 ? resolve()
@@ -159,27 +149,32 @@ export async function startPluginsServer(
 
         piscina = makePiscina(serverConfig)
 
-        if (hub.capabilities.pluginScheduledTasks) {
-            pluginScheduleControl = await startPluginSchedules(hub, piscina)
+        if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
+            const graphileWorkerError = await startGraphileWorker(hub, piscina)
+            if (graphileWorkerError instanceof Error) {
+                try {
+                    logOrThrowJobQueueError(hub, graphileWorkerError, `Cannot start job queue consumer!`)
+                } catch {
+                    killProcess()
+                }
+            }
         }
-        if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs) {
-            jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
-        }
+
         if (hub.capabilities.ingestion) {
             bufferConsumer = await startAnonymousEventBufferConsumer({
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
-                graphileQueue: jobQueueMap.graphile.getQueue(serverConfig) as GraphileQueue,
+                graphileWorker: hub.graphileWorker,
                 statsd: hub.statsd,
             })
         }
 
         const queues = await startQueues(hub, piscina)
-
         // `queue` refers to the ingestion queue.
         queue = queues.ingestion
+
         piscina.on('drain', () => {
-            void jobQueueConsumer?.resume()
+            void hub?.graphileWorker.resumeConsumer()
         })
 
         // use one extra Redis connection for pub-sub
@@ -187,7 +182,11 @@ export async function startPluginsServer(
             [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
                 status.info('⚡', 'Reloading plugins!')
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
-                await pluginScheduleControl?.reloadSchedule()
+
+                if (hub?.capabilities.pluginScheduledTasks && piscina) {
+                    await piscina.broadcastTask({ task: 'reloadSchedule' })
+                    hub.pluginSchedule = await loadPluginSchedule(piscina)
+                }
             },
             ...(hub.capabilities.processAsyncHandlers
                 ? {
@@ -200,11 +199,6 @@ export async function startPluginsServer(
         })
 
         await pubSub.start()
-
-        if (hub.jobQueueManager) {
-            const queueString = hub.jobQueueManager.getJobQueueTypesAsString()
-            await hub!.db!.redisSet('@posthog-plugin-server/enabled-job-queues', queueString)
-        }
 
         // every 5 minutes all ActionManager caches are reloaded for eventual consistency
         schedule.scheduleJob('*/5 * * * *', async () => {

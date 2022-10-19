@@ -1,7 +1,6 @@
 from typing import Any, List, Optional
 
 from django.db import models, transaction
-from django.utils import timezone
 
 from posthog.models.utils import UUIDT
 
@@ -41,15 +40,6 @@ class Person(models.Model):
     def _add_distinct_ids(self, distinct_ids: List[str]) -> None:
         for distinct_id in distinct_ids:
             self.add_distinct_id(distinct_id)
-
-    def merge_people(self, people_to_merge: List["Person"]):
-        from posthog.api.capture import capture_internal
-
-        for other_person in people_to_merge:
-            now = timezone.now()
-            event = {"event": "$create_alias", "properties": {"alias": other_person.distinct_ids[-1]}}
-
-            capture_internal(event, self.distinct_ids[-1], None, None, now, now, self.team_id)
 
     def split_person(self, main_distinct_id: Optional[str]):
         distinct_ids = Person.objects.get(pk=self.pk).distinct_ids

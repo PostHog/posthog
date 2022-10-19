@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
 import { AvailableFeature, InsightShortId, Realm } from '~/types'

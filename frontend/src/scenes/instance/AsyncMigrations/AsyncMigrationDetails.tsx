@@ -1,4 +1,3 @@
-import React from 'react'
 import { AsyncMigration, AsyncMigrationError, asyncMigrationsLogic } from './asyncMigrationsLogic'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { useActions, useValues } from 'kea'

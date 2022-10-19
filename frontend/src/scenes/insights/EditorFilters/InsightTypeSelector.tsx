@@ -1,7 +1,6 @@
 import { useActions } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
-import React from 'react'
 import { EditorFilterProps } from '~/types'
 import { LemonSelect } from '@posthog/lemon-ui'
 

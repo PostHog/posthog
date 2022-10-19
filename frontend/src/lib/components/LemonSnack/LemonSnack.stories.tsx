@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonSnack, LemonSnackProps } from './LemonSnack'
 import { ProfilePicture } from '../ProfilePicture'

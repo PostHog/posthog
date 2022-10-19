@@ -128,6 +128,26 @@ def send_canary_email(user_email: str) -> None:
 
 
 @app.task(max_retries=1)
+def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new_address: str) -> None:
+    message_old_address = EmailMessage(
+        campaign_key=f"email_change_old_address_{now_iso}",
+        subject="This is no longer your PostHog account email",
+        template_name="email_change_old_address",
+        template_context={"user_name": user_name, "old_address": old_address, "new_address": new_address},
+    )
+    message_new_address = EmailMessage(
+        campaign_key=f"email_change_new_address_{now_iso}",
+        subject="This is your new PostHog account email",
+        template_name="email_change_new_address",
+        template_context={"user_name": user_name, "old_address": old_address, "new_address": new_address},
+    )
+    message_old_address.add_recipient(email=old_address)
+    message_new_address.add_recipient(email=new_address)
+    message_old_address.send(send_async=False)
+    message_new_address.send(send_async=False)
+
+
+@app.task(max_retries=1)
 def send_async_migration_complete_email(migration_key: str, time: str) -> None:
 
     message = EmailMessage(

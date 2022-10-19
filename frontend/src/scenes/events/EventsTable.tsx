@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { Link } from 'lib/components/Link'
@@ -39,10 +39,8 @@ import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { EventBufferNotice } from './EventBufferNotice'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
-import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -155,9 +153,7 @@ export function EventsTable({
 
     const { reportEventsTablePollingReactedToPageVisibility } = useActions(eventUsageLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const allowColumnChoice = featureFlags[FEATURE_FLAGS.ALLOW_CSV_EXPORT_COLUMN_CHOICE]
-    const { openSessionPlayer } = useActions(sessionPlayerDrawerLogic)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     usePageVisibility((pageIsVisible) => {
         setPollingActive(pageIsVisible)
@@ -506,7 +502,7 @@ export function EventsTable({
                 ) : null}
 
                 {showSecondRow ? (
-                    <div className={clsx('flex justify-between items-center mb-4')}>
+                    <div className={clsx('flex justify-between items-center mb-4 gap-2 flex-wrap')}>
                         {showAutoload && (
                             <LemonSwitch
                                 bordered
@@ -524,7 +520,7 @@ export function EventsTable({
                                     defaultColumns={defaultColumns.map((e) => e.key || '')}
                                 />
                             )}
-                            {showExport && allowColumnChoice ? (
+                            {showExport ? (
                                 <LemonButtonWithPopup
                                     popup={{
                                         sameWidth: false,
@@ -644,7 +640,7 @@ export function EventsTable({
                     </LemonButton>
                 ) : null}
             </div>
-            <SessionPlayerDrawer />
+            <SessionPlayerModal />
         </>
     )
 }

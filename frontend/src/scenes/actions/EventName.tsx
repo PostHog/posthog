@@ -1,4 +1,3 @@
-import React from 'react'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { LemonTaxonomicStringPopup, TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'

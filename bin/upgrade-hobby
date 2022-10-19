@@ -11,31 +11,41 @@ else
     exit
 fi
 
-echo ""
-echo ""
-echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
-echo "🚨🚨🚨🚨🚨 WARNING: POTENTIAL DATA LOSS 🚨🚨🚨🚨🚨🚨"
-echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
-echo ""
-echo ""
-echo "PRIOR TO THIS VERISON, the Postgres and Clickhouse containers did NOT have persistent named volumes."
-echo "If you choose to upgrade, you 💣 may lose data 💣 contained in anonymous volumes."
-echo ""
-echo "See the discussion here for more information: https://github.com/PostHog/posthog/pull/11256"
-echo ""
-echo "WE STRONGLY RECOMMEND YOU:"
-echo ""
-echo "✅ back up your entire environment/installation (vm, host, etc.), including all docker containers and volumes:"
-echo "✅ specifically back up the contents of :"
-echo "  ☑ /var/lib/postgresql/data in the postgres (root_db_1) container"
-echo "  ☑ /var/lib/clickhouse in the root_clickhouse_1 (root_clickhouse_1) container"
-echo "and be ready to check/recopy the data before you boot Posthog next."
-read -r -p "Do you want to upgarde PostHog? [y/N] " response
-if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+echo "Checking for named postgres and clickhouse volumes to avoid data loss when upgrading from < 1.39"
+if docker volume ls | grep -Pzoq 'clickhouse-data\n(.|\n)*postgres-data\n'
 then
-    echo "OK!"
+    DOCKER_VOLUMES_MISSING=FALSE
+    echo "Found postgres and clickhouse volumes, proceeding..."
 else
-    exit
+    DOCKER_VOLUMES_MISSING=TRUE
+    echo ""
+    echo ""
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨🚨🚨 WARNING: POTENTIAL DATA LOSS 🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo ""
+    echo ""
+    echo "We were unable to find named clickhouse and postgres volumes."
+    echo "If you created your PostHog stack PRIOR TO August 12th, 2022 / v1.39.0, the Postgres and Clickhouse containers did NOT have persistent named volumes by default."
+    echo "If you choose to upgrade, you 💣 will likely lose data 💣 contained in these anonymous volumes."
+    echo ""
+    echo "See the discussion here for more information: https://github.com/PostHog/posthog/pull/11256"
+    echo ""
+    echo "WE STRONGLY RECOMMEND YOU:"
+    echo ""
+    echo "🛑 Stop this script and do not proceed"
+    echo "✅ Back up your entire environment/installation (vm, host, etc.), including all docker containers and volumes:"
+    echo "✅ Specifically back up the contents of :"
+    echo "  ☑ /var/lib/postgresql/data in the postgres (*_db_1) container"
+    echo "  ☑ /var/lib/clickhouse in the clickhouse (*_clickhouse_1) container"
+    echo "and be ready to check/recopy the data before you boot Posthog next."
+    read -r -p "Do you want to proceed anyway? [y/N] " response
+    if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+    then
+        echo "OK!"
+    else
+        exit
+    fi
 fi
 
 [[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
@@ -68,16 +78,19 @@ cat > compose/start <<EOF
 ./bin/docker-server
 EOF
 
-echo ""
-echo ""
-echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
-echo "🚨🚨🚨🚨🚨WARNING: LAST CHANCE TO AVOID DATA LOSS 🚨🚨🚨🚨🚨🚨"
-echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
-echo ""
-echo ""
-echo "Before we restart the stack, you should restore data you have backed up from the previous warning."
-echo ""
-echo ""
+if [ ${DOCKER_VOLUMES_MISSING} == 'TRUE' ];
+then
+    echo ""
+    echo ""
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨🚨🚨WARNING: LAST CHANCE TO AVOID DATA LOSS 🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo ""
+    echo ""
+    echo "Before we restart the stack, you should restore data you have backed up from the previous warning."
+    echo ""
+    echo ""
+fi
 
 read -r -p "Do you want to restart the Posthog stack now ? (docker-compose up) [y/N] " response
 if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]

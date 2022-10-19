@@ -29,15 +29,15 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         ).json()
 
         self.assertEqual(len(response["result"]), 2)
-        self.assertEqual(response["result"][0]["name"], "step one")
-        self.assertEqual(response["result"][1]["name"], "step two")
+        self.assertEqual(response["result"][0]["name"], "Completed 1 step")
+        self.assertEqual(response["result"][1]["name"], "Completed 2 steps")
         self.assertEqual(response["result"][0]["count"], 2)
         self.assertEqual(response["result"][1]["count"], 2)
 
         # Should have 2 people, all got to the end of the funnel
         assert get_funnel_people_breakdown_by_step(client=self.client, funnel_response=response) == [
-            {"name": "step one", "converted": ["1", "2"], "dropped": []},
-            {"name": "step two", "converted": ["1", "2"], "dropped": []},
+            {"name": "Completed 1 step", "converted": ["1", "2"], "dropped": []},
+            {"name": "Completed 2 steps", "converted": ["1", "2"], "dropped": []},
         ]
 
     def test_unordered_funnel_with_breakdown_by_event_property(self):
@@ -80,17 +80,17 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             {
                 "breakdown_value": "Chrome",
                 "steps": [
-                    {"name": "sign up", "converted": ["person1"], "dropped": []},
-                    {"name": "play movie", "converted": ["person1"], "dropped": []},
-                    {"name": "buy", "converted": ["person1"], "dropped": []},
+                    {"name": "Completed 1 step", "converted": ["person1"], "dropped": []},
+                    {"name": "Completed 2 steps", "converted": ["person1"], "dropped": []},
+                    {"name": "Completed 3 steps", "converted": ["person1"], "dropped": []},
                 ],
             },
             {
                 "breakdown_value": "Safari",
                 "steps": [
-                    {"name": "sign up", "converted": ["person2", "person3"], "dropped": []},
-                    {"name": "play movie", "converted": ["person2"], "dropped": ["person3"]},
-                    {"name": "buy", "converted": ["person2"], "dropped": []},
+                    {"name": "Completed 1 step", "converted": ["person2", "person3"], "dropped": []},
+                    {"name": "Completed 2 steps", "converted": ["person2"], "dropped": ["person3"]},
+                    {"name": "Completed 3 steps", "converted": ["person2"], "dropped": []},
                 ],
             },
         ]

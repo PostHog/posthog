@@ -109,6 +109,26 @@ describe('eventsTableLogic', () => {
         })
     })
 
+    describe('with fixed event filters', () => {
+        beforeEach(() => {
+            router.actions.push(urls.events())
+            logic = eventsTableLogic({
+                key: 'test-key',
+                sceneUrl: urls.events(),
+                fixedFilters: {
+                    event_filter: 'dashboard updated',
+                },
+            })
+            logic.mount()
+        })
+
+        it('can not set the fixed event filter', async () => {
+            await expectLogic(logic, () => logic.actions.setEventFilter('')).toMatchValues({
+                eventFilter: 'dashboard updated',
+            })
+        })
+    })
+
     describe('when loaded on events page', () => {
         beforeEach(() => {
             router.actions.push(urls.events())

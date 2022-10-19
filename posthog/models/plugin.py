@@ -19,6 +19,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
+from posthog.plugins.site import get_decide_site_apps
 from posthog.plugins.utils import (
     download_plugin_archive,
     extract_plugin_code,
@@ -26,7 +27,6 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from posthog.plugins.web import get_decide_web_js_inject
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
@@ -213,7 +213,7 @@ class PluginConfig(models.Model):
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
     error: models.JSONField = models.JSONField(default=None, null=True)
-    # Used to access web.ts from a public URL
+    # Used to access site.ts from a public URL
     web_token: models.CharField = models.CharField(max_length=64, default=None, null=True)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
@@ -265,7 +265,7 @@ class PluginSourceFileManager(models.Manager):
 
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
         try:
-            plugin_json, index_ts, frontend_tsx, web_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
+            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
         # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
@@ -287,15 +287,15 @@ class PluginSourceFileManager(models.Manager):
         else:
             filenames_to_delete.append("frontend.tsx")
         # Save frontend.tsx
-        web_ts_instance: Optional["PluginSourceFile"] = None
-        if web_ts is not None:
-            web_ts_instance, _ = PluginSourceFile.objects.update_or_create(
+        site_ts_instance: Optional["PluginSourceFile"] = None
+        if site_ts is not None:
+            site_ts_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
-                filename="web.ts",
-                defaults={"source": web_ts, "transpiled": None, "status": None, "error": None},
+                filename="site.ts",
+                defaults={"source": site_ts, "transpiled": None, "status": None, "error": None},
             )
         else:
-            filenames_to_delete.append("web.ts")
+            filenames_to_delete.append("site.ts")
         # Save index.ts
         index_ts_instance: Optional["PluginSourceFile"] = None
         if index_ts is not None:
@@ -310,7 +310,7 @@ class PluginSourceFileManager(models.Manager):
             filenames_to_delete.append("index.ts")
         # Make sure files are gone
         PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
-        return plugin_json_instance, index_ts_instance, frontend_tsx_instance, web_ts_instance
+        return plugin_json_instance, index_ts_instance, frontend_tsx_instance, site_ts_instance
 
 
 class PluginSourceFile(UUIDModel):
@@ -329,6 +329,7 @@ class PluginSourceFile(UUIDModel):
     status: models.CharField = models.CharField(max_length=20, choices=Status.choices, null=True)
     transpiled: models.TextField = models.TextField(blank=True, null=True)
     error: models.TextField = models.TextField(blank=True, null=True)
+    updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     objects: PluginSourceFileManager = PluginSourceFileManager()
 
@@ -450,7 +451,7 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 def sync_team_inject_web_apps(team: Optional[Team]):
     if not team:
         return
-    inject_web_apps = len(get_decide_web_js_inject(team)) > 0
+    inject_web_apps = len(get_decide_site_apps(team)) > 0
     if inject_web_apps != team.inject_web_apps:
         Team.objects.filter(pk=team.pk).update(inject_web_apps=inject_web_apps)
 

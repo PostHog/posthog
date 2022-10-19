@@ -15,7 +15,6 @@ import { PROPERTY_MATCH_TYPE, DashboardRestrictionLevel, DashboardPrivilegeLevel
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
-import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
@@ -25,6 +24,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
+import { Layout } from 'react-grid-layout'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -48,6 +48,7 @@ export enum AvailableFeature {
     BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
     WHITE_LABELLING = 'white_labelling',
     SUBSCRIPTIONS = 'subscriptions',
+    APP_METRICS = 'app_metrics',
 }
 
 export enum LicensePlan {
@@ -388,6 +389,12 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
+export enum ExperimentStatus {
+    Draft = 'draft',
+    Running = 'running',
+    Complete = 'complete',
+}
+
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
@@ -470,12 +477,19 @@ export interface SessionRecordingMeta {
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
 }
-export interface SessionPlayerData {
+
+export interface SessionPlayerSnapshotData {
     snapshotsByWindowId: Record<string, eventWithTime[]>
+    next?: string
+}
+
+export interface SessionPlayerMetaData {
     person: PersonType | null
     metadata: SessionRecordingMeta
+}
+
+export interface SessionPlayerData extends SessionPlayerSnapshotData, SessionPlayerMetaData {
     bufferedTo: PlayerPosition | null
-    next?: string
 }
 
 export enum SessionRecordingUsageType {
@@ -825,13 +839,27 @@ export interface Cacheable {
     refreshing: boolean
 }
 
+export interface TileLayout extends Omit<Layout, 'i'> {
+    i?: string // we use `i` in the front end but not in the API
+}
+
 export interface Tileable {
-    layouts: Record<string, any>
+    layouts: Record<DashboardLayoutSize, TileLayout> | Record<string, never> // allow an empty object or one with DashboardLayoutSize keys
     color: InsightColor | null
 }
 
 export interface DashboardTile extends Tileable, Cacheable {
-    insight: InsightModel
+    id: number
+    insight?: InsightModel
+    text?: TextModel
+    deleted?: boolean
+}
+
+export interface TextModel {
+    body: string
+    created_by?: UserBasicType
+    last_modified_by?: UserBasicType
+    last_modified_at: string
 }
 
 export interface InsightModel extends Cacheable {
@@ -970,6 +998,11 @@ export interface PluginConfigType {
     order: number
     config: Record<string, any>
     error?: PluginErrorType
+}
+
+export interface PluginConfigWithPluginInfo extends PluginConfigType {
+    id: number
+    plugin_info: PluginType
 }
 
 export interface PluginErrorType {
@@ -1159,7 +1192,9 @@ export interface FilterType {
     breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
     breakdown_attribution_value?: number // funnels breakdown attribution specific step value
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
-    aggregation_axis_format?: AggregationAxisFormat
+    aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
+    aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
+    aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
 }
 
 export interface RecordingEventsFilters {
@@ -1186,12 +1221,12 @@ export interface EditorFilterProps {
 
 export interface InsightEditorFilter {
     key: string
-    label?: string
+    label?: string | ((props: EditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
-    component?: (props: EditorFilterProps) => JSX.Element
+    component?: (props: EditorFilterProps) => JSX.Element | null
 }
 
 export interface SystemStatusSubrows {
@@ -2076,4 +2111,10 @@ export interface SessionRecordingPlayerProps {
 export enum FeatureFlagReleaseType {
     ReleaseToggle = 'Release toggle',
     Variants = 'Multiple variants',
+}
+
+export interface MediaUploadResponse {
+    id: string
+    image_location: string
+    name: string
 }

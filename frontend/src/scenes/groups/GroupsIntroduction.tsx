@@ -1,4 +1,3 @@
-import React from 'react'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { AvailableFeature } from '~/types'

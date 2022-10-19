@@ -8,14 +8,13 @@ import {
     InsightType,
 } from '~/types'
 import { CSSTransition } from 'react-transition-group'
-import { TrendsSteps } from 'scenes/insights/EditorFilters/TrendsSteps'
+import { TrendsSeries, TrendsSeriesLabel } from 'scenes/insights/EditorFilters/TrendsSeries'
 import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { TrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/TrendsGlobalAndOrFilters'
-import { TrendsFormula } from 'scenes/insights/EditorFilters/TrendsFormula'
+import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { TrendsBreakdown } from 'scenes/insights/EditorFilters/TrendsBreakdown'
 import { LifecycleToggles } from 'scenes/insights/EditorFilters/LifecycleToggles'
 import { LifecycleGlobalFilters } from 'scenes/insights/EditorFilters/LifecycleGlobalFilters'
-import React from 'react'
 import { RetentionSummary } from './RetentionSummary'
 import { PathsEventTypes } from './PathsEventTypes'
 import { PathsWildcardGroups } from './PathsWildcardGroups'
@@ -137,13 +136,20 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             ]),
         },
         {
-            title: 'Steps',
-
+            title: 'Series',
             editorFilters: filterFalsy([
                 isTrendsLike && {
-                    key: 'steps',
-                    component: TrendsSteps,
+                    key: 'series',
+                    label: isTrends ? TrendsSeriesLabel : undefined,
+                    component: TrendsSeries,
                 },
+                isTrends
+                    ? {
+                          key: 'formula',
+                          label: TrendsFormulaLabel,
+                          component: TrendsFormula,
+                      }
+                    : null,
             ]),
         },
         {
@@ -243,21 +249,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             defaultExpanded: advancedOptionsExpanded,
             count: advancedOptionsCount,
             editorFilters: filterFalsy([
-                isTrends
-                    ? {
-                          key: 'formula',
-                          label: 'Formula',
-                          position: 'right',
-                          tooltip: (
-                              <>
-                                  Apply math operations to your series. You can do operations among series (e.g.{' '}
-                                  <code>A / B</code>) or simple arithmetic operations on a single series (e.g.{' '}
-                                  <code>A / 100</code>)
-                              </>
-                          ),
-                          component: TrendsFormula,
-                      }
-                    : null,
                 isPaths &&
                     (hasPathsAdvanced
                         ? {

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { PaginationAuto, PaginationManual, PaginationState } from './types'
 
 export function usePagination<T>(
@@ -33,6 +33,35 @@ export function usePagination<T>(
             pagination && !pagination.controlled
                 ? dataSource.slice(calculatedStartIndex, calculatedStartIndex + pagination.pageSize)
                 : dataSource
+        const calculatedEndIndex = calculatedStartIndex + processedDataSource.length
+        return {
+            dataSourcePage: processedDataSource,
+            currentStartIndex: calculatedStartIndex,
+            currentEndIndex: calculatedEndIndex,
+        }
+    }, [currentPage, pageCount, pagination, dataSource])
+
+    return {
+        pagination,
+        dataSourcePage,
+        currentPage,
+        pageCount,
+        currentStartIndex,
+        currentEndIndex,
+        entryCount,
+        setCurrentPage,
+    }
+}
+
+export function usePaginationLocal<T>(dataSource: T[], pagination: PaginationAuto): PaginationState<T> {
+    const [currentPage, setCurrentPage] = useState(0)
+    const entryCount = dataSource.length
+    const pageCount = Math.ceil(entryCount / pagination.pageSize)
+
+    const { dataSourcePage, currentStartIndex, currentEndIndex } = useMemo(() => {
+        const calculatedStartIndex =
+            pagination && currentPage && pagination.pageSize ? (currentPage - 1) * pagination.pageSize : 0
+        const processedDataSource = dataSource.slice(calculatedStartIndex, calculatedStartIndex + pagination.pageSize)
         const calculatedEndIndex = calculatedStartIndex + processedDataSource.length
         return {
             dataSourcePage: processedDataSource,

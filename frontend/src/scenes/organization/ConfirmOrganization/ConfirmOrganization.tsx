@@ -1,4 +1,3 @@
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { LemonButton } from 'lib/components/LemonButton'

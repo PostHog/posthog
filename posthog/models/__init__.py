@@ -30,7 +30,7 @@ from .organization_domain import OrganizationDomain
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
-from .prompt import PromptSequenceState, UserPromptSequenceState
+from .prompt import UserPromptSequenceState
 from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
@@ -39,6 +39,7 @@ from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
 from .team import Team
+from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 
 __all__ = [
@@ -86,7 +87,6 @@ __all__ = [
     "PluginConfig",
     "PluginLogEntry",
     "PluginSourceFile",
-    "PromptSequenceState",
     "Property",
     "PropertyDefinition",
     "RetentionFilter",
@@ -97,6 +97,7 @@ __all__ = [
     "TaggedItem",
     "Team",
     "Text",
+    "UploadedMedia",
     "User",
     "UserManager",
     "UserPromptSequenceState",

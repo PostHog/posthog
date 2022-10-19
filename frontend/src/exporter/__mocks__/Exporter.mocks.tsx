@@ -1,5 +1,6 @@
 import {
     ChartDisplayType,
+    DashboardTile,
     DashboardType,
     FunnelVizType,
     InsightColor,
@@ -195,6 +196,7 @@ export const dashboard: DashboardType = {
     pinned: true,
     tiles: [
         {
+            id: 0,
             layouts: {
                 sm: {
                     h: 5,
@@ -404,8 +406,9 @@ export const dashboard: DashboardType = {
                 timezone: null,
                 tags: [],
             },
-        },
+        } as DashboardTile,
         {
+            id: 1,
             layouts: {
                 sm: {
                     h: 5,
@@ -554,8 +557,9 @@ export const dashboard: DashboardType = {
                 timezone: null,
                 tags: [],
             },
-        },
+        } as DashboardTile,
         {
+            id: 2,
             layouts: {
                 sm: {
                     h: 5,
@@ -735,8 +739,9 @@ export const dashboard: DashboardType = {
                 timezone: null,
                 tags: [],
             },
-        },
+        } as DashboardTile,
         {
+            id: 3,
             layouts: {
                 sm: {
                     h: 5,
@@ -878,8 +883,9 @@ export const dashboard: DashboardType = {
                 timezone: null,
                 tags: [],
             },
-        },
+        } as DashboardTile,
         {
+            id: 4,
             layouts: {
                 sm: {
                     h: 5,
@@ -1299,8 +1305,9 @@ export const dashboard: DashboardType = {
                 timezone: null,
                 tags: [],
             },
-        },
+        } as DashboardTile,
         {
+            id: 5,
             filters_hash: 'cache_7f58a22916945c13e3646371ebea391b',
             layouts: {
                 sm: {
@@ -1440,7 +1447,7 @@ export const dashboard: DashboardType = {
                 timezone: null,
                 tags: [],
             },
-        },
+        } as DashboardTile,
     ],
     created_at: '2022-06-29T10:18:57.707542Z',
     created_by: null,

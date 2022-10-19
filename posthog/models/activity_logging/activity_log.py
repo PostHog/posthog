@@ -29,13 +29,6 @@ class Change:
 
 
 @dataclasses.dataclass(frozen=True)
-class Merge:
-    type: Literal["Person"]
-    source: Optional[Any] = None
-    target: Optional[Any] = None
-
-
-@dataclasses.dataclass(frozen=True)
 class Trigger:
     job_type: str
     job_id: str
@@ -45,7 +38,6 @@ class Trigger:
 @dataclasses.dataclass(frozen=True)
 class Detail:
     changes: Optional[List[Change]] = None
-    merge: Optional[Merge] = None
     trigger: Optional[Trigger] = None
     name: Optional[str] = None
     short_id: Optional[str] = None
@@ -53,7 +45,7 @@ class Detail:
 
 class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, (Detail, Change, Merge, Trigger)):
+        if isinstance(obj, (Detail, Change, Trigger)):
             return obj.__dict__
         if isinstance(obj, datetime):
             return obj.isoformat()

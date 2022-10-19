@@ -1,4 +1,3 @@
-import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Tabs } from 'antd'

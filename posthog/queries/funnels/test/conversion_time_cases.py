@@ -50,9 +50,6 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[1]["name"], "$pageview")
-            self.assertEqual(result[2]["name"], "something else")
             self.assertEqual(result[0]["count"], 1)
             self.assertEqual(
                 result[1]["average_conversion_time"], 3600
@@ -137,7 +134,6 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
             result = funnel.run()
-            self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 3)
             self.assertEqual(result[1]["count"], 2)
             self.assertEqual(result[1]["average_conversion_time"], 600)
@@ -162,7 +158,6 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             result4 = funnel.run()
 
             self.assertNotEqual(result, result4)
-            self.assertEqual(result4[0]["name"], "user signed up")
             self.assertEqual(result4[0]["count"], 3)
             self.assertEqual(result4[1]["count"], 1)
             self.assertEqual(result4[1]["average_conversion_time"], 300)

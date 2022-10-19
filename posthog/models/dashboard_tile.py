@@ -40,6 +40,8 @@ class DashboardTile(models.Model):
     refreshing: models.BooleanField = models.BooleanField(null=True)
     refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
 
+    deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
+
     class Meta:
         indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]
         constraints = [

@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { isOperatorDate } from 'lib/utils'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { PropertyOperator } from '~/types'

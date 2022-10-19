@@ -113,29 +113,25 @@ export const FEATURE_FLAGS = {
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
-    INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
-    SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
-    FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
-    TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
-    // Re-enable person modal CSV downloads when frontend can support new entity properties
-    PERSON_MODAL_EXPORTS: 'person-modal-exports', // hot potato see https://github.com/PostHog/posthog/pull/10824
     BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
     CANCEL_RUNNING_QUERIES: 'cancel-running-queries', // owner @timgl
-    IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
-    SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner: @alexkim205
-    ALLOW_CSV_EXPORT_COLUMN_CHOICE: 'allow-csv-export-column-choice', //owner: @pauldambra
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     ACTOR_ON_EVENTS_QUERYING: 'person-on-events-enabled', //owner: @EDsCODE
     FEATURE_FLAGS_UX: 'feature-flags-ux', //owner: @liyiy
     REGION_SELECT: 'region-select', //owner: @kappa90
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
     HOG_BOOK: 'hog-book', // owner: @pauldambra
+    EVENT_COUNT_PER_ACTOR: 'event-count-per-actor', // owner: @Twixes
+    TEXT_CARDS: 'text-cards', // owner: @pauldambra
+    SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
+    CURRENCY_UNITS: 'currency-units', // owner: @pauldambra
+    APP_METRICS: 'app-metrics', // owner: @macobo
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -159,6 +155,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.SAML]: LicensePlan.Enterprise,
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
     [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
+    [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
@@ -169,7 +166,9 @@ export enum FunnelLayout {
     vertical = 'vertical',
 }
 
-export const BIN_COUNT_AUTO = 'auto'
+export const BIN_COUNT_AUTO = 'auto' as const
+
+export const EVENT_COUNT_PER_ACTOR = '__event_count_per_actor' as const
 
 // Cohort types
 export enum CohortTypeEnum {

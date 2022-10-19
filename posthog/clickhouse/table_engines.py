@@ -65,15 +65,15 @@ class CollapsingMergeTree(MergeTreeEngine):
     REPLICATED_ENGINE = "ReplicatedCollapsingMergeTree('{zk_path}', '{replica_key}', {ver})"
 
 
+class AggregatingMergeTree(MergeTreeEngine):
+    ENGINE = "AggregatingMergeTree()"
+    REPLICATED_ENGINE = "ReplicatedAggregatingMergeTree('{zk_path}', '{replica_key}')"
+
+
 class Distributed:
-    def __init__(self, data_table: str, sharding_key: Optional[str]):
+    def __init__(self, data_table: str, sharding_key: str):
         self.data_table = data_table
         self.sharding_key = sharding_key
 
     def __str__(self):
-        if self.sharding_key is None:
-            return (
-                f"Distributed('{settings.CLICKHOUSE_CLUSTER}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}')"
-            )
-        else:
-            return f"Distributed('{settings.CLICKHOUSE_CLUSTER}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"
+        return f"Distributed('{settings.CLICKHOUSE_CLUSTER}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"

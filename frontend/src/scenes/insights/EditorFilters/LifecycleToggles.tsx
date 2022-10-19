@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { EditorFilterProps } from '~/types'

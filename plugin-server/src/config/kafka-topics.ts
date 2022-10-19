@@ -16,3 +16,4 @@ export const KAFKA_EVENTS_DEAD_LETTER_QUEUE = `${prefix}events_dead_letter_queue
 export const KAFKA_GROUPS = `${prefix}clickhouse_groups${suffix}`
 export const KAFKA_BUFFER = `${prefix}conversion_events_buffer${suffix}`
 export const KAFKA_INGESTION_WARNINGS = `${prefix}clickhouse_ingestion_warnings${suffix}`
+export const KAFKA_APP_METRICS = `${prefix}clickhouse_app_metrics${suffix}`

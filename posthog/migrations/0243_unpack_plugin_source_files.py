@@ -26,7 +26,7 @@ def forwards_func(apps, schema_editor):
     def sync_from_plugin_archive(plugin):
         """Create PluginSourceFile objects from a plugin that has an archive."""
         try:
-            plugin_json, index_ts, frontend_tsx, web_ts = extract_plugin_code(plugin.archive)
+            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
         # Save plugin.json
@@ -34,9 +34,9 @@ def forwards_func(apps, schema_editor):
         # Save frontend.tsx
         if frontend_tsx is not None:
             PluginSourceFile.objects.create(plugin=plugin, filename="frontend.tsx", source=frontend_tsx)
-        # Save web.ts
-        if web_ts is not None:
-            PluginSourceFile.objects.create(plugin=plugin, filename="web.ts", source=web_ts)
+        # Save site.ts
+        if site_ts is not None:
+            PluginSourceFile.objects.create(plugin=plugin, filename="site.ts", source=site_ts)
         # Save index.ts
         if index_ts is not None:
             # The original name of the file is not preserved, but this greatly simplifies the rest of the code,

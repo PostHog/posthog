@@ -1253,6 +1253,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     step: typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1,
                     label: step.name,
                     seriesId: step.order,
+                    order_type: values.filters.funnel_order_type,
                 }),
             })
         },
@@ -1270,6 +1271,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                     label: step.name,
                     seriesId: step.order,
+                    order_type: values.filters.funnel_order_type,
                 }),
             })
         },

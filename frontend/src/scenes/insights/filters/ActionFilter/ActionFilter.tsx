@@ -213,7 +213,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                         {!singleFilter && (
                             <LemonButton
                                 type={buttonType}
-                                size="small"
                                 onClick={() => addFilter()}
                                 data-attr="add-action-event-button"
                                 icon={<IconPlusMini />}

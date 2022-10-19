@@ -1,17 +1,24 @@
-import { RawOrganization } from '../../types'
+import { RawOrganization, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { getByAge } from '../../utils/utils'
+import { TeamManager } from './team-manager'
+
+const ONE_DAY = 24 * 60 * 60 * 1000
 
 type OrganizationCache<T> = Map<RawOrganization['id'], [T, number]>
 
 export class OrganizationManager {
     db: DB
+    teamManager: TeamManager
     organizationCache: OrganizationCache<RawOrganization | null>
+    availableFeaturesCache: Map<TeamId, [Array<string>, number]>
 
-    constructor(db: DB) {
+    constructor(db: DB, teamManager: TeamManager) {
         this.db = db
+        this.teamManager = teamManager
         this.organizationCache = new Map()
+        this.availableFeaturesCache = new Map()
     }
 
     public async fetchOrganization(organizationId: RawOrganization['id']): Promise<RawOrganization | null> {
@@ -28,5 +35,25 @@ export class OrganizationManager {
         } finally {
             clearTimeout(timeout)
         }
+    }
+
+    public async hasAvailableFeature(teamId: TeamId, feature: string, team?: Team): Promise<boolean> {
+        const cachedAvailableFeatures = getByAge(this.availableFeaturesCache, teamId, ONE_DAY)
+
+        if (cachedAvailableFeatures !== undefined) {
+            return cachedAvailableFeatures.includes(feature)
+        }
+
+        const _team = team || (await this.teamManager.fetchTeam(teamId))
+
+        if (!_team) {
+            return false
+        }
+
+        const organization = await this.fetchOrganization(_team.organization_id)
+        const availableFeatures = organization?.available_features || []
+        this.availableFeaturesCache.set(teamId, [availableFeatures, Date.now()])
+
+        return availableFeatures.includes(feature)
     }
 }

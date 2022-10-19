@@ -280,16 +280,16 @@ def extract_plugin_code(
     assert plugin_json_parsed is not None  # Just to let mypy know this must be loaded at this point
     # Extract frontend.tsx - optional
     frontend_tsx: Optional[str] = get_file_from_archive(archive, "frontend.tsx", json_parse=False)
-    # Extract web.ts - optional
-    web_ts: Optional[str] = get_file_from_archive(archive, "web.ts", json_parse=False)
+    # Extract site.ts - optional
+    site_ts: Optional[str] = get_file_from_archive(archive, "site.ts", json_parse=False)
     # Extract index.ts - optional if frontend.tsx is present, otherwise required
     index_ts: Optional[str] = None
     try:
         index_ts = find_index_ts_in_archive(archive, plugin_json_parsed.get("main"))
     except ValueError as e:
-        if frontend_tsx is None and web_ts is None:
+        if frontend_tsx is None and site_ts is None:
             raise e
-    return plugin_json, index_ts, frontend_tsx, web_ts
+    return plugin_json, index_ts, frontend_tsx, site_ts
 
 
 def put_json_into_zip_archive(archive: bytes, json_data: dict, filename: str):

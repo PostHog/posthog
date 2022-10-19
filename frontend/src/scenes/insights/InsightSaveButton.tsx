@@ -1,5 +1,4 @@
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import React from 'react'
 
 export function InsightSaveButton({
     saveAs,

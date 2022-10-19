@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import { useRef } from 'react'
 import './ProjectHomepage.scss'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -25,7 +25,9 @@ import { urls } from 'scenes/urls'
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogic } = useValues(projectHomepageLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { dashboard } = useValues(dashboardLogic)
+    const {
+        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
+    } = useValues(dashboardLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
     const topListContainerRef = useRef<HTMLDivElement | null>(null)

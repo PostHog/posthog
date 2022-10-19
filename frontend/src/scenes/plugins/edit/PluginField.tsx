@@ -1,6 +1,6 @@
 import { UploadField } from 'scenes/plugins/edit/UploadField'
 import { Button, Input, Select } from 'antd'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 import { EditOutlined } from '@ant-design/icons'
 import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'

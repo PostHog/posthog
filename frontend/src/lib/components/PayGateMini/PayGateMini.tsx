@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AvailableFeature } from '~/types'

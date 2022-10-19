@@ -1,4 +1,3 @@
-import React from 'react'
 import { LemonCalendar } from './LemonCalendar'
 import { render, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'

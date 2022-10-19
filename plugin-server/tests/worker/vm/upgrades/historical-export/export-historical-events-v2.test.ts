@@ -43,6 +43,8 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         hub.kafkaProducer.queueMessage = jest.fn()
         hub.kafkaProducer.flush = jest.fn()
         jest.spyOn(hub.db, 'queuePluginLogEntry')
+        jest.spyOn(hub.appMetrics, 'queueMetric')
+        jest.spyOn(hub.appMetrics, 'queueError')
 
         jest.spyOn(Date, 'now').mockReturnValue(1_000_000_000)
     })
@@ -165,6 +167,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
+            expect(jest.mocked(hub.appMetrics.queueMetric).mock.calls).toMatchSnapshot()
         })
 
         it('does not call exportEvents or log if no events in time range', async () => {
@@ -257,17 +260,23 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
+            expect(jest.mocked(hub.appMetrics.queueError).mock.calls).toMatchSnapshot()
 
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
 
         it('stops processing after HISTORICAL_EXPORTS_MAX_RETRY_COUNT retries', async () => {
+            createVM()
+
+            jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
+            jest.mocked(vm.methods.exportEvents).mockRejectedValue(new RetryError('Retry error'))
+
             await exportHistoricalEvents({
                 ...defaultPayload,
-                retriesPerformedSoFar: hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT,
+                retriesPerformedSoFar: hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT - 1,
             })
 
-            expect(fetchEventsForInterval).not.toHaveBeenCalled()
+            expect(vm.meta.jobs.exportHistoricalEventsV2).not.toHaveBeenCalled()
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: expect.stringContaining(
@@ -275,6 +284,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
+            expect(jest.mocked(hub.appMetrics.queueError).mock.calls).toMatchSnapshot()
 
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })

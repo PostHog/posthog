@@ -1,4 +1,3 @@
-import React from 'react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { consoleLogsListLogicType } from './consoleLogsListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -24,17 +23,6 @@ import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { ConsoleDetails, ConsoleDetailsProps } from 'scenes/session-recordings/player/list/ConsoleDetails'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
-
-export const FEEDBACK_OPTIONS = {
-    [YesOrNoResponse.Yes]: {
-        value: YesOrNoResponse.Yes,
-        label: '👍 Yes!',
-    },
-    [YesOrNoResponse.No]: {
-        value: YesOrNoResponse.No,
-        label: '👎 Not really',
-    },
-}
 
 function parseConsoleLogPayload(
     payload: RRWebRecordingConsoleLogPayload

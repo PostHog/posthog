@@ -48,7 +48,7 @@ beforeEach(() => {
             conversionBufferTopicEnabledTeams: new Set([2]),
             db: { fetchPerson: jest.fn().mockResolvedValue(existingPerson) },
             eventsProcessor: {},
-            jobQueueManager: {
+            graphileWorker: {
                 enqueue: jest.fn(),
             },
             kafkaProducer: {
@@ -87,7 +87,7 @@ describe('emitToBufferStep()', () => {
 
         expect(response).toEqual(['pluginsProcessEventStep', pluginEvent, expect.any(LazyPersonContainer)])
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
-        expect(runner.hub.jobQueueManager.enqueue).not.toHaveBeenCalled()
+        expect(runner.hub.graphileWorker.enqueue).not.toHaveBeenCalled()
     })
 
     it('calls `processPersonsStep` for $snapshot events', async () => {
@@ -97,7 +97,7 @@ describe('emitToBufferStep()', () => {
 
         expect(response).toEqual(['processPersonsStep', event, expect.any(LazyPersonContainer)])
         expect(runner.hub.db.fetchPerson).not.toHaveBeenCalled()
-        expect(runner.hub.jobQueueManager.enqueue).not.toHaveBeenCalled()
+        expect(runner.hub.graphileWorker.enqueue).not.toHaveBeenCalled()
     })
 })
 

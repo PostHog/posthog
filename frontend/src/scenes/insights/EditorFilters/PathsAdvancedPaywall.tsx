@@ -1,4 +1,3 @@
-import React from 'react'
 import { AvailableFeature, EditorFilterProps } from '~/types'
 
 import { PayCard } from 'lib/components/PayCard/PayCard'
