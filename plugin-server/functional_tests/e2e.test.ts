@@ -474,32 +474,7 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
             )
 
             expect(runNow.length).toBeGreaterThan(0)
-        }, 60000)
-    })
-
-    describe(`scheduled tasks (${pluginServer.name})`, () => {
-        // KLUDGE: Ideally this test would ensure that the scheduled tasks get called.
-        // However, it's very hard to test for this without actually waiting for a minute+
-        // to pass in the tests, as messing with Graphile Worker's cron internals is complicated.
-        // As such, we test that our tasks are persisted correctly to the table used by
-        // Graphile Worker. Unit tests ensure that we set the right tasks and that the handlers
-        // are correct once the worker triggers them.
-        test('scheduled tasks are set up correctly in graphile worker', async () => {
-            const res = await postgres.query('SELECT * FROM graphile_worker.known_crontabs')
-            expect(res.rows).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        identifier: 'runEveryHour',
-                    }),
-                    expect.objectContaining({
-                        identifier: 'runEveryDay',
-                    }),
-                    expect.objectContaining({
-                        identifier: 'runEveryMinute',
-                    }),
-                ])
-            )
-        })
+        }, 120000)
     })
 })
 
