@@ -1,7 +1,7 @@
-import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Hub, TeamId } from '../types'
+import { workerTasks } from '../worker/tasks'
 import { UUIDT } from './utils'
 
 export class InternalMetrics {
@@ -21,7 +21,7 @@ export class InternalMetrics {
         this.metrics[metric] = (this.metrics[metric] || 0) + 1
     }
 
-    async flush(piscina: Piscina): Promise<void> {
+    async flush(): Promise<void> {
         const teamId = await this.getTeamId()
         if (!teamId) {
             return
@@ -43,7 +43,7 @@ export class InternalMetrics {
                 uuid: new UUIDT().toString(),
             }
 
-            promises.push(piscina.run({ task: 'runEventPipeline', args: { event } }))
+            promises.push(workerTasks['runEventPipeline'](this.hub, { event }))
         }
 
         await Promise.all(promises)

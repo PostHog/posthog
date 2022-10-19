@@ -1,5 +1,4 @@
 import { ReaderModel } from '@maxmind/geoip2-node'
-import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
 import { Consumer, KafkaJSProtocolError } from 'kafkajs'
@@ -14,8 +13,8 @@ import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { delay, getPiscinaStats, logOrThrowJobQueueError, stalenessCheck } from '../utils/utils'
-import { makePiscina as defaultMakePiscina } from '../worker/piscina'
+import { delay, logOrThrowJobQueueError, stalenessCheck } from '../utils/utils'
+import { workerTasks } from '../worker/tasks'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
@@ -29,7 +28,6 @@ const { version } = require('../../package.json')
 // TODO: refactor this into a class, removing the need for many different Servers
 export type ServerInstance = {
     hub: Hub
-    piscina: Piscina
     queue: KafkaQueue | null
     mmdb?: ReaderModel
     mmdbUpdateJob?: schedule.Job
@@ -38,7 +36,6 @@ export type ServerInstance = {
 
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
-    makePiscina: (config: PluginsServerConfig) => Piscina = defaultMakePiscina,
     capabilities: PluginServerCapabilities | null = null
 ): Promise<ServerInstance> {
     const timer = new Date()
@@ -56,9 +53,6 @@ export async function startPluginsServer(
 
     // Used to trigger reloads of plugin code/config
     let pubSub: PubSub | undefined
-
-    // A Node Worker Thread pool
-    let piscina: Piscina | undefined
 
     // Ingestion Kafka consumer. Handles both analytics events and screen
     // recording events. The functionality roughly looks like:
@@ -112,9 +106,6 @@ export async function startPluginsServer(
                       }
                   })
         )
-        if (piscina) {
-            await stopPiscina(piscina)
-        }
         await closeHub?.()
         httpServer?.close()
 
@@ -170,8 +161,6 @@ export async function startPluginsServer(
             hub.INTERNAL_MMDB_SERVER_PORT = serverConfig.INTERNAL_MMDB_SERVER_PORT
         }
 
-        piscina = makePiscina(serverConfig)
-
         // Based on the mode the plugin server was started, we start a number of
         // different services. Mostly this is reasonably obvious from the name.
         // There is however the `queue` which is a little more complicated.
@@ -189,7 +178,7 @@ export async function startPluginsServer(
         }
 
         if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
-            const graphileWorkerError = await startGraphileWorker(hub, piscina)
+            const graphileWorkerError = await startGraphileWorker(hub)
             if (graphileWorkerError instanceof Error) {
                 try {
                     logOrThrowJobQueueError(hub, graphileWorkerError, `Cannot start job queue consumer!`)
@@ -208,35 +197,29 @@ export async function startPluginsServer(
             })
         }
 
-        const queues = await startQueues(hub, piscina)
+        const queues = await startQueues(hub)
 
         // `queue` refers to the ingestion queue.
         queue = queues.ingestion
-
-        piscina.on('drain', () => {
-            void hub?.graphileWorker.resumeConsumer()
-        })
 
         // use one extra Redis connection for pub-sub
         pubSub = new PubSub(hub, {
             [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
                 status.info('⚡', 'Reloading plugins!')
-                await piscina?.broadcastTask({ task: 'reloadPlugins' })
+                await workerTasks['reloadPlugins'](hub!, {})
 
-                if (hub?.capabilities.pluginScheduledTasks && piscina) {
-                    await piscina.broadcastTask({ task: 'reloadSchedule' })
-                    hub.pluginSchedule = await loadPluginSchedule(piscina)
+                if (hub?.capabilities.pluginScheduledTasks) {
+                    await workerTasks['reloadSchedule'](hub, {})
+                    hub.pluginSchedule = await loadPluginSchedule(hub)
                 }
             },
             'reset-available-features-cache': async (message) => {
-                await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
+                await workerTasks['resetAvailableFeaturesCache'](hub!, JSON.parse(message))
             },
             ...(hub.capabilities.processAsyncHandlers
                 ? {
-                      'reload-action': async (message) =>
-                          await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-                      'drop-action': async (message) =>
-                          await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                      'reload-action': async (message) => await workerTasks['reloadAction'](hub!, JSON.parse(message)),
+                      'drop-action': async (message) => await workerTasks['dropAction'](hub!, JSON.parse(message)),
                   }
                 : {}),
         })
@@ -245,7 +228,7 @@ export async function startPluginsServer(
 
         // every 5 minutes all ActionManager caches are reloaded for eventual consistency
         schedule.scheduleJob('*/5 * * * *', async () => {
-            await piscina?.broadcastTask({ task: 'reloadAllActions' })
+            await workerTasks['reloadAllActions'](hub!, {})
         })
         // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
         schedule.scheduleJob('*/5 * * * * *', async () => {
@@ -253,16 +236,6 @@ export async function startPluginsServer(
                 jsonSerialize: false,
             })
             await hub!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
-        })
-        // every 10 seconds sends stuff to StatsD
-        schedule.scheduleJob('*/10 * * * * *', () => {
-            if (piscina) {
-                for (const [key, value] of Object.entries(getPiscinaStats(piscina))) {
-                    if (value !== undefined) {
-                        hub!.statsd?.gauge(`piscina.${key}`, value)
-                    }
-                }
-            }
         })
 
         // every minute log information on kafka consumer
@@ -275,7 +248,7 @@ export async function startPluginsServer(
         // every minute flush internal metrics
         if (hub.internalMetrics) {
             schedule.scheduleJob('0 * * * * *', async () => {
-                await hub!.internalMetrics?.flush(piscina!)
+                await hub!.internalMetrics?.flush()
             })
         }
 
@@ -297,7 +270,6 @@ export async function startPluginsServer(
                 ) {
                     lastFoundActivity = hub?.lastActivity
                     const extra = {
-                        piscina: piscina ? JSON.stringify(getPiscinaStats(piscina)) : null,
                         ...stalenessCheckResult,
                     }
                     Sentry.captureMessage(
@@ -317,7 +289,6 @@ export async function startPluginsServer(
             }, Math.min(serverConfig.STALENESS_RESTART_SECONDS, 10000))
         }
 
-        serverInstance.piscina = piscina
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
@@ -330,19 +301,9 @@ export async function startPluginsServer(
         return serverInstance as ServerInstance
     } catch (error) {
         Sentry.captureException(error)
-        status.error('💥', 'Launchpad failure!', error)
+        status.error('💥', 'Launchpad failure!', { stack: error.stack })
         void Sentry.flush().catch(() => null) // Flush Sentry in the background
         await closeJobs()
         process.exit(1)
     }
-}
-
-export async function stopPiscina(piscina: Piscina): Promise<void> {
-    // Wait *up to* 5 seconds to shut down VMs.
-    await Promise.race([piscina.broadcastTask({ task: 'teardownPlugins' }), delay(5000)])
-    // Wait 2 seconds to flush the last queues and caches
-    await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
-    try {
-        await piscina.destroy()
-    } catch {}
 }

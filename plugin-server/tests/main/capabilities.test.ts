@@ -1,5 +1,3 @@
-import Piscina from '@posthog/piscina'
-
 import { startGraphileWorker } from '../../src/main/graphile-worker/worker-setup'
 import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../../src/main/ingestion-queues/queue'
@@ -11,14 +9,12 @@ jest.mock('../../src/main/graphile-worker/schedule')
 
 describe('capabilities', () => {
     let hub: Hub
-    let piscina: Piscina
     let closeHub: () => Promise<void>
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub({
             LOG_LEVEL: LogLevel.Warn,
         })
-        piscina = { run: jest.fn() } as any
     })
 
     afterEach(async () => {
@@ -27,7 +23,7 @@ describe('capabilities', () => {
 
     describe('queue', () => {
         it('starts ingestion queue by default', async () => {
-            const queues = await startQueues(hub, piscina)
+            const queues = await startQueues(hub)
 
             expect(queues).toEqual({
                 ingestion: expect.any(KafkaQueue),
@@ -38,7 +34,7 @@ describe('capabilities', () => {
             hub.capabilities.ingestion = false
             hub.capabilities.processAsyncHandlers = false
 
-            const queues = await startQueues(hub, piscina)
+            const queues = await startQueues(hub)
 
             expect(queues).toEqual({
                 ingestion: null,
@@ -53,7 +49,7 @@ describe('capabilities', () => {
             hub.capabilities.processPluginJobs = false
             hub.capabilities.pluginScheduledTasks = false
 
-            await startGraphileWorker(hub, piscina)
+            await startGraphileWorker(hub)
 
             expect(hub.graphileWorker.start).toHaveBeenCalledWith(
                 {
@@ -69,7 +65,7 @@ describe('capabilities', () => {
             hub.capabilities.processPluginJobs = true
             hub.capabilities.pluginScheduledTasks = false
 
-            await startGraphileWorker(hub, piscina)
+            await startGraphileWorker(hub)
 
             expect(hub.graphileWorker.start).toHaveBeenCalledWith(
                 {
@@ -85,7 +81,7 @@ describe('capabilities', () => {
             hub.capabilities.processPluginJobs = true
             hub.capabilities.pluginScheduledTasks = false
 
-            await startGraphileWorker(hub, piscina)
+            await startGraphileWorker(hub)
 
             expect(hub.graphileWorker.start).toHaveBeenCalledWith(
                 {
@@ -103,7 +99,7 @@ describe('capabilities', () => {
             hub.capabilities.processPluginJobs = false
             hub.capabilities.pluginScheduledTasks = true
 
-            await startGraphileWorker(hub, piscina)
+            await startGraphileWorker(hub)
 
             expect(hub.graphileWorker.start).toHaveBeenCalledWith(
                 {

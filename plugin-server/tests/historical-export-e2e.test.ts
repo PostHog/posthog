@@ -1,4 +1,3 @@
-import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { defaultConfig } from '../src/config/config'
@@ -7,7 +6,7 @@ import { EnqueuedPluginJob, LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
 import { UUIDT } from '../src/utils/utils'
 import { EventPipelineRunner } from '../src/worker/ingestion/event-pipeline/runner'
-import { makePiscina } from '../src/worker/piscina'
+import { workerTasks } from '../src/worker/tasks'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
 import { resetGraphileSchema } from './helpers/graphile'
@@ -44,7 +43,6 @@ export async function exportEvents(events) {
 describe('Historical Export (v2)', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
-    let piscina: Piscina
 
     beforeAll(async () => {
         await resetKafka(extraServerConfig)
@@ -60,9 +58,8 @@ describe('Historical Export (v2)', () => {
             await resetGraphileSchema(defaultConfig),
         ])
 
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
+        const startResponse = await startPluginsServer(extraServerConfig)
         hub = startResponse.hub
-        piscina = startResponse.piscina
         stopServer = startResponse.stop
     })
 
@@ -103,21 +100,18 @@ describe('Historical Export (v2)', () => {
         await hub.kafkaProducer.flush()
         await delayUntilEventIngested(() => hub.db.fetchEvents(), 9)
 
-        await piscina.run({
-            task: 'runPluginJob',
-            args: {
-                job: {
-                    type: 'Export historical events V2',
-                    payload: {
-                        dateRange: ['2021-08-01', '2021-08-04'],
-                        parallelism: 5,
-                        $operation: 'start',
-                    },
-                    pluginConfigId: pluginConfig39.id,
-                    pluginConfigTeam: pluginConfig39.team_id,
-                    timestamp: 0,
-                } as EnqueuedPluginJob,
-            },
+        await workerTasks['runPluginJob'](hub, {
+            job: {
+                type: 'Export historical events V2',
+                payload: {
+                    dateRange: ['2021-08-01', '2021-08-04'],
+                    parallelism: 5,
+                    $operation: 'start',
+                },
+                pluginConfigId: pluginConfig39.id,
+                pluginConfigTeam: pluginConfig39.team_id,
+                timestamp: 0,
+            } as EnqueuedPluginJob,
         })
 
         await delayUntilEventIngested(() => Promise.resolve(testConsole.read()), 6, 1000, 50)

@@ -1,5 +1,3 @@
-import Piscina from '@posthog/piscina'
-
 import { KafkaQueue } from '../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../src/main/ingestion-queues/queue'
 import { Hub, LogLevel } from '../src/types'
@@ -13,7 +11,6 @@ jest.mock('../src/main/ingestion-queues/batch-processing/each-batch-ingestion')
 describe('queue', () => {
     describe('capabilities', () => {
         let hub: Hub
-        let piscina: Piscina
         let closeHub: () => Promise<void>
 
         beforeEach(async () => {
@@ -21,7 +18,6 @@ describe('queue', () => {
                 LOG_LEVEL: LogLevel.Warn,
                 KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
             })
-            piscina = { run: jest.fn() } as any
         })
 
         afterEach(async () => {
@@ -29,7 +25,7 @@ describe('queue', () => {
         })
 
         it('starts ingestion queue by default', async () => {
-            const queues = await startQueues(hub, piscina)
+            const queues = await startQueues(hub)
 
             expect(queues).toEqual({
                 ingestion: expect.any(KafkaQueue),
@@ -40,7 +36,7 @@ describe('queue', () => {
             hub.capabilities.ingestion = false
             hub.capabilities.processAsyncHandlers = false
 
-            const queues = await startQueues(hub, piscina)
+            const queues = await startQueues(hub)
 
             expect(queues).toEqual({
                 ingestion: null,
