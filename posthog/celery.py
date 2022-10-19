@@ -12,8 +12,8 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
-from posthog.cloud_utils import is_cloud
 
+from posthog.cloud_utils import is_cloud
 from posthog.redis import get_client
 from posthog.utils import get_crontab
 
