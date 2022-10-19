@@ -35,6 +35,7 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -275,12 +276,14 @@ export function SitePopover(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
+    const { billingVersion } = useValues(billingLogic)
     const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
     const { relevantLicense } = useValues(licenseLogic)
     useMountedLogic(licenseLogic)
 
     const expired = relevantLicense && isLicenseExpired(relevantLicense)
+    const billingV2 = billingVersion === 'v2'
 
     return (
         <Popup
@@ -294,7 +297,7 @@ export function SitePopover(): JSX.Element {
                     </SitePopoverSection>
                     <SitePopoverSection title="Current organization">
                         {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
-                        {preflight?.cloud && (
+                        {billingV2 || preflight?.cloud ? (
                             <LemonButton
                                 onClick={closeSitePopover}
                                 to={urls.organizationBilling()}
@@ -304,7 +307,7 @@ export function SitePopover(): JSX.Element {
                             >
                                 Billing
                             </LemonButton>
-                        )}
+                        ) : null}
                         <InviteMembersButton />
                     </SitePopoverSection>
                     {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
@@ -321,7 +324,9 @@ export function SitePopover(): JSX.Element {
                     )}
                     {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
                         <SitePopoverSection title="PostHog instance">
-                            {!preflight?.cloud && <License license={relevantLicense} expired={expired} />}
+                            {!preflight?.cloud && !billingV2 ? (
+                                <License license={relevantLicense} expired={expired} />
+                            ) : null}
                             <SystemStatus />
                             {!preflight?.cloud && <Version />}
                             <AsyncMigrations />

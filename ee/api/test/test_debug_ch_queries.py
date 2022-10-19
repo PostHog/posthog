@@ -10,7 +10,7 @@ class TestProjectEnterpriseAPI(APIBaseTest):
 
     def test_denied(self):
 
-        with patch("ee.api.debug_ch_queries.MULTI_TENANCY", True):
+        with patch("ee.api.debug_ch_queries.is_cloud", return_value=True):
             with patch("ee.api.debug_ch_queries.DEBUG", True):
                 resp = self.client.get("/api/debug_ch_queries/")
                 self.assertEqual(resp.status_code, HTTP_200_OK)
@@ -25,6 +25,6 @@ class TestProjectEnterpriseAPI(APIBaseTest):
             resp = self.client.get("/api/debug_ch_queries/")
             self.assertEqual(resp.status_code, HTTP_200_OK)
 
-        with patch("ee.api.debug_ch_queries.MULTI_TENANCY", False):
+        with patch("ee.api.debug_ch_queries.is_cloud", return_value=False):
             resp = self.client.get("/api/debug_ch_queries/")
             self.assertEqual(resp.status_code, HTTP_200_OK)

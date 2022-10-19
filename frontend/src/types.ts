@@ -16,7 +16,7 @@ import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
 import { PopupProps } from 'lib/components/Popup/Popup'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -802,6 +802,41 @@ export interface BillingType {
     billing_limit_exceeded: boolean | null
     current_bill_cycle: CurrentBillCycleType | null
     tiers: BillingTierType[] | null
+}
+
+export type BillingVersion = 'v1' | 'v2'
+
+export interface BillingProductV2Type {
+    type: 'EVENTS' | 'RECORDINGS'
+    name: string
+    description: string
+    price_description: string
+    free_allocation: number
+    tiers: {
+        unit_amount_usd: string
+        current_amount_usd?: string | null
+        up_to: number | null
+    }[]
+    current_usage?: number
+    current_amount_usd?: string
+    usage_limit?: number
+}
+
+export interface BillingV2Type {
+    stripe_portal_url?: string
+    current_total_amount_usd?: string
+    products: BillingProductV2Type[]
+
+    custom_limits_usd?: {
+        [key: string]: string | null | undefined
+    }
+    billing_period?: {
+        current_period_start: Dayjs
+        current_period_end: Dayjs
+    }
+    license?: {
+        plan: LicensePlan
+    }
 }
 
 export interface BillingTierType {
@@ -1595,10 +1630,8 @@ export type HotKeys =
 
 export interface LicenseType {
     id: number
-    key: string
     plan: LicensePlan
     valid_until: string
-    max_users: number | null
     created_at: string
 }
 

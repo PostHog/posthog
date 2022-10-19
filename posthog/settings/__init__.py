@@ -97,8 +97,13 @@ HOOK_EVENTS: Dict[str, str] = {}
 # Support creating multiple organizations in a single instance. Requires a premium license.
 MULTI_ORG_ENABLED = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)
 
+# DEPRECATED - replaced by cloud license
 # Overriden by posthog-cloud
 MULTI_TENANCY = False
+
+BILLING_V2_ENABLED = get_from_env("BILLING_V2_ENABLED", False, type_cast=str_to_bool)
+
+BILLING_USAGE_CACHING_TTL = get_from_env("BILLING_USAGE_CACHING_TTL", 12 * 60 * 60, type_cast=int)
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
 SESSION_RECORDING_TTL = 30  # how long to keep session recording cache. Relatively short because cached result is used throughout the duration a session recording loads.
