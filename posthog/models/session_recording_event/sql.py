@@ -26,10 +26,22 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
     , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
+    , events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)') COMMENT 'column_materializer::events_summary'
+    , click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'type') = 2, events_summary))
+    , keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary))
+    , first_event_timestamp DateTime64(3, 'UTC') MATERIALIZED toDateTime(arrayReduce('min', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)
+    , last_event_timestamp DateTime64(3, 'UTC') MATERIALIZED toDateTime(arrayReduce('max', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)
+    , urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
 """
 
 SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = """
     , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'
+    , events_summary Array(String) COMMENT 'column_materializer::events_summary'
+    , click_count Int8 COMMENT 'column_materializer::click_count'
+    , keypress_count Int8 COMMENT 'column_materializer::keypress_count'
+    , first_event_timestamp DateTime64(3, 'UTC') COMMENT 'column_materializer::first_event_timestamp'
+    , last_event_timestamp DateTime64(3, 'UTC') COMMENT 'column_materializer::last_event_timestamp'
+    , urls Array(String) COMMENT 'column_materializer::urls'
 """
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
