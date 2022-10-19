@@ -119,7 +119,7 @@ class SessionRecordingList(EventQuery):
         any(session_recordings.end_time) as end_time,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id,
-        any((first_pageview_event.timestamp, first_pageview_event.uuid, first_pageview_event.properties)) as first_pageview
+        any(first_pageview_event.properties) as properties
         {event_filter_aggregate_select_clause}
     FROM (
         {core_events_query}
@@ -155,7 +155,7 @@ class SessionRecordingList(EventQuery):
         any(session_recordings.end_time) as end_time,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id,
-        any((first_pageview_event.timestamp, first_pageview_event.uuid, first_pageview_event.properties)) as first_pageview
+        any(first_pageview_event.properties) as properties
     FROM (
         {core_recordings_query}
     ) AS session_recordings
@@ -395,7 +395,7 @@ class SessionRecordingList(EventQuery):
             {
                 **dict(zip(default_columns, row[: len(default_columns)])),
                 "properties": parse_properties(
-                    row[len(default_columns)][2], self.SESSION_RECORDING_PROPERTIES_METADATA_ALLOWLIST
+                    row[len(default_columns)], self.SESSION_RECORDING_PROPERTIES_METADATA_ALLOWLIST
                 ),
                 "matching_events": [
                     {
