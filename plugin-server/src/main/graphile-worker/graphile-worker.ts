@@ -163,7 +163,7 @@ export class GraphileWorker {
                 noPreparedStatements: !this.hub.JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS,
                 concurrency: 1,
                 // Do not install signal handlers, we are handled signals in
-                // higher level code. If we let graphile handle signals it
+                // higher level code. If we let graphile worker handle the signals it
                 // ends up sending another SIGTERM.
                 noHandleSignals: true,
                 pollInterval: 2000,
