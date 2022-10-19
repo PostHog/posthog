@@ -168,9 +168,8 @@ class BillingViewset(viewsets.GenericViewSet):
 
             if calculated_usage is not None:
                 for product in products:
-                    if calculated_usage.get(product["type"]):
+                    if product["type"] in calculated_usage:
                         product["current_usage"] = calculated_usage[product["type"]]
-
             response["products"] = products
 
         return Response(response)
