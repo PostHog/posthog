@@ -59,11 +59,19 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 const startMultiServer = async () => {
     // All capabilities run as separate servers
     const ingestionServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'ingestion' })
-    const asyncServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'async' })
+    const asyncServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'async-handlers' })
     const jobsServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'jobs' })
     const schedulerServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'scheduler' })
 
     return await Promise.all([ingestionServer, asyncServer, jobsServer, schedulerServer])
+}
+
+const startIngestionAsyncSplit = async () => {
+    // A split of ingestion and all other tasks
+    const ingestionServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'ingestion' })
+    const asyncServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'async' })
+
+    return await Promise.all([ingestionServer, asyncServer])
 }
 
 const startSingleServer = async () => {
@@ -118,7 +126,7 @@ afterAll(async () => {
     await Promise.all([producer.disconnect(), postgres.end(), redis.disconnect()])
 })
 
-describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) => {
+describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSplit]])('E2E', (pluginServer) => {
     let pluginsServers: ServerInstance[]
 
     beforeAll(async () => {
