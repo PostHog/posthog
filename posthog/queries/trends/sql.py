@@ -54,7 +54,7 @@ SELECT counts AS total, timestamp AS day_start FROM (
         FROM ({event_query}) events
         WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to}
         GROUP BY timestamp, {aggregator}
-    ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
+    ) e WHERE e.timestamp < d.timestamp + INTERVAL 1 DAY AND e.timestamp >= d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp
     ORDER BY d.timestamp
 ) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
