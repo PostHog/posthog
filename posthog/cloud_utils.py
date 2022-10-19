@@ -1,4 +1,3 @@
-from codecs import escape_encode
 from typing import Optional
 
 from django.conf import settings
