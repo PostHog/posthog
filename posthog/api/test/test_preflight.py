@@ -5,7 +5,6 @@ import pytest
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationInvite
 from posthog.test.base import APIBaseTest
@@ -263,8 +262,6 @@ class TestPreflight(APIBaseTest):
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key="key::123", plan="cloud", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
             )
-
-            TEST_clear_cloud_cache()
 
             response = self.client.get("/_preflight/")
             assert response.status_code == status.HTTP_200_OK
