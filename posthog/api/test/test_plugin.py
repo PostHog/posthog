@@ -453,7 +453,7 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(mock_reload.call_count, 1)
 
     def test_create_plugin_version_range_eq_current(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {"url": f"https://github.com/posthog-plugin/version-equals/commit/{VERSION}"},
@@ -461,7 +461,7 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(response.status_code, 201)
 
     def test_create_plugin_version_range_eq_next_minor(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {"url": f"https://github.com/posthog-plugin/version-equals/commit/{Version(VERSION).next_minor()}"},
@@ -473,7 +473,7 @@ class TestPluginAPI(APIBaseTest):
             )
 
     def test_create_plugin_version_range_gt_current(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {"url": f"https://github.com/posthog-plugin/version-greater-than/commit/0.0.0"},
@@ -481,7 +481,7 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(response.status_code, 201)
 
     def test_create_plugin_version_range_gt_next_major(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {
@@ -495,7 +495,7 @@ class TestPluginAPI(APIBaseTest):
             )
 
     def test_create_plugin_version_range_lt_current(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {"url": f"https://github.com/posthog-plugin/version-less-than/commit/{VERSION}"},
@@ -507,7 +507,7 @@ class TestPluginAPI(APIBaseTest):
             )
 
     def test_create_plugin_version_range_lt_next_major(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {"url": f"https://github.com/posthog-plugin/version-less-than/commit/{Version(VERSION).next_major()}"},
@@ -515,7 +515,7 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(response.status_code, 201)
 
     def test_create_plugin_version_range_lt_invalid(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {"url": f"https://github.com/posthog-plugin/version-less-than/commit/..."},
@@ -526,7 +526,7 @@ class TestPluginAPI(APIBaseTest):
             )
 
     def test_create_plugin_version_range_gt_next_major_ignore_on_cloud(self, mock_get, mock_reload):
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             response = self.client.post(
                 "/api/organizations/@current/plugins/",
                 {
