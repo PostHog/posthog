@@ -1,30 +1,26 @@
-import Piscina from '@posthog/piscina'
 import { CronItem, TaskList } from 'graphile-worker'
 
 import { EnqueuedPluginJob, Hub } from '../../types'
 import { status } from '../../utils/status'
+import { workerTasks } from '../../worker/tasks'
 import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
 import { GraphileWorker } from './graphile-worker'
 import { loadPluginSchedule, runScheduledTasks } from './schedule'
 
-export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina) {
+export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWorker) {
     status.info('🔄', 'Starting Graphile Worker...')
-
-    piscina.on('drain', () => {
-        void graphileWorker.resumeConsumer()
-    })
 
     let jobHandlers: TaskList = {}
 
     const crontab: CronItem[] = []
 
     if (hub.capabilities.processPluginJobs) {
-        jobHandlers = { ...jobHandlers, ...getPluginJobHandlers(hub, graphileWorker, piscina) }
+        jobHandlers = { ...jobHandlers, ...getPluginJobHandlers(hub, graphileWorker) }
         status.info('🔄', 'Graphile Worker: set up plugin job handlers ...')
     }
 
     if (hub.capabilities.pluginScheduledTasks) {
-        hub.pluginSchedule = await loadPluginSchedule(piscina)
+        hub.pluginSchedule = await loadPluginSchedule(hub)
 
         // TODO: In the future we might benefit from scheduling tasks more granularly i.e. <taskType, pluginConfigId>
         // KLUDGE: Given we're currently not doing the above, if we throw after executing n tasks for given type, those n tasks will be re-run
@@ -52,7 +48,7 @@ export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWork
 
         jobHandlers = {
             ...jobHandlers,
-            ...getScheduledTaskHandlers(hub, piscina),
+            ...getScheduledTaskHandlers(hub),
         }
 
         status.info('🔄', 'Graphile Worker: set up scheduled task handlers...')
@@ -62,25 +58,25 @@ export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWork
     return graphileWorker
 }
 
-export function getPluginJobHandlers(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina): TaskList {
+export function getPluginJobHandlers(hub: Hub, graphileWorker: GraphileWorker): TaskList {
     const pluginJobHandlers: TaskList = {
         pluginJob: async (job) => {
-            pauseQueueIfWorkerFull(() => graphileWorker.pause(), hub, piscina)
+            pauseQueueIfWorkerFull(() => graphileWorker.pause(), hub)
             hub.statsd?.increment('triggered_job', {
                 instanceId: hub.instanceId.toString(),
             })
-            await piscina.run({ task: 'runPluginJob', args: { job: job as EnqueuedPluginJob } })
+            await workerTasks['runPluginJob'](hub, { job: job as EnqueuedPluginJob })
         },
     }
 
     return pluginJobHandlers
 }
 
-export function getScheduledTaskHandlers(hub: Hub, piscina: Piscina): TaskList {
+export function getScheduledTaskHandlers(hub: Hub): TaskList {
     const scheduledTaskHandlers: TaskList = {
-        runEveryMinute: async () => await runScheduledTasks(hub, piscina, 'runEveryMinute'),
-        runEveryHour: async () => await runScheduledTasks(hub, piscina, 'runEveryHour'),
-        runEveryDay: async () => await runScheduledTasks(hub, piscina, 'runEveryDay'),
+        runEveryMinute: async () => await runScheduledTasks(hub, 'runEveryMinute'),
+        runEveryHour: async () => await runScheduledTasks(hub, 'runEveryHour'),
+        runEveryDay: async () => await runScheduledTasks(hub, 'runEveryDay'),
     }
 
     return scheduledTaskHandlers

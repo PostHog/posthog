@@ -1,4 +1,3 @@
-import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
 import Redis, { RedisOptions } from 'ioredis'
@@ -412,34 +411,6 @@ export function createPostgresPool(connectionString: string, onError?: (error: E
     pgPool.on('error', handleError)
 
     return pgPool
-}
-
-export function getPiscinaStats(piscina: Piscina): Record<string, number> {
-    return {
-        utilization: (piscina.utilization || 0) * 100,
-        threads: piscina.threads.length,
-        queue_size: piscina.queueSize,
-        'waitTime.average': piscina.waitTime.average,
-        'waitTime.mean': piscina.waitTime.mean,
-        'waitTime.stddev': piscina.waitTime.stddev,
-        'waitTime.min': piscina.waitTime.min,
-        'waitTime.p99_99': piscina.waitTime.p99_99,
-        'waitTime.p99': piscina.waitTime.p99,
-        'waitTime.p95': piscina.waitTime.p95,
-        'waitTime.p90': piscina.waitTime.p90,
-        'waitTime.p75': piscina.waitTime.p75,
-        'waitTime.p50': piscina.waitTime.p50,
-        'runTime.average': piscina.runTime.average,
-        'runTime.mean': piscina.runTime.mean,
-        'runTime.stddev': piscina.runTime.stddev,
-        'runTime.min': piscina.runTime.min,
-        'runTime.p99_99': piscina.runTime.p99_99,
-        'runTime.p99': piscina.runTime.p99,
-        'runTime.p95': piscina.runTime.p95,
-        'runTime.p90': piscina.runTime.p90,
-        'runTime.p75': piscina.runTime.p75,
-        'runTime.p50': piscina.runTime.p50,
-    }
 }
 
 export function pluginConfigIdFromStack(

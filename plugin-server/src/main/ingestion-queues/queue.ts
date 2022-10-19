@@ -1,8 +1,7 @@
-import Piscina from '@posthog/piscina'
-
 import { Hub, PipelineEvent, PostIngestionEvent, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { IngestionConsumer } from './kafka-queue'
+import { workerTasks } from '../../worker/tasks'
 
 interface Queues {
     ingestion: IngestionConsumer | null
@@ -11,33 +10,29 @@ interface Queues {
 export function pauseQueueIfWorkerFull(
     pause: undefined | (() => void | Promise<void>),
     server: Hub,
-    piscina?: Piscina
+    piscina?: any
 ): void {
     if (pause && (piscina?.queueSize || 0) > (server.WORKER_CONCURRENCY || 4) * (server.WORKER_CONCURRENCY || 4)) {
         void pause()
     }
 }
 
-export async function startQueues(
-    server: Hub,
-    piscina: Piscina,
-    workerMethods: Partial<WorkerMethods> = {}
-): Promise<Queues> {
+export async function startQueues(server: Hub, workerMethods: Partial<WorkerMethods> = {}): Promise<Queues> {
     const mergedWorkerMethods = {
         runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runAsyncHandlersEventPipeline'
-            return piscina.run({ task: 'runAsyncHandlersEventPipeline', args: { event } })
+            return workerTasks['runAsyncHandlersEventPipeline'](server, { event })
         },
         runEventPipeline: (event: PipelineEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runEventPipeline'
-            return piscina.run({ task: 'runEventPipeline', args: { event } })
+            return workerTasks['runEventPipeline'](server, { event })
         },
         runLightweightCaptureEndpointEventPipeline: (event: PipelineEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runLightweightCaptureEndpointEventPipeline'
-            return piscina.run({ task: 'runLightweightCaptureEndpointEventPipeline', args: { event } })
+            return workerTasks['runLightweightCaptureEndpointEventPipeline'](server, { event })
         },
         ...workerMethods,
     }

@@ -1,4 +1,3 @@
-import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { StatsD } from 'hot-shots'
 import { EachBatchHandler, Kafka } from 'kafkajs'
@@ -12,13 +11,11 @@ import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
 export const startAnonymousEventBufferConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
-    piscina,
     kafka,
     producer,
     statsd,
 }: {
     hub: Hub
-    piscina: Piscina
     kafka: Kafka
     producer: KafkaProducerWrapper
     statsd?: StatsD
@@ -101,7 +98,7 @@ export const startAnonymousEventBufferConsumer = async ({
             }
 
             status.debug('⬆️', 'Processing anonymous event', { eventId: message.headers.eventId.toString() })
-            await runBufferEventPipeline(hub, piscina, eventPayload)
+            await runBufferEventPipeline(hub, eventPayload)
             resolveOffset(message.offset)
 
             // After processing each message, we need to heartbeat to ensure
