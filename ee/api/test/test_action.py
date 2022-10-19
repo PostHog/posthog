@@ -3,7 +3,6 @@ from typing import cast
 import pytest
 from django.utils import timezone
 from rest_framework import status
-from posthog.cloud_utils import is_cloud
 
 from posthog.models import Action, Tag
 from posthog.test.base import APIBaseTest

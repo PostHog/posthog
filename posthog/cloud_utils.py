@@ -22,3 +22,9 @@ def is_cloud():
     # TRICKY - The license table may not exist if a migration is running
     except (ImportError, ProgrammingError):
         return False
+
+
+# NOTE: This is purely for testing purposes
+def TEST_clear_cloud_cache():
+    global is_cloud_cached
+    is_cloud_cached = None
