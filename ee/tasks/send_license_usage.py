@@ -8,14 +8,19 @@ from ee.models.license import License
 from posthog.client import sync_execute
 from posthog.models import User
 from posthog.settings import SITE_URL
-from posthog.tasks.status_report import get_instance_licenses
 
 
 def send_license_usage():
     license = License.objects.first_valid()
     user = User.objects.filter(is_active=True).first()
+
     if not license:
         return
+
+    # New type of license key for billing-v2
+    if "::" in license.key:
+        return
+
     try:
         date_from = (timezone.now() - relativedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         date_to = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -58,7 +63,7 @@ def send_license_usage():
                 {
                     "date": date_from.strftime("%Y-%m-%d"),
                     "events_count": events_count,
-                    "license_keys": get_instance_licenses(),
+                    "license_keys": [license.key for license in License.objects.all()],
                     "organization_name": user.current_organization.name,  # type: ignore
                 },
                 groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore

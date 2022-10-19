@@ -1,6 +1,5 @@
 import posthoganalytics
 import requests
-from django.conf import settings
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -8,6 +7,7 @@ from rest_framework import mixins, request, serializers, viewsets
 from rest_framework.response import Response
 
 from ee.models.license import License, LicenseError
+from posthog.cloud_utils import is_cloud
 from posthog.event_usage import groups
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -18,13 +18,13 @@ class LicenseSerializer(serializers.ModelSerializer):
         model = License
         fields = [
             "id",
-            "key",
             "plan",
+            "key",
             "valid_until",
-            "max_users",
             "created_at",
         ]
-        read_only_fields = ["plan", "valid_until", "max_users"]
+        read_only_fields = ["plan", "valid_until"]
+        write_only_fields = ["key"]
 
     def validate(self, data):
         validation = requests.post("https://license.posthog.com/licenses/activate", data={"key": data["key"]})
@@ -47,7 +47,6 @@ class LicenseSerializer(serializers.ModelSerializer):
         )
         data["valid_until"] = resp["valid_until"]
         data["plan"] = resp["plan"]
-        data["max_users"] = resp.get("max_users", 0)
         return data
 
 
@@ -61,7 +60,7 @@ class LicenseViewSet(
     serializer_class = LicenseSerializer
 
     def get_queryset(self) -> QuerySet:
-        if getattr(settings, "MULTI_TENANCY", False):
+        if is_cloud():
             return License.objects.none()
 
         return super().get_queryset()
