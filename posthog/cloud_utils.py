@@ -23,7 +23,7 @@ def is_cloud():
             license = License.objects.first_valid()
             is_cloud_cached = license.plan == "cloud" if license else False
         # TRICKY - The license table may not exist if a migration is running
-        except (ImportError, ProgrammingError) as e:
+        except (ImportError, ProgrammingError):
             is_cloud_cached = False
 
     return is_cloud_cached
