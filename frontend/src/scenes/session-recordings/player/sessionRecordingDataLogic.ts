@@ -115,7 +115,7 @@ const calculateBufferedTo = (
 }
 
 export interface SessionRecordingDataLogicProps {
-    sessionRecordingId: SessionRecordingId
+    sessionRecordingId?: SessionRecordingId
     recordingStartTime?: string
 }
 

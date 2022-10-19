@@ -13,6 +13,7 @@ import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { Link } from '@posthog/lemon-ui'
 import { playerSettingsLogic } from './playerSettingsLogic'
+import { PlayerPersonSummary } from './components/PlayerPersonSummary'
 
 export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const {
@@ -77,7 +78,13 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         )}
                     </div>
                     <div className=" text-muted">
-                        {loading ? <LemonSkeleton className="w-1/4 my-1" /> : <span>{description}</span>}
+                        {loading ? (
+                            <LemonSkeleton className="w-1/4 my-1" />
+                        ) : (
+                            <span>
+                                <PlayerPersonSummary person={sessionPerson} /> {description}
+                            </span>
+                        )}
                     </div>
                 </div>
             </div>

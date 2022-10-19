@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, props } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
@@ -211,7 +211,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             actions.getSessionRecordings()
         },
     }),
-    selectors: {
+    selectors: ({ props }) => ({
         activeSessionRecording: [
             (s) => [s.selectedRecordingId, s.sessionRecordings],
             (selectedRecordingId, sessionRecordings): Partial<SessionRecordingType> | undefined => {
@@ -238,10 +238,11 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                     date_to: toDate,
                     offset: offset,
                     session_recording_duration: durationFilter,
+                    person_uuid: props.personUUID ?? '',
                 }
             },
         ],
-    },
+    }),
     actionToUrl: ({ values }) => {
         const buildURL = (
             replace: boolean

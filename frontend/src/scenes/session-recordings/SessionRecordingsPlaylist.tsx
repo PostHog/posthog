@@ -15,6 +15,7 @@ import clsx from 'clsx'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
+import { PlayerPersonSummary } from './player/components/PlayerPersonSummary'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -136,19 +137,24 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                         <div className="truncate font-medium text-primary ph-no-capture">
                                             {asDisplay(rec.person, 25)}
                                         </div>
-                                        {!rec.viewed && (
-                                            <Tooltip title={'Indicates the recording has not been watched yet'}>
-                                                <div
-                                                    className="w-2 h-2 rounded bg-primary-light"
-                                                    aria-label="unwatched-recording-label"
-                                                />
-                                            </Tooltip>
-                                        )}
+                                        <div className="flex items-center">
+                                            {!rec.viewed && (
+                                                <Tooltip title={'Indicates the recording has not been watched yet'}>
+                                                    <div
+                                                        className="w-2 h-2 rounded bg-primary-light"
+                                                        aria-label="unwatched-recording-label"
+                                                    />
+                                                </Tooltip>
+                                            )}
+                                        </div>
                                     </div>
 
                                     <div className="flex justify-between">
                                         <TZLabel time={rec.start_time} formatDate="MMMM DD, YYYY" formatTime="h:mm A" />
-                                        <DurationDisplay duration={rec.recording_duration} />
+                                        <div className="flex items-center gap-2">
+                                            {rec.person ? <PlayerPersonSummary person={rec.person} /> : null}
+                                            <DurationDisplay duration={rec.recording_duration} />
+                                        </div>
                                     </div>
                                 </li>
                             ))}

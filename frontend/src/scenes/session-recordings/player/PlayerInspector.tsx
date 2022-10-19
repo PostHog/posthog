@@ -7,6 +7,7 @@ import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import { EventDetails } from 'scenes/events'
 import React from 'react'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export function PlayerInspector({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { tab } = useValues(sharedListLogic({ sessionRecordingId, playerKey }))
