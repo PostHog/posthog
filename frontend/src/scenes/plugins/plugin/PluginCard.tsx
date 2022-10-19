@@ -159,7 +159,7 @@ export function PluginCard({
                             <strong style={{ marginRight: 8 }}>
                                 {shouldShowAppMetrics && pluginConfig?.id && (
                                     <DeliveryRateBadge
-                                        deliveryRate={pluginConfig.delivery_rate_1d ?? null}
+                                        deliveryRate={pluginConfig.delivery_rate_24h ?? null}
                                         pluginConfigId={pluginConfig.id}
                                     />
                                 )}

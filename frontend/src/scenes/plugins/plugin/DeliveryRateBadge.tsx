@@ -24,7 +24,7 @@ export function DeliveryRateBadge({
 
 function deliveryRateSummary(deliveryRate: number | null): [BadgeColor, string] {
     if (deliveryRate === null) {
-        return ['grey', 'No events processed by this app in the past day']
+        return ['grey', 'No events processed by this app in the past 24 hours']
     } else {
         let color: BadgeColor = 'red'
         if (deliveryRate >= 0.99) {
@@ -32,6 +32,6 @@ function deliveryRateSummary(deliveryRate: number | null): [BadgeColor, string] 
         } else if (deliveryRate >= 0.75) {
             color = 'yellow'
         }
-        return [color, `Delivery rate for past day: ${Math.floor(deliveryRate * 1000) / 10}%`]
+        return [color, `Delivery rate for past 24 hours: ${Math.floor(deliveryRate * 1000) / 10}%`]
     }
 }

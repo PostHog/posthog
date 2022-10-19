@@ -27,7 +27,7 @@ class TeamPluginsDeliveryRateQuery:
     def run(self):
         results = sync_execute(
             self.QUERY,
-            {"team_id": self.team.pk, "from_date": format_clickhouse_timestamp(datetime.now() - timedelta(days=1))},
+            {"team_id": self.team.pk, "from_date": format_clickhouse_timestamp(datetime.now() - timedelta(hours=24))},
         )
         return dict(results)
 

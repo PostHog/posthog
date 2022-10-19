@@ -757,7 +757,7 @@ class TestPluginAPI(APIBaseTest):
                 "error": None,
                 "team_id": self.team.pk,
                 "plugin_info": None,
-                "delivery_rate_1d": None,
+                "delivery_rate_24h": None,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -789,7 +789,7 @@ class TestPluginAPI(APIBaseTest):
                 "error": None,
                 "team_id": self.team.pk,
                 "plugin_info": None,
-                "delivery_rate_1d": None,
+                "delivery_rate_24h": None,
             },
         )
         self.client.delete(f"/api/plugin_config/{plugin_config_id}")
@@ -1053,7 +1053,7 @@ class TestPluginAPI(APIBaseTest):
                 "error": None,
                 "team_id": self.team.pk,
                 "plugin_info": None,
-                "delivery_rate_1d": None,
+                "delivery_rate_24h": None,
             },
         )
 
@@ -1077,7 +1077,7 @@ class TestPluginAPI(APIBaseTest):
                 "error": None,
                 "team_id": self.team.pk,
                 "plugin_info": None,
-                "delivery_rate_1d": None,
+                "delivery_rate_24h": None,
             },
         )
 
@@ -1099,7 +1099,7 @@ class TestPluginAPI(APIBaseTest):
                 "error": None,
                 "team_id": self.team.pk,
                 "plugin_info": None,
-                "delivery_rate_1d": None,
+                "delivery_rate_24h": None,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
@@ -1134,7 +1134,7 @@ class TestPluginAPI(APIBaseTest):
                     "error": None,
                     "team_id": self.team.pk,
                     "plugin_info": None,
-                    "delivery_rate_1d": 0.5,
+                    "delivery_rate_24h": 0.5,
                 },
                 {
                     "id": plugin_config2.pk,
@@ -1145,7 +1145,7 @@ class TestPluginAPI(APIBaseTest):
                     "error": None,
                     "team_id": self.team.pk,
                     "plugin_info": None,
-                    "delivery_rate_1d": None,
+                    "delivery_rate_24h": None,
                 },
             ],
         )

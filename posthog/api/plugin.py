@@ -438,12 +438,12 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
     plugin_info = serializers.SerializerMethodField()
-    delivery_rate_1d = serializers.SerializerMethodField()
+    delivery_rate_24h = serializers.SerializerMethodField()
 
     class Meta:
         model = PluginConfig
-        fields = ["id", "plugin", "enabled", "order", "config", "error", "team_id", "plugin_info", "delivery_rate_1d"]
-        read_only_fields = ["id", "team_id", "plugin_info", "delivery_rate_1d"]
+        fields = ["id", "plugin", "enabled", "order", "config", "error", "team_id", "plugin_info", "delivery_rate_24h"]
+        read_only_fields = ["id", "team_id", "plugin_info", "delivery_rate_24h"]
 
     def get_config(self, plugin_config: PluginConfig):
         attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
@@ -485,7 +485,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         else:
             return None
 
-    def get_delivery_rate_1d(self, plugin_config: PluginConfig):
+    def get_delivery_rate_24h(self, plugin_config: PluginConfig):
         if "delivery_rates_1d" in self.context:
             return self.context["delivery_rates_1d"].get(plugin_config.pk, None)
         else:
