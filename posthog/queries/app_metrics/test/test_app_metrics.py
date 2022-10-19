@@ -9,7 +9,12 @@ from posthog.kafka_client.topics import KAFKA_APP_METRICS
 from posthog.models.app_metrics.sql import INSERT_APP_METRICS_SQL
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.utils import UUIDT
-from posthog.queries.app_metrics.app_metrics import AppMetricsErrorDetailsQuery, AppMetricsErrorsQuery, AppMetricsQuery
+from posthog.queries.app_metrics.app_metrics import (
+    AppMetricsErrorDetailsQuery,
+    AppMetricsErrorsQuery,
+    AppMetricsQuery,
+    TeamPluginsDeliveryRateQuery,
+)
 from posthog.queries.app_metrics.serializers import AppMetricsErrorsRequestSerializer, AppMetricsRequestSerializer
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.utils import cast_timestamp_or_now
@@ -50,6 +55,53 @@ def make_filter(serializer_klass=AppMetricsRequestSerializer, **kwargs) -> AppMe
     filter = serializer_klass(data=kwargs)
     filter.is_valid(raise_exception=True)
     return filter
+
+
+class TestTeamPluginsDeliveryRateQuery(ClickhouseTestMixin, BaseTest):
+    @freeze_time("2021-12-05T13:23:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_delivery_rate(self):
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=1,
+            timestamp="2021-12-05T00:10:00Z",
+            failures=1,
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=2,
+            timestamp="2021-12-05T00:10:00Z",
+            successes=5,
+            failures=5,
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-05T00:10:00Z",
+            successes=5,
+            successes_on_retry=15,
+        )
+
+        results = TeamPluginsDeliveryRateQuery(self.team).run()
+        self.assertEqual(results, {1: 0, 2: 0.5, 3: 1})
+
+    @freeze_time("2021-12-05T13:23:00Z")
+    def test_ignores_out_of_bound_metrics(self):
+        create_app_metric(
+            team_id=-1, category="processEvent", plugin_config_id=3, timestamp="2021-12-05T00:10:00Z", successes=5
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=1,
+            timestamp="2021-12-04T00:10:00Z",
+            failures=1,
+        )
+        results = TeamPluginsDeliveryRateQuery(self.team).run()
+        self.assertEqual(results, {})
 
 
 class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
