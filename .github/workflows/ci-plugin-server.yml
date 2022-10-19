@@ -218,4 +218,4 @@ jobs:
               run: |
                   # NOTE: we use a concurrency of 1 as there seems to be some
                   # instability otherwise. I don't see this instability locally.
-                  cd plugin-server && yarn functional_tests -maxConcurrency=1
+                  cd plugin-server && yarn functional_tests --maxConcurrency=1
