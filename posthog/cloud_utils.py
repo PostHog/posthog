@@ -13,7 +13,7 @@ def is_cloud():
         return is_cloud_cached
 
     # Until billing-v2 is fully migrated, multi-tenancy take priority
-    is_cloud_cached = settings.MULTI_TENANCY
+    is_cloud_cached = str(settings.MULTI_TENANCY).lower() in ("true", "1")
 
     if not is_cloud_cached:
         try:
