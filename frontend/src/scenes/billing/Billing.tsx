@@ -8,7 +8,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { useValues } from 'kea'
-import { BillingV2 } from './v2/Billing'
+// import { BillingV2 } from './v2/Billing'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
@@ -17,15 +17,16 @@ export const scene: SceneExport = {
 }
 
 export function Billing(): JSX.Element {
-    const { billing, isSmallScreen, billingVersion } = useValues(billingLogic)
+    const { billing, isSmallScreen, billingLoading } = useValues(billingLogic)
 
-    if (!billingVersion) {
+    if (billingLoading) {
         return <SpinnerOverlay />
     }
 
-    if (billingVersion === 'v2') {
-        return <BillingV2 />
-    }
+    // TODO EC bring this back
+    // if (billingVersion === 'v2') {
+    //     return <BillingV2 />
+    // }
 
     return (
         <div className="flex flex-col space-y-6">
