@@ -208,7 +208,7 @@ jobs:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: cd plugin-server && yarn setup:test && sleep 60
+              run: cd plugin-server && yarn setup:test
 
             - name: Test with Jest
               env:
@@ -216,5 +216,6 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
               run: |
-                  cd plugin-server && yarn functional_tests || true
-                  yarn functional_tests
+                  # NOTE: we use a concurrency of 1 as there seems to be some
+                  # instability otherwise. I don't see this instability locally.
+                  cd plugin-server && yarn functional_tests -maxConcurrency=1

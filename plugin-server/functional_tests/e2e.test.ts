@@ -157,7 +157,7 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
             }
         `
 
-        test('event captured, processed, ingested', async () => {
+        test.concurrent('event captured, processed, ingested', async () => {
             const plugin = await createPlugin(postgres, {
                 organization_id: organizationId,
                 name: 'test plugin',
@@ -203,82 +203,90 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
             expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
         })
 
-        test('correct $autocapture properties included in onEvent calls', async () => {
-            // The plugin server does modifications to the `event.properties`
-            // and as a results we remove the initial `$elements` from the
-            // object. Thus we want to ensure that this information is passed
-            // through to any plugins with `onEvent` handlers
-            const plugin = await createPlugin(postgres, {
-                organization_id: organizationId,
-                name: 'test plugin',
-                plugin_type: 'source',
-                is_global: false,
-                source__index_ts: indexJs,
-            })
-            const teamId = await createTeam(postgres, organizationId)
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+        test.concurrent(
+            'correct $autocapture properties included in onEvent calls',
+            async () => {
+                // The plugin server does modifications to the `event.properties`
+                // and as a results we remove the initial `$elements` from the
+                // object. Thus we want to ensure that this information is passed
+                // through to any plugins with `onEvent` handlers
+                const plugin = await createPlugin(postgres, {
+                    organization_id: organizationId,
+                    name: 'test plugin',
+                    plugin_type: 'source',
+                    is_global: false,
+                    source__index_ts: indexJs,
+                })
+                const teamId = await createTeam(postgres, organizationId)
+                const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
 
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
+                const distinctId = new UUIDT().toString()
+                const uuid = new UUIDT().toString()
 
-            const properties = {
-                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
-            }
+                const properties = {
+                    $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+                }
 
-            const event = {
-                event: '$autocapture',
-                properties: properties,
-            }
+                const event = {
+                    event: '$autocapture',
+                    properties: properties,
+                }
 
-            await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
+                await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
 
-            const onEvent = await delayUntilEventIngested(
-                async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'onEvent'),
-                1,
-                500,
-                40
-            )
+                const onEvent = await delayUntilEventIngested(
+                    async () =>
+                        (
+                            await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                        ).filter(({ message: [method] }) => method === 'onEvent'),
+                    1,
+                    500,
+                    40
+                )
 
-            expect(onEvent.length).toBeGreaterThan(0)
+                expect(onEvent.length).toBeGreaterThan(0)
 
-            const onEventEvent = onEvent[0].message[1]
-            expect(onEventEvent.elements).toEqual([
-                expect.objectContaining({
-                    attributes: {},
-                    nth_child: 1,
-                    nth_of_type: 2,
-                    tag_name: 'div',
-                    text: '💻',
-                }),
-            ])
-        }, 20000)
+                const onEventEvent = onEvent[0].message[1]
+                expect(onEventEvent.elements).toEqual([
+                    expect.objectContaining({
+                        attributes: {},
+                        nth_child: 1,
+                        nth_of_type: 2,
+                        tag_name: 'div',
+                        text: '💻',
+                    }),
+                ])
+            },
+            20000
+        )
     })
 
     describe(`session recording ingestion (${pluginServer.name})`, () => {
-        test('snapshot captured, processed, ingested', async () => {
-            const teamId = await createTeam(postgres, organizationId)
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
+        test.concurrent(
+            'snapshot captured, processed, ingested',
+            async () => {
+                const teamId = await createTeam(postgres, organizationId)
+                const distinctId = new UUIDT().toString()
+                const uuid = new UUIDT().toString()
 
-            await capture(producer, teamId, distinctId, uuid, '$snapshot', {
-                $session_id: '1234abc',
-                $snapshot_data: 'yes way',
-            })
+                await capture(producer, teamId, distinctId, uuid, '$snapshot', {
+                    $session_id: '1234abc',
+                    $snapshot_data: 'yes way',
+                })
 
-            await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1, 500, 40)
-            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
-            expect(events.length).toBe(1)
+                await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1, 500, 40)
+                const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+                expect(events.length).toBe(1)
 
-            // processEvent did not modify
-            expect(events[0].snapshot_data).toEqual('yes way')
-        }, 20000)
+                // processEvent did not modify
+                expect(events[0].snapshot_data).toEqual('yes way')
+            },
+            20000
+        )
     })
 
     describe(`event ingestion (${pluginServer.name})`, () => {
-        test('anonymous event recieves same person_id if $identify happenes shortly after', async () => {
+        test.concurrent('anonymous event recieves same person_id if $identify happenes shortly after', async () => {
             // NOTE: this test depends on there being a delay between the
             // anonymouse event ingestion and the processing of this event.
             const teamId = await createTeam(postgres, organizationId)
@@ -333,7 +341,7 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
             }
         `
 
-        test('exporting events', async () => {
+        test.concurrent('exporting events', async () => {
             const plugin = await createPlugin(postgres, {
                 organization_id: organizationId,
                 name: 'export plugin',
@@ -402,7 +410,7 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
             }
         `
 
-        test('runNow', async () => {
+        test.concurrent('runNow', async () => {
             const plugin = await createPlugin(postgres, {
                 organization_id: organizationId,
                 name: 'jobs plugin',
@@ -440,41 +448,45 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
             expect(runNow.length).toBeGreaterThan(0)
         })
 
-        test('runEveryMinute is executed', async () => {
-            // NOTE: we do not check Hour and Day, merely because if we advance
-            // too much it seems we end up performing alot of reloads of
-            // actions, which prevents the test from completing.
-            //
-            // NOTE: we do not use Fake Timers here as there is an issue in that
-            // it only appears to work for timers in the main thread, and not
-            // ones in the worker threads.
-            const plugin = await createPlugin(postgres, {
-                organization_id: organizationId,
-                name: 'runEveryMinute plugin',
-                plugin_type: 'source',
-                is_global: false,
-                source__index_ts: `
+        test.concurrent(
+            'runEveryMinute is executed',
+            async () => {
+                // NOTE: we do not check Hour and Day, merely because if we advance
+                // too much it seems we end up performing alot of reloads of
+                // actions, which prevents the test from completing.
+                //
+                // NOTE: we do not use Fake Timers here as there is an issue in that
+                // it only appears to work for timers in the main thread, and not
+                // ones in the worker threads.
+                const plugin = await createPlugin(postgres, {
+                    organization_id: organizationId,
+                    name: 'runEveryMinute plugin',
+                    plugin_type: 'source',
+                    is_global: false,
+                    source__index_ts: `
                     export async function runEveryMinute() {
                         console.info(JSON.stringify(['runEveryMinute']))
                     }
                 `,
-            })
+                })
 
-            const teamId = await createTeam(postgres, organizationId)
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+                const teamId = await createTeam(postgres, organizationId)
+                const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
 
-            const runNow = await delayUntilEventIngested(
-                async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'runEveryMinute'),
-                1,
-                1000,
-                60
-            )
+                const runNow = await delayUntilEventIngested(
+                    async () =>
+                        (
+                            await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                        ).filter(({ message: [method] }) => method === 'runEveryMinute'),
+                    1,
+                    1000,
+                    60
+                )
 
-            expect(runNow.length).toBeGreaterThan(0)
-        }, 60000)
+                expect(runNow.length).toBeGreaterThan(0)
+            },
+            60000
+        )
     })
 
     describe(`scheduled tasks (${pluginServer.name})`, () => {
@@ -484,7 +496,7 @@ describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSpli
         // As such, we test that our tasks are persisted correctly to the table used by
         // Graphile Worker. Unit tests ensure that we set the right tasks and that the handlers
         // are correct once the worker triggers them.
-        test('scheduled tasks are set up correctly in graphile worker', async () => {
+        test.concurrent('scheduled tasks are set up correctly in graphile worker', async () => {
             const res = await postgres.query('SELECT * FROM graphile_worker.known_crontabs')
             expect(res.rows).toEqual(
                 expect.arrayContaining([
