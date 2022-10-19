@@ -33,7 +33,6 @@ def is_cloud():
         except Exception as e:
             print("ERROR: Unable to check license", e)  # noqa: T201
             capture_exception(e)
-            is_cloud_cached = False
 
     return is_cloud_cached
 
