@@ -70,8 +70,8 @@ class AppMetricsQuery:
             "plugin_config_id": self.plugin_config_id,
             "category": self.filter.validated_data.get("category"),
             "job_id": job_id,
-            "date_from": format_ch_timestamp(self.date_from, self.team.timezone),
-            "date_to": format_ch_timestamp(self.date_to, self.team.timezone),
+            "date_from": format_ch_timestamp(self.date_from),
+            "date_to": format_ch_timestamp(self.date_to),
             "timezone": self.team.timezone,
             "interval": self.interval,
         }
