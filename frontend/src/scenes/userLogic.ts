@@ -8,6 +8,7 @@ import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
+import { billingLogic } from './billing/v2/billingLogic'
 
 export interface UserDetailsFormType {
     first_name: string
@@ -168,13 +169,6 @@ export const userLogic = kea<userLogicType>([
             (user) => {
                 return (feature: AvailableFeature) => !!user?.organization?.available_features.includes(feature)
             },
-        ],
-        upgradeLink: [
-            (s) => [s.preflight],
-            (preflight): string =>
-                preflight?.cloud
-                    ? '/organization/billing'
-                    : 'https://license.posthog.com?utm_medium=in-product&utm_campaign=in-product-upgrade',
         ],
         otherOrganizations: [
             (s) => [s.user],

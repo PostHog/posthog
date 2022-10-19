@@ -282,9 +282,17 @@ class BillingViewset(viewsets.GenericViewSet):
         """
         Ensure the license details are up-to-date locally
         """
-        license.valid_until = data["valid_until"]
-        license.plan = data["type"]
-        license.save()
+        license_modified = False
+
+        if license.valid_until != data["valid_until"]:
+            license.valid_until = data["valid_until"]
+            license_modified = True
+        if license.plan != data["type"]:
+            license.plan = data["type"]
+            license_modified = True
+
+        if license_modified:
+            license.save()
 
         return license
 
@@ -292,8 +300,13 @@ class BillingViewset(viewsets.GenericViewSet):
         """
         Ensure the relevant organization details are up-to-date locally
         """
-        # license.valid_until = data["valid_until"]
-        # license.plan = data["type"]
-        # license.save()
+        org_modified = False
+
+        if data["available_features"] != organization.available_features:
+            organization.available_features = data["available_features"]
+            org_modified = True
+
+        if org_modified:
+            organization.save()
 
         return organization
