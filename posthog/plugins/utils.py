@@ -14,13 +14,13 @@ from django.conf import settings
 def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
     url, private_token = split_url_and_private_token(url)
     match = re.search(
-        r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(/(commit|tree|releases/tag)/([A-Za-z0-9_.\-]+)/?([A-Za-z0-9_.\-/]+)?)?$",
+        r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(/(commit|tree|releases/tag)/([A-Za-z0-9_.\-]+))?$",
         url,
     )
     if not match:
         # we include an empty group () to default the path to '' while keeping the number of groups the same
         match = re.search(
-            r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)((/archive)/([A-Za-z0-9_.\-/]+)(?:\.zip|\.tar\.gz)())?$",
+            r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(/(archive)/([A-Za-z0-9_.\-/]+)(?:\.zip|\.tar\.gz)())?$",
             url,
         )
     if not match:
@@ -30,33 +30,51 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
         "type": "github",
         "user": match.group(1),
         "repo": match.group(2),
+        "ref_type": match.group(4),
         "tag": match.group(5),
-        "path": match.group(6) or None,
         "private_token": private_token,
     }
 
-    if get_latest_if_none and not parsed["tag"]:
+    if get_latest_if_none and parsed["ref_type"] not in ("commit", "archive"):
+        token = private_token or settings.GITHUB_TOKEN
+        headers = {"Authorization": "token {}".format(token)} if token else {}
+
         try:
-            token = private_token or settings.GITHUB_TOKEN
-            headers = {"Authorization": "token {}".format(token)} if token else {}
-            commits_url = "https://api.github.com/repos/{}/{}/commits".format(parsed["user"], parsed["repo"])
-            commits = requests.get(commits_url, headers=headers).json()
-            if isinstance(commits, dict):
-                raise Exception(commits.get("message"))
-            if len(commits) > 0 and commits[0].get("sha", None):
-                parsed["tag"] = commits[0]["sha"]
-            else:
-                raise Exception(f"Could not find a commit with a hash in {commits}")
+            # fetch the latest commit
+            if parsed["ref_type"] is None:
+                commits_url = "https://api.github.com/repos/{}/{}/commits".format(parsed["user"], parsed["repo"])
+                commits = requests.get(commits_url, headers=headers).json()
+
+                if isinstance(commits, dict):
+                    raise Exception(commits.get("message"))
+                if len(commits) > 0 and commits[0].get("sha", None):
+                    parsed["tag"] = commits[0]["sha"]
+                else:
+                    raise Exception(f"Could not find a commit with a hash in {commits}")
+            elif parsed["ref_type"] == "releases/tag" and parsed["tag"]:
+                parsed["tag"] = "refs/tags/{}".format(parsed["tag"])
+            # fetch the latest commit on the specified branch, checking that the tag is not already a commit hash
+            elif parsed["ref_type"] == "tree" and parsed["tag"] and not re.match(r"^[a-f0-9]{40}$", parsed["tag"]):
+                branch_url = "https://api.github.com/repos/{}/{}/branches/{}".format(
+                    parsed["user"], parsed["repo"], parsed["tag"]
+                )
+                branch = requests.get(branch_url, headers=headers).json()
+
+                if isinstance(branch, dict) and branch["commit"]["sha"]:
+                    parsed["tag"] = branch["commit"]["sha"]
+                else:
+                    raise Exception("Could not find a commit for reference {}".format(parsed["tag"]))
         except Exception as e:
-            raise Exception(f"Could not get latest commit for {parsed['root_url']}. Reason: {e}")
+            raise Exception(f"Could not get latest commit for {url}. Reason: {e}")
+
     if parsed["tag"]:
-        parsed["tagged_url"] = "https://github.com/{}/{}/tree/{}{}{}".format(
+        parsed["tagged_url"] = "https://github.com/{}/{}/tree/{}{}".format(
             parsed["user"],
             parsed["repo"],
             parsed["tag"],
-            "/" + parsed["path"] if parsed["path"] else "",
             "?private_token={}".format(private_token) if private_token else "",
         )
+
     return parsed
 
 
@@ -175,7 +193,7 @@ def download_plugin_archive(url: str, tag: Optional[str] = None) -> bytes:
         )
         token = parsed_url["private_token"] or settings.GITHUB_TOKEN
         if token:
-            headers = {"Authorization": "token {}".format(token)}
+            headers = {"Authorization": "Bearer {}".format(token)}
 
     elif parsed_url["type"] == "gitlab":
         url_tag = tag or parsed_url.get("tag", None)
@@ -206,9 +224,6 @@ def download_plugin_archive(url: str, tag: Optional[str] = None) -> bytes:
     if not response.ok:
         raise Exception("Could not download archive from {}".format(parsed_url["type"]))
 
-    if parsed_url["type"] == "github" and parsed_url["path"]:
-        return rezip_subdirectory(response.content, parsed_url["path"])
-
     return response.content
 
 
@@ -218,20 +233,6 @@ def load_json_file(filename: str):
             return json.loads(reader.read())
     except FileNotFoundError:
         return None
-
-
-def rezip_subdirectory(archive: bytes, path: str):
-    zip_file = ZipFile(io.BytesIO(archive), "r")
-    root_folder = zip_file.namelist()[0]
-    zip_path = Path(zip_file) / root_folder / path
-    zip_archive = io.BytesIO()
-
-    with ZipFile(zip_archive, "w") as new_archive:
-        new_archive.writestr(root_folder, root_folder)
-        for file in zip_path.iterdir():
-            new_archive.writestr(os.path.join(root_folder, file.name), file.read_bytes())
-
-    return zip_archive.getvalue()
 
 
 def get_file_from_zip_archive(archive: bytes, filename: str, *, json_parse: bool) -> Any:
