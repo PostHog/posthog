@@ -131,8 +131,8 @@ class BillingViewset(viewsets.GenericViewSet):
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
         if hasattr(org, "billing"):
-            if org.billing:  # type: ignore
-                raise NotFound("Billing V2 is not enabled for this organization")
+            if org.billing.stripe_subscription_id:  # type: ignore
+                raise NotFound("Billing V1 is active for this organization")
 
         response: Dict[str, Any] = {}
 
