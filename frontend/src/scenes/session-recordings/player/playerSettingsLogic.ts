@@ -11,6 +11,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSpeed: (speed: number) => ({ speed }),
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
+        setIsMetadataExpanded: (isMetadataExpanded: boolean) => ({ isMetadataExpanded }),
     }),
     reducers({
         speed: [
@@ -37,6 +38,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             false,
             {
                 setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
+            },
+        ],
+        isMetadataExpanded: [
+            false,
+            {
+                setIsMetadataExpanded: (_, { isMetadataExpanded }) => isMetadataExpanded,
             },
         ],
     }),

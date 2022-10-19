@@ -5,8 +5,7 @@ import posthoganalytics
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from posthog.tasks.status_report import get_helm_info_env
-from posthog.utils import get_machine_id
+from posthog.utils import get_helm_info_env, get_machine_id
 from posthog.version import VERSION
 
 

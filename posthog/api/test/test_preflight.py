@@ -5,6 +5,7 @@ import pytest
 from django.utils import timezone
 from rest_framework import status
 
+from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationInvite
 from posthog.test.base import APIBaseTest
@@ -60,6 +61,11 @@ class TestPreflight(APIBaseTest):
 
         return self.preflight_dict(preflight)
 
+    def settings_with_cloud_cache_reset(self, **kwargs):
+        TEST_clear_cloud_cache()
+
+        return self.settings(**kwargs)
+
     def test_preflight_request_unauthenticated(self):
         """
         For security purposes, the information contained in an unauthenticated preflight request is minimal.
@@ -72,7 +78,7 @@ class TestPreflight(APIBaseTest):
         self.assertEqual(response.json(), self.preflight_dict())
 
     def test_preflight_request(self):
-        with self.settings(
+        with self.settings_with_cloud_cache_reset(
             MULTI_TENANCY=False,
             INSTANCE_PREFERENCES=self.instance_preferences(debug_queries=True),
             OBJECT_STORAGE_ENABLED=False,
@@ -89,7 +95,7 @@ class TestPreflight(APIBaseTest):
     def test_preflight_request_with_object_storage_available(self, patched_s3_client):
         patched_s3_client.head_bucket.return_value = True
 
-        with self.settings(
+        with self.settings_with_cloud_cache_reset(
             MULTI_TENANCY=False,
             INSTANCE_PREFERENCES=self.instance_preferences(debug_queries=True),
             OBJECT_STORAGE_ENABLED=True,
@@ -109,7 +115,7 @@ class TestPreflight(APIBaseTest):
 
         self.client.logout()  # make sure it works anonymously
 
-        with self.settings(MULTI_TENANCY=True, OBJECT_STORAGE_ENABLED=False):
+        with self.settings_with_cloud_cache_reset(MULTI_TENANCY=True, OBJECT_STORAGE_ENABLED=False):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -154,7 +160,7 @@ class TestPreflight(APIBaseTest):
     def test_cloud_preflight_request_with_social_auth_providers(self):
         set_instance_setting("EMAIL_HOST", "localhost")
 
-        with self.settings(
+        with self.settings_with_cloud_cache_reset(
             SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="test_key",
             SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
             MULTI_TENANCY=True,
@@ -187,7 +193,7 @@ class TestPreflight(APIBaseTest):
     def test_demo(self):
         self.client.logout()  # make sure it works anonymously
 
-        with self.settings(DEMO=True, OBJECT_STORAGE_ENABLED=False):
+        with self.settings_with_cloud_cache_reset(DEMO=True, OBJECT_STORAGE_ENABLED=False):
             response = self.client.get("/_preflight/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -223,7 +229,7 @@ class TestPreflight(APIBaseTest):
     @pytest.mark.skip_on_multitenancy
     def test_can_create_org_with_multi_org(self):
         # First with no license
-        with self.settings(MULTI_ORG_ENABLED=True):
+        with self.settings_with_cloud_cache_reset(MULTI_ORG_ENABLED=True):
             response = self.client.get("/_preflight/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["can_create_org"], False)
@@ -234,9 +240,27 @@ class TestPreflight(APIBaseTest):
             pass
         else:
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
-                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
+                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
             )
-            with self.settings(MULTI_ORG_ENABLED=True):
+            with self.settings_with_cloud_cache_reset(MULTI_ORG_ENABLED=True):
                 response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json()["can_create_org"], True)
+
+    @pytest.mark.ee
+    def test_cloud_preflight_based_on_license(self):
+        try:
+            from ee.models.license import License, LicenseManager
+        except ImportError:
+            pass
+        else:
+            super(LicenseManager, cast(LicenseManager, License.objects)).create(
+                key="key::123", plan="cloud", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            )
+
+            TEST_clear_cloud_cache()
+
+            response = self.client.get("/_preflight/")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["realm"] == "cloud"
+            assert response.json()["cloud"]
