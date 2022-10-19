@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { IconInfo, IconPremium } from '../icons'
 import { LemonRow, LemonRowProps } from './LemonRow'

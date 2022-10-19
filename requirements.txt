@@ -166,9 +166,9 @@ idna==2.8
     #   trio
     #   urllib3
     #   yarl
-importlib-metadata==1.6.0
+importlib-metadata==5.0.0
     # via -r requirements.in
-importlib-resources==5.9.0
+importlib-resources==5.10.0
     # via jsonschema
 infi-clickhouse-orm @ git+https://github.com/PostHog/infi.clickhouse_orm@37722f350f3b449bbcd6564917c436b0d93e796f
     # via -r requirements.in
@@ -234,6 +234,8 @@ parso==0.8.1
 pexpect==4.7.0
     # via -r requirements.in
 pickleshare==0.7.5
+    # via -r requirements.in
+pillow==9.2.0
     # via -r requirements.in
 posthoganalytics==2.1.2
     # via -r requirements.in

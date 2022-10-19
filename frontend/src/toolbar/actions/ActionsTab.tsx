@@ -1,7 +1,5 @@
 import './ActionsTab.scss'
 
-import React from 'react'
-
 import { useValues } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { ActionsList } from '~/toolbar/actions/ActionsList'

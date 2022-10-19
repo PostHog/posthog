@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonDivider, LemonDividerProps } from './LemonDivider'
 import { LemonRow } from '../LemonRow'

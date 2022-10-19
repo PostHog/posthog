@@ -1,4 +1,3 @@
-import React from 'react'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { sortedKeys } from 'lib/utils'
 

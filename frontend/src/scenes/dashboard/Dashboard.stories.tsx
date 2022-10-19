@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 import { mswDecorator } from '~/mocks/browser'
 import { App } from 'scenes/App'

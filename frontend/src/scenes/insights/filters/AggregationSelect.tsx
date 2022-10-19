@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'

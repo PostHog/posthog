@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { userLogic } from 'scenes/userLogic'

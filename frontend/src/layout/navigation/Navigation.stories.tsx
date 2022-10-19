@@ -1,8 +1,8 @@
-import React from 'react'
 import { Meta } from '@storybook/react'
 import { Layout } from 'antd'
 import { TopBar } from './TopBar/TopBar'
 import { SideBar } from './SideBar/SideBar'
+import React from 'react'
 
 export default {
     title: 'Layout/Navigation',

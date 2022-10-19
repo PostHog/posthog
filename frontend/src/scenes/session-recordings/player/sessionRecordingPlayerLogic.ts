@@ -47,7 +47,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             [
                 'sessionRecordingId',
                 'sessionPlayerData',
-                'sessionPlayerDataLoading',
+                'sessionPlayerSnapshotDataLoading',
                 'loadMetaTimeMs',
                 'loadFirstSnapshotTimeMs',
                 'loadAllSnapshotsTimeMs',
@@ -59,7 +59,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
         actions: [
             sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
-            ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess'],
+            ['loadRecordingSnapshotsSuccess', 'loadRecordingSnapshotsFailure', 'loadRecordingMetaSuccess'],
             sharedListLogic({ sessionRecordingId, playerKey }),
             ['setTab'],
             playerSettingsLogic,
@@ -332,6 +332,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.checkBufferingCompleted()
             breakpoint()
         },
+
+        loadRecordingSnapshotsFailure: () => {
+            if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
+                actions.setErrorPlayerState(true)
+            }
+        },
         setPlay: () => {
             actions.stopAnimation()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
@@ -387,16 +393,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // If not currently loading anything and part of the recording hasn't loaded, set error state
             if (
-                (!values.sessionPlayerDataLoading && !values.sessionPlayerData.bufferedTo) ||
-                (!!values.sessionPlayerData?.bufferedTo &&
+                (!values.sessionPlayerSnapshotDataLoading && !values.sessionPlayerData.bufferedTo) ||
+                (!values.sessionPlayerSnapshotDataLoading &&
+                    !!values.sessionPlayerData?.bufferedTo &&
                     !!playerPosition &&
                     !!values.currentSegment &&
                     comparePlayerPositions(
                         playerPosition,
                         values.sessionPlayerData.bufferedTo,
                         values.sessionPlayerData.metadata.segments
-                    ) > 0 &&
-                    !values.sessionPlayerDataLoading)
+                    ) > 0)
             ) {
                 values.player?.replayer?.pause()
                 actions.endBuffer()
@@ -533,7 +539,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.sessionPlayerData.bufferedTo,
                     values.sessionPlayerData.metadata.segments
                 ) > 0 &&
-                !values.sessionPlayerDataLoading
+                !values.sessionPlayerSnapshotDataLoading
             ) {
                 values.player?.replayer?.pause()
                 actions.endBuffer()

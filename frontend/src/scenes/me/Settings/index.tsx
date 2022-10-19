@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { Divider } from 'antd'
 import { useAnchor } from 'lib/hooks/useAnchor'

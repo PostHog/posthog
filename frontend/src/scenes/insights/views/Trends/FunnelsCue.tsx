@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { IconLightBulb } from 'lib/components/icons'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
-import React from 'react'
 import clsx from 'clsx'
 import './FunnelsCue.scss'
 import { funnelsCueLogic } from 'scenes/insights/views/Trends/funnelsCueLogic'

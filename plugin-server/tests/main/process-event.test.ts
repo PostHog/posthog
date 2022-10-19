@@ -2124,8 +2124,6 @@ test('$groupidentify updating properties', async () => {
 })
 
 test('person and group properties on events', async () => {
-    // setup 2 groups with properties
-    hub.db.personAndGroupsCachingEnabledTeams.add(2)
     await createPerson(hub, team, ['distinct_id1'], { pineapple: 'on', pizza: 1 })
 
     await processEvent(
@@ -2192,8 +2190,6 @@ test('person and group properties on events', async () => {
     expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
     expect(event?.group0_properties).toEqual({ foo: 'bar' })
     expect(event?.group1_properties).toEqual({ pineapple: 'yummy' })
-
-    hub.db.personAndGroupsCachingEnabledTeams.delete(2)
 })
 
 test('set and set_once on the same key', async () => {

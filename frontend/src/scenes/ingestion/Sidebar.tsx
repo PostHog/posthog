@@ -1,4 +1,3 @@
-import React from 'react'
 import { ingestionLogic } from './ingestionLogic'
 import { useActions, useValues } from 'kea'
 import './IngestionWizard.scss'

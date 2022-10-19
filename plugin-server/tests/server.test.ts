@@ -1,9 +1,8 @@
 import * as Sentry from '@sentry/node'
 import * as nodeSchedule from 'node-schedule'
 
-import { startGraphileWorker } from '../src/main/jobs/worker-setup'
+import { startGraphileWorker } from '../src/main/graphile-worker/worker-setup'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
-import { startPluginSchedules } from '../src/main/services/schedule'
 import { LogLevel, PluginServerCapabilities, PluginsServerConfig } from '../src/types'
 import { killProcess } from '../src/utils/kill'
 import { delay } from '../src/utils/utils'
@@ -13,8 +12,8 @@ import { resetTestDatabase } from './helpers/sql'
 jest.mock('@sentry/node')
 jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/kill')
-jest.mock('../src/main/services/schedule')
-jest.mock('../src/main/jobs/worker-setup')
+jest.mock('../src/main/graphile-worker/schedule')
+jest.mock('../src/main/graphile-worker/worker-setup')
 jest.setTimeout(60000) // 60 sec timeout
 
 function numberOfScheduledJobs() {
@@ -104,7 +103,6 @@ describe('server', () => {
         test('starts all main services by default', async () => {
             pluginsServer = await createPluginServer()
 
-            expect(startPluginSchedules).toHaveBeenCalled()
             expect(startGraphileWorker).toHaveBeenCalled()
         })
 
@@ -114,7 +112,6 @@ describe('server', () => {
                 { ingestion: true, pluginScheduledTasks: false, processPluginJobs: true }
             )
 
-            expect(startPluginSchedules).not.toHaveBeenCalled()
             expect(startGraphileWorker).toHaveBeenCalled()
         })
 
@@ -124,14 +121,13 @@ describe('server', () => {
                 { ingestion: true, pluginScheduledTasks: true, processPluginJobs: false }
             )
 
-            expect(startPluginSchedules).toHaveBeenCalled()
             expect(startGraphileWorker).toHaveBeenCalled()
         })
 
-        test('disabling processPluginJobs and ingestion', async () => {
+        test('disabling processPluginJobs, ingestion, and pluginScheduledTasks', async () => {
             pluginsServer = await createPluginServer(
                 {},
-                { ingestion: false, pluginScheduledTasks: true, processPluginJobs: false }
+                { ingestion: false, pluginScheduledTasks: false, processPluginJobs: false }
             )
 
             expect(startGraphileWorker).not.toHaveBeenCalled()

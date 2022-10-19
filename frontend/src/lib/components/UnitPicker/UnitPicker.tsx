@@ -6,7 +6,7 @@ import {
 } from 'scenes/insights/aggregationAxisFormat'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { FilterType, ItemMode } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'

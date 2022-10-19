@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import { useRef } from 'react'
 import { useValues } from 'kea'
 import clsx from 'clsx'
 import useSize from '@react-hook/size'

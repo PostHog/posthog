@@ -1,4 +1,3 @@
-import React from 'react'
 import { kea } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import type { mathsLogicType } from './mathsLogicType'

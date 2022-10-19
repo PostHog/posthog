@@ -1,4 +1,3 @@
-import React from 'react'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { useValues } from 'kea'

@@ -31,7 +31,6 @@ import { userLogic } from 'scenes/userLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { Link } from 'lib/components/Link'
-import React from 'react'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -95,7 +94,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
         updateAndRefreshDashboard: true,
-        setDates: (dateFrom: string, dateTo: string | null, reloadDashboard = true) => ({
+        setDates: (dateFrom: string | null, dateTo: string | null, reloadDashboard = true) => ({
             dateFrom,
             dateTo,
             reloadDashboard,
@@ -172,10 +171,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             tile: tile,
                             dashboardId: props.id,
                         })
-                        const filteredTiles = values.tiles.filter((t) => t.id !== tile.id)
+
                         return {
                             ...values.allItems,
-                            tiles: filteredTiles,
+                            tiles: values.tiles.filter((t) => t.id !== tile.id),
                         } as DashboardType
                     } catch (e) {
                         lemonToast.error('Could not remove tile from dashboard: ' + e)
@@ -269,7 +268,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     }
                     return state
                 },
-                [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { insight, extraDashboardIds }) => {
+                [dashboardsModel.actionTypes.updateDashboardInsight]: (
+                    state,
+                    { insight, extraDashboardIds, updateTileOnDashboards }
+                ) => {
                     const targetDashboards = (insight.dashboards || []).concat(extraDashboardIds || [])
                     if (!props.id) {
                         // what are we even updating?
@@ -290,6 +292,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         if (tileIndex >= 0) {
                             if (insight.dashboards?.includes(props.id)) {
                                 newTiles[tileIndex] = { ...newTiles[tileIndex], insight: insight }
+                                if (updateTileOnDashboards?.includes(props.id)) {
+                                    newTiles[tileIndex].last_refresh = insight.last_refresh
+                                }
                             } else {
                                 newTiles.splice(tileIndex, 1)
                             }
@@ -300,7 +305,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                         return {
                             ...state,
-                            tiles: newTiles.filter((t) => !!t.insight && !t.insight.deleted),
+                            tiles: newTiles.filter((t) => !t.deleted || !t.insight?.deleted),
                         } as DashboardType
                     }
 
@@ -322,7 +327,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         const tileIndex = state.tiles.findIndex((t) => t.id === tile.id)
                         const newTiles = state.tiles.slice(0)
                         if (tileIndex >= 0) {
-                            if (tile.insight?.dashboards?.includes(props.id)) {
+                            if (!!tile.text || tile.insight?.dashboards?.includes(props.id)) {
                                 newTiles[tileIndex] = { ...newTiles[tileIndex], ...tile }
                             } else {
                                 newTiles.splice(tileIndex, 1)
@@ -521,17 +526,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 if (!insightTiles || !insightTiles.length) {
                     return null
                 }
-                let oldestLastRefreshed = null
-                for (const tile of insightTiles) {
-                    const itemLastRefreshed = tile.last_refresh ? dayjs(tile.last_refresh) : null
-                    if (
-                        !oldestLastRefreshed ||
-                        (itemLastRefreshed && itemLastRefreshed.isBefore(oldestLastRefreshed))
-                    ) {
-                        oldestLastRefreshed = itemLastRefreshed
-                    }
-                }
-                return oldestLastRefreshed
+                const oldest = [...insightTiles.map((i) => i.last_refresh)].sort((a, b) =>
+                    dayjs(a).isAfter(dayjs(b)) ? 1 : -1
+                )
+                return oldest.length > 0 ? dayjs(oldest[0]) : null
             },
         ],
         dashboard: [
@@ -838,7 +836,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 try {
                     breakpoint()
 
-                    const refreshedInsight = await api.get(
+                    const refreshedInsight: InsightModel = await api.get(
                         `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
                             refresh: true,
                             from_dashboard: dashboardId, // needed to load insight in correct context
@@ -858,7 +856,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         )
                     }
 
-                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
+                    dashboardsModel.actions.updateDashboardInsight(
+                        refreshedInsight,
+                        [],
+                        props.id ? [props.id] : undefined
+                    )
                     actions.setRefreshStatus(insight.short_id)
                 } catch (e: any) {
                     if (isBreakpoint(e)) {

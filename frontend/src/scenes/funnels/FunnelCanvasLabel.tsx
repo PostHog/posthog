@@ -1,7 +1,6 @@
 // This file contains funnel-related components that are used in the general insights scope
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
-import React from 'react'
 import { Button, Row } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -11,6 +10,7 @@ import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { FunnelVizType, InsightType } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
+import React from 'react'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, filters, activeView } = useValues(insightLogic)

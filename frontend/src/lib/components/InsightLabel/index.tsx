@@ -1,4 +1,3 @@
-import React from 'react'
 import { Col, Row, Space, Tag, Typography } from 'antd'
 import { ActionFilter, BreakdownKeyType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
