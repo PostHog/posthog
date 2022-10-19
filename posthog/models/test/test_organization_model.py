@@ -26,12 +26,11 @@ class TestOrganization(BaseTest):
 
     @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
     def test_plugins_are_preinstalled_on_self_hosted(self, mock_get):
-        with self.settings(
-            MULTI_TENANCY=False, PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]
-        ):
-            new_org, _, _ = Organization.objects.bootstrap(
-                self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
-            )
+        with self.is_cloud(False):
+            with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
+                new_org, _, _ = Organization.objects.bootstrap(
+                    self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+                )
 
         self.assertEqual(Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 1)
         self.assertEqual(
@@ -44,21 +43,20 @@ class TestOrganization(BaseTest):
 
     @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
     def test_plugins_are_not_preinstalled_on_cloud(self, mock_get):
-        with self.settings(
-            MULTI_TENANCY=True, PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]
-        ):
-            new_org, _, _ = Organization.objects.bootstrap(
-                self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
-            )
+        with self.is_cloud(True):
+            with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
+                new_org, _, _ = Organization.objects.bootstrap(
+                    self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+                )
 
         self.assertEqual(Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 0)
         self.assertEqual(mock_get.call_count, 0)
 
     def test_plugins_access_level_is_determined_based_on_realm(self):
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             new_org, _, _ = Organization.objects.bootstrap(self.user)
             assert new_org.plugins_access_level == Organization.PluginsAccessLevel.CONFIG
 
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             new_org, _, _ = Organization.objects.bootstrap(self.user)
             assert new_org.plugins_access_level == Organization.PluginsAccessLevel.ROOT
