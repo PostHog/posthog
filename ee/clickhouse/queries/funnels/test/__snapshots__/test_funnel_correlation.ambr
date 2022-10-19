@@ -1151,7 +1151,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups_materialized
   '
-  /* request:1 */ WITH funnel_actors as
+  WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -1213,10 +1213,10 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
-                       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
-                       2 AS target_step,
-                       ['paid', 'user signed up'] as funnel_step_names
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
+       2 AS target_step,
+       ['paid', 'user signed up'] as funnel_step_names
   SELECT concat(event_name, '::', prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) as success_count,
          countDistinctIf(actor_id, steps <> target_step) as failure_count
@@ -2474,7 +2474,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized
   '
-  /* request:1 */ WITH funnel_actors as
+  WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -2536,7 +2536,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
@@ -2564,7 +2564,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.1
   '
-  /* request:1 */ WITH funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -2635,7 +2635,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   WHERE funnel_actors.steps = target_step
@@ -2647,7 +2647,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.2
   '
-  /* request:1 */ WITH funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -2718,7 +2718,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   WHERE funnel_actors.steps <> target_step
@@ -2730,7 +2730,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.3
   '
-  /* request:1 */ WITH funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -2801,7 +2801,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   WHERE funnel_actors.steps = target_step
@@ -2813,7 +2813,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.4
   '
-  /* request:1 */ WITH funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -2884,7 +2884,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   WHERE funnel_actors.steps <> target_step
@@ -2896,7 +2896,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.5
   '
-  /* request:1 */ WITH funnel_actors as
+  WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -2958,7 +2958,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
@@ -3512,7 +3512,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
   '
-  /* request:1 */ WITH funnel_actors as
+  WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -3583,7 +3583,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
@@ -3604,7 +3604,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
   '
-  /* request:1 */ WITH funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -3677,7 +3677,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   WHERE funnel_actors.steps = target_step
@@ -3689,7 +3689,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.2
   '
-  /* request:1 */ WITH funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -3762,7 +3762,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   WHERE funnel_actors.steps <> target_step
@@ -3774,7 +3774,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.3
   '
-  /* request:1 */ WITH funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -3847,7 +3847,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   WHERE funnel_actors.steps = target_step
@@ -3859,7 +3859,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.4
   '
-  /* request:1 */ WITH funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -3932,7 +3932,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
   WHERE funnel_actors.steps <> target_step
@@ -3944,7 +3944,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
   '
-  /* request:1 */ WITH funnel_actors as
+  WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
             timestamp,
             steps,
@@ -4015,7 +4015,7 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-                       2 AS target_step
+       2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
