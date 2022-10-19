@@ -31,12 +31,8 @@
                 <div class="container">
                     <div class="inner">
                         {% block main %}
-                        <div class="container">
-                            <div class="section">
-                                <h1 class="mb">{% block heading %}{% endblock %}</h1>
-                                {% block section %}{% endblock %}
-                            </div>
-                        </div>
+                            <h1 class="mb">{% block heading %}{% endblock %}</h1>
+                            {% block section %}{% endblock %}
                         {% endblock %}
                     </div>
                 </div>
@@ -44,16 +40,12 @@
                 <div class="container">
                     <div class="footer">
                         {% block footer %}
-                        <div class="text-center">
                             Need help?
                             <a href="https://posthog.com/questions?{{ utm_tags }}"
                                 target="_blank"><b>Visit support</b></a>
                             or
                             <a href="https://posthog.com/docs?{{ utm_tags }}"
                                 target="_blank"><b>read our documentation</b></a>
-                        </div><br /><br />
-
-                        <a href="{% absolute_uri '/project/apps' %}">{% absolute_uri '/project/apps' %}</a>
                         {% endblock %}
                     </div>
                 </div>

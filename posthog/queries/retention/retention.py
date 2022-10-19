@@ -1,6 +1,8 @@
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
+import pytz
+
 from posthog.client import substitute_params, sync_execute
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -23,14 +25,13 @@ class Retention:
         if filter.breakdowns:
             return self.process_breakdown_table_result(retention_by_breakdown, filter)
         else:
-            return self.process_table_result(retention_by_breakdown, filter)
+            return self.process_table_result(retention_by_breakdown, filter, team)
 
     def _get_retention_by_breakdown_values(
         self, filter: RetentionFilter, team: Team
     ) -> Dict[CohortKey, Dict[str, Any]]:
 
         actor_query = build_actor_activity_query(filter=filter, team=team, retention_events_query=self.event_query)
-
         result = sync_execute(
             RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query),
             settings={"timeout_before_checking_execution_speed": 60},
@@ -78,7 +79,7 @@ class Retention:
 
         return result
 
-    def process_table_result(self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter):
+    def process_table_result(self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter, team: Team):
         """
         Constructs a response for the rest api when there is no breakdown specified
 
@@ -101,7 +102,9 @@ class Retention:
                     for day in range(filter.total_intervals - first_day)
                 ],
                 "label": "{} {}".format(filter.period, first_day),
-                "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]),
+                "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]).replace(
+                    tzinfo=pytz.timezone(team.timezone)
+                ),
                 "people_url": construct_url(first_day),
             }
             for first_day in range(filter.total_intervals)

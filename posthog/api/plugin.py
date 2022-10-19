@@ -19,7 +19,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
+from posthog.models import Plugin, PluginAttachment, PluginConfig, Team, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Change,
@@ -41,22 +41,23 @@ from posthog.permissions import (
 )
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins
+from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
 from posthog.utils import format_query_params_absolute_url
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
 
 
-# TODO: Log activity for plugin attachments
 def _update_plugin_attachments(request: request.Request, plugin_config: PluginConfig):
+    user = cast(User, request.user)
     for key, file in request.FILES.items():
         match = re.match(r"^add_attachment\[([^]]+)\]$", key)
         if match:
-            _update_plugin_attachment(plugin_config, match.group(1), file)
+            _update_plugin_attachment(plugin_config, match.group(1), file, user)
     for key, file in request.POST.items():
         match = re.match(r"^remove_attachment\[([^]]+)\]$", key)
         if match:
-            _update_plugin_attachment(plugin_config, match.group(1), None)
+            _update_plugin_attachment(plugin_config, match.group(1), None, user)
 
 
 def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, Any], secret_fields=[]) -> List[Change]:
@@ -71,7 +72,7 @@ def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, 
     return config_changes
 
 
-def log_enabled_change_activity(new_plugin_config: PluginConfig, old_enabled: bool, user: Any, changes=[]):
+def log_enabled_change_activity(new_plugin_config: PluginConfig, old_enabled: bool, user: User, changes=[]):
     if old_enabled != new_plugin_config.enabled:
         log_activity(
             organization_id=new_plugin_config.team.organization.id,
@@ -86,7 +87,7 @@ def log_enabled_change_activity(new_plugin_config: PluginConfig, old_enabled: bo
 
 
 def log_config_update_activity(
-    new_plugin_config: PluginConfig, old_config: Dict[str, Any], secret_fields: Set[str], old_enabled: bool, user: Any
+    new_plugin_config: PluginConfig, old_config: Dict[str, Any], secret_fields: Set[str], old_enabled: bool, user: User
 ):
     config_changes = get_plugin_config_changes(
         old_config=old_config, new_config=new_plugin_config.config, secret_fields=secret_fields
@@ -107,10 +108,13 @@ def log_config_update_activity(
     log_enabled_change_activity(new_plugin_config=new_plugin_config, old_enabled=old_enabled, user=user)
 
 
-def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optional[UploadedFile]):
+def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optional[UploadedFile], user: User):
     try:
         plugin_attachment = PluginAttachment.objects.get(team=plugin_config.team, plugin_config=plugin_config, key=key)
         if file:
+            activity = "attachment_updated"
+            change = Change(type="PluginConfig", action="changed", before=plugin_attachment.file_name, after=file.name)
+
             plugin_attachment.content_type = file.content_type
             plugin_attachment.file_name = file.name
             plugin_attachment.file_size = file.size
@@ -118,6 +122,9 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
             plugin_attachment.save()
         else:
             plugin_attachment.delete()
+
+            activity = "attachment_deleted"
+            change = Change(type="PluginConfig", action="deleted", before=plugin_attachment.file_name, after=None)
     except ObjectDoesNotExist:
         if file:
             PluginAttachment.objects.create(
@@ -129,6 +136,19 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
                 file_size=file.size,
                 contents=file.file.read(),
             )
+
+            activity = "attachment_created"
+            change = Change(type="PluginConfig", action="created", before=None, after=file.name)
+
+    log_activity(
+        organization_id=plugin_config.team.organization.id,
+        team_id=plugin_config.team.id,
+        user=user,
+        item_id=plugin_config.id,
+        scope="PluginConfig",
+        activity=activity,
+        detail=Detail(name=plugin_config.plugin.name, changes=[change]),
+    )
 
 
 # sending files via a multipart form puts the config JSON in a un-serialized format
@@ -417,11 +437,13 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
+    plugin_info = serializers.SerializerMethodField()
+    delivery_rate_24h = serializers.SerializerMethodField()
 
     class Meta:
         model = PluginConfig
-        fields = ["id", "plugin", "enabled", "order", "config", "error", "team_id"]
-        read_only_fields = ["id", "team_id"]
+        fields = ["id", "plugin", "enabled", "order", "config", "error", "team_id", "plugin_info", "delivery_rate_24h"]
+        read_only_fields = ["id", "team_id", "plugin_info", "delivery_rate_24h"]
 
     def get_config(self, plugin_config: PluginConfig):
         attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
@@ -456,6 +478,18 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 }
 
         return new_plugin_config
+
+    def get_plugin_info(self, plugin_config: PluginConfig):
+        if self.context["view"].action == "retrieve":
+            return PluginSerializer(instance=plugin_config.plugin).data
+        else:
+            return None
+
+    def get_delivery_rate_24h(self, plugin_config: PluginConfig):
+        if "delivery_rates_1d" in self.context:
+            return self.context["delivery_rates_1d"].get(plugin_config.pk, None)
+        else:
+            return None
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(Team.objects.get(id=self.context["team_id"]).organization_id):
@@ -524,6 +558,12 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not can_configure_plugins(self.team.organization_id):
             return self.queryset.none()
         return super().get_queryset().order_by("order", "plugin_id")
+
+    def get_serializer_context(self) -> Dict[str, Any]:
+        context = super().get_serializer_context()
+        if context["view"].action in ("retrieve", "list"):
+            context["delivery_rates_1d"] = TeamPluginsDeliveryRateQuery(self.team).run()
+        return context
 
     # we don't really use this endpoint, but have something anyway to prevent team leakage
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:  # type: ignore

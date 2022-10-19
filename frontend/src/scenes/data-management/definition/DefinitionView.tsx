@@ -1,5 +1,4 @@
 import './Definition.scss'
-import React from 'react'
 import clsx from 'clsx'
 import { Divider } from 'antd'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -115,27 +114,29 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         }
                         buttons={
                             <>
-                                <LemonButton
-                                    type="secondary"
-                                    to={
-                                        combineUrl(urls.sessionRecordings(), {
-                                            filters: {
-                                                events: [
-                                                    {
-                                                        id: definition.name,
-                                                        type: 'events',
-                                                        order: 0,
-                                                        name: definition.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
-                                    sideIcon={<IconPlayCircle />}
-                                    data-attr="event-definition-view-recordings"
-                                >
-                                    View recordings
-                                </LemonButton>
+                                {isEvent && (
+                                    <LemonButton
+                                        type="secondary"
+                                        to={
+                                            combineUrl(urls.sessionRecordings(), {
+                                                filters: {
+                                                    events: [
+                                                        {
+                                                            id: definition.name,
+                                                            type: 'events',
+                                                            order: 0,
+                                                            name: definition.name,
+                                                        },
+                                                    ],
+                                                },
+                                            }).url
+                                        }
+                                        sideIcon={<IconPlayCircle />}
+                                        data-attr="event-definition-view-recordings"
+                                    >
+                                        View recordings
+                                    </LemonButton>
+                                )}
 
                                 {hasTaxonomyFeatures && (
                                     <LemonButton

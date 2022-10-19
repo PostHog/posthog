@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import { LoadingOutlined } from '@ant-design/icons'
 import { PreflightCheckStatus, PreflightItem, preflightLogic } from './preflightLogic'

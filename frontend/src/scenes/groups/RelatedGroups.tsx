@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { ActorType } from '~/types'

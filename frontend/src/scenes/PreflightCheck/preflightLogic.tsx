@@ -198,6 +198,10 @@ export const preflightLogic = kea<preflightLogicType>([
             (preflight): boolean =>
                 Boolean(preflight && Object.values(preflight.available_social_auth_providers).filter((i) => i).length),
         ],
+        objectStorageAvailable: [
+            (s) => [s.preflight],
+            (preflight): boolean => Boolean(preflight && preflight.object_storage),
+        ],
         realm: [
             (s) => [s.preflight],
             (preflight): Realm | null => {

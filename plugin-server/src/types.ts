@@ -17,7 +17,7 @@ import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
-import { GraphileWorker } from './main/jobs/graphile-worker'
+import { GraphileWorker } from './main/graphile-worker/graphile-worker'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
@@ -25,6 +25,7 @@ import { InternalMetrics } from './utils/internal-metrics'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
+import { AppMetrics } from './worker/ingestion/app-metrics'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { PersonManager } from './worker/ingestion/person-manager'
@@ -76,7 +77,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
-    DATABASE_URL: string | null
+    DATABASE_URL: string
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
@@ -100,6 +101,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
+    APP_METRICS_FLUSH_FREQUENCY_MS: number
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -144,7 +146,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     CONVERSION_BUFFER_ENABLED_TEAMS: string
     CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
     BUFFER_CONVERSION_SECONDS: number
-    PERSON_INFO_TO_REDIS_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     OBJECT_STORAGE_ENABLED: boolean
@@ -182,7 +183,6 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigs: Map<PluginConfigId, PluginConfig>
     pluginConfigsPerTeam: Map<TeamId, PluginConfig[]>
     pluginSchedule: Record<string, PluginConfigId[]> | null
-    pluginSchedulePromises: Record<string, Record<PluginConfigId, Promise<any> | null>>
     // unique hash for each plugin config; used to verify IDs caught on stack traces for unhandled promise rejections
     pluginConfigSecrets: Map<PluginConfigId, string>
     pluginConfigSecretLookup: Map<string, PluginConfigId>
@@ -198,6 +198,7 @@ export interface Hub extends PluginsServerConfig {
     eventsProcessor: EventsProcessor
     personManager: PersonManager
     siteUrlManager: SiteUrlManager
+    appMetrics: AppMetrics
     graphileWorker: GraphileWorker
     // diagnostics
     lastActivity: number
@@ -215,7 +216,7 @@ export interface PluginServerCapabilities {
     http?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob
+export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
@@ -228,6 +229,11 @@ export interface EnqueuedPluginJob {
 export interface EnqueuedBufferJob {
     eventPayload: PluginEvent
     timestamp: number
+    jobKey?: string
+}
+
+export interface GraphileWorkerCronScheduleJob {
+    timestamp?: number
     jobKey?: string
 }
 

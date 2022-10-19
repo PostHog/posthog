@@ -1,4 +1,3 @@
-import React from 'react'
 import { PanelFooter } from './panels/PanelComponents'
 import './panels/Panels.scss'
 

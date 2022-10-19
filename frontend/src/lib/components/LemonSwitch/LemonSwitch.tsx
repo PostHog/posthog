@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import './LemonSwitch.scss'
 
 export interface LemonSwitchProps {

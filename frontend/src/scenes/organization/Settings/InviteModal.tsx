@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import './InviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -163,8 +162,8 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                     data-attr="invite-team-member-submit"
                                 >
                                     {validInvitesCount
-                                        ? `Invite ${pluralize(validInvitesCount, 'user')}`
-                                        : 'Invite users'}
+                                        ? `Invite ${pluralize(validInvitesCount, 'team member')}`
+                                        : 'Invite team members'}
                                 </LemonButton>
                             </>
                         )}
@@ -250,7 +249,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                         <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
                     ))}
 
-                    <div className="mt-4">
+                    <div className="mt-2">
                         {areInvitesCreatable && (
                             <LemonButton
                                 type="secondary"
@@ -265,9 +264,9 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                     </div>
                 </div>
                 {preflight?.email_service_available && (
-                    <div className="mb-4">
+                    <div className="mt-4">
                         <div className="mb-2">
-                            <b>Message</b> (optional)
+                            <b>Message (optional)</b>
                         </div>
                         <LemonTextArea
                             data-attr="invite-optional-message"

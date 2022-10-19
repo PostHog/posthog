@@ -243,7 +243,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter),
+                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                     **breakdown_filter_params,
                 )
             elif self.entity.math_property == "$session_duration":
@@ -257,7 +257,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter),
+                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
                     **breakdown_filter_params,
                 )
@@ -270,7 +270,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter),
+                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                     **breakdown_filter_params,
                 )
 
@@ -278,7 +278,6 @@ class TrendsBreakdown:
                 interval=interval_annotation, num_intervals=num_intervals, inner_sql=inner_sql
             )
             self.params.update({"seconds_in_interval": seconds_in_interval, "num_intervals": num_intervals})
-
             return breakdown_query, self.params, self._parse_trend_result(self.filter, self.entity)
 
     def _breakdown_cohort_params(self):

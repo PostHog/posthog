@@ -13,11 +13,12 @@ import { ConnectionOptions } from 'tls'
 import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
-import { GraphileWorker } from '../../main/jobs/graphile-worker'
+import { GraphileWorker } from '../../main/graphile-worker/graphile-worker'
 import { connectObjectStorage } from '../../main/services/object_storage'
 import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
+import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { PersonManager } from '../../worker/ingestion/person-manager'
@@ -176,7 +177,7 @@ export async function createHub(
     status.info('👍', `Kafka ready`)
 
     status.info('🤔', `Connecting to Postgresql...`)
-    const postgres = createPostgresPool(serverConfig)
+    const postgres = createPostgresPool(serverConfig.DATABASE_URL)
     status.info('👍', `Postgresql ready`)
 
     status.info('🤔', `Connecting to Redis...`)
@@ -212,11 +213,10 @@ export async function createHub(
         clickhouse,
         statsd,
         promiseManager,
-        serverConfig.PERSON_INFO_CACHE_TTL,
-        new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
+        serverConfig.PERSON_INFO_CACHE_TTL
     )
     const teamManager = new TeamManager(db, serverConfig, statsd)
-    const organizationManager = new OrganizationManager(db)
+    const organizationManager = new OrganizationManager(db, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
@@ -242,7 +242,6 @@ export async function createHub(
         pluginConfigSecretLookup: new Map(),
 
         pluginSchedule: null,
-        pluginSchedulePromises: { runEveryMinute: {}, runEveryHour: {}, runEveryDay: {} },
 
         teamManager,
         organizationManager,
@@ -262,13 +261,14 @@ export async function createHub(
 
     hub.graphileWorker = new GraphileWorker(hub as Hub)
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
+    hub.appMetrics = new AppMetrics(hub as Hub)
 
     if (serverConfig.CAPTURE_INTERNAL_METRICS) {
         hub.internalMetrics = new InternalMetrics(hub as Hub)
     }
 
     try {
-        await hub.graphileWorker.connectProducer()
+        await hub.graphileWorker!.connectProducer()
     } catch (error) {
         try {
             logOrThrowJobQueueError(hub as Hub, error, `Cannot start job queue producer!`)

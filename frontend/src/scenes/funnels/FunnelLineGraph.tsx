@@ -1,4 +1,3 @@
-import React from 'react'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ChartParams, GraphType, GraphDataset, EntityTypes } from '~/types'
@@ -44,7 +43,7 @@ export function FunnelLineGraph({
                     return `${count}%`
                 },
             }}
-            aggregationAxisFormat="percentage"
+            filters={{ aggregation_axis_format: 'percentage' }}
             labelGroupType={filters.aggregation_group_type_index ?? 'people'}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={

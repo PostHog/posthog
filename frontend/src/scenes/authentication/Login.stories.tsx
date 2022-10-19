@@ -2,7 +2,7 @@
 import { Meta } from '@storybook/react'
 import { Login } from './Login'
 import { useStorybookMocks } from '~/mocks/browser'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import preflightJson from '../../mocks/fixtures/_preflight.json'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'

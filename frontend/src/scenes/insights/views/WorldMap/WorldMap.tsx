@@ -58,9 +58,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                                     </div>
                                 )
                             }
-                            renderCount={(value: number) => (
-                                <>{formatAggregationAxisValue(filters.aggregation_axis_format, value)}</>
-                            )}
+                            renderCount={(value: number) => <>{formatAggregationAxisValue(filters, value)}</>}
                             showHeader={false}
                             hideColorCol
                             hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}

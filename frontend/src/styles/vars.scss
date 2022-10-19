@@ -12,7 +12,7 @@ $screens: (
     'xxl': $xxl,
 );
 
-$spaces: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 120;
+$spaces: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 100, 120;
 $leadings: 3, 4, 5, 6, 7, 8, 9, 10;
 $sides: 'top', 'right', 'bottom', 'left';
 // CSS cursors from https://tailwindcss.com/docs/cursor
@@ -91,6 +91,7 @@ $colors: (
     'white': #fff,
     'light': rgba(255, 255, 255, 0.878),
     'side': #fafaf9,
+    'mid': #f2f2f2,
     'border': rgba(0, 0, 0, 0.15),
     'border-light': rgba(0, 0, 0, 0.08),
     'border-dark': rgba(0, 0, 0, 0.24),

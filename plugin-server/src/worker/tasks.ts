@@ -13,7 +13,7 @@ export const workerTasks: Record<string, TaskRunner> = {
     runPluginJob: (hub, { job }: { job: EnqueuedPluginJob }) => {
         return runPluginTask(hub, job.type, PluginTaskType.Job, job.pluginConfigId, job.payload)
     },
-    runEveryMinute: (hub, args: { pluginConfigId: number }) => {
+    runEveryMinute: async (hub, args: { pluginConfigId: number }) => {
         return runPluginTask(hub, 'runEveryMinute', PluginTaskType.Schedule, args.pluginConfigId)
     },
     runEveryHour: (hub, args: { pluginConfigId: number }) => {
@@ -60,6 +60,9 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     flushKafkaMessages: async (hub) => {
         await hub.kafkaProducer.flush()
+    },
+    resetAvailableFeaturesCache: (hub, args: { organization_id: string }) => {
+        hub.organizationManager.resetAvailableFeatureCache(args.organization_id)
     },
     // Exported only for tests
     _testsRunProcessEvent: async (hub, args: { event: PluginEvent }) => {

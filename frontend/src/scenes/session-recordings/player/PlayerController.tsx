@@ -1,104 +1,32 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { Select, Switch } from 'antd'
 import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
-import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
-import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/Time'
+import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconFullScreen, IconSkipInactivity, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import {
+    IconFullScreen,
+    IconPause,
+    IconPlay,
+    IconSkipInactivity,
+    IconTerminal,
+    UnverifiedEvent,
+} from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 
-export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting } = useActions(
+export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setIsFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
-    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting } = useValues(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
+    const { currentPlayerState, speed, isSmallScreen, isSmallPlayer, skipInactivitySetting, tab, isFullScreen } =
+        useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
 
     return (
-        <div className="rrweb-controller" data-attr="rrweb-controller">
-            <span>
-                {currentPlayerState === SessionPlayerState.PLAY ? (
-                    <IconPause
-                        onClick={togglePlayPause}
-                        className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                        style={isSmallScreen ? {} : { marginRight: '0.5rem' }}
-                    />
-                ) : (
-                    <IconPlay
-                        onClick={togglePlayPause}
-                        className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                        style={isSmallScreen ? {} : { marginRight: '0.5rem' }}
-                    />
-                )}
-            </span>
-            {!isSmallScreen && (
-                <>
-                    <SeekBack
-                        sessionRecordingId={sessionRecordingId}
-                        style={{ marginRight: '0.25rem' }}
-                        playerKey={playerKey}
-                    />
-                    <SeekForward
-                        sessionRecordingId={sessionRecordingId}
-                        style={{ marginRight: '0.5rem' }}
-                        playerKey={playerKey}
-                    />
-                    <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                </>
-            )}
-            <div className="rrweb-progress">
-                <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            </div>
-            <Select
-                onChange={(nextSpeed: number) => setSpeed(nextSpeed)}
-                value={speed}
-                dropdownMatchSelectWidth={false}
-                size="small"
-                defaultValue={1}
-                className="rrweb-speed-toggle"
-            >
-                <Select.OptGroup label="Speed">
-                    {PLAYBACK_SPEEDS.map((speedToggle) => (
-                        <Select.Option key={speedToggle} value={speedToggle}>
-                            {speedToggle}x
-                        </Select.Option>
-                    ))}
-                </Select.OptGroup>
-            </Select>
-            <div
-                onClick={() => {
-                    setSkipInactivitySetting(!skipInactivitySetting)
-                }}
-                className="rrweb-inactivity-toggle"
-            >
-                <span className="inactivity-label">Skip inactivity</span>
-                <Switch checked={skipInactivitySetting} size="small" />
-            </div>
-        </div>
-    )
-}
-
-export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setFullScreen } = useActions(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
-    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, tab, isFullScreen } = useValues(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    return (
-        <div className="PlayerControllerV3">
+        <div className="p-3 bg-light flex flex-col select-none">
             <div className="flex items-center h-8 mb-2" data-attr="rrweb-controller">
                 {!isSmallScreen && <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
                 <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
@@ -114,34 +42,32 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                                 active={tab === SessionRecordingTab.EVENTS}
                                 onClick={() => setTab(SessionRecordingTab.EVENTS)}
                             >
-                                Events
+                                {isSmallScreen || isSmallPlayer ? '' : 'Events'}
                             </LemonButton>
-                            {featureFlags[FEATURE_FLAGS.SESSION_CONSOLE] && (
-                                <LemonButton
-                                    size="small"
-                                    icon={<IconTerminal />}
-                                    status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
-                                    active={tab === SessionRecordingTab.CONSOLE}
-                                    onClick={() => {
-                                        setTab(SessionRecordingTab.CONSOLE)
-                                    }}
-                                >
-                                    Console
-                                </LemonButton>
-                            )}
+                            <LemonButton
+                                size="small"
+                                icon={<IconTerminal />}
+                                status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
+                                active={tab === SessionRecordingTab.CONSOLE}
+                                onClick={() => {
+                                    setTab(SessionRecordingTab.CONSOLE)
+                                }}
+                            >
+                                {isSmallScreen || isSmallPlayer ? '' : 'Console'}
+                            </LemonButton>
                         </>
                     )}
                 </div>
                 <div className="flex items-center gap-1">
-                    <SeekBack sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                    <LemonButton status="primary-alt" size="small">
+                    <SeekSkip sessionRecordingId={sessionRecordingId} playerKey={playerKey} direction="backward" />
+                    <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>
                         {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
-                            <IconPause onClick={togglePlayPause} />
+                            <IconPause className="text-2xl" />
                         ) : (
-                            <IconPlay onClick={togglePlayPause} />
+                            <IconPlay className="text-2xl" />
                         )}
                     </LemonButton>
-                    <SeekForward sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                    <SeekSkip sessionRecordingId={sessionRecordingId} playerKey={playerKey} direction="forward" />
                 </div>
                 <div className="flex items-center gap-1 flex-1 justify-end">
                     <Tooltip title={'Playback speed'}>
@@ -197,7 +123,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
                             size="small"
                             status="primary-alt"
                             onClick={() => {
-                                setFullScreen(!isFullScreen)
+                                setIsFullScreen(!isFullScreen)
                             }}
                         >
                             <IconFullScreen

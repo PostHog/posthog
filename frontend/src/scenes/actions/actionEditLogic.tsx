@@ -10,7 +10,6 @@ import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import React from 'react'
 import { Link } from 'lib/components/Link'
 
 export type NewActionType = Partial<ActionType> &

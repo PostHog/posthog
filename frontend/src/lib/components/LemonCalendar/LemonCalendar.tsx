@@ -1,5 +1,5 @@
 import './LemonCalendar.scss'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 import { LemonButton, LemonButtonProps } from 'lib/components/LemonButton'

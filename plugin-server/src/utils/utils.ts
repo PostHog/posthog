@@ -3,7 +3,7 @@ import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
 import Redis, { RedisOptions } from 'ioredis'
 import { DateTime } from 'luxon'
-import { Pool, PoolConfig } from 'pg'
+import { Pool } from 'pg'
 import { Readable } from 'stream'
 
 import {
@@ -364,25 +364,9 @@ export function pluginDigest(plugin: Plugin, teamId?: number): string {
     return `plugin ${plugin.name} ID ${plugin.id} (${extras.join(' - ')})`
 }
 
-export function createPostgresPool(config: PluginsServerConfig, onError?: (error: Error) => any): Pool {
-    if (!config.DATABASE_URL && !config.POSTHOG_DB_NAME) {
-        throw new Error('Invalid configuration for Postgres: either DATABASE_URL or POSTHOG_DB_NAME required')
-    }
-
-    const credentials: Partial<PoolConfig> = config.DATABASE_URL
-        ? {
-              connectionString: config.DATABASE_URL,
-          }
-        : {
-              database: config.POSTHOG_DB_NAME ?? undefined,
-              user: config.POSTHOG_DB_USER,
-              password: config.POSTHOG_DB_PASSWORD,
-              host: config.POSTHOG_POSTGRES_HOST,
-              port: config.POSTHOG_POSTGRES_PORT,
-          }
-
+export function createPostgresPool(connectionString: string, onError?: (error: Error) => any): Pool {
     const pgPool = new Pool({
-        ...credentials,
+        connectionString,
         idleTimeoutMillis: 500,
         max: 10,
         ssl: process.env.DYNO // Means we are on Heroku

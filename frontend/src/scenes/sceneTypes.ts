@@ -45,6 +45,7 @@ export enum Scene {
     BillingLocked = 'BillingLocked',
     Plugins = 'Plugins',
     FrontendAppScene = 'FrontendAppScene',
+    AppMetrics = 'AppMetrics',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
     WebPerformance = 'WebPerformance',

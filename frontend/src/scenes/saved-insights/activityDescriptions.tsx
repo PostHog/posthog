@@ -9,12 +9,11 @@ import {
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
-import React from 'react'
-import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
-import '../../lib/components/InsightCard/InsightCard.scss'
+import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { pluralize } from 'lib/utils'
-import { INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED } from 'lib/components/InsightCard/InsightCard'
+import { INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED } from 'lib/components/Cards/InsightCard/InsightCard'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {

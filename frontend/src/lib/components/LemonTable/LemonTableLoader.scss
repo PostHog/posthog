@@ -1,0 +1,41 @@
+.LemonTableLoader {
+    transition: height 200ms ease, top 200ms ease;
+    z-index: 10;
+    position: absolute;
+    left: 0;
+    bottom: -1px;
+    width: 100%;
+    height: 0;
+    background: var(--primary-bg-active);
+    border: none !important;
+    overflow: hidden;
+    &::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 50%;
+        height: 100%;
+        animation: loading-bar 1.5s linear infinite;
+        background: var(--primary);
+    }
+    &.LemonTableLoader--loading {
+        height: 0.25rem;
+    }
+}
+
+@keyframes loading-bar {
+    0% {
+        left: 0;
+        width: 33.333%;
+        transform: translateX(-100%);
+    }
+    50% {
+        width: 50%;
+    }
+    100% {
+        left: 100%;
+        width: 33.333%;
+        transform: translateX(100%);
+    }
+}

@@ -145,7 +145,7 @@ module.exports = {
         'justifyContent', // The justify-content utilities like justify-center
         // 'justifyItems', // The justify-items utilities like justify-items-end
         // 'justifySelf', // The justify-self utilities like justify-self-end
-        // 'letterSpacing', // The letter-spacing utilities like tracking-normal
+        'letterSpacing', // The letter-spacing utilities like tracking-normal
         'lineHeight', // The line-height utilities like leading-9
         // 'listStylePosition', // The list-style-position utilities like list-inside
         'listStyleType', // The list-style-type utilities like list-disc
@@ -180,7 +180,7 @@ module.exports = {
         // 'ringOffsetWidth', // The ring-offset-width utilities like ring-offset-2
         // 'ringOpacity', // The ring-opacity utilities like ring-opacity-50
         // 'ringWidth', // The ring-width utilities like ring-4
-        // 'rotate', // The rotate utilities like rotate-6
+        'rotate', // The rotate utilities like rotate-6
         // 'saturate', // The saturate utilities like saturate-100
         // 'scale', // The scale utilities like scale-x-95
         // 'scrollBehavior', // The scroll-behavior utilities like scroll-auto
@@ -214,7 +214,7 @@ module.exports = {
         // 'transitionProperty', // The transition-property utilities like transition-colors
         // 'transitionTimingFunction', // The transition-timing-function utilities like ease-in
         // 'translate', // The translate utilities like translate-x-full
-        // 'userSelect', // The user-select utilities like select-text
+        'userSelect', // The user-select utilities like select-text
         // 'verticalAlign', // The vertical-align utilities like align-bottom
         // 'visibility', // The visibility utilities like visible
         'whitespace', // The whitespace utilities like whitespace-pre

@@ -1,4 +1,3 @@
-import React from 'react'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -32,7 +31,7 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
             showPersonsModal={showPersonsModal}
-            aggregationAxisFormat={filters.aggregation_axis_format}
+            filters={filters}
             tooltip={
                 filters.insight === InsightType.LIFECYCLE
                     ? {

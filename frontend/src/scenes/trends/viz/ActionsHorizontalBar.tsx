@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
 import { useValues } from 'kea'
@@ -81,7 +81,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             labels={data[0].labels}
             hiddenLegendKeys={hiddenLegendKeys}
             showPersonsModal={showPersonsModal}
-            aggregationAxisFormat={insight.filters?.aggregation_axis_format}
+            filters={insight.filters}
             onClick={
                 !showPersonsModal || insight.filters?.formula
                     ? undefined

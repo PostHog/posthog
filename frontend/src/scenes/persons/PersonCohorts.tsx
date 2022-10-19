@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { CohortType } from '~/types'

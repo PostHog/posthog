@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import {
     ActiveElement,
     Chart,
@@ -15,6 +15,7 @@ import { GraphType } from '~/types'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
     ensureTooltipElement,
+    filterNestedDataset,
     LineGraphProps,
     onChartClick,
     onChartHover,
@@ -22,7 +23,7 @@ import {
 import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import ReactDOM from 'react-dom'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -53,7 +54,7 @@ export function PieChart({
     type,
     onClick,
     ['data-attr']: dataAttr,
-    aggregationAxisFormat = 'numeric',
+    filters,
     tooltip: tooltipConfig,
     showPersonsModal = true,
     labelGroupType,
@@ -69,6 +70,7 @@ export function PieChart({
     const { createTooltipData } = useValues(lineGraphLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { timezone } = useValues(insightLogic)
+    const { highlightSeries } = useActions(insightLogic)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
     // Remove tooltip element on unmount
@@ -84,7 +86,7 @@ export function PieChart({
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
             // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-            datasets = datasets.filter((data) => !hiddenLegendKeys?.[data.id])
+            datasets = filterNestedDataset(hiddenLegendKeys, datasets)
         }
 
         const processedDatasets = datasets.map((dataset) => dataset as ChartDataset<'pie'>)
@@ -132,6 +134,10 @@ export function PieChart({
 
                             const tooltipEl = ensureTooltipElement()
                             if (tooltip.opacity === 0) {
+                                // remove highlight from the legend
+                                if (filters?.show_legend) {
+                                    highlightSeries(null)
+                                }
                                 tooltipEl.style.opacity = '0'
                                 return
                             }
@@ -149,6 +155,8 @@ export function PieChart({
                                     tooltip.dataPoints,
                                     (dp) => dp.datasetIndex >= 0 && dp.datasetIndex < _datasets.length
                                 )
+
+                                highlightSeries(seriesData[0].dataIndex)
 
                                 ReactDOM.render(
                                     <InsightTooltip
@@ -181,7 +189,7 @@ export function PieChart({
                                                     ((value / total) * 100).toFixed(1)
                                                 )
                                                 return `${formatAggregationAxisValue(
-                                                    aggregationAxisFormat,
+                                                    filters,
                                                     value
                                                 )} (${percentageLabel}%)`
                                             })

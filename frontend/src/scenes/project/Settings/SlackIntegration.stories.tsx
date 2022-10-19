@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { AvailableFeature } from '~/types'
 import { useAvailableFeatures } from '~/mocks/features'

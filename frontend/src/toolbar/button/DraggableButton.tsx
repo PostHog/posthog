@@ -1,4 +1,3 @@
-import React from 'react'
 import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
 import Draggable from 'react-draggable'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
