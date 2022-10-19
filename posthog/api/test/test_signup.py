@@ -600,18 +600,17 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
     def test_social_signup_to_existing_org_without_whitelisted_domain_on_cloud(self, mock_sso_providers, mock_request):
-        mock_sso_providers.return_value = {"google-oauth2": True}
-        Organization.objects.create(name="Hogflix Movies")
-        user_count = User.objects.count()
-        org_count = Organization.objects.count()
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, 302)
-
-        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
-        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {"access_token": "123", "email": "jane@hogflix.posthog.com"}
-
         with self.settings(MULTI_TENANCY=True):
+            mock_sso_providers.return_value = {"google-oauth2": True}
+            Organization.objects.create(name="Hogflix Movies")
+            user_count = User.objects.count()
+            org_count = Organization.objects.count()
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+            self.assertEqual(response.status_code, 302)
+
+            url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+            url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+            mock_request.return_value.json.return_value = {"access_token": "123", "email": "jane@hogflix.posthog.com"}
             response = self.client.get(url, follow=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`

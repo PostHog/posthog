@@ -19,6 +19,7 @@ from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.client import ch_pool, sync_execute
+from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models import Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
@@ -185,6 +186,10 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
 
     def setUp(self):
         super().setUp()
+
+        # Clear the cached "is_cloud" setting so that it's recalculated for each test
+        TEST_clear_cloud_cache()
+
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
 
