@@ -298,7 +298,7 @@ export class DB {
                 const value = await tryTwice(
                     async () => await client.get(key),
                     `Waited 5 sec to get redis key: ${key}, retrying once!`
-                )
+                ) // TODO: add a test getting 'undefined' here for groups making sure we have the props properly filled out, local testing showed we don't
                 if (typeof value === 'undefined' || value === null) {
                     return defaultValue
                 }
@@ -308,7 +308,7 @@ export class DB {
                     // invalid JSON
                     return null
                 } else {
-                    throw error
+                    throw error // TODO: add a test for this making sure we still ingest the event if we hit an error querying redis for groups info
                 }
             } finally {
                 clearTimeout(timeout)
@@ -596,7 +596,7 @@ export class DB {
                       properties: group.data.properties,
                       created_at: group.data.created_at.toISO(),
                   }
-                : null
+                : 'missing' // todo: verify all places that assume nulls
             return [key, value]
         })
         return await this.redisSetMulti(kv, this.PERSONS_AND_GROUPS_CACHE_TTL)
@@ -675,13 +675,25 @@ export class DB {
 
     // Exported for tests only
     public async getGroupDataCache(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupCacheData> {
-        const data = await this.redisGet<{ properties: Properties; created_at: string } | null | 'missing'>(
-            this.getGroupDataCacheKey(teamId, groupIdentifier.index, groupIdentifier.key),
-            'missing'
-        )
+        let data: { properties: Properties; created_at: string } | null | 'missing' = null
+        try {
+            data = await this.redisGet<{ properties: Properties; created_at: string } | null | 'missing'>(
+                this.getGroupDataCacheKey(teamId, groupIdentifier.index, groupIdentifier.key),
+                null
+            )
+        } catch (error) {
+            // TODO: statsd ? sentry ? is it safe to continue and hammer postgres potentially?
+            console.log('failed to get data from cache, but not blocking ingestion')
+        }
+        console.log(`getGroupDataCache ${data}`)
 
-        if (data === 'missing' || !data) {
-            return { identifier: groupIdentifier, data: null, cached: !data }
+        if (data === 'missing') {
+            // us explicitly caching that we don't have the data, don't hammer postgres
+            return { identifier: groupIdentifier, data: null, cached: true }
+        }
+        if (!data) {
+            // undefined, null, ... whatever where we couldn't get a value we expected ask postgres
+            return { identifier: groupIdentifier, data: null, cached: false }
         }
         return {
             identifier: groupIdentifier,
@@ -1793,14 +1805,13 @@ export class DB {
 
         if (options?.cache) {
             // group identify event doesn't need groups properties attached so we don't need to await
-            this.promiseManager.trackPromise(
-                this.updateGroupDataCache(teamId, [
-                    {
-                        identifier: { index: groupTypeIndex, key: groupKey },
-                        data: { properties: groupProperties, created_at: createdAt },
-                    },
-                ])
-            )
+            // but we need to wait as we're caching to make sure we don't use old / missing data for next events
+            await this.updateGroupDataCache(teamId, [
+                {
+                    identifier: { index: groupTypeIndex, key: groupKey },
+                    data: { properties: groupProperties, created_at: createdAt },
+                },
+            ])
         }
     }
 
@@ -1839,14 +1850,13 @@ export class DB {
             client
         )
         // group identify event doesn't need groups properties attached so we don't need to await
-        this.promiseManager.trackPromise(
-            this.updateGroupDataCache(teamId, [
-                {
-                    identifier: { index: groupTypeIndex, key: groupKey },
-                    data: { properties: groupProperties, created_at: createdAt },
-                },
-            ])
-        )
+        // but we need to wait as we're caching to make sure we don't use old / missing data for next events
+        await this.updateGroupDataCache(teamId, [
+            {
+                identifier: { index: groupTypeIndex, key: groupKey },
+                data: { properties: groupProperties, created_at: createdAt },
+            },
+        ])
     }
 
     public async upsertGroupClickhouse(

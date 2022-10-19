@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { normalizeEvent } from '../../../utils/event'
+import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { updatePersonState } from '../person-state'
 import { parseEventTimestamp } from '../timestamps'
@@ -11,6 +12,7 @@ export async function processPersonsStep(
     pluginEvent: PluginEvent,
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
+    status.debug('🔁', 'Running processPersonsStep', { event: pluginEvent.event, distinct_id: pluginEvent.distinct_id })
     const event = normalizeEvent(pluginEvent)
     const timestamp = parseEventTimestamp(event, runner.hub.statsd)
 

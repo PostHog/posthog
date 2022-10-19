@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { runInstrumentedFunction } from '../../../main/utils'
+import { status } from '../../../utils/status'
 import { runProcessEvent } from '../../plugins/run'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
@@ -10,6 +11,7 @@ export async function pluginsProcessEventStep(
     event: PluginEvent,
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
+    status.debug('🔁', 'Running pluginsProcessEventStep', { event: event.event, distinct_id: event.distinct_id })
     let processedEvent: PluginEvent | null = event
 
     // run processEvent on all events that are not $snapshot

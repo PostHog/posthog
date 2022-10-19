@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PostIngestionEvent } from '../../../types'
+import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { parseEventTimestamp } from '../timestamps'
 import { EventPipelineRunner, StepResult } from './runner'
@@ -10,6 +11,7 @@ export async function prepareEventStep(
     event: PluginEvent,
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
+    status.debug('🔁', 'Running prepareEventStep', { event: event.event, distinct_id: event.distinct_id })
     const { ip, site_url, team_id, uuid } = event
     const preIngestionEvent = await runner.hub.eventsProcessor.processEvent(
         String(event.distinct_id),
