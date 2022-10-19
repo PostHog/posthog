@@ -37,7 +37,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
 
     if get_latest_if_none and parsed["ref_type"] not in ("commit", "archive"):
         token = private_token or settings.GITHUB_TOKEN
-        headers = {"Authorization": "token {}".format(token)} if token else {}
+        headers = {"Authorization": "Bearer {}".format(token)} if token else {}
 
         try:
             # fetch the latest commit

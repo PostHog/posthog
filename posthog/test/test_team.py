@@ -64,7 +64,7 @@ class TestTeam(BaseTest):
 
         self.assertEqual(PluginConfig.objects.filter(team=new_team, enabled=True).count(), 1)
         self.assertEqual(PluginConfig.objects.filter(team=new_team, enabled=True).get().plugin.name, "helloworldplugin")
-        self.assertEqual(mock_get.call_count, 4)
+        self.assertEqual(mock_get.call_count, 3)
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):

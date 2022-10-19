@@ -42,6 +42,12 @@ def mocked_plugin_requests_get(*args, **kwargs):
         def ok(self):
             return self.status_code < 300
 
+    if args[0] == "https://api.github.com/repos/PostHog/posthog/branches/main":
+        return MockJSONResponse(
+            {"commit": {"sha": "MOCKLATESTCOMMIT"}},
+            200,
+        )
+
     if args[0] == "https://api.github.com/repos/PostHog/posthog/commits":
         return MockJSONResponse(
             [{"sha": "MOCKLATESTCOMMIT", "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT"}],
