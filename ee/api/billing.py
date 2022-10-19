@@ -138,19 +138,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         if org and license and license.is_v2_license:
             response["license"] = {"plan": license.plan}
-            billing_service_token = build_billing_token(license, str(org.id))
-
-            res = requests.get(
-                f"{BILLING_SERVICE_URL}/api/billing",
-                headers={"Authorization": f"Bearer {billing_service_token}"},
-            )
-
-            handle_billing_service_error(res)
-
-            data = res.json()
-
-            if data.get("license"):
-                self._update_license_details(license, data["license"])
+            data = self._get_billing(license, org)
 
             if data.get("customer"):
                 response.update(data["customer"])
@@ -267,6 +255,29 @@ class BillingViewset(viewsets.GenericViewSet):
 
         return res.json()["products"]
 
+    def _get_billing(self, license: License, organization: Organization) -> Dict[str, Any]:
+        """
+        Retrieves billing info and updates local models if necessary
+        """
+        billing_service_token = build_billing_token(license, str(organization.id))
+
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers={"Authorization": f"Bearer {billing_service_token}"},
+        )
+
+        handle_billing_service_error(res)
+
+        data = res.json()
+
+        if data.get("license"):
+            self._update_license_details(license, data["license"])
+
+        if data.get("customer"):
+            self._update_org_details(organization, data["customer"])
+
+        return data
+
     def _update_license_details(self, license: License, data: Dict[str, Any]) -> License:
         """
         Ensure the license details are up-to-date locally
@@ -276,3 +287,13 @@ class BillingViewset(viewsets.GenericViewSet):
         license.save()
 
         return license
+
+    def _update_org_details(self, organization: Organization, data: Dict[str, Any]) -> Organization:
+        """
+        Ensure the relevant organization details are up-to-date locally
+        """
+        # license.valid_until = data["valid_until"]
+        # license.plan = data["type"]
+        # license.save()
+
+        return organization
