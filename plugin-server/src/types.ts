@@ -77,7 +77,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
-    DATABASE_URL: string | null
+    DATABASE_URL: string
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
