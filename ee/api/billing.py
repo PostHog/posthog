@@ -82,7 +82,7 @@ def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
     """
     Calculate the actual current usage for an organization - only used if a subscription does not exist
     """
-    cache_key: str = f"monthly_usage_{organization.id}"
+    cache_key: str = f"monthly_usage_breakdown_{organization.id}"
     usage: Optional[Dict[str, int]] = cache.get(cache_key)
 
     if usage is None:
@@ -168,8 +168,9 @@ class BillingViewset(viewsets.GenericViewSet):
 
             if calculated_usage is not None:
                 for product in products:
-                    if product["type"] in calculated_usage:
+                    if calculated_usage.get(product["type"]):
                         product["current_usage"] = calculated_usage[product["type"]]
+
             response["products"] = products
 
         return Response(response)
