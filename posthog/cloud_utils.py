@@ -1,3 +1,4 @@
+from codecs import escape_encode
 from typing import Optional
 
 from django.conf import settings
@@ -17,10 +18,10 @@ def is_cloud():
 
         # TRICKY - The license table may not exist if a migration is running
         license = License.objects.first_valid()
-        is_cloud_cached = license.plan == "cloud" if license else settings.MULTI_TENANCY
+        is_cloud_cached = settings.MULTI_TENANCY or (license.plan == "cloud" if license else False)
         return is_cloud_cached
     # TRICKY - The license table may not exist if a migration is running
-    except (ImportError, ProgrammingError):
+    except (ImportError, ProgrammingError) as e:
         return False
 
 
