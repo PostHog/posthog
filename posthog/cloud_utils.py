@@ -2,12 +2,16 @@ from typing import Optional
 
 from django.conf import settings
 from django.db.utils import ProgrammingError
+from sentry_sdk import capture_exception
 
 is_cloud_cached: Optional[bool] = None
 
 # NOTE: This is cached for the lifetime of the instance but this is not an issue as the value is not expected to change
 def is_cloud():
     global is_cloud_cached
+
+    if not settings.EE_AVAILABLE:
+        return False
 
     if isinstance(is_cloud_cached, bool):
         return is_cloud_cached
@@ -17,13 +21,18 @@ def is_cloud():
 
     if not is_cloud_cached:
         try:
-            from ee.models import License
+            # NOTE: Important not to import this from ee.models as that will cause a circular import for celery
+            from ee.models.license import License
 
             # TRICKY - The license table may not exist if a migration is running
             license = License.objects.first_valid()
             is_cloud_cached = license.plan == "cloud" if license else False
-        # TRICKY - The license table may not exist if a migration is running
-        except (ImportError, ProgrammingError):
+        except ProgrammingError as e:
+            # TRICKY - The license table may not exist if a migration is running
+            pass
+        except Exception as e:
+            print("ERROR: Unable to check license", e)  # noqa: T201
+            capture_exception(e)
             is_cloud_cached = False
 
     return is_cloud_cached
