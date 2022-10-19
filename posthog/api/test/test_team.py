@@ -56,7 +56,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response.json(), self.not_found_response())
 
     def test_cant_create_team_without_license_on_selfhosted(self):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post("/api/projects/", {"name": "Test"})
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.count(), 1)
