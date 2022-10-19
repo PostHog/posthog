@@ -81,6 +81,10 @@ class License(models.Model):
     def available_features(self) -> List[AvailableFeature]:
         return self.PLANS.get(self.plan, [])
 
+    @property
+    def is_v2_license(self) -> bool:
+        return self.key and len(self.key.split("::")) == 2
+
     __repr__ = sane_repr("key", "plan", "valid_until")
 
 
