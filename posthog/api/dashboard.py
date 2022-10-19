@@ -120,7 +120,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        team: Team = Team.objects.get(id=self.context["team_id"])
+        team = Team.objects.get(id=self.context["team_id"])
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
