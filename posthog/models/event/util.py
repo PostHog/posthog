@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import pytz
 from dateutil.parser import isoparse
@@ -263,6 +263,17 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
+def parse_properties(properties: str, allow_list: Set[str] = {}) -> Dict:
+    # parse_constants gets called for any NaN, Infinity etc values
+    # we just want those to be returned as None
+    props = json.loads(properties, parse_constant=lambda x: None)
+    return {
+        key: value.strip('"') if isinstance(value, str) else value
+        for key, value in props.items()
+        if not allow_list or key in allow_list
+    }
+
+
 # reference raw sql for
 class ClickhouseEventSerializer(serializers.Serializer):
     id = serializers.SerializerMethodField()
@@ -281,11 +292,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event["distinct_id"]
 
     def get_properties(self, event):
-        # parse_constants gets called for any NaN, Infinity etc values
-        # we just want those to be returned as None
-        props = json.loads(event["properties"], parse_constant=lambda x: None)
-        unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
-        return unpadded
+        return parse_properties(event["properties"])
 
     def get_event(self, event):
         return event["event"]

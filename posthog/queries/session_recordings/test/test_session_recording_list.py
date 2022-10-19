@@ -69,6 +69,40 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[1]["distinct_id"], "user")
             self.assertEqual(more_recordings_available, False)
 
+            # no event means no properties
+            self.assertEqual(session_recordings[0]["properties"], {})
+            self.assertEqual(session_recordings[1]["properties"], {})
+
+        @freeze_time("2021-01-21T20:00:00.000Z")
+        def test_properties(self):
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            self.create_event(
+                "user",
+                self.base_time,
+                properties={
+                    "should_not_be_included": "1",
+                    "$browser": "Chrome",
+                    "$os": "Mac OS X",
+                    "$device_type": "Desktop",
+                    "$current_url": "https://blah.com/blah",
+                    "$host": "blah.com",
+                    "$pathname": "/blah",
+                },
+            )
+
+            filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 1)
+            self.assertEqual(session_recordings[0]["properties"]["$browser"], "Chrome")
+            self.assertEqual(session_recordings[0]["properties"]["$os"], "Mac OS X")
+            self.assertEqual(session_recordings[0]["properties"]["$device_type"], "Desktop")
+            self.assertEqual(session_recordings[0]["properties"]["$current_url"], "https://blah.com/blah")
+            self.assertEqual(session_recordings[0]["properties"]["$host"], "blah.com")
+            self.assertEqual(session_recordings[0]["properties"]["$pathname"], "/blah")
+            self.assertNotIn("should_not_be_included", session_recordings[0]["properties"])
+
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_recordings_dont_leak_data_between_teams(self):
             another_team = Team.objects.create(organization=self.organization)
