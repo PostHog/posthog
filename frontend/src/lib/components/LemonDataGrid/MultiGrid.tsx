@@ -541,13 +541,13 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
                     : { position: 'relative', zIndex: 3 }),
             }
             this._containerBottomStyle = {
-                height: height - this._getTopGridHeight(),
+                height: headerState === HeaderState.Fixed ? height : height - this._getTopGridHeight(),
                 overflow: 'visible',
                 // Let :focus outline show through
                 position: 'relative',
                 zIndex: 2,
                 width,
-                ...(headerState === HeaderState.Fixed ? { marginTop: this._getTopGridHeight() } : {}),
+                ...(headerState !== HeaderState.Top ? { paddingTop: this._getTopGridHeight() } : {}),
             }
 
             this._leftScrollHelperStyle = {
