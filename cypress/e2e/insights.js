@@ -202,11 +202,13 @@ describe('Insights', () => {
     })
 
     describe('duplicating insights', () => {
-        it('can duplicate insights from the insights list view', () => {
-            cy.visit(urls.savedInsights())
-            const insightName = randomString('insight-name-')
+        let insightName
+        beforeEach(() => {
+            cy.visit(urls.savedInsights()) // make sure turbo mode has cached this page
+            insightName = randomString('insight-name-')
             createANewInsight(insightName)
-
+        })
+        it('can duplicate insights from the insights list view', () => {
             cy.visit(urls.savedInsights())
             cy.contains('.saved-insights table tr', insightName).within(() => {
                 cy.get('[data-attr="more-button"]').click()
@@ -217,10 +219,6 @@ describe('Insights', () => {
 
         it('can duplicate insights from the insights card view', () => {
             cy.visit(urls.savedInsights())
-            const insightName = randomString('insight-name-')
-            createANewInsight(insightName)
-
-            cy.visit(urls.savedInsights())
             cy.contains('.saved-insights .ant-radio-button-wrapper', 'Cards').click()
             cy.contains('.InsightMeta', insightName).within(() => {
                 cy.get('[data-attr="more-button"]').click()
@@ -230,9 +228,6 @@ describe('Insights', () => {
         })
 
         it('can duplicate from insight view', () => {
-            const insightName = randomString('insight-name-')
-            createANewInsight(insightName)
-
             cy.get('.page-buttons [data-attr="more-button"]').click()
             cy.get('[data-attr="duplicate-insight-from-insight-view"]').click()
             cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
@@ -243,9 +238,6 @@ describe('Insights', () => {
         })
 
         it('can save insight as a copy', () => {
-            const insightName = randomString('insight-name-')
-            createANewInsight(insightName)
-
             cy.get('[data-attr="insight-edit-button"]').click()
 
             cy.get('[data-attr="insight-save-dropdown"]').click()
