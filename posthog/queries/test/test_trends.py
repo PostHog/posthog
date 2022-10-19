@@ -4169,7 +4169,7 @@ def trend_test_factory(trends):
             filter = Filter(data=data)
             result = trends().run(filter, self.team)
             self.assertEqual(result[0]["days"], ["2019-12-01", "2020-01-01", "2020-02-01"])
-            # No users fall into the period of 7 days before any first day of the month
+            # No users fall into the period of 7 days during or before the first day of any of those three months
             self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0])
 
         def test_weekly_active_users_weekly(self):
@@ -4825,7 +4825,7 @@ def trend_test_factory(trends):
                     self.team,
                 )
 
-            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
+            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
             self.assertEqual(
                 response[0]["labels"],
                 [
