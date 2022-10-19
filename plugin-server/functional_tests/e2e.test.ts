@@ -5,6 +5,18 @@ import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
 import { ONE_HOUR } from '../src/config/constants'
+import {
+    KAFKA_BUFFER,
+    KAFKA_EVENTS_DEAD_LETTER_QUEUE,
+    KAFKA_EVENTS_JSON,
+    KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_GROUPS,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PERSON_UNIQUE_ID,
+    KAFKA_PLUGIN_LOG_ENTRIES,
+    KAFKA_SESSION_RECORDING_EVENTS,
+} from '../src/config/kafka-topics'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import {
     LogLevel,
@@ -18,6 +30,7 @@ import { Plugin, PluginConfig } from '../src/types'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
+import { createTopics } from '../tests/helpers/kafka'
 import { insertRow, POSTGRES_TRUNCATE_TABLES_QUERY } from '../tests/helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
@@ -91,6 +104,18 @@ beforeAll(async () => {
         },
     })
     kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
+    await createTopics(kafka, [
+        KAFKA_EVENTS_JSON,
+        KAFKA_EVENTS_PLUGIN_INGESTION,
+        KAFKA_BUFFER,
+        KAFKA_GROUPS,
+        KAFKA_SESSION_RECORDING_EVENTS,
+        KAFKA_PERSON,
+        KAFKA_PERSON_UNIQUE_ID,
+        KAFKA_PERSON_DISTINCT_ID,
+        KAFKA_PLUGIN_LOG_ENTRIES,
+        KAFKA_EVENTS_DEAD_LETTER_QUEUE,
+    ])
     producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
     await producer.connect()
     redis = new Redis(defaultConfig.REDIS_URL)
