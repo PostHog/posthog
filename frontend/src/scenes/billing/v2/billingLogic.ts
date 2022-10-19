@@ -20,6 +20,12 @@ export enum BillingAlertType {
     FreeUsageNearLimit = 'free_usage_near_limit',
 }
 
+export interface BillingAlertConfig {
+    status: 'info' | 'warning' | 'error'
+    title: string
+    message: string
+}
+
 const parseBillingResponse = (data: any): BillingV2Type => {
     if (data.billing_period) {
         data.billing_period = {
@@ -80,6 +86,29 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.billing, s.billingLoading],
             (billing, billingLoading): BillingVersion | undefined =>
                 !billingLoading || billing ? (billing ? 'v2' : 'v1') : undefined,
+        ],
+
+        billingAlert: [
+            (s) => [s.billing],
+            (billing): BillingAlertConfig | undefined => {
+                console.log(billing?.products)
+
+                return
+                // if (
+                //     scene !== Scene.Billing &&
+                //     billing?.is_billing_active &&
+                //     billing?.current_usage &&
+                //     eventAllocation &&
+                //     percentage >= ALLOCATION_THRESHOLD_ALERT
+                // ) {
+                //     return BillingAlertType.UsageNearLimit
+                // }
+
+                // // Priority 4: Users on free account that are almost reaching free events threshold
+                // if (!billing?.is_billing_active && billing?.current_usage && percentage > ALLOCATION_THRESHOLD_ALERT) {
+                //     return BillingAlertType.FreeUsageNearLimit
+                // }
+            },
         ],
     }),
     forms(({ actions }) => ({
