@@ -1,19 +1,35 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.utils.timezone import now
 
 from posthog.client import sync_execute
 from posthog.models.app_metrics.sql import (
+    QUERY_APP_METRICS_DELIVERY_RATE,
     QUERY_APP_METRICS_ERROR_DETAILS,
     QUERY_APP_METRICS_ERRORS,
     QUERY_APP_METRICS_TIME_SERIES,
 )
+from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.filters.mixins.base import IntervalType
 from posthog.models.team.team import Team
 from posthog.queries.app_metrics.serializers import AppMetricsErrorsRequestSerializer, AppMetricsRequestSerializer
 from posthog.queries.util import format_ch_timestamp
 from posthog.utils import relative_date_parse
+
+
+class TeamPluginsDeliveryRateQuery:
+    QUERY = QUERY_APP_METRICS_DELIVERY_RATE
+
+    def __init__(self, team: Team):
+        self.team = team
+
+    def run(self):
+        results = sync_execute(
+            self.QUERY,
+            {"team_id": self.team.pk, "from_date": format_clickhouse_timestamp(datetime.now() - timedelta(hours=24))},
+        )
+        return dict(results)
 
 
 class AppMetricsQuery:
@@ -54,8 +70,8 @@ class AppMetricsQuery:
             "plugin_config_id": self.plugin_config_id,
             "category": self.filter.validated_data.get("category"),
             "job_id": job_id,
-            "date_from": format_ch_timestamp(self.date_from, self.team.timezone),
-            "date_to": format_ch_timestamp(self.date_to, self.team.timezone),
+            "date_from": format_ch_timestamp(self.date_from),
+            "date_to": format_ch_timestamp(self.date_to),
             "timezone": self.team.timezone,
             "interval": self.interval,
         }

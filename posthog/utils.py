@@ -45,6 +45,7 @@ from rest_framework.request import Request
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 
+from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
@@ -709,7 +710,7 @@ def get_instance_realm() -> str:
 
     Historically this would also have returned `hosted` for hosted postgresql based installations
     """
-    if settings.MULTI_TENANCY:
+    if is_cloud():
         return "cloud"
     elif settings.DEMO:
         return "demo"
@@ -721,7 +722,7 @@ def get_instance_region() -> Optional[str]:
     """
     Returns the region for the current instance. `US` or 'EU'.
     """
-    if settings.MULTI_TENANCY:
+    if is_cloud():
         return settings.REGION
     return None
 
@@ -738,7 +739,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
     from posthog.models.organization import Organization
 
     if (
-        settings.MULTI_TENANCY  # There's no limit of organizations on Cloud
+        is_cloud()  # There's no limit of organizations on Cloud
         or (settings.DEMO and user.is_anonymous)  # Demo users can have a single demo org, but not more
         or settings.E2E_TESTING
         or not Organization.objects.filter(for_internal_metrics=False).exists()  # Definitely can create an org if zero
@@ -773,7 +774,7 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
     }
 
     # Get license information
-    bypass_license: bool = settings.MULTI_TENANCY or settings.DEMO
+    bypass_license: bool = is_cloud() or settings.DEMO
     license = None
     try:
         from ee.models.license import License

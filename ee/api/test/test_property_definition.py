@@ -214,7 +214,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="description test")
         response = self.client.patch(

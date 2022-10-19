@@ -124,6 +124,14 @@ SELECT
     0
 """
 
+QUERY_APP_METRICS_DELIVERY_RATE = """
+SELECT plugin_config_id, (sum(successes) + sum(successes_on_retry)) / (sum(successes) + sum(successes_on_retry) + sum(failures)) AS rate
+FROM app_metrics
+WHERE team_id = %(team_id)s
+  AND timestamp > %(from_date)s
+GROUP BY plugin_config_id
+"""
+
 QUERY_APP_METRICS_TIME_SERIES = """
 SELECT groupArray(date), groupArray(successes), groupArray(successes_on_retry), groupArray(failures)
 FROM (

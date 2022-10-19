@@ -23,7 +23,7 @@ import {
 import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import ReactDOM from 'react-dom'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -70,6 +70,7 @@ export function PieChart({
     const { createTooltipData } = useValues(lineGraphLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { timezone } = useValues(insightLogic)
+    const { highlightSeries } = useActions(insightLogic)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
     // Remove tooltip element on unmount
@@ -133,6 +134,10 @@ export function PieChart({
 
                             const tooltipEl = ensureTooltipElement()
                             if (tooltip.opacity === 0) {
+                                // remove highlight from the legend
+                                if (filters?.show_legend) {
+                                    highlightSeries(null)
+                                }
                                 tooltipEl.style.opacity = '0'
                                 return
                             }
@@ -150,6 +155,8 @@ export function PieChart({
                                     tooltip.dataPoints,
                                     (dp) => dp.datasetIndex >= 0 && dp.datasetIndex < _datasets.length
                                 )
+
+                                highlightSeries(seriesData[0].dataIndex)
 
                                 ReactDOM.render(
                                     <InsightTooltip
