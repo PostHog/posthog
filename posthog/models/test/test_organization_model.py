@@ -36,7 +36,7 @@ class TestOrganization(BaseTest):
         self.assertEqual(
             Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name, "helloworldplugin"
         )
-        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual(mock_get.call_count, 2)
         mock_get.assert_any_call(
             f"https://github.com/PostHog/helloworldplugin/archive/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}.zip", headers={}
         )
