@@ -16,6 +16,7 @@ import { BillingGauge, BillingGaugeProps } from './BillingGauge'
 import { convertAmountToUsage, convertUsageToAmount, projectUsage, summarizeUsage } from './billing-utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 
 export function BillingV2(): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
@@ -254,6 +255,11 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         )
     }, [customLimitUsd])
 
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        1000: 'medium',
+    })
+
     const onBillingLimitToggle = (): void => {
         if (!showBillingLimit) {
             return setShowBillingLimit(true)
@@ -330,7 +336,12 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     )
 
     return (
-        <div className="flex">
+        <div
+            className={clsx('flex flex-wrap', {
+                'flex-col pb-4': size === 'small',
+            })}
+            ref={ref}
+        >
             <div className="flex-1 py-4 pr-2 space-y-4">
                 <div className="flex justify-between items-start">
                     <div>
@@ -340,7 +351,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                 </div>
 
                 {product.current_amount_usd ? (
-                    <div className="flex justify-between gap-8">
+                    <div className="flex justify-between gap-8 flex-wrap">
                         <div className="space-y-2">
                             <LemonLabel info={'This is the current amount you have been billed for this month so far.'}>
                                 Current bill
@@ -423,9 +434,15 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                 ) : null}
             </div>
 
-            <LemonDivider vertical dashed />
+            {size == 'medium' && <LemonDivider vertical dashed />}
 
-            <div className="p-4 space-y-2 text-xs" style={{ width: '20rem' }}>
+            <div
+                className={clsx('space-y-2 text-xs', {
+                    'p-4': size === 'medium',
+                })}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ width: size === 'medium' ? '20rem' : undefined }}
+            >
                 {product.price_description ? (
                     <AlertMessage type="info">
                         <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
