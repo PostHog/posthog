@@ -22,26 +22,30 @@ const Template: ComponentStory<typeof PropertyIcon> = (args) => {
     ]
 
     return (
-        <LemonTable
-            dataSource={data}
-            columns={[
-                {
-                    title: 'Value',
-                    key: 'value',
-                    dataIndex: 'value',
-                    render: function RenderValue(value) {
-                        return <code>{value as string}</code>
+        <>
+            <code className="font-bold">{args.property}</code>
+            <LemonTable
+                className="mt-4"
+                dataSource={data}
+                columns={[
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        dataIndex: 'value',
+                        render: function RenderValue(value) {
+                            return <code>{value as string}</code>
+                        },
                     },
-                },
-                {
-                    title: 'Icon',
-                    key: 'icon',
-                    render: function RenderIcon(_, { value }) {
-                        return <PropertyIcon property={args.property} value={value} />
+                    {
+                        title: 'Icon',
+                        key: 'icon',
+                        render: function RenderIcon(_, { value }) {
+                            return <PropertyIcon property={args.property} value={value} />
+                        },
                     },
-                },
-            ]}
-        />
+                ]}
+            />
+        </>
     )
 }
 
