@@ -265,7 +265,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             false,
             { persist: true, prefix: CACHE_PREFIX },
             {
-                optIntProductTour: () => true,
+                optInProductTour: () => true,
                 optOutProductTour: () => false,
             },
         ],
