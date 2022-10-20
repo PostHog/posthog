@@ -321,7 +321,7 @@ export interface ElementType {
 
 export type ToolbarUserIntent = 'add-action' | 'edit-action'
 
-export interface EditorProps {
+export interface ToolbarParams {
     apiURL?: string
     jsURL?: string
     temporaryToken?: string
@@ -334,7 +334,7 @@ export interface EditorProps {
     featureFlags?: Record<string, string | boolean>
 }
 
-export interface ToolbarProps extends EditorProps {
+export interface ToolbarProps extends ToolbarParams {
     posthog?: PostHog
     disableExternalStyles?: boolean
 }
