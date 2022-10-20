@@ -1245,6 +1245,53 @@ describe('PersonState.update()', () => {
             expect(persons[0]).toEqual(await personContainer.get())
         })
 
+        it('does not merge people when alias id user is identified', async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, uuid.toString(), ['old-user'])
+            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, uuid2.toString(), ['new-user'])
+
+            const personContainer = await personState({
+                event: '$create_alias',
+                distinct_id: 'new-user',
+                properties: {
+                    alias: 'old-user',
+                },
+            }).update()
+            await hub.db.kafkaProducer.flush()
+
+            // verify Postgres persons
+            const persons = (await hub.db.fetchPersons()).sort((a, b) => a.id - b.id)
+            expect(persons.length).toEqual(2)
+            expect(persons[0]).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: uuid.toString(),
+                    properties: {},
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: true,
+                })
+            )
+            expect(persons[1]).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: uuid2.toString(),
+                    properties: {},
+                    created_at: timestamp2,
+                    version: 1,
+                    is_identified: true,
+                })
+            )
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining(['old-user']))
+            const distinctIds2 = await hub.db.fetchDistinctIdValues(persons[1])
+            expect(distinctIds2).toEqual(expect.arrayContaining(['new-user']))
+
+            // verify personContainer
+            expect(persons[1]).toEqual(await personContainer.get())
+        })
+
         it('merge into distinct_id person and marks user as is_identified when both persons have is_identified false', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, uuid.toString(), ['old-user'])
             await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, uuid2.toString(), ['new-user'])
