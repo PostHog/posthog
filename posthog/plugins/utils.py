@@ -45,6 +45,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
             if parsed["ref_type"] is None:
                 commits_url = "https://api.github.com/repos/{}/{}/commits".format(parsed["user"], parsed["repo"])
                 commits = requests.get(commits_url, headers=headers).json()
+
                 if isinstance(commits, dict):
                     raise Exception(commits.get("message"))
                 if len(commits) > 0 and commits[0].get("sha", None):
@@ -193,7 +194,7 @@ def split_url_and_private_token(url: str) -> Tuple[str, Optional[str]]:
 
 # passing `tag` overrides whatever is in the URL
 def download_plugin_archive(url: str, tag: Optional[str] = None) -> bytes:
-    parsed_url = parse_url(url, True)
+    parsed_url = parse_url(url)
     headers = {}
 
     if parsed_url["type"] == "github":

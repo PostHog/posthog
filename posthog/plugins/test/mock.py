@@ -7,6 +7,7 @@ from posthog.plugins.utils import get_file_from_zip_archive, put_json_into_zip_a
 
 from .plugin_archives import (
     HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP,
+    HELLO_WORLD_PLUGIN_GITHUB_SUBDIR_ZIP,
     HELLO_WORLD_PLUGIN_GITHUB_ZIP,
     HELLO_WORLD_PLUGIN_GITLAB_ZIP,
     HELLO_WORLD_PLUGIN_NPM_TGZ,
@@ -67,6 +68,12 @@ def mocked_plugin_requests_get(*args, **kwargs):
             200,
         )
 
+    if args[0] == "https://api.github.com/repos/PostHog/helloworldplugin/branches/main":
+        return MockJSONResponse(
+            {"commit": {"sha": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}},
+            200,
+        )
+
     if args[0].startswith("https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits"):
         return MockJSONResponse(
             [
@@ -107,6 +114,11 @@ def mocked_plugin_requests_get(*args, **kwargs):
         HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP[0]
     ):
         return MockBase64Response(HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP[1], 200)
+
+    if args[0] == "https://github.com/PostHog/helloworldplugin/archive/{}.zip".format(
+        HELLO_WORLD_PLUGIN_GITHUB_SUBDIR_ZIP[0]
+    ):
+        return MockBase64Response(HELLO_WORLD_PLUGIN_GITHUB_SUBDIR_ZIP[1], 200)
 
     # https://github.com/posthog-plugin/version-equals/commit/{vesrion}
     # https://github.com/posthog-plugin/version-greater-than/commit/{vesrion}

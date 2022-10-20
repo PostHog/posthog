@@ -1,6 +1,8 @@
 import base64
+import io
 from typing import cast
 from unittest import mock
+from zipfile import ZipFile
 
 from posthog.plugins.utils import (
     download_plugin_archive,
@@ -12,7 +14,12 @@ from posthog.plugins.utils import (
 from posthog.test.base import BaseTest
 
 from .mock import mocked_plugin_requests_get
-from .plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP, HELLO_WORLD_PLUGIN_GITLAB_ZIP, HELLO_WORLD_PLUGIN_NPM_TGZ
+from .plugin_archives import (
+    HELLO_WORLD_PLUGIN_GITHUB_SUBDIR_ZIP,
+    HELLO_WORLD_PLUGIN_GITHUB_ZIP,
+    HELLO_WORLD_PLUGIN_GITLAB_ZIP,
+    HELLO_WORLD_PLUGIN_NPM_TGZ,
+)
 
 
 @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
@@ -464,6 +471,22 @@ class TestPluginsUtils(BaseTest):
                 "https://github.com/PostHog/helloworldplugin/archive/d5aa1d2b8a534f37cd93be48b214f490ef9ee904.zip",
                 headers={"Authorization": "token MY_GITHUB_TOKEN"},
             )
+
+        # test that subdirectory is properly extracted into its own archive
+        plugin_github_zip_6 = download_plugin_archive(
+            "https://www.github.com/PostHog/helloworldplugin/tree/main/app",
+            HELLO_WORLD_PLUGIN_GITHUB_SUBDIR_ZIP[0],
+        )
+
+        zip_file = ZipFile(io.BytesIO(plugin_github_zip_6), "r")
+
+        self.assertEqual(mock_get.call_count, 6)
+        mock_get.assert_called_with(
+            "https://github.com/PostHog/helloworldplugin/archive/f5a9ea85adaafe7c99014b7e8e0982c447631d54.zip",
+            headers={},
+        )
+        self.assertEqual(zip_file.getinfo("helloworldplugin-imageless-version/index.js").CRC, 1913611967)
+        self.assertEqual(zip_file.getinfo("helloworldplugin-imageless-version/plugin.json").CRC, 2713501883)
 
     def test_download_plugin_archive_gitlab(self, mock_get):
         plugin_gitlab = download_plugin_archive(
