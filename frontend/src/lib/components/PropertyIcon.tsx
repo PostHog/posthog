@@ -21,7 +21,7 @@ import clsx from 'clsx'
 import { Tooltip } from 'lib/components/Tooltip'
 import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
 
-const PROPERTIES_ICON_MAP = {
+export const PROPERTIES_ICON_MAP = {
     $browser: {
         ['Chrome']: <IconChrome />,
         ['Chrome iOS']: <IconChrome />,
@@ -51,7 +51,7 @@ const PROPERTIES_ICON_MAP = {
         ['Other']: <IconCogBox />,
     },
     $geoip_country_code: {
-        ['Other']: '🌐',
+        ['Other']: <IconWeb />,
     },
 }
 
@@ -71,13 +71,13 @@ export function PropertyIcon({ property, value, className }: PropertyIconProps):
             ? PROPERTIES_ICON_MAP[property][value]
             : PROPERTIES_ICON_MAP[property]['Other']
 
-    if (property === '$geoip_country_code' && value) {
+    if (property === '$geoip_country_code' && value?.length === 2) {
         icon = countryCodeToFlag(value)
     }
 
     return (
         <Tooltip title={value}>
-            <span className={clsx('inline-flex items-center text-base', className)}>{icon}</span>
+            <span className={clsx('inline-flex items-center text-lg', className)}>{icon}</span>
         </Tooltip>
     )
 }
