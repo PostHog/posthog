@@ -218,4 +218,12 @@ jobs:
               run: |
                   # NOTE: we use a concurrency of 1 as there seems to be some
                   # instability otherwise. I don't see this instability locally.
-                  cd plugin-server && yarn functional_tests --maxConcurrency=1
+                  cd plugin-server && yarn functional_tests --maxConcurrency=1 --coverage
+
+            - name: Uploader
+              uses: actions/upload-artifact@v2
+              with:
+                  name: functional-coverage
+                  if-no-files-found: warn
+                  retention-days: 1
+                  path: 'plugin-server/coverage'
