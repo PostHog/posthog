@@ -221,6 +221,6 @@ module.exports = {
         'width', // The width utilities like w-1.5
         // 'willChange', // The will-change utilities like will-change-scroll
         // 'wordBreak', // The word-break utilities like break-words
-        // 'zIndex', // The z-index utilities like z-30
+        'zIndex', // The z-index utilities like z-30
     ],
 }

@@ -15,6 +15,7 @@ import clsx from 'clsx'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
+import { PropertyIcon } from 'lib/components/PropertyIcon'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -96,7 +97,6 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
         <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
             <div className="SessionRecordingsPlaylist__left-column space-y-4">
                 <SessionRecordingsFilters personUUID={personUUID} />
-
                 <div className="w-full overflow-hidden border rounded">
                     <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
                         <span className="font-bold uppercase text-xs my-1 tracking-wide">Recent Recordings</span>
@@ -124,11 +124,11 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                 <li
                                     key={rec.id}
                                     className={clsx(
-                                        'p-2 px-4 cursor-pointer',
-                                        activeSessionRecording?.id === rec.id
-                                            ? 'bg-primary-highlight font-semibold'
-                                            : '',
-                                        i !== 0 && 'border-t'
+                                        'SessionRecordingsPlaylist__list-item',
+                                        'p-2 px-4 cursor-pointer relative overflow-hidden',
+                                        activeSessionRecording?.id === rec.id && 'bg-primary-highlight font-semibold',
+                                        i !== 0 && 'border-t',
+                                        !rec.viewed && 'SessionRecordingsPlaylist__list-item--unwatched'
                                     )}
                                     onClick={() => onRecordingClick(rec)}
                                 >
@@ -136,15 +136,35 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                         <div className="truncate font-medium text-primary ph-no-capture">
                                             {asDisplay(rec.person, 25)}
                                         </div>
-                                        {!rec.viewed && (
-                                            <Tooltip title={'Indicates the recording has not been watched yet'}>
-                                                <div
-                                                    className="w-2 h-2 rounded bg-primary-light"
-                                                    aria-label="unwatched-recording-label"
-                                                />
-                                            </Tooltip>
-                                        )}
+                                        <div className="flex flex-row flex-nowrap shrink-0 gap-2">
+                                            <PropertyIcon
+                                                hideText
+                                                className="text-muted"
+                                                property="$browser"
+                                                value={rec.properties?.['$browser']}
+                                            />
+                                            <PropertyIcon
+                                                hideText
+                                                className="text-muted"
+                                                property="$device_type"
+                                                value={rec.properties?.['$device_type']}
+                                            />
+                                            <PropertyIcon
+                                                hideText
+                                                className="text-muted"
+                                                property="$os"
+                                                value={rec.properties?.['$os']}
+                                            />
+                                        </div>
                                     </div>
+                                    {!rec.viewed && (
+                                        <Tooltip title={'Indicates the recording has not been watched yet'}>
+                                            <div
+                                                className="absolute top-0 right-0 w-3 h-3 bg-transparent z-10"
+                                                aria-label="unwatched-recording-label"
+                                            />
+                                        </Tooltip>
+                                    )}
 
                                     <div className="flex justify-between">
                                         <TZLabel time={rec.start_time} formatDate="MMMM DD, YYYY" formatTime="h:mm A" />
